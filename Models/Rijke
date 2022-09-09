@@ -1,0 +1,352 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Jul 19 11:00:18 2022
+
+@author: an553
+"""
+#from Model import ModelParent
+import numpy as np
+from scipy.optimize import fsolve
+from scipy.interpolate import splrep, splev
+from scipy.integrate import odeint, solve_ivp
+
+from functools import lru_cache
+
+#%%
+class ModelParent:
+    """ Parent Class with the general thermoacoustic model
+        properties and methods definitions.
+    """
+    attr_model = dict(dt=1E-4, t=0., psi0=None)
+
+    def __init__(self, params=None):
+        if params is None:
+            params = {}
+        for key, val in self.attr_model.items():
+            if key in params.keys():
+                setattr(self, key, params[key])
+            else:
+                setattr(self, key, val)
+        # start the
+        self.psi = np.array([self.psi0]).T
+        self.N = len(self.psi)
+        # History
+        self.hist = np.array([self.psi])
+        self.hist_t = np.array(self.t)
+        # Initial set of parameters
+        self.alpha0 = {p: getattr(self, p) for p in self.params}
+
+    # ____________________________ MANIPULATE HISTORY  ____________________________ #
+    def updateHistory(self, psi, t):
+        self.hist = np.concatenate((self.hist, psi), axis=0)
+        self.hist_t = np.hstack((self.hist_t, t))
+        self.psi = psi[-1]
+        self.t = t[-1]
+        
+# %% ==================================== RIJKE TUBE MODEL ============================================== %% #
+class Model(ModelParent):
+    """
+        Rijke tube model with Galerkin discretisation and gain-delay sqrt heat release law.
+        Args:
+            TAdict: dictionary with the model parameters. If not defined, the default value is used.
+                > Nm [10] - Number of Galerkin modes
+                > Nc [50] - Number of Chebyshev modes
+                > beta [1E6] - Heat source strength [W s^1/2 m^-2/5]
+                > tau [2E-3] - Time delay [s]
+                > C1 [.1] - First damping constant [?]
+                > C2 [.06] - Second damping constant [?]
+                > xf [.2] - Flame location [m]
+                > L [1] - Tube length [m]
+    """
+
+    name: str = 'Rijke'
+    attr = dict(Nm=10, Nc=10, Nmic=6,
+                beta=1E6, tau=2E-3, C1=.1, C2=.06,
+                xf=0.2, L=1.)
+    params = ['beta', 'tau', 'C1', 'C2']
+
+    # __________________________ Init method ___________________________ #
+    def __init__(self, TAdict=None):
+
+        if TAdict is None:
+            TAdict = {}
+        # print('Initialising Rijke')
+        for key, val in self.attr.items():
+            if key in TAdict.keys():
+                setattr(self, key, TAdict[key])
+            else:
+                setattr(self, key, val)
+        if hasattr(self, 'est_p') and 'tau' in self.est_p:
+            self.tau_adv = 1E-2
+            self.Nc = 50
+        else:
+            self.tau_adv = self.tau
+
+        if 'psi0' not in TAdict.keys():  # initialise acoustic modes
+            TAdict['psi0'] = .05 * np.hstack([np.ones(2 * self.Nm), np.zeros(self.Nc)])
+
+        # initialise Model parent (history)
+        super().__init__(TAdict)
+
+        print('\n -------------------- RIJKE MODEL PARAMETERS -------------------- \n',
+              '\t Nm = {0}  \t Nc = {1} \t Nmic = {2} \n'.format(self.Nm, self.Nc, self.Nmic),
+              '\t beta = {0:.2} \t tau = {1:.2}\n'.format(self.beta, self.tau),
+              '\t xf = {0:.2} \t tau_adv = {1:.2}'.format(self.xf, self.tau_adv))
+
+        # Microphone locations
+        self.x_mic = np.linspace(self.xf, self.L, self.Nmic)
+#         Chebyshev modes
+        self.Dc, self.gc = Cheb(self.Nc, getg=True)
+
+        # Mean Flow Properties
+        c1, c2 = [350., 300.]
+        c = (1. - self.xf / self.L) * c1 + self.xf / self.L * c2
+        self.meanFlow = dict(rho=1.20387, u=1E-4, p=101300., gamma=1.4, c1=c1, c2=c2, c=c)
+
+        # Define modes frequency of each mode and sin cos etc
+        self.j = np.arange(1, self.Nm + 1)
+        xf, L, MF = [self.xf, self.L, self.meanFlow]
+
+        def fun(om):
+            return MF['c2'] * np.sin(om * xf / MF['c1']) * np.cos(om * (L - xf) / MF['c2']) + \
+                   MF['c1'] * np.cos(om * xf / MF['c1']) * np.sin(om * (L - xf) / MF['c2'])
+
+        omegaj = fsolve(fun, self.j * c / L * np.pi)  # Initial guess using a weighted averaged mean speed of sound
+        self.omegaj = np.array(omegaj)
+
+        self.sinomjxf = np.sin(self.omegaj / self.meanFlow['c'] * self.xf)
+        self.cosomjxf = np.cos(self.omegaj / self.meanFlow['c'] * self.xf)
+
+    # _______________ Rijke specific properties and methods ________________ #
+    
+    @property
+    def eta(self):
+        return self.hist[:, 0:self.Nm, :]
+
+    @property
+    def mu(self):
+        return self.hist[:, self.Nm:2 * self.Nm, :]
+
+    @property
+    def v(self):
+        return self.hist[:, 2 * self.Nm:2 * self.Nm + self.Nc, :]
+
+    def zetafun(self):
+        return self.C1 * self.j** 2 + self.C2 * self.j**.5
+
+    def qdotfun(self, u_tau, beta):
+        qdot = beta * (np.sqrt(abs(self.meanFlow['u'] / 3. + u_tau)) - np.sqrt(self.meanFlow['u'] / 3.))  # [W/m2]
+        qdot *= -2. * (self.meanFlow['gamma'] - 1.) / self.L * self.sinomjxf  # [Pa/s]
+        return qdot
+    
+    def getEtaMuV(self, psi):    
+        eta = psi[:self.Nm]
+        mu = psi[self.Nm:2 * self.Nm]
+        v = psi[2 * self.Nm:2 * self.Nm + self.Nc]
+        return eta, mu, v
+    
+    
+    def getObservableHist(self, loc=None, velocity=False):
+
+        if np.shape(self.hist)[0] == 1:
+            raise Exception('Object has no history')
+        else:
+            if loc is None:
+                loc = np.expand_dims(self.x_mic, axis=1)
+            # Define the labels
+            labels_p = ["$p'(x = {:.2f})$".format(x) for x in loc[0, :].tolist()]
+            labels_u = ["$u'(x = {:.2f})$".format(x) for x in loc[0, :].tolist()]
+            # Compute acoustic pressure and velocity at locations
+            om = np.array([self.omegaj])
+            c = self.meanFlow['c']
+
+            p = -np.dot(np.sin(np.dot(loc, om) / c), self.mu)
+            # p = -np.dot(mu, np.sin(np.dot(np.transpose(om), loc) / c))
+            p = p.transpose(1, 0, 2)
+            if velocity:
+                u = np.dot(np.cos(np.dot(loc, om) / c), self.eta)
+                u = u.transpose(1, 0, 2)
+                return [p, u], [labels_p, labels_u]
+            else:
+                return p, labels_p
+
+    def getObservables(self, velocity=False):
+
+        # Compute acoustic pressure and velocity at microphone locations
+        om = np.array([self.omegaj])
+        c = self.meanFlow['c']
+        eta = self.psi[:self.Nm]
+        mu = self.psi[self.Nm:2 * self.Nm]
+
+        x_mic = np.expand_dims(self.x_mic, axis=1)
+        p = -np.dot(np.sin(np.dot(x_mic, om) / c), mu)
+        if velocity:
+            u = np.dot(np.cos(np.dot(x_mic, om) / c), eta)
+            return np.concatenate((p, u))
+        else:
+            return p
+
+
+#%%
+# ____________________________ Integrator ____________________________ #
+def timeIntegrate(case, Nt=100):
+    """
+        Integrator of the model. 
+        Args:
+            Nt: number of forecast steps
+        Returns:
+            psi: forecasted ensemble (without the initial condition)
+            t: time of the propagated psi
+    """
+    t = np.linspace(case.t, case.t + Nt * case.dt, Nt + 1)
+    d = case.__dict__
+    y0 = case.psi[:,0]
+    
+    
+    
+    out = solve_ivp(timeDerivative, t_span=(t[0], t[-1]), y0=y0, t_eval=t, method='RK45', args=(case,))
+    psi = [out.y.T]
+    
+#        psi = [odeint(self.timeDerivative, y0, t, (params,))]
+    
+    psi = np.array(psi).transpose(1, 2, 0)
+
+    return psi[1:], t[1:]  # Remove initial condition
+
+
+# _________________________ Governing equations ________________________ #
+def timeDerivative(t, psi, case):
+    """
+        Governing equations of the model.
+        Args:
+            psi: current state vector
+            t: current time
+            d: dictionary with all the case parameters
+        Returns:
+            concatenation of the state vector time derivative
+    """
+
+#    if type(d) is not dict:
+#    case = case[0]
+        
+    try:
+        assert np.shape(psi)[0] > 0
+    except:
+        temp = psi
+        psi = t
+        t = temp
+    
+    eta, mu, v = case.getEtaMuV(psi) 
+    # Physical properties
+    MF = case.meanFlow
+    
+    # Parameters
+    P = case.alpha0.copy()
+    Na = case.N - len(case.psi0)
+    if Na > 0:
+        ii = len(case.psi0)
+        for param in case.est_p:
+            P[param] = psi[ii]
+            ii += 1
+
+    # Advection equation boundary conditions
+    v2 = np.hstack((np.dot(eta, case.cosomjxf), v))
+
+    # Evaluate u(t-tau) i.e. velocity at the flame at t - tau
+    x_tau = P['tau'] / case.tau_adv
+
+    if x_tau < 1:
+        f = splrep(case.gc, v2)
+        u_tau = splev(x_tau, f)
+    elif x_tau == 1:  # if no tau estimation, bypass interpolation to speed up code
+        u_tau = v2[-1]
+    else:
+        raise Exception("tau can't be larger than tau_adv")
+    # Compute damping and heat release law
+    zeta = case.zetafun()
+    qdot = case.qdotfun(u_tau, P['beta'])
+
+    # governing equations
+    deta_dt = case.omegaj / (MF['rho'] * MF['c']) * mu
+    dmu_dt = - (case.omegaj * MF['rho'] * MF['c'] * eta + MF['c'] / case.L * zeta * mu - qdot)
+    dv_dt = - 2. / case.tau_adv * np.dot(case.Dc, v2)
+
+    return np.concatenate((deta_dt, dmu_dt, dv_dt[1:], np.zeros(Na)))
+
+
+
+#%%
+
+@lru_cache(maxsize=10)
+def Cheb(Nc, lims=[0, 1], getg=False):  # __________________________________________________
+    """ Compute the Chebyshev collocation derivative matrix (D)
+        and the Chevyshev grid of (N + 1) points in [ [0,1] ] / [-1,1]
+    """
+    g = - np.cos(np.pi * np.arange(Nc + 1, dtype=float) / Nc)
+    c = np.hstack([2., np.ones(Nc - 1), 2.]) * (-1) ** np.arange(Nc + 1)
+    X = np.outer(g, np.ones(Nc + 1))
+    dX = X - X.T
+    D = np.outer(c, 1 / c) / (dX + np.eye(Nc + 1))
+    D -= np.diag(D.sum(1))
+
+    # Modify
+    if lims[0] == 0:
+        g = (g + 1.) / 2.
+    if getg:
+        return D, g
+    else:
+        return D
+
+#%%
+
+if __name__ == '__main__':
+    import cProfile
+#    from scipy.integrate import solve_ivp
+    import time
+    
+    t1=time.time()
+    paramsTA = dict(law='atan', dt=2E-4)
+    model = Model(paramsTA)
+
+#    pr = cProfile.Profile()
+#    pr.enable()
+    state, t_ = timeIntegrate(model, 1000)
+
+    print('Elapsed time = ' , str(time.time()-t1))
+#    Nt = 1000
+#    t = np.linspace(model.t, model.t + Nt * model.dt, Nt + 1)
+#    params = model.__dict__.copy()
+#    y0 = model.psi[:,0].copy()
+#    
+#    out = solve_ivp(model.timeDerivative, t_span=(t[0], t[-1]), y0=y0, t_eval=t, method='LSODA', args=(params,))
+#    psi = [out.y.T]
+#    
+#    
+#    psi = np.array(psi).transpose(1, 2, 0)
+
+
+#
+#    pr.disable()
+#    pr.print_stats(sort='tottime')
+
+    model.updateHistory(state, t_)
+    
+    #%%
+    import pylab as plt
+    t = model.hist_t
+    t_zoom = min([len(t) - 1, int(0.05 / model.dt)])
+
+    _, ax = plt.subplots(1, 2, figsize=[10, 5])
+
+    # State evolution
+    y, lbl = model.getObservableHist()
+    lbl = lbl[0]    
+    ax[0].plot(t, y[:,0], color='blue', label=lbl)
+    i, j = [0, 1]
+    ax[1].plot(t[-t_zoom:], y[-t_zoom:,0], color='blue')
+    
+    ax[0].set(xlabel='$t$', ylabel=lbl, xlim=[t[0], t[-1]])
+    ax[1].set(xlabel='$t$', xlim=[t[-t_zoom], t[-1]])
+    plt.tight_layout()
+    plt.show()
