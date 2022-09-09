@@ -56,14 +56,21 @@ def createObservations(classType, TA_params=None, t_min=.5, t_max=8., kmeas=1E-3
 
         except:
             raise ValueError('File ' + classType + ' not defined')
-
+        filename = 'Wave'
     else:
         if TA_params is None:
-            law = 'sqrt'
+            suffix = 'law-sqrt'
         else:
-            law = TA_params['law']
+            suffix = ''
+            key_save = classType.params + ['law']
+            for key, val in TA_params.items():
+                if key in key_save:
+                    if type(val) == str:
+                        suffix += val + '_'
+                    else:
+                        suffix += key + '{:.1e}'.format(val) + '_'
 
-        name = '/data/Truth_{}_{}_tmax_{:.2}'.format(classType.name, law, t_max)
+        name = '/data/Truth_{}_{}tmax-{:.2}'.format(classType.name, suffix, t_max)
         name = os.path.join(os.getcwd() + name)
 
         if os.path.isfile(name):
@@ -84,12 +91,13 @@ def createObservations(classType, TA_params=None, t_min=.5, t_max=8., kmeas=1E-3
         if len(np.shape(p_obs)) > 2:
             p_obs = np.squeeze(p_obs, axis=2)
         dt = case.dt
+        filename = name.split('Truth_')[-1]
 
     # Keep only after transient solution
     kmeas = int(kmeas / dt)
-    idx = np.arange(int(t_min / dt), int(t_max / dt), kmeas)
+    obs_idx = np.arange(int(t_min / dt), int(t_max / dt), kmeas)
 
-    return p_obs, t_obs, p_obs[idx], t_obs[idx]
+    return p_obs, t_obs, obs_idx, filename
 
 
 def RK4(t, q0, func, *kwargs):

@@ -23,11 +23,14 @@ exec(open("fns_training.py").read())
 ##  SET TRAINING PARAMETERS (from input dict) __________________________________________________
 try:
     data = trainData
+    plt.figure()
+    plt.plot(data[:,0])
+    plt.show()
 except:
     filename = 'data/Rijke_2022-08-31_short_bias'
-    data = np.load(filename + '.npz')
-    file = data.files[0]
-    data = data[file]
+    # data = np.load(filename + '.npz')
+    # file = data.files[0]
+    # data = data[file]
     # raise Exception('Bias not defined')
     # plt.figure()
     # plt.plot(data[:,0])
@@ -81,6 +84,8 @@ print('\n -------------------- TRAINING PARMETERS -------------------- \n',
 
 # %%
 U = data[::upsample]
+if len(np.shape(U)) == 1:
+    U = np.expand_dims(U, 1)
 N_lat = U.shape[1]  # number of dimensions
 
 #  SEPARATE INTO WASH/TRAIN/VAL SETS ________________________________________
@@ -103,7 +108,7 @@ Y_tv = U[N_wash + 1:N_wtv].reshape(1, N_tv - 1, N_lat)
 # Add noise to inputs and targets during training. Larger noise_level
 # promote stability in long term, but hinders time accuracy
 noisy = True
-noise_level = 0.03
+noise_level = 0.03 # try increasing if blowing up
 noises = np.array([noise_level])  # target noise
 U_std = np.std(U, axis=0)
 

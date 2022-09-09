@@ -49,7 +49,6 @@ def dataAssimilation(ensemble,
     t1 = ensemble.t
     t2 = t_obs[ti]
 
-
     Nt = int((t2 - t1) / dt)
 
     # Parallel forecast until first observation
@@ -57,7 +56,6 @@ def dataAssimilation(ensemble,
     time1 = time.time()
     ensemble = forecastStep(ensemble, Nt)
     print('Elapsed time to first observation: ' + str(time.time() - time1) + ' s')
-
 
     ## ------------------------- ASSIMILATION LOOP ------------------------- ##
     num_obs = len(t_obs)
@@ -90,10 +88,11 @@ def dataAssimilation(ensemble,
                 b = obs[ti] - np.mean(y, -1)
                 ensemble.bias.b[:len(b)] = b
                 ensemble.bias.hist[-1] = b
-                if flag:
-                    plt.legend()
-                    flag = False
-                plt.plot(ensemble.t, b[0], 'ro', label='updated b')
+                # ESN PLOT DEBUG
+                # if flag:
+                #     plt.legend()
+                #     flag = False
+                # plt.plot(ensemble.t, b[0], 'ro', label='updated b')
 
             if ensemble.est_b:
                 b_weights = Aa[-ensemble.bias.Nw:]
@@ -107,7 +106,6 @@ def dataAssimilation(ensemble,
             break
         elif ti in print_i:
             print(np.int(np.round(ti / len(t_obs) * 100, decimals=0)), end="% ")
-
 
         t1 = ensemble.t
         t2 = t_obs[ti]
@@ -184,13 +182,13 @@ def analysisStep(case, d, Cdd, filt='EnSRKF', getJ=False):
         # Cbb = np.dot(B, B.T) / (m - 1.)
         # PsiB = b - np.mean(b, -1, keepdims=True)
         # Cbb = np.dot(PsiB, PsiB.T) / (case.m - 1.)
-        # Cbb = Cdd.copy()
-        Cbb = np.eye(len(d))
+        Cbb = Cdd.copy()
+        # Cbb = np.eye(len(d))
 
         # ------------ DEFINE BIAS COVARIANCE MATRIX AND WEIGHT ------------ #
         Aa = EnKFbias(Af, d, Cdd, Cbb, k, M, b, db)
 
-        # --------------- COMPPUTE UNBIASED Y FOR COST FUNCTION--------------- #
+        # --------------- COMPUTE UNBIASED Y FOR COST FUNCTION--------------- #
         y += np.expand_dims(b, 1)
 
     else:
@@ -231,8 +229,8 @@ def analysisStep(case, d, Cdd, filt='EnSRKF', getJ=False):
         J[1] = np.dot(np.mean(np.expand_dims(d, -1) - y, -1).T, np.dot(Wdd, np.mean(np.expand_dims(d, -1) - y, -1)))
         if filt == 'EnKFbias':  # Add bias term to cost function
             Wbb = linalg.pinv(Cbb)
-            J[2] = k * np.dot(np.mean(b, -1).T, np.dot(Wbb, np.mean(b, -1)))
-
+            # J[2] = k * np.dot(np.mean(b, -1).T, np.dot(Wbb, np.mean(b, -1)))
+            J[2] = k * np.dot(b.T, np.dot(Wbb, b))
     return Aa[:case.N, :], J
 
 
@@ -244,6 +242,7 @@ def inflateEnsemble(A, rho):
     Psi = A - A_m
     return A_m + rho * Psi
 
+
 def checkParams(Aa, case):
     isphysical = True
     ii = len(case.psi0)
@@ -251,12 +250,14 @@ def checkParams(Aa, case):
         lims = case.param_lims[param]
         vals = Aa[ii, :]
         if lims[0] is not None:
-            isphysical = all([isphysical,all(vals >= lims[0])])
+            isphysical = all([isphysical, all(vals >= lims[0])])
         if lims[1] is not None:
-            isphysical = all([isphysical,all(vals <= lims[1])])
+            isphysical = all([isphysical, all(vals <= lims[1])])
         ii += 1
 
     return isphysical
+
+
 # =================================================================================================================== #
 
 
@@ -356,7 +357,7 @@ def EnKF(Af, d, Cdd, M):
 # =================================================================================================================== #
 
 
-def EnKFbias(Af, d, Cdd, Cbb, k, M, B, dB_dY):
+def EnKFbias(Af, d, Cdd, Cbb, k, M, b, dbdy):
     """ Bias-aware Ensemble Kalman Filter.
     
         Inputs:
@@ -364,8 +365,8 @@ def EnKFbias(Af, d, Cdd, Cbb, k, M, B, dB_dY):
             d: observation at time t [q x 1]
             Cdd: observation error covariance matrix [q x q]
             M: matrix mapping from state to observation space [q x N]
-            B: bias of the forecast observables (\tilde{Y} = Y + B) [q x q x m]
-            dB_dY: derivative of the bias with respect to Y (ensemble form)
+            b: bias of the forecast observables (\tilde{Y} = Y + B) [q x 1]
+            dbdy: derivative of the bias with respect to the input y
             
         Returns:
             Aa: analysis ensemble (or Af is Aa is not real)
@@ -381,35 +382,46 @@ def EnKFbias(Af, d, Cdd, Cbb, k, M, B, dB_dY):
 
     # Create an ensemble of observations
     D = rng.multivariate_normal(d, Cdd, m).transpose()
+    B = rng.multivariate_normal(b, Cbb, m).transpose()
 
     # Mapped forecast matrix
     Y = np.dot(M, Af)
 
     # Inverse of covariance
-    Wbb = k * linalg.pinv(Cbb)
+    Wbb = k * linalg.inv(Cbb)
     Wdd = linalg.inv(Cdd)
 
-    Aa = np.zeros(np.shape(Af))
+    # Compute W and Q
+    W = np.dot((Iq + dbdy).T, np.dot(Wdd, (Iq + dbdy))) + np.dot(dbdy.T, np.dot(Wbb, dbdy))
+    Q = np.dot((Iq + dbdy).T, np.dot(Wdd, (D + np.dot(dbdy, Y) - B))) + np.dot(dbdy.T,
+                                                                               np.dot(Wbb, (np.dot(dbdy, Y) - B)))
 
-    for mi in range(m):
-        W = np.dot((Iq + dB_dY[mi]).T, np.dot(Wdd, (Iq + dB_dY[mi]))) + \
-            np.dot(dB_dY[mi].T, np.dot(Wbb, dB_dY[mi]))
+    C = linalg.inv(W)
 
-        Q = np.dot((Iq + dB_dY[mi]).T, np.dot(Wdd, (D[:, mi] + np.dot(dB_dY[mi], Y[:, mi]) - B[:, mi]))) + \
-            np.dot(dB_dY[mi].T, np.dot(Wbb, (np.dot(dB_dY[mi], Y[:, mi]) - B[:, mi])))
-
-        C = linalg.inv(W)
-        X = np.dot(C, Q) - np.dot(M, Af[:, mi])
-
-        Aa[:, mi] = Af[:, mi] + np.dot(Psi_f, np.dot(S.T, np.dot(linalg.inv((m - 1) * C + np.dot(S, S.T)), X)))
-
-    # Add some inflation
-    psi_a_m = np.mean(Aa, -1, keepdims=True)
-    Aa = psi_a_m + (Aa - psi_a_m) * 1.01  # TODO inflateEnsemble() limiting values of parameters
+    K = np.dot(np.dot(Psi_f, S.T), linalg.inv((m - 1) * C + np.dot(S, S.T)))
+    Aa = Af + np.dot(K, np.dot(C, Q) - np.dot(M, Af))
 
     if np.isreal(Aa).all():
         return Aa
     else:
         print('Aa not real')
         return Af
+
+
+
+    # #  Ensemble bias implementation
+    # Aa = np.zeros(np.shape(Af))
+    # for mi in range(m):
+    #     W = np.dot((Iq + dB_dY[mi]).T, np.dot(Wdd, (Iq + dB_dY[mi]))) + \
+    #         np.dot(dB_dY[mi].T, np.dot(Wbb, dB_dY[mi]))
+    #
+    #     Q = np.dot((Iq + dB_dY[mi]).T, np.dot(Wdd, (D[:, mi] + np.dot(dB_dY[mi], Y[:, mi]) - B[:, mi]))) + \
+    #         np.dot(dB_dY[mi].T, np.dot(Wbb, (np.dot(dB_dY[mi], Y[:, mi]) - B[:, mi])))
+    #
+    #     C = linalg.inv(W)
+    #     X = np.dot(C, Q) - np.dot(M, Af[:, mi])
+    #
+    #     Aa[:, mi] = Af[:, mi] + np.dot(Psi_f, np.dot(S.T, np.dot(linalg.inv((m - 1) * C + np.dot(S, S.T)), X)))
+
+
 # =================================================================================================================== #

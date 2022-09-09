@@ -98,7 +98,7 @@ class ESN(Bias):
     #             'bias_in', 'bias_out', 'rho', 'sigma_in', 'upsample',
     #             't_train', 't_val', 't_wash']
     name = 'ESN'
-    training_params = {'t_train': 1.2,
+    training_params = {'t_train': 1.0,
                        't_val': 0.2,
                        't_wash': 0.025,
                        'dt_ESN': 5E-4,
@@ -125,6 +125,13 @@ class ESN(Bias):
 
         # --------------------- Train a new ESN if not in folder --------------------- #
         ESN_filename = Bdict['filename'][:-len('bias')] + 'ESN.npz'
+
+        # Check that the saved ESN has the same parameters as the wanted one
+        if os.path.isfile(ESN_filename):
+            fileESN = np.load(ESN_filename)  # load .npz output from training_main
+            for attr in fileESN.files:
+                setattr(self, attr, fileESN[attr])
+
         if not os.path.isfile(ESN_filename):
             # print('Training ESN')
             # Load or create bias data
@@ -164,7 +171,7 @@ class ESN(Bias):
         self.washout_t = self.washout_t[1:]
 
         assert self.washout_t[-1] == Bdict['washout_t'][-1]
-
+        #
         # plt.figure()
         # plt.plot(self.washout_t, self.washout_obs[:,0], '-o')
         # plt.plot(Bdict['washout_t'], np.squeeze(Bdict['washout_obs'][:,0]))
@@ -199,10 +206,9 @@ class ESN(Bias):
     @property
     def WCout(self):
         if not hasattr(self, '_WCout'):
-            self.WCout = la.lstsq(self.Wout[0][:-1], self.W[0])
+            self._WCout = la.lstsq(self.Wout[0][:-1], self.W[0])[0]
         return self._WCout
 
-    # TODO Jacobian
     def stateDerivative(self, y):
 
         # Get current state
@@ -211,21 +217,20 @@ class ESN(Bias):
         Win_1 = self.Win[0][:-1, :].transpose()
         Wout_1 = self.Wout[0][:-1, :].transpose()
 
-        # Option(i) rin function of bin:
+        # # Option(i) rin function of bin:
         # b_aug = np.concatenate((bin / self.norm, np.array([self.bias_in])))
-        # rout = np.tanh(np.dot(b_aug * self.sigma_in, self.Win[0]) + self.rho * np.dot(bin, self.WCout()))
-        # drout_dbin = sigma_in * Win_1 / self.norm + self.rho * self.WCout.transpose()
+        # rout = np.tanh(np.dot(b_aug * self.sigma_in, self.Win[0]) + self.rho * np.dot(bin, self.WCout))
+        # drout_dbin = self.sigma_in * Win_1 / self.norm + self.rho * self.WCout.transpose()
 
         # Option(ii) rin constant:
         _, rout = self.step(bin, rin)
         drout_dbin = self.sigma_in * Win_1 / self.norm
 
-
         # Compute Jacobian
         T = 1 - rout ** 2
         J = np.dot(Wout_1, drout_dbin * np.expand_dims(T, 1))
 
-        return J
+        return -J
 
     def timeIntegrate(self, Nt=100, y=None):
 
@@ -292,9 +297,10 @@ class ESN(Bias):
         for i in range(Nt):
             b[i + 1], r[i + 1] = self.step(b_wash[i], r[i])
 
-        plt.figure()
-        plt.plot(self.washout_t, b_wash[:, 0], '-o', label='washout data')
-        plt.plot(self.washout_t, b[:, 0], '-x', label='open-loop')
+        # ESN PLOT DEBUG
+        # plt.figure()
+        # plt.plot(self.washout_t, b_wash[:, 0], '-o', label='washout data')
+        # plt.plot(self.washout_t, b[:, 0], '-x', label='open-loop')
 
         return b, r
 
@@ -313,9 +319,9 @@ class ESN(Bias):
         for i in range(Nt):
             b[i + 1], r[i + 1] = self.step(b[i], r[i])
 
-        t_b = np.linspace(self.t, self.t + Nt * self.dt_ESN, Nt + 1)
-
-        plt.plot(t_b, b[:, 0], '-+', color='green', label='closed-loop')
+        # ESN PLOT DEBUG
+        # t_b = np.linspace(self.t, self.t + Nt * self.dt_ESN, Nt + 1)
+        # plt.plot(t_b, b[:, 0], '-+', color='green', label='closed-loop')
         # plt.legend()
         # plt.show()
 

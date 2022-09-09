@@ -4,10 +4,15 @@ import pickle
 from scipy.interpolate import splev, splrep
 from Ensemble import createEnsemble
 
+plt.rc('text', usetex=True)
+
+plt.rc('font', family='serif', size=16)
+plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
+
 from scipy.io import savemat
 from mpl_toolkits.axes_grid1.inset_locator import zoomed_inset_axes
 
-name = 'results/2022-09-06_Rijke_Wave_Rijke_sqrt'
+name = 'results/2022-09-09_Bias_ESN'
 with open(name, 'rb') as f:
     parameters = pickle.load(f)
     createEnsemble(parameters['forecast_model'])
@@ -29,9 +34,6 @@ obs = truth['p_obs']
 # %% ================================ PLOT time series, parameters and RMS ================================ #
 
 
-plt.rc('text', usetex=True)
-plt.rc('font', family='serif', size=16)
-plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 
 y_filter, labels = filter_ens.getObservableHist()
 if len(np.shape(y_filter)) < 3:
@@ -55,8 +57,6 @@ RMS_ax = ax[1, 1]
 bias_ax = ax[2, 0]
 J_ax = ax[2, 1]
 
-print('b', filter_ens.bias.b)
-print('r', filter_ens.bias.r)
 if biasType is None:
     fig.suptitle(filter_ens.name + ' DA with ' + filt)
 else:
@@ -159,57 +159,49 @@ RMS_ax.set(ylabel='RMS error', xlabel='$t$', xlim=x_lims, yscale='log')
 # PLOT COST FUNCTION
 if filter_ens.getJ:
     J = np.array(filter_ens.hist_J)
-    J_ax.plot(t_obs[:num_DA], J, label=['$\\mathcal{J}_{\\psi}$', '$\\mathcal{J}_{d}$', '$\\mathcal{J}_{b}$'])
+    J_ax.plot(t_obs[:num_DA], J)
     # ax[1, 1].plot(t_obs[:num_DA], np.sum(J, -1), label='$\\mathcal{J}$')
 
     J_ax.set(ylabel='Cost function $\mathcal{J}$', xlabel='$t$', xlim=x_lims, yscale='log')
-    J_ax.legend(bbox_to_anchor=(1., 1.), loc="upper left", ncol=1)
+    J_ax.legend(['$\\mathcal{J}_{\\psi}$', '$\\mathcal{J}_{d}$', '$\\mathcal{J}_{b}$'], bbox_to_anchor=(1., 1.), loc="upper left", ncol=1)
 
 plt.tight_layout()
 
-plt.draw()
-#### Save Results for matlab postprocessing
 
 dt = truth['t'][1]-truth['t'][0]
 start_idx = int((t_obs[num_DA] - 0.2) // dt)
 end_idx = min(len(y_mean), int((t_obs[num_DA] + 0.2) // dt))
 
-plt.figure()
-plt.plot(t_true[start_idx:end_idx], y_true[start_idx:end_idx, 0], color='darkgray', linewidth=5)
-plt.plot(t[start_idx:end_idx], y_mean[start_idx:end_idx, 0], color='royalblue', linewidth=1.5)
-try:
-    plt.plot(t[start_idx:end_idx], y_mean_u[start_idx:end_idx, 0], color='k', linewidth=0.5)
-except: pass
+# plt.figure()
+# plt.plot(t_true[start_idx:end_idx], y_true[start_idx:end_idx, 0], color='darkgray', linewidth=5)
+# plt.plot(t[start_idx:end_idx], y_mean[start_idx:end_idx, 0], color='royalblue', linewidth=1.5)
+# try:
+#     plt.plot(t[start_idx:end_idx], y_mean_u[start_idx:end_idx, 0], color='k', linewidth=0.5)
+# except:
+#     pass
+# plt.tight_layout()
 
-plt.draw()
-with open(name+'.mat', 'wb') as f:  # need 'wb' in Python3
-    savemat(f, {"p_true": y_true[start_idx:end_idx, 0].transpose()})
-    savemat(f, {"p_bias": y_mean[start_idx:end_idx, 0]})
-    try:
-        savemat(f, {"p_unbias": y_mean_u[start_idx:end_idx, 0]})
-    except:
-        savemat(f, {"p_unbias": False})
-    savemat(f, {"dt": dt})
-    savemat(f, {'t': t[start_idx:end_idx]})
+plt.show()
 
-with open('ESN_data.mat', 'wb') as f:
-    savemat(f, {"r": filter_ens.bias.r.transpose()})
-    savemat(f, {"b": filter_ens.bias.b.transpose()})
-    savemat(f, {'Win': filter_ens.bias.Win[0]})
-    savemat(f, {'Wout': filter_ens.bias.Wout[0]})
-    savemat(f, {'W': filter_ens.bias.W[0]})
-    savemat(f, {'norm': filter_ens.bias.norm.transpose()})
-    savemat(f, {'sigma_in': filter_ens.bias.sigma_in})
-    savemat(f, {'rho': filter_ens.bias.rho})
 
-# plt.show()
-# ==================== UNCOMMENT TO SAVE FIGURES ============================== #
-# folder = os.getcwd() + "/figs/" + str(date.today()) + "/"
-# os.makedirs(folder, exist_ok=True)
+    # # ==================== SAVE FOR MATLAB POST-PROCESSING ============================== #
+    # with open(name+'.mat', 'wb') as f:
+    #     savemat(f, {"p_true": y_true[start_idx:end_idx, 0].transpose()})
+    #     savemat(f, {"p_bias": y_mean[start_idx:end_idx, 0]})
+    #     try:
+    #         savemat(f, {"p_unbias": y_mean_u[start_idx:end_idx, 0]})
+    #     except:
+    #         savemat(f, {"p_unbias": False})
+    #     savemat(f, {"dt": dt})
+    #     savemat(f, {'t': t[start_idx:end_idx]})
 
-# plt.savefig(folder
-#             + filt + '_estB' + str(filter_ens.est_b)
-#             + "_b1" + str(b1) + "_b2" + str(b2)
-#             + "_PE" + str(len(filter_ens.est_p))
-#             + "_m" + str(filter_ens.m)
-#             + "_kmeas" + str(kmeas) + ".pdf")
+    # with open('ESN_data.mat', 'wb') as f:
+    #     savemat(f, {"r": filter_ens.bias.r.transpose()})
+    #     savemat(f, {"b": filter_ens.bias.b.transpose()})
+    #     savemat(f, {'Win': filter_ens.bias.Win[0]})
+    #     savemat(f, {'Wout': filter_ens.bias.Wout[0]})
+    #     savemat(f, {'W': filter_ens.bias.W[0]})
+    #     savemat(f, {'norm': filter_ens.bias.norm.transpose()})
+    #     savemat(f, {'sigma_in': filter_ens.bias.sigma_in})
+    #     savemat(f, {'rho': filter_ens.bias.rho})
+

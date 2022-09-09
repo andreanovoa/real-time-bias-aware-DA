@@ -109,9 +109,10 @@ class Rijke(Model):
     name: str = 'Rijke'
     attr = dict(Nm=10, Nc=10, Nmic=6,
                 beta=1E6, tau=2.E-3, C1=.1, C2=.06,
+                kappa=1E5,
                 xf=1.18, L=1.92,
                 law='sqrt')
-    params = ['beta', 'tau', 'C1', 'C2']
+    params = ['beta', 'tau', 'C1', 'C2', 'kappa']
 
     # __________________________ Init method ___________________________ #
     def __init__(self, TAdict=None):
@@ -165,8 +166,9 @@ class Rijke(Model):
         self.sinomjxf = np.sin(self.omegaj / self.meanFlow['c'] * self.xf)
         self.cosomjxf = np.cos(self.omegaj / self.meanFlow['c'] * self.xf)
 
-        self.param_lims = dict(beta=(1E3, None), tau=(0, self.tau_adv),
-                               C1=(None, None), C2=(None, None))
+        self.param_lims = dict(beta=(1E3, 1E8), tau=(0, self.tau_adv),
+                               C1=(None, None), C2=(None, None),
+                               kappa=(1E3, 1E8))
 
     # _______________ Rijke specific properties and methods ________________ #
     @property
@@ -301,8 +303,7 @@ class Rijke(Model):
         if d['law'] == 'sqrt':
             qdot = P['beta'] * (np.sqrt(abs(MF['u'] / 3. + u_tau)) - np.sqrt(MF['u'] / 3.))  # [W/m2]=[m/s3]
         elif d['law'] == 'tan':
-            kappa = 1E6
-            qdot = P['beta'] * np.sqrt(P['beta'] / kappa) * np.arctan(np.sqrt(kappa / P['beta']) * u_tau)  # [m / s3]
+            qdot = P['beta'] * np.sqrt(P['beta'] / P['kappa'] ) * np.arctan(np.sqrt(P['beta'] / P['kappa']) * u_tau)  # [m / s3]
         else:
             raise ValueError('Undefined heat law')
 
@@ -400,7 +401,7 @@ class VdP(Model):
 
         if d['law'] == 'cubic':  # Cubic law
             dmu_dt += mu * (2. * P['nu'] - P['kappa'] * eta ** 2)
-        elif d['law'] == 'atan':  # arc tan model
+        elif d['law'] == 'tan':  # arc tan model
             dmu_dt += mu * (P['beta'] ** 2 / (P['beta'] + P['kappa'] * eta ** 2) - P['beta'] + 2 * P['nu'])
         else:
             raise TypeError("Undefined heat release law. Choose 'cubic' or 'tan'.")
