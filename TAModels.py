@@ -295,6 +295,7 @@ class Rijke(Model):
         elif x_tau == 1:  # if no tau estimation, bypass interpolation to speed up code
             u_tau = v2[-1]
         else:
+            print('tau = ', P['tau'], 'tau_adv', d['tau_adv'])
             raise Exception("tau can't be larger than tau_adv")
 
         # Compute damping and heat release law

@@ -36,30 +36,22 @@ except:
     # plt.plot(data[:,0])
     # plt.show()
 try:
-    dt = dt
+    dt = dt # original signal dt
 except:
     dt = 1E-4
     print('Set default value for dt =', dt)
 try:
-    dt_ESN = dt_ESN
-    upsample = int(dt_ESN / dt)
-    # print('upsample =', upsample)
-    # print('dt =', dt)
-    # print('dt =', dt_ESN)
+    upsample = upsample
 except:
-    try:
-        upsample = upsample
-    except:
-        upsample = 5
-        print('Set default value for upsample =', upsample)
-
-    dt_ESN = dt * upsample  # ESN time step
-
+    upsample = 5
+    print('Set default value for upsample =', upsample)
+dt_ESN = dt * upsample # ESN time step
 try:
-    t_wash = t_wash
+    N_wash = N_wash
 except:
-    t_wash = 2.5e-2
-    print('Set default value for t_wash =', t_wash)
+    N_wash = 100
+    print('Set default value for N_wash =', N_wash)
+t_wash = N_wash * dt_ESN
 try:
     t_train = t_train
 except:
@@ -78,7 +70,7 @@ except:
 
 print('\n -------------------- TRAINING PARMETERS -------------------- \n',
       'Data filename: ', filename, '\n', 'Training time: ', t_train,
-      's \n Validation time: ', t_val, 's', '\n', 'Washout time: ', t_wash,
+      's \n Validation time: ', t_val, 's', '\n', 'Washout time steps: ', N_wash,
       's \n Data length: ', len(data) * dt,
       's \n Upsample: ', upsample, '\n', 'Run test?: ', test_run)
 

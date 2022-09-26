@@ -100,8 +100,8 @@ class ESN(Bias):
     name = 'ESN'
     training_params = {'t_train': 1.0,
                        't_val': 0.2,
-                       't_wash': 0.025,
-                       'dt_ESN': 5E-4,
+                       'N_wash': 50,
+                       'upsample': 5,
                        'test_run': True,
                        'k': 1.
                        }
@@ -139,9 +139,9 @@ class ESN(Bias):
                 # print('\t saving bias data')
                 bias = Bdict['trainData']
                 # Delete unnecessary data. Keep only wash + training + val (+ test)
-                N_wtv = int((self.t_wash + self.t_train + self.t_val) / Bdict['dt'])
+                N_wtv = int((self.t_train + self.t_val) / Bdict['dt']) + self.N_wash
                 if self.test_run:
-                    N_wtv += int(self.t_wash * 10 / Bdict['dt'])
+                    N_wtv += self.N_wash * 10
                 if N_wtv > len(bias):
                     N_wtv = len(bias)
 
@@ -164,7 +164,7 @@ class ESN(Bias):
 
         # --------------------- Create washout observed data ---------------------- #
         #
-
+        self.N_wash = 1
         self.washout_obs = Bdict['washout_obs'][-self.N_wash * self.upsample - 1::self.upsample].squeeze()
         self.washout_t = Bdict['washout_t'][-self.N_wash * self.upsample - 1::self.upsample]
         self.washout_obs = self.washout_obs[1:]
@@ -250,18 +250,29 @@ class ESN(Bias):
             # open loop initialisation of the ESN
             u_open, r_open = self.openLoop(washout)
 
+            # do not keep the open-loop bias in the history (do not want jumps!)
             b = np.zeros((Nt + 1, self.N_dim))
             r = np.zeros((Nt + 1, self.N_unit))
 
-            b[-self.N_wash:] = u_open
+            b[-self.N_wash:] = washout
             r[-self.N_wash:] = r_open
 
-            assert len(b) == len(t_b)
+
+            # plt.figure()
+            # plt.plot(wash_obs[:,0], '-o')
+            # plt.plot(u_open[:,0], '-x')
+            # plt.show()
+
+            # update bias state
+            # self.b = u_open[-1]
 
         else:
             b, r = self.closedLoop(Nt)
+            # update bias history
 
-        # update reservoir history
+
+
+        # update bias and reservoir history
         self.updateReservoir(r[1:])
 
         return b[1:], t_b[1:]
@@ -296,11 +307,6 @@ class ESN(Bias):
         b[0], r[0] = self.getReservoirState()
         for i in range(Nt):
             b[i + 1], r[i + 1] = self.step(b_wash[i], r[i])
-
-        # ESN PLOT DEBUG
-        # plt.figure()
-        # plt.plot(self.washout_t, b_wash[:, 0], '-o', label='washout data')
-        # plt.plot(self.washout_t, b[:, 0], '-x', label='open-loop')
 
         return b, r
 

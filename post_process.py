@@ -1,18 +1,18 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import pickle
-from scipy.interpolate import splev, splrep
+from scipy.interpolate import splev, splrep, CubicSpline
 from Ensemble import createEnsemble
 
 plt.rc('text', usetex=True)
-
 plt.rc('font', family='serif', size=16)
 plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 
 from scipy.io import savemat
 from mpl_toolkits.axes_grid1.inset_locator import zoomed_inset_axes
 
-name = 'results/2022-09-09_Bias_ESN'
+folder = 'results/2022-09-23_small-std_no-wash_test/'
+name = folder + 'EnKFbias_TruthWave_ForecastRijke_BiasESN_k0.4'
 with open(name, 'rb') as f:
     parameters = pickle.load(f)
     createEnsemble(parameters['forecast_model'])
@@ -73,7 +73,9 @@ if filter_ens.bias is not None:
     b = filter_ens.bias.hist
     t_b = filter_ens.bias.hist_t
 
-    b_up = np.array([splev(t, splrep(t_b, b[:, i])) for i in range(filter_ens.bias.N_dim)]).transpose()
+    spline = CubicSpline(t_b, b, extrapolate=False)
+    b_up = spline(t)
+    # b_up = np.array([splev(t, splrep(t_b, b[:, i])) for i in range(filter_ens.bias.N_dim)]).transpose()
     b_up = np.expand_dims(b_up, -1)
 
     y_unbiased = y_filter + b_up

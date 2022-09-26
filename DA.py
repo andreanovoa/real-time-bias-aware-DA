@@ -146,7 +146,6 @@ def forecastStep(case, Nt):
         y, _ = case.getObservableHist(Nt)
         b, t_b = case.bias.timeIntegrate(Nt=Nt, y=y)
         case.bias.updateHistory(b, t_b)
-
     return case
 
 
@@ -215,6 +214,9 @@ def analysisStep(case, d, Cdd, filt='EnSRKF', getJ=False):
         isphysical = checkParams(Aa, case)
         if not isphysical:
             Aa = inflateEnsemble(Af, case.inflation)
+            if not checkParams(Aa, case):
+                print('booooo')
+                Aa = Af.copy()
             J = np.array([None, None, None])
             return Aa[:case.N, :], J
 
@@ -338,14 +340,12 @@ def EnKF(Af, d, Cdd, M):
     C = (m - 1) * Cdd + np.dot(S, S.T)
     Cinv = linalg.inv(C)
 
-    # 
+
     X = np.dot(S.T, np.dot(Cinv, (D - Y)))
 
     Aa = Af + np.dot(Af, X)
-
     psi_a_m = np.mean(Aa, -1, keepdims=True)
-
-    Aa = psi_a_m + (Aa - psi_a_m) * 1.01  # TODO inflateEnsemble() limiting values of tau and beta
+    Aa = psi_a_m + (Aa - psi_a_m)
 
     if np.isreal(Aa).all():
         return Aa

@@ -283,6 +283,7 @@ def createEnsemble(parent, Ens_params=None, TA_params=None, Bias_params=None):
 
         # ____________________________ Copy ensemble ____________________________ #
         def copy(self):
+
             return deepcopy(self)
 
     return Ensemble(Ens_params, TA_params, Bias_params)

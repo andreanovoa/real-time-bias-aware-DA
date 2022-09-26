@@ -3,3 +3,4 @@ scipy
 numpy
 matplotlib
 h5py
+scikit-optimize
