@@ -49,7 +49,9 @@ def dataAssimilation(ensemble,
     t1 = ensemble.t
     t2 = t_obs[ti]
 
-    Nt = int((t2 - t1) / dt)
+    Nt = int(np.round((t2 - t1) / dt))
+
+    t = np.linspace(t1, t1 + Nt * dt, Nt + 1)
 
     # Parallel forecast until first observation
 
@@ -62,8 +64,14 @@ def dataAssimilation(ensemble,
     time1 = time.time()
     print_i = int(len(t_obs) / 4) * np.array([1, 2, 3])
     print('Assimilation progress: 0 % ', end="")
-    flag = True
+
+    ensemble.activate_bias_aware = False
+    ensemble.activate_parameter_estimation = False
     while True:
+        if ti >= ensemble.num_DA_blind:
+            ensemble.activate_bias_aware = True
+        if ti >= ensemble.num_SE_only:
+            ensemble.activate_parameter_estimation = True
         # ------------------------------  PERFORM ASSIMILATION ------------------------------ #
         # Define observation covariance matrix
         Cdd = np.diag((std_obs * np.ones(np.size(obs[ti])) * max(abs(obs[ti]))) ** 2)
@@ -81,12 +89,12 @@ def dataAssimilation(ensemble,
         # Update state and bias
         ensemble.psi = Aa
         ensemble.hist[-1] = Aa
+
         if ensemble.bias is not None:
-            # TODO update b[:N_dim] with observable - y[0]
             if bias_name == 'ESN':
                 y = ensemble.getObservables()
                 b = obs[ti] - np.mean(y, -1)
-                ensemble.bias.b[:len(b)] = b
+                ensemble.bias.b = b
                 ensemble.bias.hist[-1] = b
                 # ESN PLOT DEBUG
                 # if flag:
@@ -94,9 +102,9 @@ def dataAssimilation(ensemble,
                 #     flag = False
                 # plt.plot(ensemble.t, b[0], 'ro', label='updated b')
 
-            if ensemble.est_b:
-                b_weights = Aa[-ensemble.bias.Nw:]
-                ensemble.bias.updateWeights(b_weights)
+            # if ensemble.est_b:
+            #     b_weights = Aa[-ensemble.bias.Nw:]
+            #     ensemble.bias.updateWeights(b_weights)
 
         # ------------------------------ FORECAST TO NEXT OBSERVATION ---------------------- #
         # next observation index
@@ -109,7 +117,7 @@ def dataAssimilation(ensemble,
 
         t1 = ensemble.t
         t2 = t_obs[ti]
-        Nt = int((t2 - t1) / dt)
+        Nt = int(np.round((t2 - t1) / dt))
 
         # Parallel forecast
         ensemble = forecastStep(ensemble, Nt)
@@ -161,11 +169,17 @@ def analysisStep(case, d, Cdd, filt='EnSRKF', getJ=False):
     """
 
     Af = case.psi.copy()  # state matrix [modes + params] x m
+    M = case.M
+
+    if case.est_p and not case.activate_parameter_estimation:
+        Af_params = Af[-len(case.est_p):, :]
+        Af = Af[:-len(case.est_p), :]
+        M = M[:, :-len(case.est_p)]
 
     J = np.array([0., 0., 0.])  # initialise cost function
 
     # ======================== APPLY SELECTED FILTER ======================== #
-    M = case.M
+
     if filt == 'EnKFbias':
         # --------------- Augment state matrix with biased Y --------------- #
         y = case.getObservables()
@@ -184,22 +198,22 @@ def analysisStep(case, d, Cdd, filt='EnSRKF', getJ=False):
         Cbb = Cdd.copy()
         # Cbb = np.eye(len(d))
 
-        # ------------ DEFINE BIAS COVARIANCE MATRIX AND WEIGHT ------------ #
-        Aa = EnKFbias(Af, d, Cdd, Cbb, k, M, b, db)
-
-        # --------------- COMPUTE UNBIASED Y FOR COST FUNCTION--------------- #
-        y += np.expand_dims(b, 1)
+        if case.activate_bias_aware:
+            Aa = EnKFbias(Af, d, Cdd, Cbb, k, M, b, db)
+            # print('Activated bias-aware')
+        else:
+            Aa = EnKF(Af, d, Cdd, M)
 
     else:
         # --------------- Augment state matrix with biased Y --------------- #
         y = case.getObservables()
-        # TODO create a second bias aware filter that does what IN22. This will debug ESN implementation
-        #  ADD BIAS TO Y [obsolete] #
-        # If model bias provided, add the bias to the observables and assimilate
-        # the observations on the unbiased \tilde{y}. This is the JFM(2022) method.
+        # # TODO create a second bias aware filter that does what IN22. This will debug ESN implementation
+        # #  ADD BIAS TO Y [obsolete] #
+        # # If model bias provided, add the bias to the observables and assimilate
+        # # the observations on the unbiased \tilde{y}. This is the JFM(2022) method.
         if case.bias is not None:
             b = case.bias.getBias()
-            y += np.expand_dims(b, 1)
+        #     y += np.expand_dims(b, 1)
 
         Af = np.vstack((Af, y))
         if filt == 'EnSRKF':
@@ -210,18 +224,23 @@ def analysisStep(case, d, Cdd, filt='EnSRKF', getJ=False):
             raise ValueError('Filter ' + filt + ' not defined.')
 
     # ============================ CHECK PARAMETERS AND INFLATE =========================== #
+    # if case.est_p:
     if case.est_p:
-        isphysical = checkParams(Aa, case)
-        if not isphysical:
-            Aa = inflateEnsemble(Af, case.inflation)
-            if not checkParams(Aa, case):
-                print('booooo')
-                Aa = Af.copy()
-            J = np.array([None, None, None])
-            return Aa[:case.N, :], J
+        if not case.activate_parameter_estimation:
+            return np.concatenate((Aa[:-np.size(y, 0), :], Af_params)), J
+        else:
+            isphysical = checkParams(Aa, case)
+            if not isphysical:
+                Aa = inflateEnsemble(Af, case.inflation)
+                if not checkParams(Aa, case):
+                    print('booooo')
+                    Aa = Af.copy()
+                J = np.array([None, None, None])
+                return Aa[:-np.size(y, 0), :], J
 
     # ============================== COMPUTE COST FUNCTION ============================== #
     if getJ:
+        y += np.expand_dims(b, 1)
         Wdd = linalg.inv(Cdd)
         Psif = Af - np.mean(Af, -1, keepdims=True)
         Cpp = np.dot(Psif, Psif.T)
@@ -233,7 +252,8 @@ def analysisStep(case, d, Cdd, filt='EnSRKF', getJ=False):
             Wbb = linalg.pinv(Cbb)
             # J[2] = k * np.dot(np.mean(b, -1).T, np.dot(Wbb, np.mean(b, -1)))
             J[2] = k * np.dot(b.T, np.dot(Wbb, b))
-    return Aa[:case.N, :], J
+
+    return Aa[:-np.size(y, 0), :], J
 
 
 # =================================================================================================================== #

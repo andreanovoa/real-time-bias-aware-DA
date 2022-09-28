@@ -94,8 +94,8 @@ def createObservations(classType, TA_params=None, t_min=.5, t_max=8., kmeas=1E-3
         filename = name.split('Truth_')[-1]
 
     # Keep only after transient solution
-    kmeas = int(kmeas / dt)
-    obs_idx = np.arange(int(t_min / dt), int(t_max / dt), kmeas)
+    # kmeas = int(kmeas // dt) + 1
+    obs_idx = np.arange(round(t_min / dt), round(t_max / dt)+1, kmeas)
 
     return p_obs, t_obs, obs_idx, filename
 

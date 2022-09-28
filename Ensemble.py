@@ -59,7 +59,8 @@ def createEnsemble(parent, Ens_params=None, TA_params=None, Bias_params=None):
         attr_ens = dict(m=10, est_p=[], est_s=True,
                         est_b=False, bias=None,
                         std_psi=0.1, std_a=0.1,
-                        getJ=False, inflation=1.01)
+                        getJ=False, inflation=1.01,
+                        num_DA_blind=0, num_SE_only=0)
 
         def __init__(self, DAdict=None, TAdict=None, Bdict=None):
             """ Constructor of the Ensemble

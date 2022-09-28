@@ -20,10 +20,10 @@ def getEnvelope(timeseries_x, timeseries_y, rejectCloserThan=0):
     return u_p, peak_properties
 
 
-folder = 'results/2022-09-22_small-std/'
-# folder = 'results/2022-09-23_big-std/'
-# folder = 'results/2022-09-23_small-std_no-wash/'
-# folder = 'results/2022-09-23_big-std_no-wash/'
+# folder = 'results/small-std_Wout-1/'
+# folder = 'results/small-std/'
+# folder = 'results/big-std/'
+folder = 'results/bias-blind/'
 
 if __name__ == '__main__':
 

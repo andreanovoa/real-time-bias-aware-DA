@@ -27,14 +27,14 @@ plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 
 biasType = Bias.ESN  # Bias.ESN  # Bias.ESN # None
 filt = 'EnKFbias'  # 'EnKFbias' 'EnKF' 'EnSRKF'
-kmeas = 5E-3  # [s]
+kmeas = 50  # [# time steps]
 save_ = True
 
 k = 2.  # 1E5  # gamma in the equations. Weight of bT Wbb b
 
 # %% =====================================  CREATE OBSERVATIONS ===================================== #
 true_model = 'Truth_wave.mat'
-y_true, t_true, obs_idx, name_truth = createObservations(true_model, t_min=1., t_max=8., kmeas=kmeas)
+y_true, t_true, obs_idx, name_truth = createObservations(true_model, t_min=0.5, t_max=8., kmeas=kmeas)
 # true_model = TAModels.Rijke
 # y_true, t_true, obs_idx, name_truth = createObservations(true_model, TA_params={'law': 'sqrt'},
 #                                                          t_min=1., t_max=8., kinterval=kinterval)
@@ -42,10 +42,16 @@ try:
     truth_name = true_model.name
 except:
     truth_name = 'Wave'
+
 dt_true = t_true[1] - t_true[0]
 t_obs = t_true[obs_idx]
 obs = y_true[obs_idx]
-num_DA = int(0.8 / (t_obs[1] - t_obs[0]))  # number of analysis steps
+
+# number of analysis steps
+num_DA = int(0.8 / (t_obs[1] - t_obs[0]))
+num_DA_blind = int(0.2 / (t_obs[1] - t_obs[0]))
+num_SE_only = int(0.2 / (t_obs[1] - t_obs[0]))
+
 
 # Select training values
 beta_train = 4E6
@@ -66,13 +72,15 @@ model_params = {'law': law_train,  # Dictionary of TA parameters
                 'tau': tau_train * 1.
                 }
 filter_params = {'m': 10,  # Dictionary of DA parameters
-                 'est_p': [],  # ['kappa', 'nu'] #'beta', 'tau'
+                 'est_p': ['beta', 'tau'],  # ['kappa', 'nu'] #'beta', 'tau'
                  'bias': biasType,
                  'std_psi': 0.01,
                  'std_a': 0.01,
                  'est_b': False,
                  'getJ': True,
-                 'inflation': 1.01
+                 'inflation': 1.01,
+                 'num_DA_blind': num_DA_blind,
+                 'num_SE_only': num_SE_only
                  }
 if biasType is not None:
     if biasType.name == 'ESN':
@@ -89,7 +97,9 @@ if biasType is not None:
                        'washout_t': t_true[i0:i1 + 1],
                        'train_TAparams': {'beta': beta_train,
                                           'tau': tau_train},
-                       'filename': name_truth + '_' + name_train
+                       'filename': name_truth + '_' + name_train,
+                       'N_wash': 1,
+                       'upsample': 5
                        }
     elif biasType.name == 'LinearBias':
         bias_params = {'b1': 0.05,
@@ -114,7 +124,7 @@ else:
 # ===========================================  INITIALISE ENSEMBLE  ========================================== #
 ensemble = createEnsemble(forecast_model, filter_params, model_params, bias_params)
 
-for k in [0.4]:#np.linspace(0, 2, 11):
+for k in [0.4]:#np.linspace(0, 2, 21):
     filter_ens = ensemble.copy()
     # ======================================  PERFORM DATA ASSIMILATION ====================================== #
     filter_ens.bias.k = k
@@ -133,13 +143,13 @@ for k in [0.4]:#np.linspace(0, 2, 11):
 
     # =========================================== SAVE DATA OR PLOT =========================================== #
     if save_:
-        folder = 'results/' + str(date.today()) + '/'
+        folder = 'results/'
         if not os.path.isdir(folder):
-            os.mkdir(folder)
+            os.makedirs(folder)
 
         filename = '{}{}_Truth{}_Forecast{}_Bias{}_k{:.2}'.format(folder, filt, truth_name,
                                                                   forecast_model.name, bias_name, k)
-
+        filename += '_wash-bug-1'
         with open(filename, 'wb') as f:
             parameters = dict(kmeas=kmeas,
                               filt=filt,

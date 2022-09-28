@@ -127,13 +127,17 @@ class ESN(Bias):
         ESN_filename = Bdict['filename'][:-len('bias')] + 'ESN.npz'
 
         # Check that the saved ESN has the same parameters as the wanted one
+        flag = False
         if os.path.isfile(ESN_filename):
             fileESN = np.load(ESN_filename)  # load .npz output from training_main
             for attr in fileESN.files:
-                setattr(self, attr, fileESN[attr])
+                if attr in Bdict.keys():
+                    if fileESN[attr] != Bdict[attr]:
+                        flag = True
+                        print('Retraining ESN...')
+                        continue
 
-        if not os.path.isfile(ESN_filename):
-            # print('Training ESN')
+        if not os.path.isfile(ESN_filename) or flag:
             # Load or create bias data
             if 'trainData' in Bdict.keys():
                 # print('\t saving bias data')
@@ -146,16 +150,13 @@ class ESN(Bias):
                     N_wtv = len(bias)
 
                 np.savez(Bdict['filename'], bias[-N_wtv:])
+                title = 'TRAINED ESN PARAMETERS'
             else:
-
-                # TODO add smg that checks that the loaded params and the defined match.
-
-                print('\t loading bias data')
                 Bdict['trainData'] = np.load(Bdict['filename'] + '.npz')['bias']
             # Run training main script
             exec(open("main_training.py").read(), Bdict)
         else:
-            print('Loaded trained ESN')
+            title = 'LOADED ESN PARAMETERS'
 
         # --------------------------- Load trained ESN --------------------------- #
         fileESN = np.load(ESN_filename)  # load .npz output from training_main
@@ -163,8 +164,6 @@ class ESN(Bias):
             setattr(self, attr, fileESN[attr])
 
         # --------------------- Create washout observed data ---------------------- #
-        #
-        self.N_wash = 1
         self.washout_obs = Bdict['washout_obs'][-self.N_wash * self.upsample - 1::self.upsample].squeeze()
         self.washout_t = Bdict['washout_t'][-self.N_wash * self.upsample - 1::self.upsample]
         self.washout_obs = self.washout_obs[1:]
@@ -177,6 +176,11 @@ class ESN(Bias):
         # plt.plot(Bdict['washout_t'], np.squeeze(Bdict['washout_obs'][:,0]))
         # plt.plot(self.washout_t[0], self.washout_obs[0,0], '*')
         # plt.show()
+
+        print('\n -------------------- ', title, ' -------------------- \n',
+              'Data filename: ', self.filename, '\n', 'Training time: ', self.t_train,
+              's \n Validation time: ', self.t_val, 's', '\n', 'Washout time steps: ', self.N_wash,
+              '\n Upsample: ', self.upsample, '\n', 'Run test?: ', self.test_run)
 
         # -----------  Initialise reservoir state and its history to zeros ------------ #
         self.r = np.zeros(self.N_unit)
@@ -235,6 +239,7 @@ class ESN(Bias):
     def timeIntegrate(self, Nt=100, y=None):
 
         Nt = int(Nt // self.upsample)
+
         t_b = np.linspace(self.t, self.t + Nt * self.dt_ESN, Nt + 1)
 
         if len(self.hist) == 1:
@@ -269,8 +274,6 @@ class ESN(Bias):
         else:
             b, r = self.closedLoop(Nt)
             # update bias history
-
-
 
         # update bias and reservoir history
         self.updateReservoir(r[1:])

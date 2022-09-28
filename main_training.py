@@ -23,18 +23,12 @@ exec(open("fns_training.py").read())
 ##  SET TRAINING PARAMETERS (from input dict) __________________________________________________
 try:
     data = trainData
-    plt.figure()
-    plt.plot(data[:,0])
-    plt.show()
-except:
-    filename = 'data/Rijke_2022-08-31_short_bias'
-    # data = np.load(filename + '.npz')
-    # file = data.files[0]
-    # data = data[file]
-    # raise Exception('Bias not defined')
     # plt.figure()
     # plt.plot(data[:,0])
     # plt.show()
+except:
+    raise Exception('Bias not defined')
+
 try:
     dt = dt # original signal dt
 except:
@@ -68,11 +62,6 @@ except:
     test_run = True
     print('Set default value for test_run =', test_run)
 
-print('\n -------------------- TRAINING PARMETERS -------------------- \n',
-      'Data filename: ', filename, '\n', 'Training time: ', t_train,
-      's \n Validation time: ', t_val, 's', '\n', 'Washout time steps: ', N_wash,
-      's \n Data length: ', len(data) * dt,
-      's \n Upsample: ', upsample, '\n', 'Run test?: ', test_run)
 
 # %%
 U = data[::upsample]
@@ -134,7 +123,7 @@ n_tot = 20  # Total Number of Function Evaluatuions
 n_in = 0  # Number of Initial random points
 # Range for hyperparametera (spectral radius and input scaling)
 rho_ = [.5, 1.2]
-sigin_ = [np.log10(1e-3), .3]
+sigin_ = [np.log10(1e-4), np.log10(1e-1)]
 
 # The first n_grid^2 points are from grid search 
 # if n_grid**2 < n_tot, perform Bayesian Optimization
@@ -371,7 +360,8 @@ np.savez(filename[:-len('bias')] + 'ESN',
          sigma_in=10 ** mins[0, 1],
          upsample=int(upsample),
          hyperparameters=[mins[0, 0], 10 ** mins[0, 1], bias_in],
-         training_time=(N_train + N_val) * dt_ESN
+         training_time=(N_train + N_val) * dt_ESN,
+         filename=filename
          )
 # print('save location: ' + filename)
 
