@@ -3,7 +3,9 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.linalg as la
-
+from scipy.sparse import csr_matrix, lil_matrix
+from scipy.io import loadmat, savemat
+import time
 
 class Bias:
 
@@ -124,20 +126,19 @@ class ESN(Bias):
             Bdict['filename'] = Bdict['filename'] + '_bias'
 
         # --------------------- Train a new ESN if not in folder --------------------- #
-        ESN_filename = Bdict['filename'][:-len('bias')] + 'ESN.npz'
+        ESN_filename = Bdict['filename'][:-len('bias')] + 'ESN'
 
         # Check that the saved ESN has the same parameters as the wanted one
         flag = False
-        if os.path.isfile(ESN_filename):
-            fileESN = np.load(ESN_filename)  # load .npz output from training_main
-            for attr in fileESN.files:
-                if attr in Bdict.keys():
-                    if fileESN[attr] != Bdict[attr]:
-                        flag = True
-                        print('Retraining ESN...')
-                        continue
+        if os.path.isfile(ESN_filename+'.mat'):
+            fileESN = loadmat(ESN_filename)
+            for key, val in fileESN.items():
+                if key in Bdict.keys() and val != Bdict[key]:
+                    flag = True
+                    print('Retraining ESN...')
+                    break
 
-        if not os.path.isfile(ESN_filename) or flag:
+        if not os.path.isfile(ESN_filename+'.mat') or flag:
             # Load or create bias data
             if 'trainData' in Bdict.keys():
                 # print('\t saving bias data')
@@ -159,17 +160,39 @@ class ESN(Bias):
             title = 'LOADED ESN PARAMETERS'
 
         # --------------------------- Load trained ESN --------------------------- #
-        fileESN = np.load(ESN_filename)  # load .npz output from training_main
-        for attr in fileESN.files:
-            setattr(self, attr, fileESN[attr])
+        # t1 = time.time()
+        # fileESN = np.load(ESN_filename+'.npz', allow_pickle=True)  # load .npz output from training_main
+        # for attr in fileESN.files:
+        #     setattr(self, attr, fileESN[attr])
+        #
+        # print('npz = ', time.time() - t1)
+
+        # t1 = time.time()
+        fileESN = loadmat(ESN_filename)
+        for key, val in fileESN.items():
+            if key[0] != '_':
+                try:
+                    if key in ['N_wash', 'N_unit', 'N_dim', 'upsample']:
+                        setattr(self, key, int(val))
+                    # elif np.shape(val)[-1] == 1:
+                    elif key in ['dt_ESN', 'rho', 'sigma_in', 'upsample']:
+                        setattr(self, key, float(val))
+                    else:
+                        setattr(self, key, np.squeeze(val, axis=1))
+
+                except:
+                    setattr(self, key, val)
+
+        # print('mat = ', time.time() - t1)
 
         # --------------------- Create washout observed data ---------------------- #
-        self.washout_obs = Bdict['washout_obs'][-self.N_wash * self.upsample - 1::self.upsample].squeeze()
-        self.washout_t = Bdict['washout_t'][-self.N_wash * self.upsample - 1::self.upsample]
-        self.washout_obs = self.washout_obs[1:]
-        self.washout_t = self.washout_t[1:]
+        # self.N_wash = 1
+        self.washout_obs = np.flip(Bdict['washout_obs'][:-self.N_wash * self.upsample:-self.upsample].squeeze(), axis=0)
+        self.washout_t = np.flip(Bdict['washout_t'][:-self.N_wash * self.upsample:-self.upsample])
+
 
         assert self.washout_t[-1] == Bdict['washout_t'][-1]
+        # self.Win = lil_matrix(self.Win)
         #
         # plt.figure()
         # plt.plot(self.washout_t, self.washout_obs[:,0], '-o')
@@ -210,7 +233,7 @@ class ESN(Bias):
     @property
     def WCout(self):
         if not hasattr(self, '_WCout'):
-            self._WCout = la.lstsq(self.Wout[0][:-1], self.W[0])[0]
+            self._WCout = la.lstsq(self.Wout[:-1], self.W)[0]
         return self._WCout
 
     def stateDerivative(self, y):
@@ -218,36 +241,36 @@ class ESN(Bias):
         # Get current state
         bin, rin = self.getReservoirState()
 
-        Win_1 = self.Win[0][:-1, :].transpose()
-        Wout_1 = self.Wout[0][:-1, :].transpose()
+        Win_1 = self.Win[:-1, :].transpose()
+        Wout_1 = self.Wout[:-1, :].transpose()
 
         # # Option(i) rin function of bin:
         # b_aug = np.concatenate((bin / self.norm, np.array([self.bias_in])))
-        # rout = np.tanh(np.dot(b_aug * self.sigma_in, self.Win[0]) + self.rho * np.dot(bin, self.WCout))
+        # rout = np.tanh(np.dot(b_aug * self.sigma_in, self.Win) + self.rho * np.dot(bin, self.WCout))
         # drout_dbin = self.sigma_in * Win_1 / self.norm + self.rho * self.WCout.transpose()
 
         # Option(ii) rin constant:
-        _, rout = self.step(bin, rin)
+        rout = self.step(bin, rin)[1]
         drout_dbin = self.sigma_in * Win_1 / self.norm
 
         # Compute Jacobian
         T = 1 - rout ** 2
-        J = np.dot(Wout_1, drout_dbin * np.expand_dims(T, 1))
+        J = np.dot(Wout_1, np.array(drout_dbin) * np.expand_dims(T, 1))
 
         return -J
 
     def timeIntegrate(self, Nt=100, y=None):
 
-        Nt = int(Nt // self.upsample)
+        Nt = int(round(Nt / self.upsample))
 
         t_b = np.linspace(self.t, self.t + Nt * self.dt_ESN, Nt + 1)
 
         if len(self.hist) == 1:
             # observable washout data
-            wash_obs = self.washout_obs  # truth, observables at high frequency [I MUST UPSAMPLE BEFORE - INIT]
+            wash_obs = self.washout_obs  # truth, observables at high frequency
 
             # forecast model washout data
-            wash_model = np.mean(y[-self.N_wash * self.upsample::self.upsample], -1)
+            wash_model = np.flip(np.mean(y[:-self.N_wash * self.upsample:-self.upsample], -1), axis=0)
 
             # bias washout, the input data to open loop
             washout = wash_obs - wash_model
@@ -260,12 +283,15 @@ class ESN(Bias):
             r = np.zeros((Nt + 1, self.N_unit))
 
             b[-self.N_wash:] = washout
+            b[-1] = u_open[-1]
             r[-self.N_wash:] = r_open
 
+            # # ESN PLOT DEBUG
+            # plt.plot(self.washout_t, washout[:,0], '-o')
+            # plt.plot(t_b[1:], b[1:, 0], '-x')
+            # plt.legend()
 
             # plt.figure()
-            # plt.plot(wash_obs[:,0], '-o')
-            # plt.plot(u_open[:,0], '-x')
             # plt.show()
 
             # update bias state
@@ -286,13 +312,15 @@ class ESN(Bias):
                 new reservoir state (no bias_out)
         """
         # Normalise input data and augment with input bias (ESN symmetry parameter)
-        b_aug = np.concatenate((b / self.norm, np.array([self.bias_in])))
+        b_aug = np.concatenate((b / self.norm, self.bias_in))
         # Forecast the reservoir state
-        r_out = np.tanh(np.dot(b_aug * self.sigma_in, self.Win[0]) + self.rho * np.dot(r, self.W[0]))
+        # r_out = np.tanh(np.dot(b_aug * self.sigma_in, self.Win) + self.rho * np.dot(r, self.W))
+
+        r_out = np.tanh(self.Win.T.dot(b_aug * self.sigma_in) + self.W.dot(self.rho * r))
         # output bias added
-        r_aug = np.concatenate((r_out, np.array([self.bias_out])))
+        r_aug = np.concatenate((r_out, self.bias_out))
         # compute output from ESN
-        b_out = np.dot(r_aug, self.Wout[0])
+        b_out = np.dot(r_aug, self.Wout)
         return b_out, r_out
 
     def openLoop(self, b_wash):  # ____________________________________________
@@ -311,6 +339,8 @@ class ESN(Bias):
         for i in range(Nt):
             b[i + 1], r[i + 1] = self.step(b_wash[i], r[i])
 
+
+
         return b, r
 
     def closedLoop(self, Nt):  # ______________________________________________
@@ -328,7 +358,7 @@ class ESN(Bias):
         for i in range(Nt):
             b[i + 1], r[i + 1] = self.step(b[i], r[i])
 
-        # ESN PLOT DEBUG
+        # # ESN PLOT DEBUG
         # t_b = np.linspace(self.t, self.t + Nt * self.dt_ESN, Nt + 1)
         # plt.plot(t_b, b[:, 0], '-+', color='green', label='closed-loop')
         # plt.legend()

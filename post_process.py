@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import pickle
-from scipy.interpolate import CubicSpline
+from scipy.interpolate import CubicSpline, interp1d
 from Ensemble import createEnsemble
 
 plt.rc('text', usetex=True)
@@ -12,7 +12,7 @@ from scipy.io import savemat
 from mpl_toolkits.axes_grid1.inset_locator import zoomed_inset_axes
 
 folder = 'results/'
-name = folder + 'EnKFbias_TruthWave_ForecastRijke_BiasESN_k0.4_wash-bug-50'
+name = folder + 'EnKFbias_TruthWave_ForecastRijke_BiasESN_k0.4_new-ESN'
 
 if __name__ == '__main__':
     with open(name, 'rb') as f:
@@ -21,6 +21,8 @@ if __name__ == '__main__':
 
         truth = pickle.load(f)
         filter_ens = pickle.load(f)
+
+
 
     filt = parameters['filt']
     biasType = parameters['biasType']
@@ -31,6 +33,9 @@ if __name__ == '__main__':
     t_true = truth['t']
     t_obs = truth['t_obs']
     obs = truth['p_obs']
+
+    num_DA_blind = filter_ens.num_DA_blind
+    num_SE_only = filter_ens.num_SE_only
 
 
     # %% ================================ PLOT time series, parameters and RMS ================================ #
@@ -73,8 +78,11 @@ if __name__ == '__main__':
         b = filter_ens.bias.hist
         t_b = filter_ens.bias.hist_t
 
-        spline = CubicSpline(t_b, b, extrapolate=False)
+        # spline = CubicSpline(t_b, b, extrapolate=False)
+        # b_up = spline(t)
+        spline = interp1d(t_b, b, kind='cubic', axis=0, copy=True, bounds_error=False, fill_value=0)
         b_up = spline(t)
+
         # b_up = np.array([splev(t, splrep(t_b, b[:, i])) for i in range(filter_ens.bias.N_dim)]).transpose()
         b_up = np.expand_dims(b_up, -1)
 
@@ -92,6 +100,7 @@ if __name__ == '__main__':
 
         # BIAS PLOT
         bias_ax.plot(t, b_up[:, 0], alpha=0.75, label='ESN estimation')
+        # bias_ax.plot(t_b, b[:, 0], '-o', alpha=0.75, label='ESN upsample estimation')
         b_obs = y_true[:len(y_filter)] - y_filter
 
         b_mean = np.mean(b_obs, -1)
@@ -109,25 +118,34 @@ if __name__ == '__main__':
     zoom_ax.plot(t, y_mean[:, 0], '--', color=c, label='Filtered signal', linewidth=1.)
     p_ax.fill_between(t, y_mean[:, 0] + std, y_mean[:, 0] - std, alpha=0.2, color=c)
     zoom_ax.fill_between(t, y_mean[:, 0] + std, y_mean[:, 0] - std, alpha=0.2, color=c)
-    p_ax.plot(t_obs[:num_DA], obs[:num_DA, 0], '.', color='r', label='Observations data')
+
+    p_ax.plot(t_obs[:num_DA], obs[:num_DA, 0], '.', color='r', label='Assimilation step')
     zoom_ax.plot(t_obs[:num_DA], obs[:num_DA, 0], '.', color='r', label='Assimilation step', markersize=10)
 
     y_lims = [min(y_mean[:, 0]) - np.mean(std)*1.1, (max(y_mean[:, 0]) + max(std)) * 1.5]
     p_ax.set(ylabel="$p'_\mathrm{mic_1}$ [Pa]", xlabel='$t$ [s]', xlim=x_lims, ylim=y_lims)
     p_ax.legend(bbox_to_anchor=(1., 1.), loc="upper left", ncol=1)
 
-    y_lims = [min(y_true[:, 0])*1.1, max(y_true[:, 0])* 1.1]
+    y_lims = [min(y_true[:, 0])*1.1, max(y_true[:, 0]) * 1.1]
 
     zoom_ax.set(xlim=[t_obs[num_DA]-0.05, t_obs[num_DA]], ylim=y_lims)
 
     zoom_ax.tick_params(labelsize = 24)
     # zoom_ax.tick_params('Y axis', fontsize = 20)
 
-    # PLOT PARAMETER CONVERGENCE
+    # PLOT PARAMETER CONVERGENCE-------------------------------------------------------------
     ii = len(filter_ens.psi0)
     c = ['g', 'sandybrown', 'mediumpurple', 'cyan']
     params_ax.plot((t_obs[0], t_obs[0]), (-1E6, 1E6), '--', color='dimgray')
     params_ax.plot((t_obs[num_DA], t_obs[num_DA]), (-1E6, 1E6), '--', color='dimgray')
+
+    if num_DA_blind > 0:
+        p_ax.plot((t_obs[num_DA_blind], t_obs[num_DA_blind]), (-1E6, 1E6), '-.', color='darkblue')
+        params_ax.plot((t_obs[num_DA_blind], t_obs[num_DA_blind]), (-1E6, 1E6), '-.', color='darkblue', label='Start BE')
+    if num_SE_only > 0:
+        p_ax.plot((t_obs[num_SE_only], t_obs[num_SE_only]), (-1E6, 1E6), '-.', color='darkviolet')
+        params_ax.plot((t_obs[num_SE_only], t_obs[num_SE_only]), (-1E6, 1E6), '-.', color='darkviolet', label='Start PE')
+
 
     if filter_ens.est_p:
         for p in filter_ens.est_p:

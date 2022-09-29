@@ -49,17 +49,17 @@ obs = y_true[obs_idx]
 
 # number of analysis steps
 num_DA = int(0.8 / (t_obs[1] - t_obs[0]))
-num_DA_blind = int(0.2 / (t_obs[1] - t_obs[0]))
-num_SE_only = int(0.2 / (t_obs[1] - t_obs[0]))
+num_DA_blind = int(0.0 / (t_obs[1] - t_obs[0]))
+num_SE_only = int(0.0 / (t_obs[1] - t_obs[0]))
 
 
 # Select training values
-beta_train = 4E6
+beta_train = 3E6
 tau_train = 1.5E-3
 law_train = 'sqrt'
 dt_train = t_true[1] - t_true[0]
 forecast_model = TAModels.Rijke
-y_ref, t_ref, _, name_train = createObservations(forecast_model, t_min=1., t_max=t_true[-1], kmeas=kmeas,
+y_ref, t_ref, _, name_train = createObservations(forecast_model, t_max=t_true[-1], kmeas=kmeas,
                                                  TA_params={'law': law_train, 'dt': dt_train,
                                                             'beta': beta_train, 'tau': tau_train}
                                                  )
@@ -98,9 +98,10 @@ if biasType is not None:
                        'train_TAparams': {'beta': beta_train,
                                           'tau': tau_train},
                        'filename': name_truth + '_' + name_train,
-                       'N_wash': 1,
+                       'N_wash': 50,
                        'upsample': 5
                        }
+
     elif biasType.name == 'LinearBias':
         bias_params = {'b1': 0.05,
                        'b2': 0.0}
@@ -149,7 +150,7 @@ for k in [0.4]:#np.linspace(0, 2, 21):
 
         filename = '{}{}_Truth{}_Forecast{}_Bias{}_k{:.2}'.format(folder, filt, truth_name,
                                                                   forecast_model.name, bias_name, k)
-        filename += '_wash-bug-1'
+        filename += '_new-ESN'
         with open(filename, 'wb') as f:
             parameters = dict(kmeas=kmeas,
                               filt=filt,
@@ -165,6 +166,7 @@ for k in [0.4]:#np.linspace(0, 2, 21):
                          t_obs=t_obs,
                          p_obs=obs
                          )
+
 
             pickle.dump(parameters, f)
             pickle.dump(truth, f)
@@ -286,3 +288,5 @@ for k in [0.4]:#np.linspace(0, 2, 21):
         #             + "_PE" + str(len(filter_ens.est_p))
         #             + "_m" + str(filter_ens.m)
         #             + "_kmeas" + str(kinterval) + ".pdf")
+
+plt.show()

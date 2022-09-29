@@ -55,15 +55,22 @@ def dataAssimilation(ensemble,
 
     # Parallel forecast until first observation
 
+
     time1 = time.time()
     ensemble = forecastStep(ensemble, Nt)
     print('Elapsed time to first observation: ' + str(time.time() - time1) + ' s')
+
+    # plt.figure()
+    # plt.plot(ensemble.bias.washout_t, ensemble.bias.washout_obs[:,0], '-o')
+    # plt.plot(ensemble.bias.hist_t, ensemble.bias.hist[:,0], '-x')
 
     ## ------------------------- ASSIMILATION LOOP ------------------------- ##
     num_obs = len(t_obs)
     time1 = time.time()
     print_i = int(len(t_obs) / 4) * np.array([1, 2, 3])
     print('Assimilation progress: 0 % ', end="")
+
+
 
     ensemble.activate_bias_aware = False
     ensemble.activate_parameter_estimation = False
@@ -95,18 +102,21 @@ def dataAssimilation(ensemble,
                 y = ensemble.getObservables()
                 b = obs[ti] - np.mean(y, -1)
                 ensemble.bias.b = b
-                ensemble.bias.hist[-1] = b
+                # ensemble.bias.hist[-1] = b
+
                 # ESN PLOT DEBUG
                 # if flag:
                 #     plt.legend()
                 #     flag = False
                 # plt.plot(ensemble.t, b[0], 'ro', label='updated b')
+                # plt.show()
 
             # if ensemble.est_b:
             #     b_weights = Aa[-ensemble.bias.Nw:]
             #     ensemble.bias.updateWeights(b_weights)
 
         # ------------------------------ FORECAST TO NEXT OBSERVATION ---------------------- #
+        flag = True
         # next observation index
         ti += 1
         if ti >= num_obs:
