@@ -96,13 +96,14 @@ class LinearBias(Bias):
 
 
 class ESN(Bias):
-    #    attrs = ['norm', 'Win', 'Wout', 'W', 'dt_ESN', 'N_wash', 'N_unit', 'N_dim',
+    #    attrs = ['norm', 'Win', 'Wout', 'W', 'dt_ESN', 'N_wash', 'N_units', 'N_dim',
     #             'bias_in', 'bias_out', 'rho', 'sigma_in', 'upsample',
     #             't_train', 't_val', 't_wash']
     name = 'ESN'
     training_params = {'t_train': 1.0,
-                       't_val': 0.2,
+                       't_val': 0.1,
                        'N_wash': 50,
+                       'N_units': 100,
                        'upsample': 5,
                        'test_run': True,
                        'k': 1.
@@ -120,13 +121,13 @@ class ESN(Bias):
                     setattr(self, key, Bdict[key])
 
         # ------------------------ Define bias data filename ------------------------ #
-        if Bdict['filename'][:4] != 'data/':
-            Bdict['filename'] = 'data/' + Bdict['filename']
+        if Bdict['filename'][:6] != './data/':
+            Bdict['filename'] = './data/' + Bdict['filename']
         if Bdict['filename'][:-len('_bias')] != '_bias':
             Bdict['filename'] = Bdict['filename'] + '_bias'
 
         # --------------------- Train a new ESN if not in folder --------------------- #
-        ESN_filename = Bdict['filename'][:-len('bias')] + 'ESN'
+        ESN_filename = Bdict['filename'][:-len('bias')] + 'ESN' + str(self.N_units)
 
         # Check that the saved ESN has the same parameters as the wanted one
         flag = False
@@ -172,7 +173,7 @@ class ESN(Bias):
         for key, val in fileESN.items():
             if key[0] != '_':
                 try:
-                    if key in ['N_wash', 'N_unit', 'N_dim', 'upsample']:
+                    if key in ['N_wash', 'N_units', 'N_dim', 'upsample']:
                         setattr(self, key, int(val))
                     # elif np.shape(val)[-1] == 1:
                     elif key in ['dt_ESN', 'rho', 'sigma_in', 'upsample']:
@@ -201,12 +202,15 @@ class ESN(Bias):
         # plt.show()
 
         print('\n -------------------- ', title, ' -------------------- \n',
-              'Data filename: ', self.filename, '\n', 'Training time: ', self.t_train,
-              's \n Validation time: ', self.t_val, 's', '\n', 'Washout time steps: ', self.N_wash,
+              'Data filename: ', str(self.filename),
+              '\n', 'Training time: ', float(self.t_train),
+              's \n Validation time: ', float(self.t_val), 's',
+              '\n', 'Washout time steps: ', self.N_wash,
+              '\n', 'Number of neurones: ', self.N_units,
               '\n Upsample: ', self.upsample, '\n', 'Run test?: ', self.test_run)
 
         # -----------  Initialise reservoir state and its history to zeros ------------ #
-        self.r = np.zeros(self.N_unit)
+        self.r = np.zeros(self.N_units)
         self.hist_r = np.array([self.r])
 
         # --------------------------  Initialise parent Bias  ------------------------- #
@@ -241,7 +245,7 @@ class ESN(Bias):
         # Get current state
         bin, rin = self.getReservoirState()
 
-        Win_1 = self.Win[:-1, :].transpose()
+        Win_1 = self.Win[:-3, :].transpose()
         Wout_1 = self.Wout[:-1, :].transpose()
 
         # # Option(i) rin function of bin:
@@ -260,6 +264,10 @@ class ESN(Bias):
         return -J
 
     def timeIntegrate(self, Nt=100, y=None):
+
+        self.alph = y[1]
+        # print(self.alph)
+        y = y[0]
 
         Nt = int(round(Nt / self.upsample))
 
@@ -280,7 +288,7 @@ class ESN(Bias):
 
             # do not keep the open-loop bias in the history (do not want jumps!)
             b = np.zeros((Nt + 1, self.N_dim))
-            r = np.zeros((Nt + 1, self.N_unit))
+            r = np.zeros((Nt + 1, self.N_units))
 
             b[-self.N_wash:] = washout
             b[-1] = u_open[-1]
@@ -312,7 +320,7 @@ class ESN(Bias):
                 new reservoir state (no bias_out)
         """
         # Normalise input data and augment with input bias (ESN symmetry parameter)
-        b_aug = np.concatenate((b / self.norm, self.bias_in))
+        b_aug = np.concatenate((b / self.norm, self.bias_in, self.alph/self.norm_alpha))
         # Forecast the reservoir state
         # r_out = np.tanh(np.dot(b_aug * self.sigma_in, self.Win) + self.rho * np.dot(r, self.W))
 
@@ -333,7 +341,7 @@ class ESN(Bias):
         """
         Nt = b_wash.shape[0] - 1
 
-        r = np.empty((Nt + 1, self.N_unit))
+        r = np.empty((Nt + 1, self.N_units))
         b = np.empty((Nt + 1, self.N_dim))
         b[0], r[0] = self.getReservoirState()
         for i in range(Nt):
@@ -352,7 +360,7 @@ class ESN(Bias):
                 - ra: time series of augmented reservoir states
         """
         Nt = int(Nt)
-        r = np.empty((Nt + 1, self.N_unit))
+        r = np.empty((Nt + 1, self.N_units))
         b = np.empty((Nt + 1, self.N_dim))
         b[0], r[0] = self.getReservoirState()
         for i in range(Nt):

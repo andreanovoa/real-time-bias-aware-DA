@@ -161,8 +161,9 @@ def forecastStep(case, Nt):
     case.updateHistory(psi, t)
     # Forecast ensemble bias and update its history
     if case.bias is not None:
-        y, _ = case.getObservableHist(Nt)
-        b, t_b = case.bias.timeIntegrate(Nt=Nt, y=y)
+        y = case.getObservableHist(Nt)[0]
+        a = np.mean(case.hist[-1, -len(case.est_p):, :], axis=-1)
+        b, t_b = case.bias.timeIntegrate(Nt=Nt, y=[y, a])
         case.bias.updateHistory(b, t_b)
     return case
 
