@@ -41,7 +41,7 @@ def Cheb(Nc, lims=[0, 1], getg=False):  # ______________________________________
         return D
 
 
-def createObservations(classType, TA_params=None, t_min=.5, t_max=8., kmeas=1E-3):
+def createObservations(classType, TA_params=None, t_max=8.):
     if type(classType) is str:
         try:
             mat = sio.loadmat('data/' + classType)
@@ -49,10 +49,15 @@ def createObservations(classType, TA_params=None, t_min=.5, t_max=8., kmeas=1E-3
             t_obs = mat['t_obs'].transpose()
             if len(np.shape(t_obs)) > 1:
                 t_obs = np.squeeze(t_obs, axis=-1)
-            dt = t_obs[1] - t_obs[0]
             if t_obs[-1] < t_max:
                 t_max = t_obs[-1]
                 print('Data too short. Redefine t_max = ', t_max)
+            elif t_obs[-1] > t_max:
+                # t_max = t_obs[-1]
+                idx = np.argmin(abs(t_obs - t_max))
+                t_obs = t_obs[:idx+1]
+                p_obs = p_obs[:idx + 1]
+                print('Data too long. Redefine t_max = ', t_max)
 
         except:
             raise ValueError('File ' + classType + ' not defined')
@@ -87,17 +92,13 @@ def createObservations(classType, TA_params=None, t_min=.5, t_max=8., kmeas=1E-3
                 pickle.dump(case, f)
         # Retrieve observables
         t_obs = case.hist_t
-        p_obs, _ = case.getObservableHist()
+        p_obs = case.getObservableHist()[0]
         if len(np.shape(p_obs)) > 2:
             p_obs = np.squeeze(p_obs, axis=2)
-        dt = case.dt
+
         filename = name.split('Truth_')[-1]
+    return p_obs, t_obs, filename
 
-    # Keep only after transient solution
-    # kmeas = int(kmeas // dt) + 1
-    obs_idx = np.arange(round(t_min / dt), round(t_max / dt)+1, kmeas)
-
-    return p_obs, t_obs, obs_idx, filename
 
 
 def RK4(t, q0, func, *kwargs):
