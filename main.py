@@ -5,8 +5,6 @@ Created on Fri Apr  8 09:06:25 2022
 @author: an553
 """
 import os
-# ___________________________________ #
-import time
 import matplotlib.pyplot as plt
 import numpy as np
 import pickle
@@ -15,23 +13,33 @@ from Ensemble import createEnsemble
 from DA import dataAssimilation
 import TAModels
 import Bias
-from scipy.interpolate import splev, splrep
+
 # ___________________________________ #
 plt.rc('text', usetex=True)
 plt.rc('font', family='serif', size=12)
 plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 
 # %% =====================================  CREATE OBSERVATIONS ===================================== #
-true_model = 'Truth_wave.mat'
-y_true, t_true, name_truth = createObservations(true_model, t_max=3.)
+# true_model = 'Truth_wave.mat'
+# true_params = {}
+true_model = TAModels.Rijke
+true_params = {'law': 'sqrt',
+               'beta': 3E6,
+               'tau': 1.5E-3
+               }
+y_true, t_true, name_truth = createObservations(true_model, true_params, t_max=3.)
+try:
+    name_truth = true_model.name
+except:
+    name_truth = 'Wave'
 
 # Define the observations
 t_start = 0.5
-t_stop = 1.2
-kmeas = 10  # number of time steps between observations
+t_stop = 1.
+kmeas = 50  # number of time steps between observations
 
 dt_true = t_true[1] - t_true[0]
-obs_idx = np.arange(round(t_start / dt_true), round(t_stop/dt_true) + 1, kmeas)
+obs_idx = np.arange(round(t_start / dt_true), round(t_stop / dt_true) + 1, kmeas)
 t_obs = t_true[obs_idx]
 obs = y_true[obs_idx]
 
@@ -44,8 +52,8 @@ num_SE_only = int(0.0 / dt_obs)
 forecast_model = TAModels.Rijke
 biasType = Bias.ESN  # Bias.ESN  # Bias.ESN # None
 
-filt = 'EnKFbias'  # 'EnKFbias' 'EnKF' 'EnSRKF'
-save_ = False  # Save simulation? If false, plot results
+filt = 'EnSRKF'  # 'EnKFbias' 'EnKF' 'EnSRKF'
+save_ = True  # Save simulation? If false, plot results
 k = 1.  # 1E5  # gamma in the equations. Weight of bT Wbb b
 
 model_params = {'law': 'sqrt',
@@ -69,7 +77,7 @@ filter_params = {'m': 10,  # Dictionary of DA parameters
 if biasType is not None:
     if biasType.name == 'ESN':
         # Compute reference bias. Create an ensemble of training data
-        m_train = 50
+        m_train = 10
         std_train = 0.1
         rng = np.random.default_rng(0)
 
@@ -80,8 +88,11 @@ if biasType is not None:
 
         ref_ens = createEnsemble(forecast_model, train_params, model_params)
 
-        name_train = './data/Truth_{}_{}_beta{:.1e}_tau{:.1e}_tmax-{:.2}_std{:.2}_m{}'.format(ref_ens.name,ref_ens.law,
-                      model_params['beta'], model_params['tau'], t_true[-1], std_train, m_train)
+        name_train = './data/Truth_{}_{}_beta{:.1e}_tau{:.1e}_tmax-{:.2}_std{:.2}_m{}'.format(ref_ens.name, ref_ens.law,
+                                                                                              model_params['beta'],
+                                                                                              model_params['tau'],
+                                                                                              t_true[-1], std_train,
+                                                                                              m_train)
         if os.path.isfile(name_train):
             print('Loading Reference solution(s)')
             with open(name_train, 'rb') as f:
@@ -138,7 +149,7 @@ model_params['beta'] = 1E6
 
 ensemble = createEnsemble(forecast_model, filter_params, model_params, bias_params)
 
-for k in [0.4]:#np.linspace(0, 2, 21):
+for k in [0.4]:  # np.linspace(0, 2, 21):
     filter_ens = ensemble.copy()  # copy the initialised ensemble
     filter_ens.bias.k = k
 
@@ -155,7 +166,7 @@ for k in [0.4]:#np.linspace(0, 2, 21):
         if filter_ens.bias is not None:
             y = filter_ens.getObservableHist(Nt_extra)[0]
             a = np.mean(filter_ens.hist[-1, -len(filter_ens.est_p):, :], axis=-1)
-            b, t_b = filter_ens.bias.timeIntegrate(Nt=Nt_extra, y=[y,a])
+            b, t_b = filter_ens.bias.timeIntegrate(Nt=Nt_extra, y=[y, a])
             filter_ens.bias.updateHistory(b, t_b)
 
     # =========================================== SAVE DATA OR PLOT =========================================== #
@@ -167,10 +178,7 @@ for k in [0.4]:#np.linspace(0, 2, 21):
                       num_DA=len(t_obs),
                       Nt_extra=Nt_extra
                       )
-    try:
-        name_truth = true_model.name
-    except:
-        pass
+
     truth = dict(y=y_true,
                  t=t_true,
                  name=name_truth,
@@ -192,13 +200,9 @@ for k in [0.4]:#np.linspace(0, 2, 21):
     else:
         # %% ================================ PLOT time series, parameters and RMS ================================ #
 
-
-
         exec(open("post_process.py").read(), {'parameters': parameters,
                                               'filter_ens': filter_ens,
                                               'truth': truth})
-
-
 
         # ==================== UNCOMMENT TO SAVE FIGURES ============================== #
         # folder = os.getcwd() + "/figs/" + str(date.today()) + "/"

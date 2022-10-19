@@ -16,7 +16,7 @@ from skopt.space import Real
 from skopt.learning import GaussianProcessRegressor as GPR
 from skopt.learning.gaussian_process.kernels import Matern, ConstantKernel
 from skopt.plots import plot_convergence
-from scipy.sparse import csr_matrix, csc_matrix, lil_matrix
+from scipy.sparse import csr_matrix, lil_matrix
 from scipy.sparse.linalg import eigs as sparse_eigs
 
 from datetime import date
@@ -99,34 +99,42 @@ else:
     alpha = []
 
 
+#  ____________________________ APPLY UPSAMPLE - CONVERT INTO ESN dt ______________________________________
 dt_ESN = dt * upsample  # ESN time step
-U = data[:, ::upsample]
+data = data[:, ::upsample]
 
+#  _____________________________________ DATA AUGMENTATION _____________________________________________
+augment_data = True
+if augment_data:
+    norm_alpha = None
+    U = np.vstack([data * 1., data * 1e-2, data * 1e-4])
+
+#  _______________________________ SEPARATE INTO WASH/TRAIN/VAL SETS ________________________________________
 N_dim = U.shape[-1]  # dimension of inputs (and outputs)
-N_alpha = U.shape[0]
-
-#  SEPARATE INTO WASH/TRAIN/VAL SETS ________________________________________
+N_alpha = U.shape[0] # number of training timeseries
 N_train = int(t_train / dt_ESN)
 N_val = int(t_val / dt_ESN)  # length of the data used is train+val
 N_tv = N_train + N_val
 N_wtv = N_wash + N_tv  # useful for compact code later
 
 U_data = U[:, :N_wtv]
-m = U_data.min(axis=1).min(axis=0)
-M = U_data.max(axis=1).max(axis=0)
+# m = U_data.min(axis=1).min(axis=0)
+# M = U_data.max(axis=1).max(axis=0)
+m = np.mean(U_data.min(axis=1), axis=0)
+M = np.mean(U_data.max(axis=1), axis=0)
+
 norm = M - m  # compute norm (normalize inputs by component range)
 
 U_wash = U[:, :N_wash]
 U_tv = U[:, N_wash:N_wtv - 1]
 Y_tv = U[:, N_wash + 1:N_wtv]
 
-# ADD NOISE _________________________________________________________________
-# Add noise to inputs and targets during training. Larger noise_level
-# promote stability in long term, but hinders time accuracy
+# ___________________________________________ ADD NOISE ______________________________________________________
+# Add noise to inputs and targets during training. Larger noise_level promotes stability in long term,
+# but hinders time accuracy
 noisy = True
 noise_level = 0.03  # try increasing if blowing up
 U_std = np.std(U, axis=1)
-
 
 seed = 0
 rnd = np.random.RandomState(seed)
@@ -136,18 +144,18 @@ if noisy:  # input noise (it is not optimized)
         for i in range(N_alpha):
             U_tv[i, :, j] += rnd.normal(0, noise_level * U_std[i, j], N_tv - 1)
 
-# INITIALISE ESN HYPERPARAMETRES ____________________________________________
+# ________________________________________ INITIALISE ESN HYPERPARAMETRES _________________________________________
 bias_in = np.array([.1])  # input bias
 bias_out = np.array([1.0])  # output bias
 connect = 5  # average neuron connections
 sparse = 1 - connect / (N_units - 1)
 
 # Range for hyperparametera (spectral radius and input scaling)
-rho_ = [.5, 1.2]
+rho_ = [.7, 1.1]
 sigin_ = [np.log10(1e-4), np.log10(1e-1)]
-tikh = np.array([1e-4, 1e-8, 1e-12, 1e-16])  # Tikhonov
+tikh = np.array([1e-10, 1e-12, 1e-16])  # Tikhonov
 
-# GRID SEARCH AND BAYESIAN OPTIMISATION PARAMS ______________________________
+# _________________________________ GRID SEARCH AND BAYESIAN OPTIMISATION PARAMS ____________________________________
 n_tot = 20  # Total Number of Function Evaluatuions
 n_in = 0  # Number of Initial random points
 
@@ -174,7 +182,7 @@ print('\n -------------------- HYPERPARAMETER SEARCH ---------------------\n', s
       ' grid points and ' + str(n_tot - n_grid ** 2) + ' points with Bayesian Optimization')
 
 
-# HYPERPARAMS OPTIMISATION FUN ______________________________________________
+# _____________________________________ HYPERPARAMS OPTIMISATION FUN _____________________________________
 def g(val):
     # Gaussian Process reconstruction
     b_e = GPR(kernel=kernell,
@@ -195,13 +203,12 @@ def g(val):
     return res
 
 
-# TRAIN & VALIDATE NETWORK __________________________________________________
+# ________________________________ TRAIN & VALIDATE NETWORK __________________________________
 ti = time.time()  # check time
 
 val = RVC_Noise  # Which validation strategy
-N_fo = 8  # number of folds
+N_fo = 2  # number of folds
 N_in = 0  # interval before the first fold
-# N_fw = N_wash // 2  # NUM Steps forward the val interval is shifted (N_fw*N_fo has to be smaller than N_train)
 N_fw = (N_train-N_val)//(N_fo-1)  # num steps forward the validation interval is shifted (evenly spaced)
 
 # Quantities to be saved
@@ -214,7 +221,9 @@ seed = 1
 rnd = np.random.RandomState(seed)
 
 # ==================================== Win & W generation ==================================== ##
-N_aug = 1 + sum(is_param)
+N_aug = 1
+if norm_alpha is not None:
+    N_aug += sum(is_param)
 Win = lil_matrix((N_units, N_dim + N_aug))
 for j in range(N_units):
     Win[j, rnd.randint(0, N_dim + 1)] = rnd.uniform(-1, 1)
@@ -240,14 +249,19 @@ Wout = train_save_n(U_wash, U_tv, U[:, N_wash + 1:N_wtv], minimum[2], 10**minimu
 print('\n Time per hyperparameter eval.:', (time.time() - ti) / n_tot,
       '\n Best Results: x', minimum[0], 10 ** minimum[1], minimum[2], ', f', -minimum[-1])
 
-plt.figure()
+
+
+pdf = plt_pdf.PdfPages(filename[:-len('bias')] + 'Training.pdf')
+
+fig = plt.figure()
 plot_convergence(res)
+pdf.savefig(fig)
+plt.close(fig)
 
 # %%
-# OUTPUTS: PLOT SEARCH AND SAVE DATA ________________________________________
-# Plot Gaussian Process reconstruction for each network in the ensemble after
-# n_tot evaluations. The GP reconstruction is based on the n_tot function 
-# evaluations decided in the search
+# ________________________________ OUTPUTS: PLOT SEARCH AND SAVE DATA ________________________________
+# Plot Gaussian Process reconstruction for each network in the ensemble after n_tot evaluations.
+# The GP reconstruction is based on the n_tot function evaluations decided in the search
 n_len = 100  # points to evaluate the GP at
 xx, yy = np.meshgrid(np.linspace(rho_[0], rho_[1], n_len),
                      np.linspace(sigin_[0], sigin_[1], n_len))
@@ -273,8 +287,8 @@ plt.plot(x_iters[:n_grid ** 2, 0], x_iters[:n_grid ** 2, 1], 'v', c='w',
 plt.plot(x_iters[n_grid ** 2:, 0], x_iters[n_grid ** 2:, 1], 's', c='w',
          alpha=0.8, markeredgecolor='k', markersize=8)
 
-# plt.savefig(filename[:-len('bias')] + 'Hyperparameter_search.pdf')
-
+pdf.savefig(fig)
+plt.close(fig)
 
 # RUN TEST IF REQUESTED _____________________________________________________
 if test_run:
@@ -284,22 +298,26 @@ if test_run:
     N_test = 50
     if N_test * t_val > max_test_time:
         N_test = int(np.floor(max_test_time / t_val))
-
     # Break if not enough data for testing
     if N_test < 1:
         print('Test not performed. Not enough data')
     else:
+        medians_alpha = []
+        maxs_alpha = []
+        alph = None
+        sub_loop = 5  # number of closed loop re-initialisations with true data
+        N_reinit = N_val // sub_loop  # time between closed loop re-initialisations
+
+        # load matrices and hyperparameters
+        rho = minimum[0].copy()
+        sigma_in = 10 ** minimum[1].copy()
         for kk in range(N_alpha):
+            if norm_alpha is not None:
+                alph = alpha[kk]
             subplots = min(10, N_test)  # number of plotted intervals
             plt.rcParams["figure.figsize"] = (10, subplots * 2)
             plt.subplots(subplots, 1)
 
-            sub_loop = 5  # number of closed loop re-initialisations with true data
-            N_reinit = N_val // sub_loop  # time between closed loop re-initialisations
-
-            # load matrices and hyperparameters
-            rho = minimum[0].copy()
-            sigma_in = 10 ** minimum[1].copy()
             errors = np.zeros(N_test)
             # Different intervals in the test set
             i = -1
@@ -314,15 +332,14 @@ if test_run:
                 U_wash = U[kk, N_t0 - N_wash + i * N_val: N_t0 + i * N_val]
                 Y_t = U[kk, N_t0 + i * N_val: N_t0 + i * N_val + N_reinit * sub_loop]
                 # washout for each interval
-                xa1 = open_loop(U_wash, np.zeros(N_units), sigma_in, rho, alpha[kk])[-1]
-                Yh_t, xa1 = closed_loop(N_reinit - 1, xa1, Wout, sigma_in, rho, alpha[kk])
+                xa1 = open_loop(U_wash, np.zeros(N_units), sigma_in, rho, alph)[-1]
+                Yh_t, xa1 = closed_loop(N_reinit - 1, xa1, Wout, sigma_in, rho, alph)
                 try:
                     # Do the multiple sub_loop inside each test interval
                     if sub_loop > 1:
                         for j in range(sub_loop - 1):
                             Y_start = Y_t[(j + 1) * N_reinit - 1].copy()  #
-                            # Y_start    = Yh_t[-1].copy()# #uncomment this to not update input
-                            Y1, xa1 = closed_loop(N_reinit, xa1, Wout, sigma_in, rho, alpha[kk])
+                            Y1, xa1 = closed_loop(N_reinit, xa1, Wout, sigma_in, rho, alph)
                             Yh_t = np.concatenate((Yh_t, Y1[1:]))
                     errors[i] = np.log10(np.mean((Yh_t - Y_t) ** 2) / np.mean(norm ** 2))
                     if i < subplots:
@@ -331,27 +348,29 @@ if test_run:
                                  label='truth N_dim ' + str(ii))
                         plt.plot(np.arange(N_reinit * sub_loop) * dt_ESN, Yh_t[:, ii], '--r',
                                  label='ESN N_dim ' + str(ii))
-                        plt.legend(title='Test \\#' + str(i), loc='upper left', bbox_to_anchor=(1.01, 1.01))
+                        plt.legend(title='Test \#' + str(i), loc='upper left', bbox_to_anchor=(1.01, 1.01))
                     if ii == N_dim - 1:
                         ii = -1
-
                 except:
                     raise Exception('error at i = ', i, ', N_test = ', N_test)
-
-            print('Median and max error in test:', np.median(errors), errors.max())
+            maxs_alpha.append(errors.max())
+            medians_alpha.append(np.median(errors))
             plt.tight_layout()
-        # plt.savefig(filename[:-len('bias')] + 'Test_run.pdf')
+            fig = plt.gcf()
+            pdf.savefig(fig)
+            plt.close(fig)
+        print('Median and max error in', N_alpha, ' test:', np.median(medians_alpha), max(maxs_alpha))
 
 # ===================================== Save output and images ========================================== %
 
 save_dict = dict(t_train=t_train,
                  t_val=t_val,
                  norm=norm,
-                 norm_alpha=norm_alpha,
                  Win=Win.T,
                  Wout=Wout,
                  W=W,
                  dt_ESN=dt_ESN,
+                 N_augment=int(N_alpha),
                  N_wash=int(N_wash),
                  N_units=int(N_units),
                  N_dim=int(N_dim),
@@ -364,16 +383,12 @@ save_dict = dict(t_train=t_train,
                  training_time=(N_train + N_val) * dt_ESN,
                  filename=filename
                  )
+if norm_alpha is not None:
+    save_dict['norm_alpha'] = norm_alpha
 
 savemat(filename[:-len('bias')] + 'ESN'+str(N_units)+'.mat', save_dict, oned_as='column')
 
-# print('mat = ', time.time() - t1)
 
-
-pdf = plt_pdf.PdfPages(filename[:-len('bias')] + 'Training.pdf')
-for fig in range(1, plt.gcf().number + 1):
-    pdf.savefig(fig)
-    plt.close(fig)
 pdf.close()
 
 

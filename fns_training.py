@@ -16,15 +16,17 @@ def RVC_Noise(x):
 
     if k == 0:
         print('\t\t rho \t sigma_in \t tikhonov  \t MSE val ')
-
+    alph = None
     for kk in range(N_alpha):
+        if norm_alpha is not None:
+            alph = alpha[kk]
         # Different validation folds
         for i in range(N_fo):
             p = N_in + i * N_fw
             Y_val = U[kk, N_wash + p: N_wash + p + N_val].copy()  # data to compare the cloop prediction with
 
             for j in range(len_tikn):
-                Yh_val = closed_loop(N_val - 1, Xa_train[kk, p], Wout[j], sigma_in, rho, alpha[kk])[0]  # cloop for each tikh-noise combinatio
+                Yh_val = closed_loop(N_val - 1, Xa_train[kk, p], Wout[j], sigma_in, rho, alph)[0]  # cloop for each tikh-noise combinatio
                 Mean[j] += np.log10(np.mean((Y_val - Yh_val) ** 2) / np.mean(norm ** 2))
 
                 # prevent from diverging to infinity: put MSE equal to 10^10 (useful for hybrid and similar
@@ -55,12 +57,13 @@ def step(x_pre, u, sigma_in, rho, alpha):
             new augmented state (new state with bias_out appended)
     """
     # input is normalized and input bias added
-    u_augmented = np.hstack((u / norm, bias_in, alpha/norm_alpha))
+    u_augmented = np.hstack((u / norm, bias_in))
 
-    # print(u_augmented.shape)
+    if norm_alpha is not None:
+        u_augmented = np.hstack((u_augmented, alpha/norm_alpha))
+
 
     # hyperparameters are explicit here
-    # x_post = np.tanh(np.dot(u_augmented * sigma_in, Win) + rho * np.dot(x_pre, W))
     x_post = np.tanh(Win.dot(u_augmented*sigma_in) + W.dot(rho*x_pre))
 
     # output bias added
@@ -97,7 +100,6 @@ def closed_loop(N, x0, Wout, sigma_in, rho, alpha):
     """
     xa = x0.copy()
     Yh = np.empty((N + 1, N_dim))
-    # Yh[0] = np.dot(xa, Wout)
     Yh[0] = np.dot(xa, Wout)
     for i in np.arange(1, N + 1):
         xa = step(xa[:N_units], Yh[i - 1], sigma_in, rho, alpha)
@@ -117,21 +119,18 @@ def train_n(U_wash, U_train, Y_train, tikh, sigma_in, rho):
             optimal output matrix
     """
 
-    # if len(np.shape(U_wash)) < 3:
-    #     U_wash = np.expand_dims(U_wash, 0)
-    #     U_train = np.expand_dims(U_train, 0)
-    #     Y_train = np.expand_dims(Y_train, 0)
-
     LHS = 0.
     RHS = 0.
     Xa = []
+    alph = None
     for kk in range(N_alpha):
+        if norm_alpha is not None:
+            alph = alpha[kk]
         # Washout phase
-        xf_washout = open_loop(U_wash[kk], np.zeros(N_units), sigma_in, rho, alpha[kk])[-1, :N_units]
+        xf_washout = open_loop(U_wash[kk], np.zeros(N_units), sigma_in, rho, alph)[-1, :N_units]
 
-        #
         # Open-loop train phase
-        Xa.append(open_loop(U_train[kk], xf_washout, sigma_in, rho, alpha[kk]))
+        Xa.append(open_loop(U_train[kk], xf_washout, sigma_in, rho, alph))
 
         # Compute matrices for linear regression system
         LHS += np.dot(Xa[kk][1:].T, Xa[kk][1:])
@@ -160,19 +159,18 @@ def train_save_n(U_wash, U_train, Y_train, tikh, sigma_in, rho):
             optimal output matrix
     """
 
-    # if len(np.shape(U_wash)) < 3:
-    #     U_wash = np.expand_dims(U_wash, 0)
-    #     U_train = np.expand_dims(U_train, 0)
-    #     Y_train = np.expand_dims(Y_train, 0)
 
     LHS = 0.
     RHS = 0.
+    alph = None
     for kk in range(N_alpha):
+        if norm_alpha is not None:
+            alph = alpha[kk]
         # Washout phase
-        xf_washout = open_loop(U_wash[kk], np.zeros(N_units), sigma_in, rho, alpha[kk])[-1, :N_units]
+        xf_washout = open_loop(U_wash[kk], np.zeros(N_units), sigma_in, rho, alph)[-1, :N_units]
 
         # Open-loop train phase
-        Xa = open_loop(U_train[kk], xf_washout, sigma_in, rho, alpha[kk])
+        Xa = open_loop(U_train[kk], xf_washout, sigma_in, rho, alph)
 
         # Compute matrices for linear regression system
         LHS += np.dot(Xa[1:].T, Xa[1:])

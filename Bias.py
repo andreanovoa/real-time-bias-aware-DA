@@ -173,7 +173,7 @@ class ESN(Bias):
         for key, val in fileESN.items():
             if key[0] != '_':
                 try:
-                    if key in ['N_wash', 'N_units', 'N_dim', 'upsample']:
+                    if key in ['N_wash', 'N_units', 'N_dim', 'upsample', 'N_augment']:
                         setattr(self, key, int(val))
                     # elif np.shape(val)[-1] == 1:
                     elif key in ['dt_ESN', 'rho', 'sigma_in', 'upsample']:
@@ -201,13 +201,17 @@ class ESN(Bias):
         # plt.plot(self.washout_t[0], self.washout_obs[0,0], '*')
         # plt.show()
 
+        self.parametrise = Bdict['trainData'].shape[-1] == self.N_augment
         print('\n -------------------- ', title, ' -------------------- \n',
               'Data filename: ', str(self.filename),
-              '\n', 'Training time: ', float(self.t_train),
-              's \n Validation time: ', float(self.t_val), 's',
+              '\n', 'Training time: ', float(self.t_train), ' s',
+              '\n Validation time: ', float(self.t_val), ' s',
               '\n', 'Washout time steps: ', self.N_wash,
               '\n', 'Number of neurones: ', self.N_units,
-              '\n Upsample: ', self.upsample, '\n', 'Run test?: ', self.test_run)
+              '\n Upsample: ', self.upsample,
+              '\n Data augmentation factor: ', self.N_augment / Bdict['trainData'].shape[-1],
+              '\n Parametrise ESN: ', self.parametrise,
+              '\n Run test?: ', self.test_run)
 
         # -----------  Initialise reservoir state and its history to zeros ------------ #
         self.r = np.zeros(self.N_units)
@@ -218,14 +222,14 @@ class ESN(Bias):
 
         super().__init__(b, t)
 
-    def getBias(self, *args):
-        return self.b
-
     def getWeights(self):  # TODO maybe
         pass
 
     def updateWeights(self, weights):  # TODO maybe
         pass
+
+    def getBias(self, *args):
+        return self.b
 
     def getReservoirState(self):
         return self.b, self.r
@@ -265,9 +269,10 @@ class ESN(Bias):
 
     def timeIntegrate(self, Nt=100, y=None):
 
-        self.alph = y[1]
         # print(self.alph)
         y = y[0]
+        if self.parametrise:
+            self.alph = y[1]
 
         Nt = int(round(Nt / self.upsample))
 
@@ -320,7 +325,9 @@ class ESN(Bias):
                 new reservoir state (no bias_out)
         """
         # Normalise input data and augment with input bias (ESN symmetry parameter)
-        b_aug = np.concatenate((b / self.norm, self.bias_in, self.alph/self.norm_alpha))
+        b_aug = np.concatenate((b / self.norm, self.bias_in))
+        if self.parametrise:
+            b_aug = np.concatenate((b_aug, self.alph/self.norm_alpha))
         # Forecast the reservoir state
         # r_out = np.tanh(np.dot(b_aug * self.sigma_in, self.Win) + self.rho * np.dot(r, self.W))
 

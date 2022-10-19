@@ -187,8 +187,6 @@ def analysisStep(case, d, Cdd, filt='EnSRKF', getJ=False):
         Af = Af[:-len(case.est_p), :]
         M = M[:, :-len(case.est_p)]
 
-    J = np.array([0., 0., 0.])  # initialise cost function
-
     # ======================== APPLY SELECTED FILTER ======================== #
 
     if filt == 'EnKFbias':
@@ -210,10 +208,10 @@ def analysisStep(case, d, Cdd, filt='EnSRKF', getJ=False):
         # Cbb = np.eye(len(d))
 
         if case.activate_bias_aware:
-            Aa = EnKFbias(Af, d, Cdd, Cbb, k, M, b, db)
+            Aa, J = EnKFbias(Af, d, Cdd, Cbb, k, M, b, db)
             # print('Activated bias-aware')
         else:
-            Aa = EnKF(Af, d, Cdd, M)
+            Aa, J = EnKF(Af, d, Cdd, M)
 
     else:
         # --------------- Augment state matrix with biased Y --------------- #
@@ -228,9 +226,9 @@ def analysisStep(case, d, Cdd, filt='EnSRKF', getJ=False):
 
         Af = np.vstack((Af, y))
         if filt == 'EnSRKF':
-            Aa = EnSRKF(Af, d, Cdd, M)
+            Aa, J = EnSRKF(Af, d, Cdd, M)
         elif filt == 'EnKF':
-            Aa = EnKF(Af, d, Cdd, M)
+            Aa, J = EnKF(Af, d, Cdd, M)
         else:
             raise ValueError('Filter ' + filt + ' not defined.')
 
@@ -246,23 +244,8 @@ def analysisStep(case, d, Cdd, filt='EnSRKF', getJ=False):
                 if not checkParams(Aa, case):
                     print('booooo')
                     Aa = Af.copy()
-                J = np.array([None, None, None])
+                J = np.array([None]*4)
                 return Aa[:-np.size(y, 0), :], J
-
-    # ============================== COMPUTE COST FUNCTION ============================== #
-    if getJ:
-        y += np.expand_dims(b, 1)
-        Wdd = linalg.inv(Cdd)
-        Psif = Af - np.mean(Af, -1, keepdims=True)
-        Cpp = np.dot(Psif, Psif.T)
-        Wpp = linalg.pinv(Cpp)
-
-        J[0] = np.dot(np.mean(Af - Aa, -1).T, np.dot(Wpp, np.mean(Af - Aa, -1)))
-        J[1] = np.dot(np.mean(np.expand_dims(d, -1) - y, -1).T, np.dot(Wdd, np.mean(np.expand_dims(d, -1) - y, -1)))
-        if filt == 'EnKFbias':  # Add bias term to cost function
-            Wbb = linalg.pinv(Cbb)
-            # J[2] = k * np.dot(np.mean(b, -1).T, np.dot(Wbb, np.mean(b, -1)))
-            J[2] = k * np.dot(b.T, np.dot(Wbb, b))
 
     return Aa[:-np.size(y, 0), :], J
 
@@ -335,11 +318,23 @@ def EnSRKF(Af, d, Cdd, M):
     # Analysis deviations
     Psi_a = np.dot(Psi_f, np.dot(V, np.dot(sqrtIE, V.T)))
     Aa = psi_a_m + Psi_a
+
+    J = np.array([None]*4)
     if np.isreal(Aa).all():
-        return Aa
+        y = Aa[-len(d):]
+        Wdd = linalg.inv(Cdd)
+        Cpp = np.dot(Psi_f, Psi_f.T)
+        Wpp = linalg.pinv(Cpp)
+
+        J[0] = np.dot(np.mean(Af - Aa, -1).T, np.dot(Wpp, np.mean(Af - Aa, -1)))
+        J[1] = np.dot(np.mean(np.expand_dims(d, -1) - y, -1).T, np.dot(Wdd, np.mean(np.expand_dims(d, -1) - y, -1)))
+
+        # dJdpsi =
+
+        return Aa, J
     else:
         print('Aa not real')
-        return Af
+        return Af, J
 
 
 # =================================================================================================================== #
@@ -378,11 +373,21 @@ def EnKF(Af, d, Cdd, M):
     psi_a_m = np.mean(Aa, -1, keepdims=True)
     Aa = psi_a_m + (Aa - psi_a_m)
 
+    J = np.array([None] * 4)
     if np.isreal(Aa).all():
-        return Aa
+        y = Aa[-len(d):]
+        Cpp = np.dot(Psi_f, Psi_f.T)
+        Wdd = linalg.inv(Cdd)
+        Wpp = linalg.pinv(Cpp)
+
+        J[0] = np.dot(np.mean(Af - Aa, -1).T, np.dot(Wpp, np.mean(Af - Aa, -1)))
+        J[1] = np.dot(np.mean(np.expand_dims(d, -1) - y, -1).T, np.dot(Wdd, np.mean(np.expand_dims(d, -1) - y, -1)))
+
+
+        return Aa, J
     else:
         print('Aa not real')
-        return Af
+        return Af, J
 
 
 # =================================================================================================================== #
@@ -432,13 +437,24 @@ def EnKFbias(Af, d, Cdd, Cbb, k, M, b, dbdy):
     K = np.dot(np.dot(Psi_f, S.T), linalg.inv((m - 1) * C + np.dot(S, S.T)))
     Aa = Af + np.dot(K, np.dot(C, Q) - np.dot(M, Af))
 
+    J = np.array([None] * 4)
     if np.isreal(Aa).all():
-        return Aa
+        y = Aa[-len(d):]
+        Wdd = linalg.inv(Cdd)
+        Cpp = np.dot(Psi_f, Psi_f.T)
+        Wpp = linalg.pinv(Cpp)
+        Wbb = linalg.pinv(Cbb)
+
+        J[0] = np.dot(np.mean(Af - Aa, -1).T, np.dot(Wpp, np.mean(Af - Aa, -1)))
+        J[1] = np.dot(np.mean(np.expand_dims(d, -1) - y, -1).T, np.dot(Wdd, np.mean(np.expand_dims(d, -1) - y, -1)))
+
+        # J[2] = k * np.dot(np.mean(b, -1).T, np.dot(Wbb, np.mean(b, -1)))
+        J[2] = k * np.dot(b.T, np.dot(Wbb, b))
+
+        return Aa, J
     else:
         print('Aa not real')
-        return Af
-
-
+        return Af, J
 
     # #  Ensemble bias implementation
     # Aa = np.zeros(np.shape(Af))

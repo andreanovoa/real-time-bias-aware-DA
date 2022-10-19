@@ -8,8 +8,16 @@ plt.rc('text', usetex=True)
 plt.rc('font', family='serif', size=16)
 plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 
-from scipy.io import savemat
-from mpl_toolkits.axes_grid1.inset_locator import zoomed_inset_axes
+
+if __name__ == '__main__':
+    folder = 'results/'
+    name = folder + 'EnSRKF_TruthRijke_ForecastRijke_BiasESN_k0.4_new-ESN'
+    with open(name, 'rb') as f:
+        parameters = pickle.load(f)
+        createEnsemble(parameters['forecast_model'])
+
+        truth = pickle.load(f)
+        filter_ens = pickle.load(f)
 
 filt = parameters['filt']
 biasType = parameters['biasType']
@@ -66,14 +74,12 @@ if filter_ens.bias is not None:
     t_b = filter_ens.bias.hist_t
 
     # spline = CubicSpline(t_b, b, extrapolate=False)
-    # b_up = spline(t)
-    spline = interp1d(t_b, b, kind='cubic', axis=0, copy=True, bounds_error=False, fill_value=0)
-    b_up = spline(t)
 
-    # b_up = np.array([splev(t, splrep(t_b, b[:, i])) for i in range(filter_ens.bias.N_dim)]).transpose()
-    b_up = np.expand_dims(b_up, -1)
+    y_unbiased = y_filter[::filter_ens.bias.upsample] + np.expand_dims(b, -1)
 
-    y_unbiased = y_filter + b_up
+    spline = interp1d(t_b, y_unbiased, kind='cubic', axis=0, copy=True, bounds_error=False, fill_value=0)
+    y_unbiased = spline(t)
+
     y_mean_u = np.mean(y_unbiased, -1)
 
     t_wash = filter_ens.bias.washout_t
@@ -88,7 +94,7 @@ if filter_ens.bias is not None:
     zoom_ax.plot(t, y_mean_u[:, 0], '-', color=c, label='Unbiased filtered signal', linewidth=1.5)
 
     # BIAS PLOT
-    bias_ax.plot(t, b_up[:, 0], alpha=0.75, label='ESN estimation')
+    bias_ax.plot(t_b, b[:, 0], alpha=0.75, label='ESN estimation')
     # bias_ax.plot(t_b, b[:, 0], '-o', alpha=0.75, label='ESN upsample estimation')
     b_obs = y_true[:len(y_filter)] - y_filter
 
@@ -192,16 +198,6 @@ end_idx = min(len(y_mean), int((t_obs[-1] + 0.2) // dt))
 plt.show()
 
 
-
-if __name__ == '__main__':
-    folder = 'results/'
-    name = folder + 'EnKFbias_TruthWave_ForecastRijke_BiasESN_k0.4_new-ESN'
-    with open(name, 'rb') as f:
-        parameters = pickle.load(f)
-        createEnsemble(parameters['forecast_model'])
-
-        truth = pickle.load(f)
-        filter_ens = pickle.load(f)
 
 
 
