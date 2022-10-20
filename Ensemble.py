@@ -41,13 +41,13 @@ def globalforecast(y0, fun, t, params):
 globalp = mp.Pool()
 
 # ========================================================================= #
-def createEnsemble(parent, Ens_params=None, TA_params=None, Bias_params=None):
+def createEnsemble(parent, DA_params=None, TA_params=None, Bias_params=None):
     """ Function that creates an ensemble of the class parent.
         - Example of implementation:
             import Rijke as TA_model
-            model_params    =   {'dt':1E-4, 'tau':2E-3}
-            filter_params   =   {'m':5, 'est_p':['beta']}
-            ensemble = createEnsemble(TA_model, filter_params, model_params
+            TA_params    =   {'dt':1E-4, 'tau':2E-3}
+            DA_params   =   {'m':5, 'est_p':['beta']}
+            ensemble = createEnsemble(TA_model, DA_params, TA_params)
     """
     # p = mp.Pool(10)
     # new_p = Multiprocessor()
@@ -70,7 +70,7 @@ def createEnsemble(parent, Ens_params=None, TA_params=None, Bias_params=None):
                     Bdict: dictionary of parameters related to the model of the Bias
             """
 
-            ## ======================= INITIALISE ENSEMBLE ======================= ##
+            # ======================= INITIALISE ENSEMBLE ======================= ##
             if DAdict is None:
                 DAdict = {}
             for key, val in Ensemble.attr_ens.items():
@@ -79,16 +79,16 @@ def createEnsemble(parent, Ens_params=None, TA_params=None, Bias_params=None):
                 else:
                     setattr(self, key, val)
 
-            ## ================ INITIALISE THERMOACOUSTIC MODEL ================== ##
+            # ================ INITIALISE THERMOACOUSTIC MODEL ================== ##
             if TAdict is None:
                 TAdict = {}
             super().__init__(TAdict)
 
-            ## =========================== INITIALISE J ========================== ##
+            # =========================== INITIALISE J ========================== ##
             if self.getJ:
                 self.hist_J = []
 
-            ## ======================= DEFINE STATE MATRIX ======================= ##
+            # ======================= DEFINE STATE MATRIX ======================= ##
             # Note: if est_p and est_b psi = [psi; alpha; biasWeights]
             mean = np.array(self.psi0)  # * rng.uniform(0.9, 1.1, len(self.psi0))
             cov = np.diag(self.std_psi ** 2 * abs(mean))
@@ -107,7 +107,7 @@ def createEnsemble(parent, Ens_params=None, TA_params=None, Bias_params=None):
                     i += 1
                 self.psi = np.vstack((self.psi, ens_a))
 
-            ## ========================= INITIALISE BIAS ========================= ##
+            # ========================= INITIALISE BIAS ========================= ##
             if self.bias is not None:
                 if Bdict is None:
                     Bdict = {}
@@ -287,7 +287,7 @@ def createEnsemble(parent, Ens_params=None, TA_params=None, Bias_params=None):
 
             return deepcopy(self)
 
-    return Ensemble(Ens_params, TA_params, Bias_params)
+    return Ensemble(DA_params, TA_params, Bias_params)
 
 
 # %% ======================================================================= #

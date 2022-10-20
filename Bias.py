@@ -161,14 +161,6 @@ class ESN(Bias):
             title = 'LOADED ESN PARAMETERS'
 
         # --------------------------- Load trained ESN --------------------------- #
-        # t1 = time.time()
-        # fileESN = np.load(ESN_filename+'.npz', allow_pickle=True)  # load .npz output from training_main
-        # for attr in fileESN.files:
-        #     setattr(self, attr, fileESN[attr])
-        #
-        # print('npz = ', time.time() - t1)
-
-        # t1 = time.time()
         fileESN = loadmat(ESN_filename)
         for key, val in fileESN.items():
             if key[0] != '_':
@@ -180,19 +172,16 @@ class ESN(Bias):
                         setattr(self, key, float(val))
                     else:
                         setattr(self, key, np.squeeze(val, axis=1))
-
                 except:
                     setattr(self, key, val)
-
-        # print('mat = ', time.time() - t1)
 
         # --------------------- Create washout observed data ---------------------- #
         # self.N_wash = 1
         self.washout_obs = np.flip(Bdict['washout_obs'][:-self.N_wash * self.upsample:-self.upsample].squeeze(), axis=0)
         self.washout_t = np.flip(Bdict['washout_t'][:-self.N_wash * self.upsample:-self.upsample])
 
-
         assert self.washout_t[-1] == Bdict['washout_t'][-1]
+
         # self.Win = lil_matrix(self.Win)
         #
         # plt.figure()
@@ -249,8 +238,8 @@ class ESN(Bias):
         # Get current state
         bin, rin = self.getReservoirState()
 
-        Win_1 = self.Win[:-3, :].transpose()
-        Wout_1 = self.Wout[:-1, :].transpose()
+        Win_1 = self.Win[:self.N_dim, :].transpose()
+        Wout_1 = self.Wout[:self.N_units, :].transpose()
 
         # # Option(i) rin function of bin:
         # b_aug = np.concatenate((bin / self.norm, np.array([self.bias_in])))
@@ -269,7 +258,6 @@ class ESN(Bias):
 
     def timeIntegrate(self, Nt=100, y=None):
 
-        # print(self.alph)
         y = y[0]
         if self.parametrise:
             self.alph = y[1]
@@ -289,30 +277,32 @@ class ESN(Bias):
             washout = wash_obs - wash_model
 
             # open loop initialisation of the ESN
-            u_open, r_open = self.openLoop(washout)
+            b_open, r_open = self.openLoop(washout)
 
-            # do not keep the open-loop bias in the history (do not want jumps!)
+            # do not keep the open-loop bias in the history if prefer a smooth plot
             b = np.zeros((Nt + 1, self.N_dim))
             r = np.zeros((Nt + 1, self.N_units))
 
-            b[-self.N_wash:] = washout
-            b[-1] = u_open[-1]
-            r[-self.N_wash:] = r_open
+            self.b = b_open[-1]
+            self.r = r_open[-1]
+
+
+            Nt_open = len(self.washout_t)
+
+            Nt_closed = round((t_b[-1] - self.washout_t[-1]) / self.dt_ESN)
+            b_closed, r_closed = self.closedLoop(Nt_closed)
+
+            b[-(Nt_open+Nt_closed):] = np.append(b_open, b_closed[1:], axis=0)
+            r[-(Nt_open+Nt_closed):] = np.append(r_open, r_closed[1:], axis=0)
 
             # # ESN PLOT DEBUG
-            # plt.plot(self.washout_t, washout[:,0], '-o')
-            # plt.plot(t_b[1:], b[1:, 0], '-x')
-            # plt.legend()
-
             # plt.figure()
+            # plt.plot(self.washout_t, washout[:, 0], '-o')
+            # plt.plot(t_b[1:], b[1:, 0], '-x')
             # plt.show()
-
-            # update bias state
-            # self.b = u_open[-1]
 
         else:
             b, r = self.closedLoop(Nt)
-            # update bias history
 
         # update bias and reservoir history
         self.updateReservoir(r[1:])

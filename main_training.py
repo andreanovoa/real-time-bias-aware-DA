@@ -250,8 +250,7 @@ print('\n Time per hyperparameter eval.:', (time.time() - ti) / n_tot,
       '\n Best Results: x', minimum[0], 10 ** minimum[1], minimum[2], ', f', -minimum[-1])
 
 
-
-pdf = plt_pdf.PdfPages(filename[:-len('bias')] + 'Training.pdf')
+pdf = plt_pdf.PdfPages(filename[:-len('bias')] + 'ESN'+str(N_units) +'_Training.pdf')
 
 fig = plt.figure()
 plot_convergence(res)

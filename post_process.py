@@ -177,7 +177,8 @@ if filter_ens.getJ:
     # ax[1, 1].plot(t_obs[:num_DA], np.sum(J, -1), label='$\\mathcal{J}$')
 
     J_ax.set(ylabel='Cost function $\mathcal{J}$', xlabel='$t$', xlim=x_lims, yscale='log')
-    J_ax.legend(['$\\mathcal{J}_{\\psi}$', '$\\mathcal{J}_{d}$', '$\\mathcal{J}_{b}$'], bbox_to_anchor=(1., 1.),
+    J_ax.legend(['$\\mathcal{J}_{\\psi}$', '$\\mathcal{J}_{d}$',
+                 '$\\mathcal{J}_{b}$', '$d\\mathcal{J}/d\\psi$'], bbox_to_anchor=(1., 1.),
                 loc="upper left", ncol=1)
 
 plt.tight_layout()

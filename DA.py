@@ -74,6 +74,7 @@ def dataAssimilation(ensemble,
 
     ensemble.activate_bias_aware = False
     ensemble.activate_parameter_estimation = False
+    Cdd = np.diag((std_obs * np.ones(np.size(obs[ti])) * max(abs(obs[ti]))) ** 2)
     while True:
         if ti >= ensemble.num_DA_blind:
             ensemble.activate_bias_aware = True
@@ -81,8 +82,8 @@ def dataAssimilation(ensemble,
             ensemble.activate_parameter_estimation = True
         # ------------------------------  PERFORM ASSIMILATION ------------------------------ #
         # Define observation covariance matrix
-        Cdd = np.diag((std_obs * np.ones(np.size(obs[ti])) * max(abs(obs[ti]))) ** 2)
-        # Cdd = np.diag((std_obs * np.ones(np.size(obs[ti]))  * 101325)**2)
+        # Cdd = np.diag((std_obs * np.ones(np.size(obs[ti])) * max(abs(obs[ti]))) ** 2)
+        # Cdd = np.diag((std_obs * np.ones(np.size(obs[ti]))  * 1013250)**2)
         # Cdd = np.diag((std_obs * obs[ti])**2)
 
         # Analysis step
@@ -102,7 +103,7 @@ def dataAssimilation(ensemble,
                 y = ensemble.getObservables()
                 b = obs[ti] - np.mean(y, -1)
                 ensemble.bias.b = b
-                # ensemble.bias.hist[-1] = b
+                ensemble.bias.hist[-1] = b
 
                 # ESN PLOT DEBUG
                 # if flag:
@@ -116,7 +117,6 @@ def dataAssimilation(ensemble,
             #     ensemble.bias.updateWeights(b_weights)
 
         # ------------------------------ FORECAST TO NEXT OBSERVATION ---------------------- #
-        flag = True
         # next observation index
         ti += 1
         if ti >= num_obs:
@@ -321,16 +321,17 @@ def EnSRKF(Af, d, Cdd, M):
 
     J = np.array([None]*4)
     if np.isreal(Aa).all():
-        y = Aa[-len(d):]
+        Ya = Aa[-len(d):]
         Wdd = linalg.inv(Cdd)
         Cpp = np.dot(Psi_f, Psi_f.T)
         Wpp = linalg.pinv(Cpp)
 
         J[0] = np.dot(np.mean(Af - Aa, -1).T, np.dot(Wpp, np.mean(Af - Aa, -1)))
-        J[1] = np.dot(np.mean(np.expand_dims(d, -1) - y, -1).T, np.dot(Wdd, np.mean(np.expand_dims(d, -1) - y, -1)))
+        J[1] = np.dot(np.mean(d - Ya, -1).T, np.dot(Wdd, np.mean(d - Ya, -1)))
 
-        # dJdpsi =
-
+        dJdpsi = np.dot(Wpp, Af - Aa) + np.dot(M.T, np.dot(Wdd, Ya - d))
+        J[3] = abs(np.mean(dJdpsi) / 2.)
+        # print(J[3])
         return Aa, J
     else:
         print('Aa not real')
@@ -375,15 +376,16 @@ def EnKF(Af, d, Cdd, M):
 
     J = np.array([None] * 4)
     if np.isreal(Aa).all():
-        y = Aa[-len(d):]
+        Ya = Aa[-len(d):]
         Cpp = np.dot(Psi_f, Psi_f.T)
         Wdd = linalg.inv(Cdd)
         Wpp = linalg.pinv(Cpp)
 
         J[0] = np.dot(np.mean(Af - Aa, -1).T, np.dot(Wpp, np.mean(Af - Aa, -1)))
-        J[1] = np.dot(np.mean(np.expand_dims(d, -1) - y, -1).T, np.dot(Wdd, np.mean(np.expand_dims(d, -1) - y, -1)))
+        J[1] = np.dot(np.mean(np.expand_dims(d, -1) - Ya, -1).T, np.dot(Wdd, np.mean(np.expand_dims(d, -1) - Ya, -1)))
 
-
+        dJdpsi = np.dot(Wpp, Af - Aa) + np.dot(M.T, np.dot(Wdd, Ya - D))
+        J[3] = abs(np.mean(dJdpsi) / 2.)
         return Aa, J
     else:
         print('Aa not real')
@@ -439,17 +441,24 @@ def EnKFbias(Af, d, Cdd, Cbb, k, M, b, dbdy):
 
     J = np.array([None] * 4)
     if np.isreal(Aa).all():
-        y = Aa[-len(d):]
+        Ya = Aa[-len(d):]
         Wdd = linalg.inv(Cdd)
         Cpp = np.dot(Psi_f, Psi_f.T)
         Wpp = linalg.pinv(Cpp)
         Wbb = linalg.pinv(Cbb)
 
         J[0] = np.dot(np.mean(Af - Aa, -1).T, np.dot(Wpp, np.mean(Af - Aa, -1)))
-        J[1] = np.dot(np.mean(np.expand_dims(d, -1) - y, -1).T, np.dot(Wdd, np.mean(np.expand_dims(d, -1) - y, -1)))
+        J[1] = np.dot(np.mean(np.expand_dims(d, -1) - Ya, -1).T, np.dot(Wdd, np.mean(np.expand_dims(d, -1) - Ya, -1)))
 
         # J[2] = k * np.dot(np.mean(b, -1).T, np.dot(Wbb, np.mean(b, -1)))
         J[2] = k * np.dot(b.T, np.dot(Wbb, b))
+
+        dbdpsi = np.dot(M.T, dbdy.T)
+        dydpsi = dbdpsi + M.T
+        ba = np.expand_dims(b, 1) + np.dot(dbdy, Ya - Y)
+
+        dJdpsi = np.dot(Wpp, Af - Aa) + np.dot(dydpsi, np.dot(Wdd, Ya + ba - D)) + np.dot(dbdpsi, np.dot(Wbb, ba))
+        J[3] = abs(np.mean(dJdpsi) / 2.)
 
         return Aa, J
     else:
