@@ -79,7 +79,6 @@ if biasType is not None:
                         'tau': model_params['tau']
                         }
 
-
         ref_ens = createEnsemble(forecast_model, train_params, train_params)
 
         name_train = './data/Truth_{}_{}_beta{:.1e}_tau{:.1e}_tmax-{:.2}_std{:.2}_m{}'.format(ref_ens.name, ref_ens.law,
@@ -159,11 +158,9 @@ for _ in [1.]:  # np.linspace(0, 2, 21):
             filter_ens.bias.updateHistory(b, t_b)
 
     # =========================================== SAVE DATA & PLOT =========================================== #
-    parameters = dict(kmeas=kmeas, filt=filt, biasType=biasType,
-                      forecast_model=forecast_model, true_model=true_model,
-                      num_DA=len(t_obs), Nt_extra=Nt_extra)
-    truth = dict(y=y_true, t=t_true, name=name_truth,
-                 t_obs=t_obs, p_obs=obs)
+    truth = dict(y=y_true, t=t_true, name=name_truth, t_obs=t_obs, p_obs=obs)
+    parameters = dict(kmeas=kmeas, filt=filt, biasType=biasType,forecast_model=forecast_model,
+                      true_model=true_model, num_DA=len(t_obs), Nt_extra=Nt_extra)
     if save_:
         if not os.path.isdir(results_folder):
             os.makedirs(results_folder)
