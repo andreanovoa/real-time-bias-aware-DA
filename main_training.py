@@ -245,6 +245,10 @@ params_gp = np.array([params[key[2]], params[key[5]][0], params[key[5]][1], gp.n
 
 # =========================================  Train Wout ========================================== ##
 Wout = train_save_n(U_wash, U_tv, U[:, N_wash + 1:N_wtv], minimum[2], 10**minimum[1], minimum[0])
+if len(Wout.shape) == 1:
+    Wout = np.expand_dims(Wout, axis=1)
+    print(Wout.shape)
+
 
 print('\n Time per hyperparameter eval.:', (time.time() - ti) / n_tot,
       '\n Best Results: x', minimum[0], 10 ** minimum[1], minimum[2], ', f', -minimum[-1])

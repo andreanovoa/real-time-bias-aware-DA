@@ -52,8 +52,9 @@ class Model:
         t = np.linspace(self.t, self.t + Nt * self.dt, Nt + 1)
         params = self.govEqnDict()
         y0 = self.psi[:, 0].copy()
-
-        out = solve_ivp(self.timeDerivative, t_span=(t[0], t[-1]), y0=y0, t_eval=t, method='RK45', args=(params,))
+        # print(y0)
+        out = solve_ivp(self.timeDerivative, t_span=(t[0], t[-1]), y0=y0, t_eval=t,
+                        method='RK45', args=(params,))
         psi = [out.y.T]
 
         # psi = [RK4(t, y0, self.timeDerivative, params)]
@@ -261,12 +262,8 @@ class Rijke(Model):
         if type(d) is not dict:
             d = d[0]
 
-        try:
-            assert np.shape(psi)[0] > 0
-        except:
-            temp = psi
+        if len(psi.shape) == 0:
             psi = t
-            t = temp
 
         eta = psi[:d['Nm']]
         mu = psi[d['Nm']:2 * d['Nm']]
@@ -304,7 +301,8 @@ class Rijke(Model):
         if d['law'] == 'sqrt':
             qdot = P['beta'] * (np.sqrt(abs(MF['u'] / 3. + u_tau)) - np.sqrt(MF['u'] / 3.))  # [W/m2]=[m/s3]
         elif d['law'] == 'tan':
-            qdot = P['beta'] * np.sqrt(P['beta'] / P['kappa'] ) * np.arctan(np.sqrt(P['beta'] / P['kappa']) * u_tau)  # [m / s3]
+            qdot = P['beta'] * np.sqrt(P['beta'] / P['kappa']) * np.arctan(
+                np.sqrt(P['beta'] / P['kappa']) * u_tau)  # [m / s3]
         else:
             raise ValueError('Undefined heat law')
 
@@ -321,14 +319,14 @@ class Rijke(Model):
 # %% =================================== VAN DER POL MODEL ============================================== %% #
 class VdP(Model):
     """ Van der Pol Oscillator Class
-        - Low order model: cubic heat release law [omega, nu, kappa]
-        - High order model: atan heat release law [omega, nu, kappa, beta]
+        - cubic heat release law [omega, nu, kappa]
+        - tan heat release law [omega, nu, kappa, beta]
             Note: gamma appears only in the higher order polynomial which is
                   currently commented out
     """
 
     name = 'VdP'
-    attr = dict(omega=2 * np.pi * 120., law='atan',
+    attr = dict(omega=2 * np.pi * 120., law='tan',
                 nu=7., kappa=3.4, gamma=1.7, beta=70.)
     params = ['omega', 'nu', 'kappa', 'gamma', 'beta']
 
@@ -359,13 +357,23 @@ class VdP(Model):
     # _______________ VdP specific properties and methods ________________ #
     def getObservableHist(self, Nt=0):
         if np.shape(self.hist)[0] == 1:
-            raise Exception('Case has no psi history')
+            return None, "$\\eta$"
         else:
-            return self.hist[-Nt:, [0], :], ["$\\eta$"]  # , "$\\dot{\\eta}$"]
+            return self.hist[-Nt:, [0], :], "$\\eta$"
 
     def getObservables(self):
         eta = self.psi[0, :]
         return np.expand_dims(eta, axis=0)
+
+    def getParameters(self):
+        if self.law == 'cubic':
+            params = ['nu', 'kappa']
+        elif self.law == 'tan':
+            params = ['nu', 'kappa', 'beta']
+        else:
+            raise TypeError("Undefined heat release law. Choose 'cubic' or 'tan'.")
+
+        return {key: self.alpha0[key] for key in params}
 
     # _________________________ Governing equations ________________________ #
     def govEqnDict(self):
@@ -382,16 +390,14 @@ class VdP(Model):
     def timeDerivative(t, psi, d):
         if type(d) is not dict:
             d = d[0]
-        try:
-            assert np.shape(psi)[0] > 0
-        except:
-            temp = psi
+
+        if len(psi.shape) == 0:
             psi = t
-            t = temp
 
         eta, mu = psi[:2]
         P = d['alpha0'].copy()
         Na = d['N'] - len(d['psi0'])  # number of parameters estimated
+        # print(Na)
         if Na > 0:
             ii = len(d['psi0'])
             for param in d['est_p']:
@@ -411,17 +417,14 @@ class VdP(Model):
         return np.hstack([deta_dt, dmu_dt, np.zeros(Na)])
 
 
-# %%
-
-
 if __name__ == '__main__':
     # import cProfile
 
     import time
 
     t1 = time.time()
-    paramsTA = dict(law='atan', dt=2E-4)
-    model = Rijke(paramsTA)
+    paramsTA = dict(law='tan', dt=2E-4)
+    model = VdP(paramsTA)
 
     # pr = cProfile.Profile()
     # pr.enable()

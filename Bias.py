@@ -177,10 +177,15 @@ class ESN(Bias):
 
         # --------------------- Create washout observed data ---------------------- #
         # self.N_wash = 1
-        self.washout_obs = np.flip(Bdict['washout_obs'][:-self.N_wash * self.upsample:-self.upsample].squeeze(), axis=0)
+        self.washout_obs = np.flip(Bdict['washout_obs'][:-self.N_wash * self.upsample:-self.upsample], axis=0)
+        if len(self.washout_obs.shape) > 2:
+            self.washout_obs = self.washout_obs.squeeze()
         self.washout_t = np.flip(Bdict['washout_t'][:-self.N_wash * self.upsample:-self.upsample])
 
         assert self.washout_t[-1] == Bdict['washout_t'][-1]
+        if len(self.Wout.shape) == 1:
+            self.Wout = np.expand_dims(self.Wout, axis=1)
+
 
         # self.Win = lil_matrix(self.Win)
         #

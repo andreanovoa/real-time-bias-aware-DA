@@ -46,12 +46,8 @@ def dataAssimilation(ensemble,
           '\t Bias weights estimation = {0}'.format(ensemble.est_b))
 
     print(' --------------------------------------------')
-    t1 = ensemble.t
-    t2 = t_obs[ti]
 
-    Nt = int(np.round((t2 - t1) / dt))
-
-    t = np.linspace(t1, t1 + Nt * dt, Nt + 1)
+    Nt = int(np.round((t_obs[ti] - ensemble.t) / dt))
 
     # Parallel forecast until first observation
 
@@ -74,6 +70,7 @@ def dataAssimilation(ensemble,
 
     ensemble.activate_bias_aware = False
     ensemble.activate_parameter_estimation = False
+    # Define observation covariance matrix
     Cdd = np.diag((std_obs * np.ones(np.size(obs[ti])) * max(abs(obs[ti]))) ** 2)
     while True:
         if ti >= ensemble.num_DA_blind:
@@ -91,16 +88,16 @@ def dataAssimilation(ensemble,
 
         # Store cost function
         if ensemble.getJ:
-            if J is not None:
-                ensemble.hist_J.append(J)
+            ensemble.hist_J.append(J)
 
-        # Update state and bias
+        # Update state with analysis
         ensemble.psi = Aa
         ensemble.hist[-1] = Aa
 
+        # Update bias as d - y^a
         if ensemble.bias is not None:
             if bias_name == 'ESN':
-                y = ensemble.getObservables()
+                y = ensemble.getObservables()  # TODO: investigate changes using y=y^a and not y=M psi^a
                 b = obs[ti] - np.mean(y, -1)
                 ensemble.bias.b = b
                 ensemble.bias.hist[-1] = b
@@ -125,11 +122,8 @@ def dataAssimilation(ensemble,
         elif ti in print_i:
             print(np.int(np.round(ti / len(t_obs) * 100, decimals=0)), end="% ")
 
-        t1 = ensemble.t
-        t2 = t_obs[ti]
-        Nt = int(np.round((t2 - t1) / dt))
-
         # Parallel forecast
+        Nt = int(np.round((t_obs[ti] - ensemble.t) / dt))
         ensemble = forecastStep(ensemble, Nt)
 
     print('Elapsed time during assimilation: ' + str(time.time() - time1) + ' s')
