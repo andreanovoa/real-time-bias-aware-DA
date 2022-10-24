@@ -394,7 +394,7 @@ class VdP(Model):
         if len(psi.shape) == 0:
             psi = t
 
-        eta, mu = psi[:2]
+        eta, mu = psi
         P = d['alpha0'].copy()
         Na = d['N'] - len(d['psi0'])  # number of parameters estimated
         # print(Na)
@@ -403,7 +403,7 @@ class VdP(Model):
             for param in d['est_p']:
                 P[param] = psi[ii]
                 ii += 1
-        deta_dt = mu
+        # deta_dt = mu
         dmu_dt = - P['omega'] ** 2 * eta
 
         if d['law'] == 'cubic':  # Cubic law
@@ -414,7 +414,7 @@ class VdP(Model):
             raise TypeError("Undefined heat release law. Choose 'cubic' or 'tan'.")
             # dmu_dt  +=  mu * (2.*P['nu'] + P['kappa'] * eta**2 - P['gamma'] * eta**4) # higher order polinomial
 
-        return np.hstack([deta_dt, dmu_dt, np.zeros(Na)])
+        return np.append(np.array([mu, dmu_dt]), np.zeros(Na))
 
 
 if __name__ == '__main__':

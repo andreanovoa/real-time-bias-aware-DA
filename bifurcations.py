@@ -11,12 +11,12 @@ from scipy.signal import find_peaks
 import os as os
 import pickle
 import TAModels
-
+from scipy.integrate import odeint, solve_ivp
 plt.rc('text', usetex=True)
 plt.rc('font', family='serif', size=20)
 plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 
-
+import time
 def one_dim_sweep(model, model_params: dict, sweep_p: str, range_p: list, plot=False):
     data_folder = 'data/' + model.name + '/'
     if not os.path.isdir(data_folder):
@@ -110,107 +110,85 @@ def Lyap_Classification(exponents):
     return print('something went wrong')
 
 
-def VdP(psi):
-    eta, mu = psi[:2]
-    omega, nu, kappa, gamma, beta = 2 * np.pi * 120., 7., 3.4, 1.7, 70.
-    law = 'tan'
-
-    deta_dt = mu
-    dmu_dt = - omega ** 2 * eta
-    if law == 'cubic':  # Cubic law
-        dmu_dt += mu * (2. * nu - kappa * eta ** 2)
-    elif law == 'tan':  # arc tan model
-        dmu_dt += mu * (beta ** 2 / (beta + kappa * eta ** 2) - beta + 2 * nu)
-    else:
-        raise TypeError("Undefined heat release law. Choose 'cubic' or 'tan'.")
-        # dmu_dt  +=  mu * (2.*P['nu'] + P['kappa'] * eta**2 - P['gamma'] * eta**4) # higher order polinomial
-    return np.hstack([deta_dt, dmu_dt])
-
-
-def RK4(y0, dt, N, func, t=None, params=None):
-    ''' 4th order explicit Tunge-Kutta integration method '''
-
-    for i in range(N):
-        k1 = dt * func(t, y0, params)
-        k2 = dt * func(t, y0 + k1 / 2, params)
-        k3 = dt * func(t, y0 + k2 / 2, params)
-        k4 = dt * func(t, y0 + k3, params)
-
-        y0 += (k1 + 2 * k2 + 2 * k3 + k4) / 6
-
-    return y0
-
-
-# ---------------------------------------------------------------------------------------------------- #
-# ---------------------------------------------------------------------------------------------------- #
+# ==================================================================================================== #
 if __name__ == '__main__':
+
+    # ----------------------------- Select working model ----------------------------- #
     TAmodel = TAModels.VdP
     TAdict = {'law': 'cubic'}
-    param = 'nu'
-    range_param = np.arange(6, 7, 1.)
 
-    # plot 1D diagram
+    # ------------------------------- Plot 1D diagram ------------------------------- #
+    param = 'nu'  # desired parameter to sweep
+    range_param = np.arange(6, 7, 1.)
     og_cases = one_dim_sweep(TAmodel, TAdict, param, range_param, plot=False)[0]
 
-    # og_cases = [TAmodel(TAdict)]
-
-    # compute 2 first Lyapunov exponents
-    N_exp = 2
-    eps = 1.e-10  # multiplication factor to make the orthonormalized perturbation infinitesimal
-    N_orth = 10
-    dt = og_cases[0].dt
-    N = int(5. / dt)
-    N_loops = N // N_orth
+    # ------------------------- Compute lyapunov exponents -------------------------- #
+    N_exp = 2   # compute the N_exp-first Lyapunov exponents
+    eps = 1e-6  # multiplication factor to make the orthonormalized perturbation infinitesimalv
     N_dim = og_cases[0].N
 
     Lambdas = []
     for case in og_cases:
-        q0 = case.psi.squeeze()
+        N = int(100. / case.dt)
+        N_orth = int(5 / case.dt)
+        # NOTE:  N_orth*dt should easily be 5 Lyapunov times with eps small enough. Because in 5 lyapunov
+        # times the magnitude of the perturbation increases only be 2^5=32 times on average.
+        # NOTE 2: if N_orth too large, do not trust exponents, only sign as the slope can be misleading due to the
+        # chaotic saturation and/or machine precision
+
+        N_loops = N // N_orth
+        # initial state
+        q0 = case.psi
+        t1 = case.t
         SS = np.empty((N_loops, N_exp))  # initialize lyapunov exponents
         # N_exp randomly perturbed initial conditions
         q0_pert = []
-        QQ = []
-        QQp = []
         aa = []
         for _ in range(N_exp):
             q_per = np.random.rand(N_dim)
             aa.append(q_per / np.linalg.norm(q_per))
 
-        # ------------------------- Compute lyapunov exponents ------------------------- #
+        plt.figure()
+        fun = case.timeDerivative
+        params = case.govEqnDict()
         print('Lyapunov exponents computation : 0 % ', end="")
         S = 0
+        time_1 = time.time()
+        time_int = 0.
         for jj in range(N_loops):
+            t0 = t1
+            t1 = t0 + N_orth * case.dt
 
-            # q0 = RK4(q0, dt, N_orth, VdP)  # unperturbed initial condition on the attractor
-
-            # perturb initial condition with orthonormal basis
-            q0_pert = [q0 + eps * a for a in aa]
-
-            # case.psi = q0
-            # psi = case.timeIntegrate(N_orth)[0]
-            # q0 = psi[-1]
-            q0 = RK4(q0, dt, N_orth, case.timeDerivative, params=case.govEqnDict())
-
+            # t_vect = np.linspace(t0, t1, N_orth + 1)
+            # perturb initial condition with orthonormal basis and propagate them
+            q0_pert = [q0.squeeze() + eps * a for a in aa]
+            # integrate perturbed cases
+            t1111 = time.time()
             for ii in range(N_exp):
-                q0_pert[ii] = RK4(q0_pert[ii], dt, N_orth, case.timeDerivative, params=case.govEqnDict())
+                sol = solve_ivp(fun, t_span=([t0, t1]), y0=q0_pert[ii], args=(params,))#, t_eval=t_vect)
+                q0_pert[ii] = sol.y[:, -1]
 
-                # q0_pert[ii] = psi_pert[-1]
+            sol = solve_ivp(fun, t_span=([t0, t1]), y0=q0.squeeze(), args=(params,))#, t_eval=t_vect)
+            q0 = sol.y[:, -1]
+            # print('integration time = ', time.time() - t1111)
+            time_int += time.time() - t1111
+            plt.plot(sol.t, sol.y.T)
 
-                # q0_pert[ii] = RK4(q0_pert[ii], dt, N_orth, VdP)  # unperturbed initial condition on the attractor
-
+            t1111 = time.time()
             # compute the final value of the N_exp perturbations
-            a = [(q - q0).squeeze() / eps for q in q0_pert]
-            # print(a[0].shape)
+            a = [(q - q0) / eps for q in q0_pert]
             # orthornormalize basis and compute exponents
             aa, S1 = QR(a, N_exp)
 
             # skip the first step, which does not start from the orthonormalized basis
             if jj > 0:
                 S += S1
-                SS[jj] = S / (jj * dt * N_orth)
+                SS[jj] = S / (jj * case.dt * N_orth)
                 if jj % (N_loops // 5) == 0:
                     print(round(jj / N_loops * 100), end="% ")
         print('100 %')
+        print('total time  = ', time.time() - time_1)
+        print('integration time  = ', time_int)
 
         ## Compute Kaplan-Yorke dimension
         Lyap_exp = SS[-1]
@@ -227,11 +205,12 @@ if __name__ == '__main__':
 
             print('Kaplan-Yorke dimension  ', KY_dim)
 
+        plt.figure()
         ### Plot convergence of the exponents
         plt.rcParams["figure.figsize"] = (10, 5)
         plt.rcParams["font.size"] = 25
 
-        plt.plot(np.arange(N_loops) * dt * N_orth, SS)
+        plt.plot(np.arange(N_loops) * case.dt * N_orth, SS)
         plt.xlabel('Time')
         plt.ylabel('Lyapunov Exponents')
         plt.tight_layout(pad=0.2)
