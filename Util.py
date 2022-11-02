@@ -13,6 +13,9 @@ import scipy.io as sio
 
 from functools import lru_cache
 
+from scipy.interpolate import interp1d
+from scipy.signal import find_peaks
+
 rng = np.random.default_rng(6)
 
 
@@ -129,7 +132,7 @@ def plotHistory(ensemble, truth=None):  # ______________________________________
         ax[i, j].fill_between(x, mean + std, mean - std, alpha=.2, color=c)
         if yl is True:
             ax[i, j].set(ylabel=yl)
-        ax[i, j].set(xlabel='$t$', xlim=[x[0], x[-1]])
+        ax[i, j].set(xlabel='$t_interp$', xlim=[x[0], x[-1]])
         ax[i, j].legend(bbox_to_anchor=(1., 1.), loc="upper left", ncol=1)
 
     t = ensemble.hist_t
@@ -163,6 +166,38 @@ def plotHistory(ensemble, truth=None):  # ______________________________________
     plt.tight_layout()
     plt.show()
 
+
+def interpolate(t_y, y, t_eval, method='cubic', ax=0, bound=False):
+    spline = interp1d(t_y, y, kind=method, axis=ax, copy=True, bounds_error=bound, fill_value=0)
+    return spline(t_eval)
+
+def getEnvelope(timeseries_x, timeseries_y, rejectCloserThan=0):
+    peaks, peak_properties = find_peaks(timeseries_y, distance=200)
+
+    # plt.figure()
+    # plt.plot(timeseries_y)
+    # plt.show()
+    u_p = interp1d(timeseries_x[peaks], timeseries_y[peaks], bounds_error=False)
+
+    return u_p
+
+
+def CR(y_true, y_est):
+    # time average of both quantities
+    y_tm = np.mean(y_true, 0, keepdims=True)
+    y_em = np.mean(y_est, 0, keepdims=True)
+    # correlation
+    C = sum((y_est - y_em) * (y_true - y_tm)) / np.sqrt(sum((y_est - y_em) ** 2) * sum((y_true - y_tm) ** 2))
+    # root-mean square error
+    R = np.sqrt(sum((y_true - y_est) ** 2) / sum(y_est** 2))
+    # print(R,C)
+    # plt.figure()
+    # plt.plot(y_t)
+    # plt.plot(y_e)
+    # print(y_tm)
+    # print(y_em)
+    # plt.show()
+    return C, R
 ## Uncomment the lines below to create the bias signal for training ESN
 # if __name__ == '__main__':
 #     import VdP as TAmodel
@@ -178,7 +213,7 @@ def plotHistory(ensemble, truth=None):  # ______________________________________
 #     fig, ax = plt.subplots(2, 1, figsize=[15, 10], tight_layout=True)
 #     ax[0].plot(HOM[0].hist_t, HOM[0].hist[:, 0], label='HOM')
 #     ax[0].plot(LOM[0].hist_t, LOM[0].hist[:, 0], 'y', label='LOM')
-#     ax[0].set(ylabel='$\eta$', xlabel='$t$', xlim=[14., 14.1])
+#     ax[0].set(ylabel='$\eta$', xlabel='$t_interp$', xlim=[14., 14.1])
 #     ax[0].legend(loc='best')
 #     ax[1].plot(LOM[0].hist_t, bias, 'mediumpurple')
-#     ax[1].set(ylabel='bias', xlabel='$t$', xlim=[14., 14.1])
+#     ax[1].set(ylabel='bias', xlabel='$t_interp$', xlim=[14., 14.1])

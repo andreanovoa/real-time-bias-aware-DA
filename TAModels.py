@@ -1,17 +1,9 @@
-# import os
-# os.environ["OMP_NUM_THREADS"]= '1'
-
-
 from scipy.integrate import odeint, solve_ivp
 from scipy.optimize import fsolve
 from scipy.interpolate import splrep, splev
-
 import numpy as np
 import pylab as plt
-# import time
-
 from Util import Cheb, RK4
-
 rng = np.random.default_rng(6)
 
 
@@ -47,7 +39,7 @@ class Model:
                 Nt: number of forecast steps
             Returns:
                 psi: forecasted ensemble (without the initial condition)
-                t: time of the propagated psi
+                t_interp: time of the propagated psi
         """
         t = np.linspace(self.t, self.t + Nt * self.dt, Nt + 1)
         params = self.govEqnDict()
@@ -57,11 +49,12 @@ class Model:
                         method='RK45', args=(params,))
         psi = [out.y.T]
 
-        # psi = [RK4(t, y0, self.timeDerivative, params)]
+        # psi = [RK4(t_interp, y0, self.timeDerivative, params)]
 
-        #        psi = [odeint(self.timeDerivative, y0, t, (params,))]
+        #        psi = [odeint(self.timeDerivative, y0, t_interp, (params,))]
 
         psi = np.array(psi).transpose(1, 2, 0)
+
 
         return psi[1:], t[1:]  # Remove initial condition
 
@@ -283,7 +276,7 @@ class Rijke(Model):
         # Advection equation boundary conditions
         v2 = np.hstack((np.dot(eta, d['cosomjxf']), v))
 
-        # Evaluate u(t-tau) i.e. velocity at the flame at t - tau
+        # Evaluate u(t_interp-tau) i.e. velocity at the flame at t_interp - tau
         x_tau = P['tau'] / d['tau_adv']
 
         if x_tau < 1:
@@ -293,7 +286,7 @@ class Rijke(Model):
             u_tau = v2[-1]
         else:
             print('tau = ', P['tau'], 'tau_adv', d['tau_adv'])
-            raise Exception("tau can't be larger than tau_adv")
+            raise Exception("tau can't_interp be larger than tau_adv")
 
         # Compute damping and heat release law
         zeta = P['C1'] * d['j'] ** 2 + P['C2'] * d['j'] ** .5
@@ -320,9 +313,8 @@ class Rijke(Model):
 class VdP(Model):
     """ Van der Pol Oscillator Class
         - cubic heat release law [omega, nu, kappa]
-        - tan heat release law [omega, nu, kappa, beta]
-            Note: gamma appears only in the higher order polynomial which is
-                  currently commented out
+        - atan heat release law [omega, nu, kappa, beta]
+            Note: gamma appears only in the higher order polynomial which is currently commented out
     """
 
     name = 'VdP'
@@ -346,13 +338,13 @@ class VdP(Model):
 
         # initialise model history
         super().__init__(TAdict)
-
+        # set limits for the parameters
         self.param_lims = dict(omega=(0, None), nu=(None, None), kappa=(None, None),
                                gamma=(None, None), beta=(None, None))
-
         print('\n ------------------ VAN DER POL MODEL PARAMETERS ------------------ \n',
-              '\t Heat law = {0} \n'.format(self.law),
-              '\t nu = {0} \n\t kappa = {1:.2}'.format(self.nu, self.kappa))
+              '\t Heat law = {0}'.format(self.law))
+        for k, v in self.getParameters().items():
+            print('\t {} = {}'.format(k, v))
 
     # _______________ VdP specific properties and methods ________________ #
     def getObservableHist(self, Nt=0):
@@ -367,9 +359,9 @@ class VdP(Model):
 
     def getParameters(self):
         if self.law == 'cubic':
-            params = ['nu', 'kappa']
+            params = ['omega', 'nu', 'kappa']
         elif self.law == 'tan':
-            params = ['nu', 'kappa', 'beta']
+            params = ['omega', 'nu', 'kappa', 'beta']
         else:
             raise TypeError("Undefined heat release law. Choose 'cubic' or 'tan'.")
 
@@ -390,31 +382,30 @@ class VdP(Model):
     def timeDerivative(t, psi, d):
         if type(d) is not dict:
             d = d[0]
-
         if len(psi.shape) == 0:
             psi = t
 
-        eta, mu = psi
+        eta, mu = psi[:2]
         P = d['alpha0'].copy()
         Na = d['N'] - len(d['psi0'])  # number of parameters estimated
-        # print(Na)
         if Na > 0:
             ii = len(d['psi0'])
             for param in d['est_p']:
                 P[param] = psi[ii]
                 ii += 1
-        # deta_dt = mu
+
         dmu_dt = - P['omega'] ** 2 * eta
 
         if d['law'] == 'cubic':  # Cubic law
             dmu_dt += mu * (2. * P['nu'] - P['kappa'] * eta ** 2)
         elif d['law'] == 'tan':  # arc tan model
+            # print(P)
             dmu_dt += mu * (P['beta'] ** 2 / (P['beta'] + P['kappa'] * eta ** 2) - P['beta'] + 2 * P['nu'])
         else:
             raise TypeError("Undefined heat release law. Choose 'cubic' or 'tan'.")
             # dmu_dt  +=  mu * (2.*P['nu'] + P['kappa'] * eta**2 - P['gamma'] * eta**4) # higher order polinomial
 
-        return np.append(np.array([mu, dmu_dt]), np.zeros(Na))
+        return np.hstack([mu, dmu_dt, np.zeros(Na)])
 
 
 if __name__ == '__main__':
@@ -447,7 +438,7 @@ if __name__ == '__main__':
     i, j = [0, 1]
     ax[1].plot(t_h[-t_zoom:], y[-t_zoom:, 0], color='blue')
 
-    ax[0].set(xlabel='$t$', ylabel=lbl, xlim=[t_h[0], t_h[-1]])
-    ax[1].set(xlabel='$t$', xlim=[t_h[-t_zoom], t_h[-1]])
+    ax[0].set(xlabel='$t_interp$', ylabel=lbl, xlim=[t_h[0], t_h[-1]])
+    ax[1].set(xlabel='$t_interp$', xlim=[t_h[-t_zoom], t_h[-1]])
     plt.tight_layout()
     plt.show()

@@ -141,7 +141,10 @@ if num_SE_only > 0:
     p_ax.plot((t_obs[num_SE_only], t_obs[num_SE_only]), (-1E6, 1E6), '-.', color='darkviolet')
     params_ax.plot((t_obs[num_SE_only], t_obs[num_SE_only]), (-1E6, 1E6), '-.', color='darkviolet', label='Start PE')
 
+
+
 if filter_ens.est_p:
+    max_p, min_p = -1000, 1000
     for p in filter_ens.est_p:
         if filter_ens.bias is None:
             reference_p = filter_ens.alpha0[p]
@@ -153,6 +156,9 @@ if filter_ens.est_p:
         mean_p = mean[:, ii].squeeze() / reference_p
         std = np.std(hist[:, ii] / reference_p, axis=1)
 
+        max_p = max(max_p, max(mean_p))
+        min_p = min(min_p, min(mean_p))
+
         params_ax.plot(t, mean_p, color=c[ii - len(filter_ens.psi0)], label='$\\' + p + '/\\' + p + superscript)
 
         params_ax.set(xlabel='$t$', xlim=x_lims)
@@ -160,7 +166,9 @@ if filter_ens.est_p:
         ii += 1
     params_ax.legend(bbox_to_anchor=(1., 1.), loc="upper left", ncol=1)
     params_ax.plot(t[1:], t[1:] / t[1:], '-', color='k', linewidth=.5)
-params_ax.set(ylim=[0.2, 1.5])
+    params_ax.set(ylim=[min_p-0.2, max_p+0.2])
+
+
 # PLOT RMS ERROR
 Psi = mean - hist
 Psi = Psi[:-Nt_extra]

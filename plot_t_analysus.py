@@ -16,10 +16,7 @@ files = os.listdir(folder)
 flag = True
 biases, esn_errors, biases_ESN = [], [], []
 ks, CBs, RBs, CUs, RUs, Cpres, Rpres = [], [], [], [], [], [], []
-
-# fig, ax = plt.subplots(2, 3, figsize=(20, 8))
-
-# fig = plt.figure(figsize=(20, 10))
+# ==================================================================================================================
 fig = plt.figure(figsize=(15, 7.5), layout="constrained")
 fig.suptitle('overall')
 subfigs = fig.subfigures(2, 1)
@@ -73,6 +70,11 @@ for file in files:
     ks.append(k)
 
     # PLOT CORRELATION AND RMS ERROR =====================================================================
+    t_obs = truth['t_obs'][:parameters['num_DA']]
+    y_obs = interpolate(t_filter, y_truth, t_obs)
+    y_obs_b = interpolate(t_filter, np.mean(y_filter, -1), t_obs)
+    y_obs_u = interpolate(t_filter, np.mean(y_unbiased, -1), t_obs)
+
     CB, RB = CR(y_truth[istop - N_CR:istop], np.mean(y_filter, -1)[istop - N_CR:istop])  # biased
     CU, RU = CR(y_truth[istop - N_CR:istop], np.mean(y_unbiased, -1)[istop - N_CR:istop])  # unbiased
     # Correlation
@@ -83,6 +85,21 @@ for file in files:
     # RMS error
     axR.plot(k, RB, 'o', color=bias_c, label='Biased ')
     axR.plot(k, RU, '*', color=unbias_c, label='Unbiased')
+
+
+    CB, RB = CR(y_obs, y_obs_b)  # biased
+    CU, RU = CR(y_obs, y_obs_u)  # unbiased
+    # Correlation
+    bias_c = 'tab:red'
+    unbias_c = 'tab:blue'
+    axC.plot(k, CB, '+', color=bias_c, label='Biased ')
+    axC.plot(k, CU, 'x', color=unbias_c, label='Unbiased')
+    # RMS error
+    axR.plot(k, RB, '+', color=bias_c, label='Biased ')
+    axR.plot(k, RU, 'x', color=unbias_c, label='Unbiased')
+
+
+
     # Parameters ========================================================================================
     if filter_ens.est_p:
         if flag:
@@ -117,9 +134,9 @@ for file in files:
     flag = False
     # PLOT SOME INDIVIDUAL TIME SOLUTIONS ================================================================
     # if k in [0.0, 10.0, 30.0]:
-    #     exec(open("post_process.py").read(), {'parameters': parameters,
-    #                                           'filter_ens': filter_ens,
-    #                                           'truth': truth})
+    # exec(open("post_process.py").read(), {'parameters': parameters,
+    #                                       'filter_ens': filter_ens,
+    #                                       'truth': truth})
 
 # WAIT - ISTART/ISTOP IS FOR Y_TRUTH? DOESN'T MAKE SENSE
 

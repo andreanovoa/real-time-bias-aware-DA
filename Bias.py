@@ -6,6 +6,7 @@ import scipy.linalg as la
 from scipy.sparse import csr_matrix, lil_matrix
 from scipy.io import loadmat, savemat
 import time
+from scipy.interpolate import interp1d
 
 class Bias:
 
@@ -142,7 +143,7 @@ class ESN(Bias):
         if not os.path.isfile(ESN_filename+'.mat') or flag:
             # Load or create bias data
             if 'trainData' in Bdict.keys():
-                # print('\t saving bias data')
+                # print('\t_interp saving bias data')
                 bias = Bdict['trainData']
                 # Delete unnecessary data. Keep only wash + training + val (+ test)
                 N_wtv = int((self.t_train + self.t_val) / Bdict['dt']) + self.N_wash
@@ -267,16 +268,30 @@ class ESN(Bias):
         if self.parametrise:
             self.alph = y[1]
 
+        # t_y = np.linspace(self.t_interp, self.t_interp + Nt * self.dt_ESN/self.upsample, Nt + 1)
         Nt = int(round(Nt / self.upsample))
-
         t_b = np.linspace(self.t, self.t + Nt * self.dt_ESN, Nt + 1)
+
 
         if len(self.hist) == 1:
             # observable washout data
             wash_obs = self.washout_obs  # truth, observables at high frequency
 
+
             # forecast model washout data
-            wash_model = np.flip(np.mean(y[:-self.N_wash * self.upsample:-self.upsample], -1), axis=0)
+            wash_model = np.mean(y[::self.upsample], -1)
+            spline = interp1d(t_b, wash_model, kind='cubic', axis=0, copy=True, fill_value=0)
+            wash_model = spline(self.washout_t)
+
+
+            # t_u = t_y[::self.upsample]
+            # assert all(abs(t_u - t_b) < 1E-10)
+            # plt.figure()
+            # plt.plot(t_y, np.mean(y, -1), '-o')
+            # plt.plot(self.washout_t, wash_model[:, 0], '-x')
+            # plt.plot(self.washout_t, wash_obs[:, 0], '-*')
+            # plt.show()
+
 
             # bias washout, the input data to open loop
             washout = wash_obs - wash_model
@@ -291,7 +306,6 @@ class ESN(Bias):
             self.b = b_open[-1]
             self.r = r_open[-1]
 
-
             Nt_open = len(self.washout_t)
 
             Nt_closed = round((t_b[-1] - self.washout_t[-1]) / self.dt_ESN)
@@ -304,6 +318,8 @@ class ESN(Bias):
             # plt.figure()
             # plt.plot(self.washout_t, washout[:, 0], '-o')
             # plt.plot(t_b[1:], b[1:, 0], '-x')
+            # plt.xlim([self.washout_t[0], t_b[-1]])
+            # plt.ylim([min(washout[:, 0])*1.2, max(washout[:, 0])*1.2])
             # plt.show()
 
         else:
@@ -369,7 +385,7 @@ class ESN(Bias):
             b[i + 1], r[i + 1] = self.step(b[i], r[i])
 
         # # ESN PLOT DEBUG
-        # t_b = np.linspace(self.t, self.t + Nt * self.dt_ESN, Nt + 1)
+        # t_b = np.linspace(self.t_interp, self.t_interp + Nt * self.dt_ESN, Nt + 1)
         # plt.plot(t_b, b[:, 0], '-+', color='green', label='closed-loop')
         # plt.legend()
         # plt.show()

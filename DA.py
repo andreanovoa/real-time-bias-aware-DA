@@ -44,14 +44,13 @@ def dataAssimilation(ensemble,
           '\t Time between analysis = {0:.2} s \n\t dt = {1:.2} s\n'.format(t_obs[-1] - t_obs[-2], ensemble.dt),
           '\t Inferred params = {0} \n'.format(ensemble.est_p),
           '\t Bias weights estimation = {0}'.format(ensemble.est_b))
-
+    if method == 'EnKFbias':
+        print('\t Bias penalisation factor k = ', ensemble.bias.k)
     print(' --------------------------------------------')
 
     Nt = int(np.round((t_obs[ti] - ensemble.t) / dt))
 
     # Parallel forecast until first observation
-
-
     time1 = time.time()
     ensemble = forecastStep(ensemble, Nt)
     print('Elapsed time to first observation: ' + str(time.time() - time1) + ' s')
@@ -60,13 +59,11 @@ def dataAssimilation(ensemble,
     # plt.plot(ensemble.bias.washout_t, ensemble.bias.washout_obs[:,0], '-o')
     # plt.plot(ensemble.bias.hist_t, ensemble.bias.hist[:,0], '-x')
 
-    ## ------------------------- ASSIMILATION LOOP ------------------------- ##
+    # ------------------------- ASSIMILATION LOOP ------------------------- ##
     num_obs = len(t_obs)
     time1 = time.time()
     print_i = int(len(t_obs) / 4) * np.array([1, 2, 3])
     print('Assimilation progress: 0 % ', end="")
-
-
 
     ensemble.activate_bias_aware = False
     ensemble.activate_parameter_estimation = False
@@ -112,7 +109,10 @@ def dataAssimilation(ensemble,
             # if ensemble.est_b:
             #     b_weights = Aa[-ensemble.bias.Nw:]
             #     ensemble.bias.updateWeights(b_weights)
-
+        if len(ensemble.hist_t) != len(ensemble.hist):
+            # print(len(ensemble.hist_t), len(ensemble.hist))
+            # print(ti)
+            raise Exception('something went wrong')
         # ------------------------------ FORECAST TO NEXT OBSERVATION ---------------------- #
         # next observation index
         ti += 1
@@ -155,7 +155,7 @@ def forecastStep(case, Nt):
     case.updateHistory(psi, t)
     # Forecast ensemble bias and update its history
     if case.bias is not None:
-        y = case.getObservableHist(Nt)[0]
+        y = case.getObservableHist(Nt + 1)[0]
         a = np.mean(case.hist[-1, -len(case.est_p):, :], axis=-1)
         b, t_b = case.bias.timeIntegrate(Nt=Nt, y=[y, a])
         case.bias.updateHistory(b, t_b)
@@ -238,7 +238,7 @@ def analysisStep(case, d, Cdd, filt='EnSRKF', getJ=False):
                 if not checkParams(Aa, case):
                     print('booooo')
                     Aa = Af.copy()
-                J = np.array([None]*4)
+                J = np.array([None] * 4)
                 return Aa[:-np.size(y, 0), :], J
 
     return Aa[:-np.size(y, 0), :], J
@@ -313,7 +313,7 @@ def EnSRKF(Af, d, Cdd, M):
     Psi_a = np.dot(Psi_f, np.dot(V, np.dot(sqrtIE, V.T)))
     Aa = psi_a_m + Psi_a
 
-    J = np.array([None]*4)
+    J = np.array([None] * 4)
     if np.isreal(Aa).all():
         Ya = Aa[-len(d):]
         Wdd = linalg.inv(Cdd)
@@ -361,7 +361,6 @@ def EnKF(Af, d, Cdd, M):
     C = (m - 1) * Cdd + np.dot(S, S.T)
     Cinv = linalg.inv(C)
 
-
     X = np.dot(S.T, np.dot(Cinv, (D - Y)))
 
     Aa = Af + np.dot(Af, X)
@@ -394,7 +393,7 @@ def EnKFbias(Af, d, Cdd, Cbb, k, M, b, dbdy):
     
         Inputs:
             Af: forecast ensemble at time t (augmented with Y) [N x m]
-            d: observation at time t [q x 1]
+            d: observation at time t_interpt [q x 1]
             Cdd: observation error covariance matrix [q x q]
             M: matrix mapping from state to observation space [q x N]
             b: bias of the forecast observables (\tilde{Y} = Y + B) [q x 1]
@@ -472,6 +471,5 @@ def EnKFbias(Af, d, Cdd, Cbb, k, M, b, dbdy):
     #     X = np.dot(C, Q) - np.dot(M, Af[:, mi])
     #
     #     Aa[:, mi] = Af[:, mi] + np.dot(Psi_f, np.dot(S.T, np.dot(linalg.inv((m - 1) * C + np.dot(S, S.T)), X)))
-
 
 # =================================================================================================================== #

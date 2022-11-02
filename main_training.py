@@ -32,7 +32,7 @@ try:
     data = trainData
     np.save('data/test_results_bias', data, allow_pickle=True)
     # plt.figure()
-    # plt.plot(data[:,0])
+    # plt.plot(data[:, 0])
     # plt.show()
 except:
     filename = 'data/test_results_bias.npy'
@@ -56,7 +56,7 @@ except:
 try:
     N_wash = N_wash
 except:
-    N_wash = 100
+    N_wash = 50
     print('Set default value for N_wash =', N_wash)
 try:
     t_train = t_train
@@ -77,7 +77,7 @@ except:
 try:
     N_units = N_units  # neurones in the reservoir
 except:
-    N_units = 100  # neurones in the reservoir
+    N_units = 500  # neurones in the reservoir
     print('Set default value for N_units =', N_units)
 
 # Force data to be (Nalpha, Nt, Nmic)
@@ -107,19 +107,18 @@ data = data[:, ::upsample]
 augment_data = True
 if augment_data:
     norm_alpha = None
-    U = np.vstack([data * 1., data * 1e-2, data * 1e-4])
+    l = int(data.shape[0])
+    U = np.vstack([data * 1., data[-l:] * 1e-2, data[:l] * 1e-4])
 
 #  _______________________________ SEPARATE INTO WASH/TRAIN/VAL SETS ________________________________________
 N_dim = U.shape[-1]  # dimension of inputs (and outputs)
-N_alpha = U.shape[0] # number of training timeseries
+N_alpha = U.shape[0]  # number of training timeseries
 N_train = int(t_train / dt_ESN)
 N_val = int(t_val / dt_ESN)  # length of the data used is train+val
 N_tv = N_train + N_val
 N_wtv = N_wash + N_tv  # useful for compact code later
 
 U_data = U[:, :N_wtv]
-# m = U_data.min(axis=1).min(axis=0)
-# M = U_data.max(axis=1).max(axis=0)
 m = np.mean(U_data.min(axis=1), axis=0)
 M = np.mean(U_data.max(axis=1), axis=0)
 
@@ -151,12 +150,12 @@ connect = 5  # average neuron connections
 sparse = 1 - connect / (N_units - 1)
 
 # Range for hyperparametera (spectral radius and input scaling)
-rho_ = [.7, 1.1]
-sigin_ = [np.log10(1e-4), np.log10(1e-1)]
+rho_ = [.7, 1.05]
+sigin_ = [np.log10(1e-4), np.log10(0.5)]
 tikh = np.array([1e-10, 1e-12, 1e-16])  # Tikhonov
 
 # _________________________________ GRID SEARCH AND BAYESIAN OPTIMISATION PARAMS ____________________________________
-n_tot = 20  # Total Number of Function Evaluatuions
+n_tot = 20  # Total Number of Function Evaluations
 n_in = 0  # Number of Initial random points
 
 # The first n_grid^2 points are from grid search. If n_grid**2 < n_tot, perform Bayesian Optimization
@@ -203,11 +202,11 @@ def g(val):
     return res
 
 
-# ________________________________ TRAIN & VALIDATE NETWORK __________________________________
+# ________________________________________ TRAIN & VALIDATE NETWORK ___________________________________________
 ti = time.time()  # check time
 
 val = RVC_Noise  # Which validation strategy
-N_fo = 2  # number of folds
+N_fo = 4  # number of folds
 N_in = 0  # interval before the first fold
 N_fw = (N_train-N_val)//(N_fo-1)  # num steps forward the validation interval is shifted (evenly spaced)
 
@@ -220,7 +219,7 @@ k = 0
 seed = 1
 rnd = np.random.RandomState(seed)
 
-# ==================================== Win & W generation ==================================== ##
+# ======================================= Win & W generation ======================================= ##
 N_aug = 1
 if norm_alpha is not None:
     N_aug += sum(is_param)
@@ -233,7 +232,7 @@ W = csr_matrix( rnd.uniform(-1, 1, (N_units, N_units)) * (rnd.rand(N_units, N_un
 spectral_radius = np.abs(sparse_eigs(W, k=1, which='LM', return_eigenvectors=False))[0]
 W = (1 / spectral_radius) * W  # scaled to have unitary spec radius
 
-# ====================================  Bayesian Optimization ==================================== ##
+# ====================================  Bayesian Optimization ====================================== ##
 res = g(val)
 gp = res.models[-1]
 x_iters = np.array(res.x_iters)
@@ -243,7 +242,7 @@ params = gp.kernel_.get_params()
 key = sorted(params)
 params_gp = np.array([params[key[2]], params[key[5]][0], params[key[5]][1], gp.noise_])
 
-# =========================================  Train Wout ========================================== ##
+# =========================================  Train Wout =========================================== ##
 Wout = train_save_n(U_wash, U_tv, U[:, N_wash + 1:N_wtv], minimum[2], 10**minimum[1], minimum[0])
 if len(Wout.shape) == 1:
     Wout = np.expand_dims(Wout, axis=1)
@@ -262,7 +261,7 @@ pdf.savefig(fig)
 plt.close(fig)
 
 # %%
-# ________________________________ OUTPUTS: PLOT SEARCH AND SAVE DATA ________________________________
+# ____________________________________ OUTPUTS: PLOT SEARCH AND SAVE DATA ____________________________________
 # Plot Gaussian Process reconstruction for each network in the ensemble after n_tot evaluations.
 # The GP reconstruction is based on the n_tot function evaluations decided in the search
 n_len = 100  # points to evaluate the GP at
@@ -293,7 +292,7 @@ plt.plot(x_iters[n_grid ** 2:, 0], x_iters[n_grid ** 2:, 1], 's', c='w',
 pdf.savefig(fig)
 plt.close(fig)
 
-# RUN TEST IF REQUESTED _____________________________________________________
+# ______________________________________________ RUN TEST _____________________________________________________
 if test_run:
     # Select number of tests
     N_t0 = N_wtv + 10  # start test after washout, training and validation data
@@ -364,7 +363,7 @@ if test_run:
             plt.close(fig)
         print('Median and max error in', N_alpha, ' test:', np.median(medians_alpha), max(maxs_alpha))
 
-# ===================================== Save output and images ========================================== %
+# _________________________________________ Save output and images _________________________________________ %
 
 save_dict = dict(t_train=t_train,
                  t_val=t_val,

@@ -27,13 +27,17 @@ rng = np.random.default_rng(6)
 def globalforecast(y0, fun, t, params):
     # SOLVE IVP ========================================
     out = solve_ivp(fun, t_span=(t[0], t[-1]), y0=y0, t_eval=t, method='RK23', args=(params,))
+    if not out.success:
+        out = solve_ivp(fun, t_span=(t[0], t[-1]), y0=y0, t_eval=t, method='RK45', args=(params,))
+        print('RK23 failed, switched to RK45')
+        print(out.success)
     psi = out.y.T
 
     # ODEINT =========================================== THIS WORKS AS IF HARD CODED
-    # psi = odeint(fun, y0, t, (params,))
+    # psi = odeint(fun, y0, t_interp, (params,))
 
     # HARD CODED RUGGE KUTTA 4TH ========================
-    # psi = RK4(t, y0, fun, params)
+    # psi = RK4(t_interp, y0, fun, params)
 
     return psi
 
@@ -178,10 +182,10 @@ def createEnsemble(parent, DA_params=None, TA_params=None, Bias_params=None):
             psi = out.y.T
 
             # ODEINT =========================================== THIS WORKS AS IF HARD CODED
-            # psi = odeint(fun, y0, t, (params,))
+            # psi = odeint(fun, y0, t_interp, (params,))
 
             # HARD CODED RUGGE KUTTA 4TH ========================
-            # psi = RK4(t, y0, fun, params)
+            # psi = RK4(t_interp, y0, fun, params)
 
             return psi
 
@@ -208,20 +212,19 @@ def createEnsemble(parent, DA_params=None, TA_params=None, Bias_params=None):
                                     the ensemble is forecast as a mean, i.e., every member is the mean forecast.
                 Returns:
                     psi: forecasted ensemble (without the initial condition)
-                    t: time of the propagated psi
+                    t_interp: time of the propagated psi
             """
 
             t = np.linspace(self.t, self.t + Nt * self.dt, Nt + 1)
             self_dict = self.govEqnDict()
             if not averaged:
-
                 # # OPTION 1: Process and Queue ------------------------------------
                 # self.processes = []
                 # if ~hasattr(self, 'queueOUT'):
                 #     self.queueOUT = mp.Queue()
                 #
                 # # time1 = time.time()
-                # self.runProcesses(fun=self.timeDerivative, t=t, params=self_dict)
+                # self.runProcesses(fun=self.timeDerivative, t_interp=t_interp, params=self_dict)
                 # # Get results. Ensure sorted queue and return values only
                 # results = [self.queueOUT.get() for _ in self.processes]
                 # results.sort(key=lambda y: y[0])
@@ -232,7 +235,7 @@ def createEnsemble(parent, DA_params=None, TA_params=None, Bias_params=None):
                 # # OPTION 2: with Pool as p ----------------------------------------
                 # # time1 = time.time()
                 # with mp.Pool() as p:
-                #     psi = p.map(partial(self.forecast, fun=self.timeDerivative, t=t, params=self_dict),
+                #     psi = p.map(partial(self.forecast, fun=self.timeDerivative, t_interp=t_interp, params=self_dict),
                 #                          self.psi[:, range(self.m)].T)
                 # # print('\n with pool: ' + str(time.time() - time1) + ' s')
                 # # ---------------------------------------------------------------------------------------------------
@@ -241,7 +244,7 @@ def createEnsemble(parent, DA_params=None, TA_params=None, Bias_params=None):
                 # if ~hasattr(self, 'pool'):
                 #     self.startPool()
                 # # time1 = time.time()
-                # psi = self.pool.map(partial(self.forecast, fun=self.timeDerivative, t=t, params=self_dict),
+                # psi = self.pool.map(partial(self.forecast, fun=self.timeDerivative, t_interp=t_interp, params=self_dict),
                 #                      self.psi[:, range(self.m)].T)
                 # # psi = list(psi)
                 # # print('\n map: ' + str(time.time() - time1) + ' s')
@@ -251,7 +254,7 @@ def createEnsemble(parent, DA_params=None, TA_params=None, Bias_params=None):
                 # if ~hasattr(self, 'pool'):
                 #     self.startPool()
                 # # time1 = time.time()
-                # psi = self.pool.imap(partial(self.forecast, fun=self.timeDerivative, t=t, params=self_dict),
+                # psi = self.pool.imap(partial(self.forecast, fun=self.timeDerivative, t_interp=t_interp, params=self_dict),
                 #                      self.psi[:, range(self.m)].T)
                 # psi = list(psi)
                 # # print('\n imap: ' + str(time.time() - time1) + ' s')
@@ -259,7 +262,7 @@ def createEnsemble(parent, DA_params=None, TA_params=None, Bias_params=None):
 
                 # # OPTION 5: global pool + map ----------------------------------------
                 # # time1 = time.time()
-                # psi = globalp.map(partial(globalforecast, fun=self.timeDerivative, t=t, params=self_dict),
+                # psi = globalp.map(partial(globalforecast, fun=self.timeDerivative, t_interp=t_interp, params=self_dict),
                 #                    self.psi[:, range(self.m)].T)
                 # # print('\n with pool: ' + str(time.time() - time1) + ' s')
                 # # ---------------------------------------------------------------------------------------------------
@@ -271,14 +274,14 @@ def createEnsemble(parent, DA_params=None, TA_params=None, Bias_params=None):
                 psi = list(psi)
                 # print('\n with pool: ' + str(time.time() - time1) + ' s')
                 # ---------------------------------------------------------------------------------------------------
-
             else:
                 mean = np.mean(self.psi, 1)
-                # psi = [odeint(self.timeDerivative, mean, t, (self_dict,))]
+                # psi = [odeint(self.timeDerivative, mean, t_interp, (self_dict,))]
                 psi = [Ensemble.forecast(y0=mean, fun=self.timeDerivative, t=t, params=self_dict)]
                 psi = np.repeat(psi, self.m, axis=0)
 
-            psi = np.array(psi).transpose(1, 2, 0)
+            psi = np.array(psi)
+            psi = psi.transpose(1, 2, 0)
 
             return psi[1:], t[1:]  # Remove initial condition
 

@@ -139,7 +139,7 @@ if __name__ == '__main__':
         N_loops = N // N_orth
         # initial state
         q0 = case.psi
-        t1 = case.t
+        t1 = case.t_interp
         SS = np.empty((N_loops, N_exp))  # initialize lyapunov exponents
         # N_exp randomly perturbed initial conditions
         q0_pert = []

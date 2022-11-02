@@ -84,7 +84,7 @@ class ESN:
                 - U:  prediction from ESN during open loop
                 - ra: time series of augmented reservoir states
         """
-        N = U_wash.shape[0] - 1  # AN: I added the -1 because we don't want forecast, just initialisation
+        N = U_wash.shape[0] - 1  # AN: I added the -1 because we don't_interp want forecast, just initialisation
         ra = np.empty((N + 1, self.N_unit + 1))
         U = np.empty((N + 1, self.N_dim))
         ra[0] = np.concatenate((self.r, np.array([self.bias_out])))
@@ -179,10 +179,10 @@ if __name__ == '__main__':
     fig, ax = plt.subplots(2, 1, figsize=[15, 10], tight_layout=True)
     ax[0].plot(HOM[0].hist_t, HOM[0].hist[:, 0], label='HOM')
     ax[0].plot(LOM[0].hist_t, LOM[0].hist[:, 0], 'y', label='LOM')
-    ax[0].set(ylabel='$\\eta$', xlabel='$t$', xlim=[tmax-1., tmax-.9])
+    ax[0].set(ylabel='$\\eta$', xlabel='$t_interp$', xlim=[tmax-1., tmax-.9])
     ax[0].legend(loc='best')
     ax[1].plot(LOM[0].hist_t, bias, 'mediumpurple')
-    ax[1].set(ylabel='bias', xlabel='$t$', xlim=[14., 14.1])
+    ax[1].set(ylabel='bias', xlabel='$t_interp$', xlim=[14., 14.1])
 
     if not os.path.isfile(datafolder + filename + '_ESN.npz'):
         esn = ESN(filename, train=True,
