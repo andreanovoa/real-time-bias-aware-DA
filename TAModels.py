@@ -340,7 +340,7 @@ class VdP(Model):
         super().__init__(TAdict)
         # set limits for the parameters
         self.param_lims = dict(omega=(0, None), nu=(None, None), kappa=(None, None),
-                               gamma=(None, None), beta=(None, None))
+                               gamma=(None, None), beta=(0, 5 * VdP.attr['beta']))
         print('\n ------------------ VAN DER POL MODEL PARAMETERS ------------------ \n',
               '\t Heat law = {0}'.format(self.law))
         for k, v in self.getParameters().items():

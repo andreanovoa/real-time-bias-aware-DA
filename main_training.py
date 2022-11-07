@@ -108,7 +108,7 @@ augment_data = True
 if augment_data:
     norm_alpha = None
     l = int(data.shape[0])
-    U = np.vstack([data * 1., data[-l:] * 1e-2, data[:l] * 1e-4])
+    U = np.vstack([data * 1., data[-l:] * 1e-2, data[:l] * 1e-1])
 
 #  _______________________________ SEPARATE INTO WASH/TRAIN/VAL SETS ________________________________________
 N_dim = U.shape[-1]  # dimension of inputs (and outputs)

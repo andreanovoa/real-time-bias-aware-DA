@@ -25,12 +25,13 @@ rng = np.random.default_rng(6)
 
 
 def globalforecast(y0, fun, t, params):
+    # print(y0[-2:])
     # SOLVE IVP ========================================
     out = solve_ivp(fun, t_span=(t[0], t[-1]), y0=y0, t_eval=t, method='RK23', args=(params,))
     if not out.success:
         out = solve_ivp(fun, t_span=(t[0], t[-1]), y0=y0, t_eval=t, method='RK45', args=(params,))
         print('RK23 failed, switched to RK45')
-        print(out.success)
+        print(y0[-2:])
     psi = out.y.T
 
     # ODEINT =========================================== THIS WORKS AS IF HARD CODED

@@ -11,18 +11,20 @@ plt.rc('text', usetex=True)
 plt.rc('font', family='serif', size=16)
 plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 
-folder = 'results/VdP_2PE_11_02/'
+folder = 'results/VdP_2PE_beta_nu_NOtwin_ESN100_11_02/'
 files = os.listdir(folder)
 flag = True
 biases, esn_errors, biases_ESN = [], [], []
 ks, CBs, RBs, CUs, RUs, Cpres, Rpres = [], [], [], [], [], [], []
 # ==================================================================================================================
 fig = plt.figure(figsize=(15, 7.5), layout="constrained")
-fig.suptitle('overall')
+fig.suptitle(folder)
 subfigs = fig.subfigures(2, 1)
 ax = subfigs[0].subplots(1, 3)
 axC, axR, axP = ax[:]
 for file in files:
+    if file[-3:] == '.py':
+        continue
     k = float(file.split('_k')[-1])
     with open(folder + file, 'rb') as f:
         parameters = pickle.load(f)
@@ -36,7 +38,7 @@ for file in files:
     b_truth = truth['b_true'][:len(y_filter)]
     b_obs = y_truth - np.mean(y_filter, -1)
     if flag:
-        N_CR = int(.5 / filter_ens.dt)  # Length of interval to compute correlation and RMS
+        N_CR = int(.1 / filter_ens.dt)  # Length of interval to compute correlation and RMS
         N_mean = int(.1 / filter_ens.dt)  # Length of interval to average mean error
         istart = np.argmin(abs(t_filter - truth['t_obs'][0]))  # start of assimilation
         istop = np.argmin(abs(t_filter - truth['t_obs'][parameters['num_DA'] - 1]))  # end of assimilation
@@ -144,8 +146,9 @@ for file in files:
 
 for ax1 in [axC, axR, axP]:
     ax1.set(xlabel='$\\gamma$', xlim=[min(ks) - 0.1, max(ks) + 0.1])
-axC.set(ylabel='Correlation')
-axR.set(ylabel='RMS error')
+axC.set(ylabel='Correlation', ylim=[0.95, 1.005])
+axR.set(ylabel='RMS error', ylim=[-0.1, .8])
+# axP.set(ylim=[0.1, 2])
 # plt.tight_layout()
 
 # PLOT MEAN ERROR EVOLUTION ================================================================================
@@ -167,7 +170,7 @@ for mic in [0]:
         mean_ax[i].set(xlim=[t_filter[istart] - 0.02, t_filter[istop] + 0.05], xlabel='$t$')
 
     mean_ax[0].set(ylabel='Biased signal error [\%]')
-    mean_ax[1].set(ylim=[0, 20], ylabel='Unbiased signal error [\%]')
+    mean_ax[1].set(ylim=[0, 10], ylabel='Unbiased signal error [\%]')
 
     for i in range(2):
         x0, x1 = mean_ax[i].get_xlim()
