@@ -6,6 +6,8 @@ Created on Tue Apr 12 09:55:49 2022
 """
 import os
 
+import matplotlib.pyplot as plt
+
 os.environ["OMP_NUM_THREADS"] = '1'
 
 num_proc = os.cpu_count()
@@ -45,6 +47,7 @@ def globalforecast(y0, fun, t, params):
 
 globalp = mp.Pool()
 
+
 # ========================================================================= #
 def createEnsemble(parent, DA_params=None, TA_params=None, Bias_params=None):
     """ Function that creates an ensemble of the class parent.
@@ -65,7 +68,8 @@ def createEnsemble(parent, DA_params=None, TA_params=None, Bias_params=None):
                         est_b=False, bias=None,
                         std_psi=0.1, std_a=0.1,
                         getJ=False, inflation=1.01,
-                        num_DA_blind=0, num_SE_only=0)
+                        num_DA_blind=0, num_SE_only=0,
+                        alpha_distr='normal')
 
         def __init__(self, DAdict=None, TAdict=None, Bdict=None):
             """ Constructor of the Ensemble
@@ -100,16 +104,26 @@ def createEnsemble(parent, DA_params=None, TA_params=None, Bias_params=None):
             self.psi = rng.multivariate_normal(mean, cov, self.m).T
             if len(self.est_p) > 0:
                 self.N += len(self.est_p)  # Increase ensemble size
-                i = 0
                 ens_a = np.zeros((len(self.est_p), self.m))
-                for p in self.est_p:
-                    p = np.array([getattr(self, p)])
-                    # p *=  rng.uniform(0.5,2, len(p))
-                    if p > 0:
-                        ens_a[i, :] = rng.uniform(p * (1. - self.std_a), p * (1. + self.std_a), self.m)
-                    else:
-                        ens_a[i, :] = rng.uniform(p * (1. + self.std_a), p * (1. - self.std_a), self.m)
-                    i += 1
+                if self.alpha_distr == 'uniform':
+                    for i, p in enumerate(self.est_p):
+                        p = np.array([getattr(self, p)])
+                        # p *=  rng.uniform(0.5,2, len(p))
+                        if p > 0:
+                            ens_a[i, :] = rng.uniform(p * (1. - self.std_a), p * (1. + self.std_a), self.m)
+                        else:
+                            ens_a[i, :] = rng.uniform(p * (1. + self.std_a), p * (1. - self.std_a), self.m)
+                elif self.alpha_distr == 'normal':
+                    mean = np.array([getattr(self, p) for p in self.est_p])  # * rng.uniform(0.9, 1.1, len(self.psi0))
+                    cov = np.diag(self.std_a ** 2 * abs(mean))
+                    ens_a = rng.multivariate_normal(mean, cov, self.m).T
+                else:
+                    raise 'Parameter distribution not recognised'
+
+                # plt.figure()
+                # plt.hist(ens_a[0,:])
+                # plt.show()
+
                 self.psi = np.vstack((self.psi, ens_a))
 
             # ========================= INITIALISE BIAS ========================= ##

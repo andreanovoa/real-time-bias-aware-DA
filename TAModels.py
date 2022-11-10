@@ -101,12 +101,10 @@ class Rijke(Model):
     """
 
     name: str = 'Rijke'
-    attr = dict(Nm=10, Nc=10, Nmic=6,
-                beta=1E6, tau=2.E-3, C1=.1, C2=.06,
-                kappa=1E5,
-                xf=1.18, L=1.92,
-                law='sqrt')
-    params = ['beta', 'tau', 'C1', 'C2', 'kappa']
+    attr: dict = dict(Nm=10, Nc=10, Nmic=6,
+                      beta=1E6, tau=2.E-3, C1=.1, C2=.06, kappa=1E5,
+                      xf=1.18, L=1.92, law='sqrt')
+    params: list = ['beta', 'tau', 'C1', 'C2', 'kappa']
 
     # __________________________ Init method ___________________________ #
     def __init__(self, TAdict=None):
@@ -312,15 +310,15 @@ class Rijke(Model):
 # %% =================================== VAN DER POL MODEL ============================================== %% #
 class VdP(Model):
     """ Van der Pol Oscillator Class
-        - cubic heat release law [omega, nu, kappa]
-        - atan heat release law [omega, nu, kappa, beta]
+        - cubic heat release law
+        - atan heat release law
             Note: gamma appears only in the higher order polynomial which is currently commented out
     """
 
-    name = 'VdP'
-    attr = dict(omega=2 * np.pi * 120., law='tan',
-                nu=7., kappa=3.4, gamma=1.7, beta=70.)
-    params = ['omega', 'nu', 'kappa', 'gamma', 'beta']
+    name: str = 'VdP'
+    attr: dict = dict(omega=2 * np.pi * 120., law='tan',
+                      zeta=60., beta=70., kappa=3.4, gamma=1.7)  # beta, zeta [rad/s]
+    params: list = ['omega', 'zeta', 'kappa', 'beta']  #, 'gamma']
 
     # __________________________ Init method ___________________________ #
     def __init__(self, TAdict=None):
@@ -339,8 +337,8 @@ class VdP(Model):
         # initialise model history
         super().__init__(TAdict)
         # set limits for the parameters
-        self.param_lims = dict(omega=(0, None), nu=(None, None), kappa=(None, None),
-                               gamma=(None, None), beta=(0, 5 * VdP.attr['beta']))
+        self.param_lims = dict(omega=(0, None), zeta=(20, 100), kappa=(0.1, 10.),
+                               gamma=(None, None), beta=(20, 100))
         print('\n ------------------ VAN DER POL MODEL PARAMETERS ------------------ \n',
               '\t Heat law = {0}'.format(self.law))
         for k, v in self.getParameters().items():
@@ -358,15 +356,13 @@ class VdP(Model):
         return np.expand_dims(eta, axis=0)
 
     def getParameters(self):
-        if self.law == 'cubic':
-            params = ['omega', 'nu', 'kappa']
-        elif self.law == 'tan':
-            params = ['omega', 'nu', 'kappa', 'beta']
-        else:
+        if self.law not in ['cubic', 'tan']:
             raise TypeError("Undefined heat release law. Choose 'cubic' or 'tan'.")
+        return {key: self.alpha0[key] for key in VdP.params}  #['beta', 'zeta', 'kappa']}
 
-        return {key: self.alpha0[key] for key in params}
-
+    @property
+    def growth_rate(self, zeta, beta):
+        return .5 * (beta - zeta)
     # _________________________ Governing equations ________________________ #
     def govEqnDict(self):
         d = dict(law=self.law,
@@ -394,17 +390,15 @@ class VdP(Model):
                 P[param] = psi[ii]
                 ii += 1
 
-        dmu_dt = - P['omega'] ** 2 * eta
-
+        dmu_dt = - P['omega'] ** 2 * eta + mu * (P['beta'] - P['zeta'])
+        # Add nonlinear term
         if d['law'] == 'cubic':  # Cubic law
-            dmu_dt += mu * (2. * P['nu'] - P['kappa'] * eta ** 2)
+            dmu_dt -= mu * P['kappa'] * eta ** 2
         elif d['law'] == 'tan':  # arc tan model
-            # print(P)
-            dmu_dt += mu * (P['beta'] ** 2 / (P['beta'] + P['kappa'] * eta ** 2) - P['beta'] + 2 * P['nu'])
+            dmu_dt -= mu * (P['kappa'] * eta ** 2) / (1. + P['kappa']/P['beta'] * eta ** 2)
         else:
             raise TypeError("Undefined heat release law. Choose 'cubic' or 'tan'.")
             # dmu_dt  +=  mu * (2.*P['nu'] + P['kappa'] * eta**2 - P['gamma'] * eta**4) # higher order polinomial
-
         return np.hstack([mu, dmu_dt, np.zeros(Na)])
 
 

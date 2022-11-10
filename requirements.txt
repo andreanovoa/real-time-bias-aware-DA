@@ -1,6 +1,7 @@
+matplotlib~=3.5.2
+scipy~=1.7.3
+numpy~=1.21.5
 matplotlib
-scipy
-numpy
-matplotlib
-h5py
+h5py~=3.7.0
 scikit-optimize
+nolds~=0.5.2

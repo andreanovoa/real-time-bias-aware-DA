@@ -30,7 +30,7 @@ exec(open("fns_training.py").read())
 ##  SET TRAINING PARAMETERS (from input dict) __________________________________________________
 try:
     data = trainData
-    np.save('data/test_results_bias', data, allow_pickle=True)
+    # np.save('data/test_results_bias', data, allow_pickle=True)
     # plt.figure()
     # plt.plot(data[:, 0])
     # plt.show()

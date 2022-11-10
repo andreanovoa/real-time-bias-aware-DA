@@ -22,22 +22,24 @@ plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 rng = np.random.default_rng(0)
 
 # -------------------------------------------------------- #
-save_ = False  # Save simulation? If false, plot results
-results_folder = 'results/VdP_2PE_beta_nu_NOtwin_ESN200m10m1_11_03/'
+save_ = True  # Save simulation? If false, plot results
+results_folder = 'results/VdP_100_Notwin_betazeta_uniform_std0.2_B/'
+if not os.path.isdir(results_folder):
+    os.makedirs(results_folder)
 
 # %% =====================================  CREATE OBSERVATIONS ===================================== #
 true_model = TAModels.VdP
 true_params = {'law': 'tan',
-               'nu': 7.,
-               'kappa': 3.4,
-               'omega': 2 * np.pi * 120.,
-               'beta': 70.
+               'beta': 80.,     # forcing
+               'zeta': 60.,     # damping
+               'kappa': 3.4,    # nonlinearity
+               'omega': 2 * np.pi * 120.
                }
 y_true, t_true, name_truth = createObservations(true_model, true_params, t_max=5.)
 # Manually add bias
 b_true = np.cos(y_true)
 y_true += b_true
-name_truth += '_+cosy_ESN'
+name_truth += '_+cosy'
 
 # Define the observations
 t_start = 2.5
@@ -58,35 +60,33 @@ forecast_model = TAModels.VdP
 biasType = Bias.ESN  # Bias.ESN  # Bias.ESN # None
 
 filt = 'EnKFbias'  # 'EnKFbias' 'EnKF' 'EnSRKF'
-ks = np.linspace(0., 50., 51)  # [10.]  # 1E5  # gamma in the equations. Weight of bT Wbb b
+ks = np.linspace(0., 70., 71)  # [10.]  # 1E5  # gamma in the equations. Weight of bT Wbb b
 
 model_params = {'law': true_params['law'],
                 'dt': dt_true,
-                'nu': true_params['nu']*0.8,
-                'beta': true_params['beta']*1.2,
+                'zeta': true_params['zeta'] * 0.9,
+                'beta': true_params['beta'] * 1.1,
                 'kappa': true_params['kappa'],
                 'omega': true_params['omega']
                 }
-filter_params = {'m': 100,  # Dictionary of DA parameters
-                 'est_p': ['beta', 'nu'],  # ['beta', 'tau'],  # #'beta', 'tau'
+filter_params = {'m': 10,  # Dictionary of DA parameters
+                 'est_p': ['beta', 'zeta'],  # ['beta', 'tau'],  # #'beta', 'tau'
                  'bias': biasType,
-                 'std_psi': 0.25,
-                 'std_a': 0.25,
+                 'std_psi': 0.2,
+                 'std_a': 0.2,
                  'est_b': False,
                  'getJ': True,
                  'inflation': 1.01,
                  'num_DA_blind': int(0.0 / t_obs[1] - t_obs[0]),  # num of obs to start accounting for the bias
                  'num_SE_only': int(0.0 / t_obs[1] - t_obs[0])  # num of obs to start parameter estimation
                  }
+
+train_params = model_params.copy()
 train_params = {'m': 100,
                 'std_a': 0.3,
                 'std_psi': 0.3,
-                'est_p': ['nu', 'beta'],
-                'law': model_params['law'],
-                'nu': model_params['nu'],  # 'beta': model_params['beta'],
-                'beta': model_params['beta'],
-                'kappa': model_params['kappa'],  # 'tau': model_params['tau']
-                'omega': model_params['omega']
+                'est_p': ['zeta', 'beta'],
+                'alpha_distr': 'uniform',
                 }
 ESN_params = {'N_wash': 50,
               'upsample': 5,
@@ -102,7 +102,7 @@ if biasType is not None:
         name_train = './data/Truth_{}_{}'.format(ref_ens.name, ref_ens.law)
         for k, v in ref_ens.getParameters().items():
             name_train += '_{}{}'.format(k, v)
-        name_train += '_tmax-{:.2}_std{:.2}_m{}'.format(t_true[-1], ref_ens.std_a, ref_ens.m)
+        name_train += '_tmax-{:.2}_std{:.2}_m{}_{}'.format(t_true[-1], ref_ens.std_a, ref_ens.m, ref_ens.alpha_distr)
 
         if os.path.isfile(name_train):
             print('Loading Reference solution(s)')
@@ -115,31 +115,35 @@ if biasType is not None:
                 pickle.dump(ref_ens, f)
 
         y_ref, lbl = ref_ens.getObservableHist()
-        if not save_:
-            fig, ax = plt.subplots(1, 3, figsize=(20, 5))
-            norm = mpl.colors.Normalize(vmin=0, vmax=y_ref.shape[-1])
-            cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.magma)
-            fig.suptitle('Training data')
-            ax[0].plot(t_true, y_true, color='silver', linewidth=6)
-            Nt = int(.2 // dt_true)
-            for ii in range(y_ref.shape[-1]):
-                C, R = CR(y_true[-Nt:], y_ref[-Nt:, :, ii])
-                line = ax[0].plot(t_true, y_ref[:, :, ii], color=cmap.to_rgba(ii))
-                ax[1].plot(ii, C, 'o', color=cmap.to_rgba(ii))
-                ax[2].plot(ii, R, 'x', color=cmap.to_rgba(ii))
-            plt.tight_layout()
-            ax[0].legend(['Truth'])
-            ax[0].set(xlabel='$t$', ylabel=lbl)#, xlim=[t_true[-1] - 0.05, t_true[-1]])
-            ax[1].set(xlabel='$\\gamma$', ylabel='Correlation')
-            ax[2].set(xlabel='$\\gamma$', ylabel='RMS error')
-            for ax1 in [ax[1], ax[2]]:
-                x0, x1 = ax1.get_xlim()
-                y0, y1 = ax1.get_ylim()
-                # ax1.set_aspect((x1 - x0) / (y1 - y0))
+        # if not save_:
+        fig, ax = plt.subplots(1, 3, figsize=(15, 3.5))
+        norm = mpl.colors.Normalize(vmin=-5, vmax=y_ref.shape[-1])
+        cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.magma)
+        fig.suptitle('Training data')
+        ax[0].plot(t_true, y_true, color='silver', linewidth=6, alpha=.8)
+        Nt = int(.2 // dt_true)
+        for ii in range(y_ref.shape[-1]):
+            C, R = CR(y_true[-Nt:], y_ref[-Nt:, :, ii])
+            line = ax[0].plot(t_true, y_ref[:, :, ii], color=cmap.to_rgba(ii))
+            ax[1].plot(ii, C, 'o', color=cmap.to_rgba(ii))
+            ax[2].plot(ii, R, 'x', color=cmap.to_rgba(ii))
+        plt.tight_layout()
+        ax[0].legend(['Truth'], bbox_to_anchor=(0., 1.25), loc="upper left")
+        ax[0].set(xlabel='$t$', ylabel=lbl, xlim=[t_true[-1] - 0.05, t_true[-1]])
+        ax[1].set(xlabel='$l$', ylabel='Correlation')
+        ax[2].set(xlabel='$l$', ylabel='RMS error')
+        ax[0].plot(t_true, y_true, color='silver', linewidth=6, alpha=.8)
+        for ax1, l in zip(ax[:], [.5, 1., 1.]):
+            x0, x1 = ax1.get_xlim()
+            y0, y1 = ax1.get_ylim()
+            ax1.set_aspect(l * (x1 - x0) / (y1 - y0))
+
+
+        plt.savefig(results_folder + '00training_data.svg', dpi=350)
+        plt.show()
 
         biasData = np.expand_dims(y_true, -1) - y_ref  # [Nt x Nmic x Ntrain]
         biasData = np.append(biasData, ref_ens.hist[:, -len(ref_ens.est_p):], axis=1)
-        plt.show()
         # provide data for washout before first observation
         i1 = int(np.where(t_true == t_obs[0])[0]) - kmeas
         i0 = i1 - int(0.1 / dt_true)
@@ -201,9 +205,6 @@ for k in ks:
     parameters = dict(kmeas=kmeas, filt=filt, biasType=biasType, forecast_model=forecast_model,
                       true_model=true_model, num_DA=len(t_obs), Nt_extra=Nt_extra)
     if save_:
-        if not os.path.isdir(results_folder):
-            os.makedirs(results_folder)
-
         filename = '{}{}_Truth{}_Forecast{}_Bias{}_k{}'.format(results_folder, filt, name_truth,
                                                                forecast_model.name, bias_name, k)
         with open(filename, 'wb') as f:
@@ -214,3 +215,8 @@ for k in ks:
         exec(open("post_process.py").read(), {'parameters': parameters,
                                               'filter_ens': filter_ens,
                                               'truth': truth})
+
+if len(ks) > 1:
+    exec(open("plot_t_analysus.py").read(), {'folder': results_folder})
+
+

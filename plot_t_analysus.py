@@ -11,19 +11,26 @@ plt.rc('text', usetex=True)
 plt.rc('font', family='serif', size=16)
 plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 
-folder = 'results/VdP_2PE_beta_nu_NOtwin_ESN100_11_02/'
+try:
+    folder = folder
+    show_ = False
+except:
+    folder = 'results/VdP_100_Notwin_betazeta_uniform_std0.2_B/'
+    show_ = True
+
 files = os.listdir(folder)
 flag = True
 biases, esn_errors, biases_ESN = [], [], []
 ks, CBs, RBs, CUs, RUs, Cpres, Rpres = [], [], [], [], [], [], []
 # ==================================================================================================================
-fig = plt.figure(figsize=(15, 7.5), layout="constrained")
+fig = plt.figure(figsize=(19, 7.5), layout="constrained")
 fig.suptitle(folder)
-subfigs = fig.subfigures(2, 1)
-ax = subfigs[0].subplots(1, 3)
-axC, axR, axP = ax[:]
+subfigs = fig.subfigures(2, 2, wspace=0.07, width_ratios=[3.5, 1])
+
+axCRP = subfigs[0, 0].subplots(1, 3)
+axNU = subfigs[0, 1].subplots(1, 1)
 for file in files:
-    if file[-3:] == '.py':
+    if file[-3:] == '.py' or file[-4] == '.':
         continue
     k = float(file.split('_k')[-1])
     with open(folder + file, 'rb') as f:
@@ -82,23 +89,20 @@ for file in files:
     # Correlation
     bias_c = 'tab:red'
     unbias_c = 'tab:blue'
-    axC.plot(k, CB, 'o', color=bias_c, label='Biased')
-    axC.plot(k, CU, '*', color=unbias_c, label='Unbiased')
+    axCRP[0].plot(k, CB, 'o', color=bias_c, label='Biased')
+    axCRP[0].plot(k, CU, '*', color=unbias_c, label='Unbiased')
     # RMS error
-    axR.plot(k, RB, 'o', color=bias_c, label='Biased ')
-    axR.plot(k, RU, '*', color=unbias_c, label='Unbiased')
-
+    axCRP[1].plot(k, RB, 'o', color=bias_c, label='Biased ')
+    axCRP[1].plot(k, RU, '*', color=unbias_c, label='Unbiased')
 
     CB, RB = CR(y_obs, y_obs_b)  # biased
     CU, RU = CR(y_obs, y_obs_u)  # unbiased
     # Correlation
     bias_c = 'tab:red'
     unbias_c = 'tab:blue'
-    axC.plot(k, CB, '+', color=bias_c, label='Biased ')
-    axC.plot(k, CU, 'x', color=unbias_c, label='Unbiased')
+    axCRP[0].plot(k, CB, '+', color=bias_c, label='Biased ')
     # RMS error
-    axR.plot(k, RB, '+', color=bias_c, label='Biased ')
-    axR.plot(k, RU, 'x', color=unbias_c, label='Unbiased')
+    axCRP[1].plot(k, RB, '+', color=bias_c, label='Biased ')
 
 
 
@@ -106,32 +110,55 @@ for file in files:
     if filter_ens.est_p:
         if flag:
             N_psi = len(filter_ens.psi0)
-            c = ['tab:orange', 'navy', 'tab:red', 'forestgreen','cyan']
+            c = ['tab:orange', 'navy', 'tab:red', 'forestgreen', 'cyan']
             marker = ['+', 'x']
             time = ['$(t_\mathrm{start})$', '$(t_\mathrm{end})$']
             alphas = [0.2, 1.0]
-            superscript = '^\mathrm{true}$'
-            try:
-                reference_p = truth['true_params']
-            except:
-                reference_p = {'law': 'tan', 'nu': 7., 'kappa': 3.4, 'omega': 2 * np.pi * 120.}
+            superscript = '^\mathrm{init}$'
+            reference_p = filter_ens.alpha0
         for jj, p in enumerate(filter_ens.est_p):
             for kk, idx in enumerate([istart, istop]):
                 hist_p = filter_ens.hist[idx - 1, N_psi + jj] / reference_p[p]
-                axP.errorbar(k, np.mean(hist_p).squeeze(), yerr=np.std(hist_p), capsize=6, alpha=alphas[kk],
-                             fmt=marker[kk], color=c[jj], label='$\\' + p + '/\\' + p + superscript + time[kk])
+                axCRP[2].errorbar(k, np.mean(hist_p).squeeze(), yerr=np.std(hist_p), capsize=6, alpha=alphas[kk],
+                                 fmt=marker[kk], color=c[jj], label='$\\' + p + '/\\' + p + superscript + time[kk])
+
+        if 'beta' in filter_ens.est_p and 'zeta' in filter_ens.est_p:
+            # compute growth rate
+            final_nu = 0.
+            for jj, p in enumerate(filter_ens.est_p):
+                if p == 'beta':
+                    final_nu += 0.5 * np.mean(filter_ens.hist[istop - 1, N_psi + jj]).squeeze()
+                elif p == 'zeta':
+                    final_nu -= 0.5 * np.mean(filter_ens.hist[istop - 1, N_psi + jj]).squeeze()
+
+            axNU.plot(k, final_nu, '^', color=c[-1])
+            if flag:
+                final_nu = 0.
+                for jj, p in enumerate(filter_ens.est_p):
+                    if p == 'beta':
+                        final_nu += 0.5 * np.mean(filter_ens.hist[istart - 1, N_psi + jj]).squeeze()
+                    elif p == 'zeta':
+                        final_nu -= 0.5 * np.mean(filter_ens.hist[istart - 1, N_psi + jj]).squeeze()
+                axNU.plot([-10, 100], [final_nu, final_nu], '-', color='k', label='Pre-DA')
+                true_nu = 0.5*(truth['true_params']['beta']-truth['true_params']['zeta'])
+                axNU.plot([-10, 100], [true_nu, true_nu], '-', color='k', label='Truth', alpha=0.2, linewidth=5.)
+
+
+
     if flag:
         # compute and plot the baseline correlation and MSE
         y_truth_u = y_truth - b_truth
         Ct, Rt = CR(y_truth[-N_CR:], y_truth_u[-N_CR:])
-        axC.plot((0, 100), (Ct, Ct), '-', color='k', label='Truth', alpha=0.2, linewidth=5.)
-        axR.plot((0, 100), (Rt, Rt), '-', color='k', label='Truth', alpha=0.2, linewidth=5.)
+        axCRP[0].plot((-10, 100), (Ct, Ct), '-', color='k', label='Truth', alpha=0.2, linewidth=5.)
+        axCRP[1].plot((-10, 100), (Rt, Rt), '-', color='k', label='Truth', alpha=0.2, linewidth=5.)
         # compute C and R before the assimilation (the initial ensemble has some initialisation error)
-        Cpre, Rpre = CR(y_truth[istart - N_CR:istart:], np.mean(y_filter, -1)[istart - N_CR:istart:])
-        axC.plot((0, 100), (Cpre, Cpre), '-', color='k', label='Pre-DA')
-        axR.plot((0, 100), (Rpre, Rpre), '-', color='k', label='Pre-DA')
-        for ax1 in [axR, axP]:
+        Cpre, Rpre = CR(y_truth[istart - N_CR:istart+1:], np.mean(y_filter, -1)[istart - N_CR:istart+1:])
+        axCRP[0].plot((-10, 100), (Cpre, Cpre), '-', color='k', label='Pre-DA')
+        axCRP[1].plot((-10, 100), (Rpre, Rpre), '-', color='k', label='Pre-DA')
+        for ax1 in axCRP[1:]:
             ax1.legend(bbox_to_anchor=(1., 1.), loc="upper left", ncol=1)
+
+
 
     flag = False
     # PLOT SOME INDIVIDUAL TIME SOLUTIONS ================================================================
@@ -144,28 +171,28 @@ for file in files:
 
 # =========================================================================================================
 
-for ax1 in [axC, axR, axP]:
-    ax1.set(xlabel='$\\gamma$', xlim=[min(ks) - 0.1, max(ks) + 0.1])
-axC.set(ylabel='Correlation', ylim=[0.95, 1.005])
-axR.set(ylabel='RMS error', ylim=[-0.1, .8])
-# axP.set(ylim=[0.1, 2])
+axCRP[0].set(ylabel='Correlation', xlabel='$\\gamma$', xlim=[min(ks) - 0.2, max(ks) + 0.2])
+axCRP[1].set(ylabel='RMS error', ylim=[-0.1, 1.2], xlabel='$\\gamma$', xlim=[min(ks) - 0.2, max(ks) + 0.2])
+axCRP[2].set(ylim=[0.1, 2], xlim=[min(ks) - 0.2, max(ks) + 0.2])
+axNU.set(xlim=[min(ks) - 0.2, max(ks) + 0.2], xlabel='$\\gamma$', ylabel='$\\nu$')
+
+for ax1 in np.append(axCRP[:], axNU):
+    x0, x1 = ax1.get_xlim()
+    y0, y1 = ax1.get_ylim()
+    ax1.set_aspect((x1 - x0) / (y1 - y0))
 # plt.tight_layout()
 
 # PLOT MEAN ERROR EVOLUTION ================================================================================
 
-ax = subfigs[1].subplots(1, 2)
+ax = subfigs[1, 0].subplots(1, 2)
 mean_ax = ax[:]
 for mic in [0]:
-    scale = np.max(truth['y'][:, mic])  # np.median(true_env)#np.mean(prop['peak_heights'])
+    scale = np.max(truth['y'][:, mic])
     norm = mpl.colors.Normalize(vmin=min(ks), vmax=max(ks))
     cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.viridis)
     for i, metric in enumerate([biases, esn_errors]):  # , biases_ESN]):
         errors = [b[:, mic] / scale for b in metric]
         for err, k in zip(errors, ks):
-            # if k == 0.0:
-            #     mean_ax[i].plot(t_interp, err * 100, color='r', label='k = 0')
-            #     mean_ax[i].legend()
-            # elif k <= kmax:
             mean_ax[i].plot(t_interp, err * 100, color=cmap.to_rgba(k))
         mean_ax[i].set(xlim=[t_filter[istart] - 0.02, t_filter[istop] + 0.05], xlabel='$t$')
 
@@ -181,4 +208,7 @@ for mic in [0]:
 clb = fig.colorbar(cmap, ax=mean_ax[1], orientation='vertical', fraction=0.1)
 clb.ax.set_title('$\\gamma$')
 
-plt.show()
+plt.savefig(folder + '00results.svg', dpi=350)
+
+if show_:
+    plt.show()
