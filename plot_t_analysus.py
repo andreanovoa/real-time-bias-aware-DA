@@ -15,8 +15,11 @@ try:
     folder = folder
     show_ = False
 except:
-    folder = 'results/VdP_100_Notwin_betazeta_uniform_std0.2_B/'
+    folder = 'results/VdP_Fig2_3PE/std{}/L{}/'.format(0.25, 10)
+    figs_folder = folder
+    name = results
     show_ = True
+
 
 files = os.listdir(folder)
 flag = True
@@ -33,6 +36,8 @@ for file in files:
     if file[-3:] == '.py' or file[-4] == '.':
         continue
     k = float(file.split('_k')[-1])
+    # if k > 20:
+    #     continue
     with open(folder + file, 'rb') as f:
         parameters = pickle.load(f)
         if flag:  # init the ensemble class with the first file
@@ -100,9 +105,9 @@ for file in files:
     # Correlation
     bias_c = 'tab:red'
     unbias_c = 'tab:blue'
-    axCRP[0].plot(k, CB, '+', color=bias_c, label='Biased ')
+    # axCRP[0].plot(k, CB, '+', color=bias_c, label='Biased ')
     # RMS error
-    axCRP[1].plot(k, RB, '+', color=bias_c, label='Biased ')
+    # axCRP[1].plot(k, RB, '+', color=bias_c, label='Biased ')
 
 
 
@@ -110,7 +115,7 @@ for file in files:
     if filter_ens.est_p:
         if flag:
             N_psi = len(filter_ens.psi0)
-            c = ['tab:orange', 'navy', 'tab:red', 'forestgreen', 'cyan']
+            c = ['tab:orange', 'navy', 'forestgreen', 'cyan']
             marker = ['+', 'x']
             time = ['$(t_\mathrm{start})$', '$(t_\mathrm{end})$']
             alphas = [0.2, 1.0]
@@ -170,11 +175,11 @@ for file in files:
 # WAIT - ISTART/ISTOP IS FOR Y_TRUTH? DOESN'T MAKE SENSE
 
 # =========================================================================================================
-
-axCRP[0].set(ylabel='Correlation', xlabel='$\\gamma$', xlim=[min(ks) - 0.2, max(ks) + 0.2])
-axCRP[1].set(ylabel='RMS error', ylim=[-0.1, 1.2], xlabel='$\\gamma$', xlim=[min(ks) - 0.2, max(ks) + 0.2])
-axCRP[2].set(ylim=[0.1, 2], xlim=[min(ks) - 0.2, max(ks) + 0.2])
-axNU.set(xlim=[min(ks) - 0.2, max(ks) + 0.2], xlabel='$\\gamma$', ylabel='$\\nu$')
+xlims = [-1, 70] #[min(ks) - 0.2, max(ks) + 0.2]
+axCRP[0].set(ylabel='Correlation', xlim=xlims, xlabel='$\\gamma$')
+axCRP[1].set(ylabel='RMS error', ylim=[0., 0.4], xlim=xlims, xlabel='$\\gamma$')
+axCRP[2].set(ylim=[0.6, 1.6], xlim=xlims)
+axNU.set(xlim=xlims, xlabel='$\\gamma$', ylabel='$\\nu$')
 
 for ax1 in np.append(axCRP[:], axNU):
     x0, x1 = ax1.get_xlim()
@@ -188,7 +193,7 @@ ax = subfigs[1, 0].subplots(1, 2)
 mean_ax = ax[:]
 for mic in [0]:
     scale = np.max(truth['y'][:, mic])
-    norm = mpl.colors.Normalize(vmin=min(ks), vmax=max(ks))
+    norm = mpl.colors.Normalize(vmin=0, vmax=70)
     cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.viridis)
     for i, metric in enumerate([biases, esn_errors]):  # , biases_ESN]):
         errors = [b[:, mic] / scale for b in metric]
@@ -196,7 +201,7 @@ for mic in [0]:
             mean_ax[i].plot(t_interp, err * 100, color=cmap.to_rgba(k))
         mean_ax[i].set(xlim=[t_filter[istart] - 0.02, t_filter[istop] + 0.05], xlabel='$t$')
 
-    mean_ax[0].set(ylabel='Biased signal error [\%]')
+    mean_ax[0].set(ylim=[0, 20], ylabel='Biased signal error [\%]')
     mean_ax[1].set(ylim=[0, 10], ylabel='Unbiased signal error [\%]')
 
     for i in range(2):
@@ -208,7 +213,10 @@ for mic in [0]:
 clb = fig.colorbar(cmap, ax=mean_ax[1], orientation='vertical', fraction=0.1)
 clb.ax.set_title('$\\gamma$')
 
-plt.savefig(folder + '00results.svg', dpi=350)
+plt.savefig(figs_folder + name + '.svg', dpi=350)
+plt.savefig(figs_folder + name + '.pdf', dpi=350)
 
-if show_:
-    plt.show()
+# if show_:
+#     plt.show()
+
+# plt.show()

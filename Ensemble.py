@@ -120,10 +120,6 @@ def createEnsemble(parent, DA_params=None, TA_params=None, Bias_params=None):
                 else:
                     raise 'Parameter distribution not recognised'
 
-                # plt.figure()
-                # plt.hist(ens_a[0,:])
-                # plt.show()
-
                 self.psi = np.vstack((self.psi, ens_a))
 
             # ========================= INITIALISE BIAS ========================= ##
@@ -138,32 +134,32 @@ def createEnsemble(parent, DA_params=None, TA_params=None, Bias_params=None):
                 # Initialise bias. Note: self.bias is now an instance of the bias class
                 y = self.getObservables()
                 self.bias = self.bias(y, self.t, Bdict)
-                # Augment state matrix if you want to infer bias weights
-                if self.est_b:
-                    weights, names = self.bias.getWeights()
-                    Nw = len(weights)
-                    self.N += Nw  # Increase ensemble size
-
-                    ens_b = np.zeros((Nw, self.m))
-                    ii = 0
-                    for w in weights:
-                        low = w[0] - self.std_a
-                        high = w[0] + self.std_a
-                        ens_b[ii, :] = low.T + (high - low).T * np.random.random_sample((1, self.m))
-                        ii += 1
-                    # Update bias weights and update state matrix
-                    self.bias.updateWeights(ens_b)
-                    self.psi = np.vstack((self.psi, ens_b))
+                # # Augment state matrix if you want to infer bias weights
+                # if self.est_b:
+                #     weights, names = self.bias.getWeights()
+                #     Nw = len(weights)
+                #     self.N += Nw  # Increase ensemble size
+                #
+                #     ens_b = np.zeros((Nw, self.m))
+                #     ii = 0
+                #     for w in weights:
+                #         low = w[0] - self.std_a
+                #         high = w[0] + self.std_a
+                #         ens_b[ii, :] = low.T + (high - low).T * np.random.random_sample((1, self.m))
+                #         ii += 1
+                #     # Update bias weights and update state matrix
+                #     self.bias.updateWeights(ens_b)
+                #     self.psi = np.vstack((self.psi, ens_b))
 
                 # Create bias history
                 b = self.bias.getBias(y)
                 self.bias.updateHistory(b, self.t)
 
-                # Add TA training parameters
-                if 'train_TAparams' in Bdict.keys():
-                    self.bias.train_TAparams = Bdict['train_TAparams']
-                else:
-                    self.bias.train_TAparams = self.alpha0
+                # # Add TA training parameters
+                # if 'train_TAparams' in Bdict.keys():
+                #     self.bias.train_TAparams = Bdict['train_TAparams']
+                # else:
+                #     self.bias.train_TAparams = self.alpha0
 
             ## ========================== CREATE HISTORY ========================== ##
             self.hist = np.array([self.psi])

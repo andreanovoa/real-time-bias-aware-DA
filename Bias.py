@@ -112,7 +112,9 @@ class ESN(Bias):
 
     def __init__(self, y, t, Bdict=None):
         if Bdict is None:
-            Bdict = {}
+            Bdict = {
+                'folder': 'data/'
+            }
         else:
             for key, val in self.training_params.items():
                 if key not in Bdict.keys():
@@ -122,14 +124,26 @@ class ESN(Bias):
                     setattr(self, key, Bdict[key])
 
         # ------------------------ Define bias data filename ------------------------ #
-        if Bdict['filename'][:6] != './data/':
-            Bdict['filename'] = './data/' + Bdict['filename']
-        if Bdict['filename'][:-len('_bias')] != '_bias':
-            Bdict['filename'] = Bdict['filename'] + '_bias'
+        # Bdict['filename'] = './'+ Bdict['folder'] + Bdict['filename'] + '_bias'
+        # if Bdict['filename'][:-len('_bias')] != '_bias':
+        #     Bdict['filename'] = Bdict['filename'] + '_bias'
 
+        #
+        self.trainESN(Bdict)
+
+        # -----------  Initialise reservoir state and its history to zeros ------------ #
+        self.r = np.zeros(self.N_units)
+        self.hist_r = np.array([self.r])
+
+        # --------------------------  Initialise parent Bias  ------------------------- #
+        b = np.zeros(self.N_dim)
+
+        super().__init__(b, t)
+
+    # @staticmethod
+    def trainESN(self, Bdict):
         # --------------------- Train a new ESN if not in folder --------------------- #
-        ESN_filename = Bdict['filename'][:-len('bias')] + 'ESN' + str(self.N_units)
-
+        ESN_filename = './' + Bdict['filename'][:-len('bias')] + 'ESN' + str(self.N_units)
         # Check that the saved ESN has the same parameters as the wanted one
         flag = False
         if os.path.isfile(ESN_filename+'.mat'):
@@ -137,7 +151,7 @@ class ESN(Bias):
             for key, val in fileESN.items():
                 if key in Bdict.keys() and val != Bdict[key]:
                     flag = True
-                    print('Retraining ESN...')
+                    print('\n Retraining ESN...')
                     break
 
         if not os.path.isfile(ESN_filename+'.mat') or flag:
@@ -151,7 +165,6 @@ class ESN(Bias):
                     N_wtv += self.N_wash * 10
                 if N_wtv > len(bias):
                     N_wtv = len(bias)
-
                 np.savez(Bdict['filename'], bias[-N_wtv:])
                 title = 'TRAINED ESN PARAMETERS'
             else:
@@ -187,15 +200,6 @@ class ESN(Bias):
         if len(self.Wout.shape) == 1:
             self.Wout = np.expand_dims(self.Wout, axis=1)
 
-
-        # self.Win = lil_matrix(self.Win)
-        #
-        # plt.figure()
-        # plt.plot(self.washout_t, self.washout_obs[:,0], '-o')
-        # plt.plot(Bdict['washout_t'], np.squeeze(Bdict['washout_obs'][:,0]))
-        # plt.plot(self.washout_t[0], self.washout_obs[0,0], '*')
-        # plt.show()
-
         self.parametrise = Bdict['trainData'].shape[-1] == self.N_augment
         print('\n -------------------- ', title, ' -------------------- \n',
               'Data filename: ', str(self.filename),
@@ -207,15 +211,6 @@ class ESN(Bias):
               '\n Data augmentation factor: ', self.N_augment / Bdict['trainData'].shape[-1],
               '\n Parametrise ESN: ', self.parametrise,
               '\n Run test?: ', self.test_run)
-
-        # -----------  Initialise reservoir state and its history to zeros ------------ #
-        self.r = np.zeros(self.N_units)
-        self.hist_r = np.array([self.r])
-
-        # --------------------------  Initialise parent Bias  ------------------------- #
-        b = np.zeros(self.N_dim)
-
-        super().__init__(b, t)
 
     def getWeights(self):  # TODO maybe
         pass
@@ -337,8 +332,8 @@ class ESN(Bias):
         """
         # Normalise input data and augment with input bias (ESN symmetry parameter)
         b_aug = np.concatenate((b / self.norm, self.bias_in))
-        if self.parametrise:
-            b_aug = np.concatenate((b_aug, self.alph/self.norm_alpha))
+        # if self.parametrise:
+        #     b_aug = np.concatenate((b_aug, self.alph/self.norm_alpha))
         # Forecast the reservoir state
         # r_out = np.tanh(np.dot(b_aug * self.sigma_in, self.Win) + self.rho * np.dot(r, self.W))
 

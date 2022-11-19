@@ -76,7 +76,7 @@ def createObservations(classType, TA_params=None, t_max=8.):
                     if type(val) == str:
                         suffix += val + '_'
                     else:
-                        suffix += key + '{:.1e}'.format(val) + '_'
+                        suffix += key + '{:.2e}'.format(val) + '_'
 
         name = '/data/Truth_{}_{}tmax-{:.2}'.format(classType.name, suffix, t_max)
         name = os.path.join(os.getcwd() + name)

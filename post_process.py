@@ -10,8 +10,8 @@ plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 
 
 if __name__ == '__main__':
-    folder = 'results/'
-    name = folder + 'EnSRKF_TruthRijke_ForecastRijke_BiasESN_k0.4_new-ESN'
+    folder = 'results/VdP_twin_1PE_ESN100_cos/'
+    name = folder + 'EnKFbias_TruthVdP_tan_beta8.0e+01_zeta6.0e+01_kappa3.4e+00_omega7.5e+02_tmax-5.0_+cosy_ForecastVdP_BiasESN_k0'
     with open(name, 'rb') as f:
         parameters = pickle.load(f)
         createEnsemble(parameters['forecast_model'])
@@ -48,13 +48,15 @@ std = np.std(y_filter[:, 0, :], axis=1)
 
 t = filter_ens.hist_t
 
-fig, ax = plt.subplots(3, 2, figsize=[20, 12])
+fig, ax = plt.subplots(3, 3, figsize=[20, 12], layout="tight")
 p_ax = ax[0, 0]
-zoom_ax = ax[0, 1]
+zoom_ax = ax[0, 2]
+zoom2_ax = ax[0, 1]
 params_ax = ax[1, 0]
-RMS_ax = ax[1, 1]
-bias_ax = ax[2, 0]
+bias_ax = ax[1, 1]
+RMS_ax = ax[2, 0]
 J_ax = ax[2, 1]
+dJ_ax = ax[2, 2]
 
 if biasType is None:
     fig.suptitle(filter_ens.name + ' DA with ' + filt)
@@ -64,7 +66,8 @@ else:
 x_lims = [t_obs[0] - .05, t_obs[-1] + .05]
 
 p_ax.plot(t_true, y_true[:, 0], color='silver', label='Truth', linewidth=4)
-zoom_ax.plot(t_true, y_true[:, 0], color='silver', label='Truth', linewidth=6)
+zoom_ax.plot(t_true, y_true[:, 0], color='silver', label='Truth', linewidth=8)
+zoom2_ax.plot(t_true, y_true[:, 0], color='silver', label='Truth', linewidth=8)
 p_ax.plot((t_obs[0], t_obs[0]), (-1E6, 1E6), '--', color='dimgray')
 p_ax.plot((t_obs[-1], t_obs[-1]), (-1E6, 1E6), '--', color='dimgray')
 
@@ -90,12 +93,13 @@ if filter_ens.bias is not None:
     except:
         pass
 
+    washidx = int(t_obs[0]/filter_ens.dt) - filter_ens.bias.N_wash * filter_ens.bias.upsample
     p_ax.plot(t, y_mean_u[:, 0], '-', color=c, label='Unbiased filtered signal', linewidth=1.2)
     zoom_ax.plot(t, y_mean_u[:, 0], '-', color=c, label='Unbiased filtered signal', linewidth=1.5)
+    zoom2_ax.plot(t[washidx:], y_mean_u[washidx:, 0], '-', color=c, label='Unbiased filtered signal', linewidth=1.5)
 
     # BIAS PLOT
     bias_ax.plot(t_b, b[:, 0], alpha=0.75, label='ESN estimation')
-    # bias_ax.plot(t_b, b[:, 0], '-o', alpha=0.75, label='ESN upsample estimation')
     b_obs = y_true[:len(y_filter)] - y_filter
 
     b_mean = np.mean(b_obs, -1)
@@ -108,24 +112,28 @@ if filter_ens.bias is not None:
     bias_ax.legend()
     bias_ax.set(ylabel='Bias', xlabel='$t$', xlim=x_lims, ylim=y_lims)
 
-c = 'royalblue'
-p_ax.plot(t, y_mean[:, 0], '--', color=c, label='Filtered signal', linewidth=1.)
-zoom_ax.plot(t, y_mean[:, 0], '--', color=c, label='Filtered signal', linewidth=1.)
+c = '#021bf9'
+p_ax.plot(t, y_mean[:, 0], '--', color=c, label='Biased filtered signal', linewidth=1.)
+zoom_ax.plot(t, y_mean[:, 0], '--', color=c, label='Filtered signal', linewidth=1.5, alpha=0.9)
+zoom2_ax.plot(t, y_mean[:, 0], '--', color=c, label='Filtered signal', linewidth=1.5, alpha=0.9)
 p_ax.fill_between(t, y_mean[:, 0] + std, y_mean[:, 0] - std, alpha=0.2, color=c)
 zoom_ax.fill_between(t, y_mean[:, 0] + std, y_mean[:, 0] - std, alpha=0.2, color=c)
+zoom2_ax.fill_between(t, y_mean[:, 0] + std, y_mean[:, 0] - std, alpha=0.2, color=c)
 
 p_ax.plot(t_obs, obs[:, 0], '.', color='r', label='Assimilation step')
 zoom_ax.plot(t_obs, obs[:, 0], '.', color='r', label='Assimilation step', markersize=10)
+zoom2_ax.plot(t_obs, obs[:, 0], '.', color='r', label='Assimilation step', markersize=10)
 
 y_lims = [min(y_mean[:, 0]) - np.mean(std) * 1.1, (max(y_mean[:, 0]) + max(std)) * 1.5]
 p_ax.set(ylabel="$p'_\mathrm{mic_1}$ [Pa]", xlabel='$t$ [s]', xlim=x_lims, ylim=y_lims)
-p_ax.legend(bbox_to_anchor=(1., 1.), loc="upper left", ncol=1)
+p_ax.legend(bbox_to_anchor=(0., 1.), loc="lower left", ncol=2)
 
-y_lims = [min(y_true[:, 0]) * 1.1, max(y_true[:, 0]) * 1.1]
+y_lims = [min(min(y_true[:, 0]), min(y_mean[:, 0])) * 1.1, max(max(y_true[:, 0]), max(y_mean[:, 0])) * 1.1]
 
-zoom_ax.set(xlim=[t_obs[-1] - 0.05, t_obs[-1]], ylim=y_lims)
+zoom_ax.set(ylabel="$\\eta$", xlabel='$t$ [s]', xlim=[t_obs[-1] - 0.03, t_obs[-1]+0.02], ylim=y_lims)
+zoom2_ax.set(ylabel="$\\eta$", xlabel='$t$ [s]', xlim=[t_obs[0] - 0.03, t_obs[0]+0.02], ylim=y_lims)
 
-zoom_ax.tick_params(labelsize=24)
+# zoom_ax.tick_params(labelsize=24)
 # zoom_ax.tick_params('Y axis', fontsize = 20)
 
 # PLOT PARAMETER CONVERGENCE-------------------------------------------------------------
@@ -146,15 +154,12 @@ if num_SE_only > 0:
 if filter_ens.est_p:
     max_p, min_p = -1000, 1000
     for p in filter_ens.est_p:
-        if filter_ens.bias is None:
-            reference_p = filter_ens.alpha0[p]
-            superscript = '^\mathrm{true}$'
-        else:
-            reference_p = filter_ens.bias.train_TAparams[p]
-            superscript = '^\mathrm{train}$'
+        superscript = '^\mathrm{init}$'
+        # reference_p = truth['true_params']
+        reference_p = filter_ens.alpha0
 
-        mean_p = mean[:, ii].squeeze() / reference_p
-        std = np.std(hist[:, ii] / reference_p, axis=1)
+        mean_p = mean[:, ii].squeeze() / reference_p[p]
+        std = np.std(hist[:, ii] / reference_p[p], axis=1)
 
         max_p = max(max_p, max(mean_p))
         min_p = min(min_p, min(mean_p))
@@ -166,7 +171,7 @@ if filter_ens.est_p:
         ii += 1
     params_ax.legend(bbox_to_anchor=(1., 1.), loc="upper left", ncol=1)
     params_ax.plot(t[1:], t[1:] / t[1:], '-', color='k', linewidth=.5)
-    params_ax.set(ylim=[min_p-0.2, max_p+0.2])
+    params_ax.set(ylim=[min_p-0.1, max_p+0.1])
 
 
 # PLOT RMS ERROR
@@ -181,15 +186,17 @@ RMS_ax.set(ylabel='RMS error', xlabel='$t$', xlim=x_lims, yscale='log')
 # PLOT COST FUNCTION
 if filter_ens.getJ:
     J = np.array(filter_ens.hist_J)
-    J_ax.plot(t_obs, J)
+    J_ax.plot(t_obs, J[:, :-1])
+    dJ_ax.plot(t_obs, J[:, -1], color='tab:red')
     # ax[1, 1].plot(t_obs[:num_DA], np.sum(J, -1), label='$\\mathcal{J}$')
 
-    J_ax.set(ylabel='Cost function $\mathcal{J}$', xlabel='$t$', xlim=x_lims, yscale='log')
+    dJ_ax.set(ylabel='$d\\mathcal{J}/d\\psi$', xlabel='$t$', xlim=x_lims, yscale='log')
+    J_ax.set(ylabel='$\\mathcal{J}$', xlabel='$t$', xlim=x_lims, yscale='log')
     J_ax.legend(['$\\mathcal{J}_{\\psi}$', '$\\mathcal{J}_{d}$',
-                 '$\\mathcal{J}_{b}$', '$d\\mathcal{J}/d\\psi$'], bbox_to_anchor=(1., 1.),
+                 '$\\mathcal{J}_{b}$'], bbox_to_anchor=(1., 1.),
                 loc="upper left", ncol=1)
 
-plt.tight_layout()
+# plt.tight_layout()
 
 dt = truth['t'][1] - truth['t'][0]
 start_idx = int((t_obs[-1] - 0.2) // dt)
@@ -204,32 +211,10 @@ end_idx = min(len(y_mean), int((t_obs[-1] + 0.2) // dt))
 #     pass
 # plt.tight_layout()
 
-plt.show()
+plt.savefig(folder + name + '.svg', dpi=350)
+plt.savefig(folder + name + '.pdf', dpi=350)
 
+# if __name__ == '__main__':
+# plt.show()
 
-
-
-
-
-
-        # # ==================== SAVE FOR MATLAB POST-PROCESSING ============================== #
-        # with open(name+'.mat', 'wb') as f:
-        #     savemat(f, {"p_true": y_true[start_idx:end_idx, 0].transpose()})
-        #     savemat(f, {"p_bias": y_mean[start_idx:end_idx, 0]})
-        #     try:
-        #         savemat(f, {"p_unbias": y_mean_u[start_idx:end_idx, 0]})
-        #     except:
-        #         savemat(f, {"p_unbias": False})
-        #     savemat(f, {"dt": dt})
-        #     savemat(f, {'t': t[start_idx:end_idx]})
-
-        # with open('ESN_data.mat', 'wb') as f:
-        #     savemat(f, {"r": filter_ens.bias.r.transpose()})
-        #     savemat(f, {"b": filter_ens.bias.b.transpose()})
-        #     savemat(f, {'Win': filter_ens.bias.Win[0]})
-        #     savemat(f, {'Wout': filter_ens.bias.Wout[0]})
-        #     savemat(f, {'W': filter_ens.bias.W[0]})
-        #     savemat(f, {'norm': filter_ens.bias.norm.transpose()})
-        #     savemat(f, {'sigma_in': filter_ens.bias.sigma_in})
-        #     savemat(f, {'rho': filter_ens.bias.rho})
 
