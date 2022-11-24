@@ -24,8 +24,8 @@ rng = np.random.default_rng(0)
 # ---------------------------------------------------------------- #
 save_ = True  # Save simulation? If false, plot results
 
-L = 1
-std = 0.01
+L = 10
+std = 0.1
 ks = np.linspace(0., 70., 36)
 ks_plot = ks
 est_p = ['beta', 'zeta', 'kappa']
