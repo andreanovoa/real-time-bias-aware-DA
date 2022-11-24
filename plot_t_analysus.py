@@ -15,9 +15,10 @@ try:
     folder = folder
     show_ = False
 except:
-    folder = 'results/VdP_Fig2_3PE/std{}/L{}/'.format(0.25, 10)
+
+    folder = 'results/VdP_11.19_APS_2_{}PE/std{}/L{}/'.format(3, 0.25, 10)
     figs_folder = folder
-    name = results
+    name = 'results'
     show_ = True
 
 
@@ -115,18 +116,21 @@ for file in files:
     if filter_ens.est_p:
         if flag:
             N_psi = len(filter_ens.psi0)
-            c = ['tab:orange', 'navy', 'forestgreen', 'cyan']
-            marker = ['+', 'x']
-            time = ['$(t_\mathrm{start})$', '$(t_\mathrm{end})$']
-            alphas = [0.2, 1.0]
+            # c = ['tab:orange', 'navy', 'darkcyan', 'cyan']
+            c = ['navy', 'chocolate', 'mediumturquoise', 'lightseagreen', 'cyan']
+            marker = ['x', '+']
+            time = ['$(t_\mathrm{end})$', '$(t_\mathrm{start})$']
+            alphas = [1., .2]
             superscript = '^\mathrm{init}$'
             reference_p = filter_ens.alpha0
         for jj, p in enumerate(filter_ens.est_p):
-            for kk, idx in enumerate([istart, istop]):
+            for kk, idx in enumerate([istop]):
                 hist_p = filter_ens.hist[idx - 1, N_psi + jj] / reference_p[p]
                 axCRP[2].errorbar(k, np.mean(hist_p).squeeze(), yerr=np.std(hist_p), capsize=6, alpha=alphas[kk],
                                  fmt=marker[kk], color=c[jj], label='$\\' + p + '/\\' + p + superscript + time[kk])
-
+                axCRP[2].plot([min(ks)-1, max(ks)+1],
+                              [truth['true_params'][p]/ reference_p[p], truth['true_params'][p]/ reference_p[p]],
+                              '--', color=c[jj], linewidth=.8, alpha=.8, label='$\\' + p + '^\mathrm{true}/\\' + p + superscript)
         if 'beta' in filter_ens.est_p and 'zeta' in filter_ens.est_p:
             # compute growth rate
             final_nu = 0.
@@ -175,9 +179,9 @@ for file in files:
 # WAIT - ISTART/ISTOP IS FOR Y_TRUTH? DOESN'T MAKE SENSE
 
 # =========================================================================================================
-xlims = [-1, 70] #[min(ks) - 0.2, max(ks) + 0.2]
+xlims = [min(ks) - 1, max(ks) + 1]
 axCRP[0].set(ylabel='Correlation', xlim=xlims, xlabel='$\\gamma$')
-axCRP[1].set(ylabel='RMS error', ylim=[0., 0.4], xlim=xlims, xlabel='$\\gamma$')
+axCRP[1].set(ylabel='RMS error', xlim=xlims, xlabel='$\\gamma$')
 axCRP[2].set(ylim=[0.6, 1.6], xlim=xlims)
 axNU.set(xlim=xlims, xlabel='$\\gamma$', ylabel='$\\nu$')
 
@@ -193,7 +197,7 @@ ax = subfigs[1, 0].subplots(1, 2)
 mean_ax = ax[:]
 for mic in [0]:
     scale = np.max(truth['y'][:, mic])
-    norm = mpl.colors.Normalize(vmin=0, vmax=70)
+    norm = mpl.colors.Normalize(vmin=0, vmax=max(ks))
     cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.viridis)
     for i, metric in enumerate([biases, esn_errors]):  # , biases_ESN]):
         errors = [b[:, mic] / scale for b in metric]
@@ -201,7 +205,7 @@ for mic in [0]:
             mean_ax[i].plot(t_interp, err * 100, color=cmap.to_rgba(k))
         mean_ax[i].set(xlim=[t_filter[istart] - 0.02, t_filter[istop] + 0.05], xlabel='$t$')
 
-    mean_ax[0].set(ylim=[0, 20], ylabel='Biased signal error [\%]')
+    mean_ax[0].set(ylim=[0, 50], ylabel='Biased signal error [\%]')
     mean_ax[1].set(ylim=[0, 10], ylabel='Unbiased signal error [\%]')
 
     for i in range(2):
@@ -219,4 +223,4 @@ plt.savefig(figs_folder + name + '.pdf', dpi=350)
 # if show_:
 #     plt.show()
 
-# plt.show()
+plt.show()

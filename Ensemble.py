@@ -6,34 +6,31 @@ Created on Tue Apr 12 09:55:49 2022
 """
 import os
 
-import matplotlib.pyplot as plt
+import numpy as np
+from scipy.integrate import solve_ivp
+import multiprocessing as mp
+from functools import partial
+from copy import deepcopy
+from datetime import date
 
-os.environ["OMP_NUM_THREADS"] = '1'
-
+# os.environ["OMP_NUM_THREADS"] = '1'
 num_proc = os.cpu_count()
 if num_proc > 1:
     num_proc = int(num_proc)
 
-import numpy as np
-import time
-from scipy.integrate import odeint, solve_ivp
-import multiprocessing as mp
-from functools import partial
-from Util import RK4
-from copy import deepcopy
-from datetime import date
 
 rng = np.random.default_rng(6)
 
 
 def globalforecast(y0, fun, t, params):
-    # print(y0[-2:])
     # SOLVE IVP ========================================
     out = solve_ivp(fun, t_span=(t[0], t[-1]), y0=y0, t_eval=t, method='RK23', args=(params,))
     if not out.success:
         out = solve_ivp(fun, t_span=(t[0], t[-1]), y0=y0, t_eval=t, method='RK45', args=(params,))
         print('RK23 failed, switched to RK45')
-        print(y0[-2:])
+        if not out.success:
+            print(y0)
+            raise RuntimeError('solver did not converge')
     psi = out.y.T
 
     # ODEINT =========================================== THIS WORKS AS IF HARD CODED
@@ -115,8 +112,13 @@ def createEnsemble(parent, DA_params=None, TA_params=None, Bias_params=None):
                             ens_a[i, :] = rng.uniform(p * (1. + self.std_a), p * (1. - self.std_a), self.m)
                 elif self.alpha_distr == 'normal':
                     mean = np.array([getattr(self, p) for p in self.est_p])  # * rng.uniform(0.9, 1.1, len(self.psi0))
-                    cov = np.diag(self.std_a ** 2 * abs(mean))
+                    cov = np.diag((self.std_a * mean) ** 2)
                     ens_a = rng.multivariate_normal(mean, cov, self.m).T
+                    # plt.figure()
+                    # for i in [0,1,2]:
+                    #     plt.plot(ens_a[i, :]/mean[i], 'o')
+                    # plt.show()
+
                 else:
                     raise 'Parameter distribution not recognised'
 
@@ -225,7 +227,6 @@ def createEnsemble(parent, DA_params=None, TA_params=None, Bias_params=None):
                     psi: forecasted ensemble (without the initial condition)
                     t_interp: time of the propagated psi
             """
-
             t = np.linspace(self.t, self.t + Nt * self.dt, Nt + 1)
             self_dict = self.govEqnDict()
             if not averaged:

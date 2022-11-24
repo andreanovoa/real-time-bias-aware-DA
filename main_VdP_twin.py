@@ -21,17 +21,16 @@ plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 
 rng = np.random.default_rng(0)
 
-# -------------------------------------------------------- #
+# ---------------------------------------------------------------- #
 save_ = True  # Save simulation? If false, plot results
 
-
 L = 1
-std = 0.25
+std = 0.01
 ks = np.linspace(0., 70., 36)
+ks_plot = ks
 est_p = ['beta', 'zeta', 'kappa']
 
-
-parent_folder = 'results/VdP_11.17_test_{}PE/'.format(len(est_p))
+parent_folder = 'results/VdP_11.24_{}PE/'.format(len(est_p))
 results_folder = parent_folder + 'std{}/L{}/'.format(std, L)
 figs_folder = parent_folder + 'figs/'
 if not os.path.isdir(results_folder):
@@ -56,16 +55,12 @@ name_truth += '_+cosy_twin'
 # Define the observations
 t_start = 2.5
 t_stop = 3.5
-kmeas = 50  # number of time steps between observations
+kmeas = 25  # number of time steps between observations
 
 dt_true = t_true[1] - t_true[0]
 obs_idx = np.arange(round(t_start / dt_true), round(t_stop / dt_true) + 1, kmeas)
 t_obs = t_true[obs_idx]
 obs = y_true[obs_idx]
-
-# number of analysis steps without bias in KF or parameter estimation
-num_DA_blind = int(0.0 / t_obs[1] - t_obs[0])
-num_SE_only = int(0.0 / t_obs[1] - t_obs[0])
 
 # %% ============================== SELECT TA & BIAS MODELS AND FILTER PARAMETERS ============================== #
 forecast_model = TAModels.VdP
@@ -74,22 +69,21 @@ biasType = Bias.ESN  # Bias.ESN  # Bias.ESN # None
 filt = 'EnKFbias'  # 'EnKFbias' 'EnKF' 'EnSRKF'
 
 model_params = true_params.copy()
-model_params['beta'] *= 0.8
+model_params['beta'] = 70
 if len(est_p) == 3:
-    model_params['zeta'] *= 0.9
-    model_params['kappa'] *= 1.05
-
+    model_params['zeta'] = 65
+    model_params['kappa'] = 3.
 
 filter_params = {'m': 10,  # Dictionary of DA parameters
-                 'est_p': est_p,  # ['beta', 'tau'],  # #'beta', 'tau'
+                 'est_p': est_p,
                  'bias': biasType,
                  'std_psi': std,
                  'std_a': std,
                  'est_b': False,
                  'getJ': True,
                  'inflation': 1.01,
-                 'num_DA_blind': int(0.0 / t_obs[1] - t_obs[0]),  # num of obs to start accounting for the bias
-                 'num_SE_only': int(0.0 / t_obs[1] - t_obs[0])  # num of obs to start parameter estimation
+                 'num_DA_blind': 0,  # int(0.0 / t_obs[1] - t_obs[0]),  # num of obs to start accounting for the bias
+                 'num_SE_only': 0  # int(0.0 / t_obs[1] - t_obs[0])  # num of obs to start parameter estimation
                  }
 
 train_params = model_params.copy()
@@ -99,9 +93,10 @@ train_params = {'m': L,
                 'est_p': est_p,
                 'alpha_distr': 'uniform'
                 }
+
 ESN_params = {'N_wash': 50,
               'upsample': 5,
-              'N_units': 100,
+              'N_units': 200,
               't_train': 1.0,
               'train_TAparams': train_params
               }
@@ -110,7 +105,7 @@ if biasType is not None:
     if biasType.name == 'ESN':
         # Compute reference bias. Create an ensemble of training data
         ref_ens = createEnsemble(forecast_model, train_params, train_params)
-        name_train = './data/Truth_{}_{}'.format(ref_ens.name, ref_ens.law)
+        name_train = parent_folder + 'Truth_{}_{}'.format(ref_ens.name, ref_ens.law)
         for k, v in ref_ens.getParameters().items():
             name_train += '_{}{}'.format(k, v)
         name_train += '_tmax-{:.2}_std{:.2}_m{}_{}'.format(t_true[-1], ref_ens.std_a, ref_ens.m, ref_ens.alpha_distr)
@@ -207,14 +202,12 @@ for k in ks:
             pickle.dump(filter_ens, f)
 
 
-
-
-    if k in [0, 10, 20, 50]:
-        exec(open("post_process.py").read(), {'parameters': parameters,
-                                              'filter_ens': filter_ens,
-                                              'truth': truth,
-                                              'folder': figs_folder,
-                                              'name': str(L) + '_' + str(k) + '_' + str(std) + '_results'})
+    # if k in ks_plot:
+    #     exec(open("post_process.py").read(), {'parameters': parameters,
+    #                                           'filter_ens': filter_ens,
+    #                                           'truth': truth,
+    #                                           'folder': figs_folder,
+    #                                           'name': str(L) + '_' + str(k) + '_' + str(std) + '_results'})
 
 
 exec(open("plot_t_analysus.py").read(), {'folder': results_folder,

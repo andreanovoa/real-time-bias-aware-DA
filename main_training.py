@@ -19,8 +19,7 @@ from skopt.plots import plot_convergence
 from scipy.sparse import csr_matrix, lil_matrix
 from scipy.sparse.linalg import eigs as sparse_eigs
 
-from datetime import date
-from scipy.io import loadmat, savemat
+from scipy.io import savemat
 import time
 
 # % LOAD REQUIRED FUNCTIONS AND ENVIRONMENTS 

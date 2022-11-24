@@ -3,16 +3,22 @@ import matplotlib.pyplot as plt
 import pickle
 from scipy.interpolate import CubicSpline, interp1d
 from Ensemble import createEnsemble
-
+import os as os
 plt.rc('text', usetex=True)
 plt.rc('font', family='serif', size=16)
 plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 
 
 if __name__ == '__main__':
-    folder = 'results/VdP_twin_1PE_ESN100_cos/'
-    name = folder + 'EnKFbias_TruthVdP_tan_beta8.0e+01_zeta6.0e+01_kappa3.4e+00_omega7.5e+02_tmax-5.0_+cosy_ForecastVdP_BiasESN_k0'
-    with open(name, 'rb') as f:
+    folder = 'results/VdP_11.19_APS_2_{}PE/std{}/L{}/'.format(3, 0.25, 10)
+
+    for name in os.listdir(folder):
+        if name.endswith('20.0'):
+            break
+        else:
+            name = ''
+
+    with open(folder + name, 'rb') as f:
         parameters = pickle.load(f)
         createEnsemble(parameters['forecast_model'])
 
@@ -65,14 +71,17 @@ else:
 
 x_lims = [t_obs[0] - .05, t_obs[-1] + .05]
 
-p_ax.plot(t_true, y_true[:, 0], color='silver', label='Truth', linewidth=4)
-zoom_ax.plot(t_true, y_true[:, 0], color='silver', label='Truth', linewidth=8)
-zoom2_ax.plot(t_true, y_true[:, 0], color='silver', label='Truth', linewidth=8)
-p_ax.plot((t_obs[0], t_obs[0]), (-1E6, 1E6), '--', color='dimgray')
-p_ax.plot((t_obs[-1], t_obs[-1]), (-1E6, 1E6), '--', color='dimgray')
+c = 'lightgray'
+p_ax.plot(t_true, y_true[:, 0], color=c, label='Truth', linewidth=4)
+zoom_ax.plot(t_true, y_true[:, 0], color=c, label='Truth', linewidth=8)
+zoom2_ax.plot(t_true, y_true[:, 0], color=c, label='Truth', linewidth=8)
+p_ax.plot((t_obs[0], t_obs[0]), (-1E6, 1E6), '--', color='black', linewidth=.8)
+p_ax.plot((t_obs[-1], t_obs[-1]), (-1E6, 1E6), '--', color='black', linewidth=.8)
+zoom2_ax.plot((t_obs[0], t_obs[0]), (-1E6, 1E6), '--', color='black', linewidth=.8)
+zoom_ax.plot((t_obs[-1], t_obs[-1]), (-1E6, 1E6), '--', color='black', linewidth=.8)
 
 if filter_ens.bias is not None:
-    c = 'black'
+    c = 'navy'
     b = filter_ens.bias.hist
     t_b = filter_ens.bias.hist_t
 
@@ -112,7 +121,7 @@ if filter_ens.bias is not None:
     bias_ax.legend()
     bias_ax.set(ylabel='Bias', xlabel='$t$', xlim=x_lims, ylim=y_lims)
 
-c = '#021bf9'
+c = 'lightseagreen'#'#021bf9'
 p_ax.plot(t, y_mean[:, 0], '--', color=c, label='Biased filtered signal', linewidth=1.)
 zoom_ax.plot(t, y_mean[:, 0], '--', color=c, label='Filtered signal', linewidth=1.5, alpha=0.9)
 zoom2_ax.plot(t, y_mean[:, 0], '--', color=c, label='Filtered signal', linewidth=1.5, alpha=0.9)
@@ -124,11 +133,11 @@ p_ax.plot(t_obs, obs[:, 0], '.', color='r', label='Assimilation step')
 zoom_ax.plot(t_obs, obs[:, 0], '.', color='r', label='Assimilation step', markersize=10)
 zoom2_ax.plot(t_obs, obs[:, 0], '.', color='r', label='Assimilation step', markersize=10)
 
-y_lims = [min(y_mean[:, 0]) - np.mean(std) * 1.1, (max(y_mean[:, 0]) + max(std)) * 1.5]
+y_lims = [min(min(y_true[:, 0]), min(y_mean[:, 0])) * 1.5, max(max(y_true[:, 0]), max(y_mean[:, 0])) * 1.5]
 p_ax.set(ylabel="$p'_\mathrm{mic_1}$ [Pa]", xlabel='$t$ [s]', xlim=x_lims, ylim=y_lims)
 p_ax.legend(bbox_to_anchor=(0., 1.), loc="lower left", ncol=2)
 
-y_lims = [min(min(y_true[:, 0]), min(y_mean[:, 0])) * 1.1, max(max(y_true[:, 0]), max(y_mean[:, 0])) * 1.1]
+y_lims = [min(min(y_true[:, 0]), min(y_mean[:, 0])) * 1.2, max(max(y_true[:, 0]), max(y_mean[:, 0])) * 1.2]
 
 zoom_ax.set(ylabel="$\\eta$", xlabel='$t$ [s]', xlim=[t_obs[-1] - 0.03, t_obs[-1]+0.02], ylim=y_lims)
 zoom2_ax.set(ylabel="$\\eta$", xlabel='$t$ [s]', xlim=[t_obs[0] - 0.03, t_obs[0]+0.02], ylim=y_lims)
@@ -215,6 +224,6 @@ plt.savefig(folder + name + '.svg', dpi=350)
 plt.savefig(folder + name + '.pdf', dpi=350)
 
 # if __name__ == '__main__':
-# plt.show()
+plt.show()
 
 

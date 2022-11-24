@@ -318,7 +318,7 @@ class VdP(Model):
     name: str = 'VdP'
     attr: dict = dict(omega=2 * np.pi * 120., law='tan',
                       zeta=60., beta=70., kappa=3.4, gamma=1.7)  # beta, zeta [rad/s]
-    params: list = ['omega', 'zeta', 'kappa', 'beta']  #, 'gamma']
+    params: list = ['omega', 'zeta', 'kappa', 'beta']  #,'omega', 'gamma']
 
     # __________________________ Init method ___________________________ #
     def __init__(self, TAdict=None):
@@ -358,7 +358,7 @@ class VdP(Model):
     def getParameters(self):
         if self.law not in ['cubic', 'tan']:
             raise TypeError("Undefined heat release law. Choose 'cubic' or 'tan'.")
-        return {key: self.alpha0[key] for key in VdP.params}  #['beta', 'zeta', 'kappa']}
+        return {key: self.alpha0[key] for key in ['zeta', 'kappa', 'beta']}  #['beta', 'zeta', 'kappa']}
 
     @property
     def growth_rate(self, zeta, beta):
