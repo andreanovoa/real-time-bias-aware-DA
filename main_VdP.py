@@ -11,7 +11,7 @@ import pickle
 from Util import createObservations, CR
 from Ensemble import createEnsemble
 from DA import dataAssimilation
-import TAModels
+import TAModels2 as models
 import Bias
 import matplotlib as mpl
 
@@ -24,14 +24,14 @@ rng = np.random.default_rng(0)
 # ---------------------------------------------------------------- #
 save_ = True  # Save simulation? If false, plot results
 
-L = 50
+L = 1
 std = 0.1
-ks = np.linspace(0., 100., 51)
+ks = [0, 10] #np.linspace(0., 100., 51)
 ks_plot = []
 est_p = ['beta', 'zeta', 'kappa']
 kmeas = 25  # number of time steps between observations
 
-parent_folder = 'results/VdP_11.25_uniform_{}PE_{}kmeas/'.format(len(est_p), kmeas)
+parent_folder = 'results/VdP_11.26_newEnsemble{}PE_{}kmeas/'.format(len(est_p), kmeas)
 results_folder = parent_folder + 'std{}/L{}/'.format(std, L)
 figs_folder = parent_folder + 'figs/'
 if not os.path.isdir(results_folder):
@@ -40,7 +40,7 @@ if not os.path.isdir(figs_folder):
     os.makedirs(figs_folder)
 
 # %% =====================================  CREATE OBSERVATIONS ===================================== #
-true_model = TAModels.VdP
+true_model = models.VdP
 true_params = {'law': 'tan',
                'beta': 80.,     # forcing
                'zeta': 60.,     # damping
@@ -63,7 +63,7 @@ t_obs = t_true[obs_idx]
 obs = y_true[obs_idx]
 
 # %% ============================== SELECT TA & BIAS MODELS AND FILTER PARAMETERS ============================== #
-forecast_model = TAModels.VdP
+forecast_model = models.VdP
 biasType = Bias.ESN  # Bias.ESN  # Bias.ESN # None
 
 filt = 'EnKFbias'  # 'EnKFbias' 'EnKF' 'EnSRKF'
