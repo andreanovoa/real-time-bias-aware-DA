@@ -46,6 +46,12 @@ if len(np.shape(y_filter)) < 3:
 if len(np.shape(y_true)) < 3:
     y_true = np.expand_dims(y_true, axis=-1)
 
+# normalise results
+norm = 1.  #np.max(abs(y_true[:, 0]))
+y_filter /= norm
+y_true /= norm
+
+
 hist = filter_ens.hist
 
 mean = np.mean(hist, -1, keepdims=True)
@@ -53,6 +59,10 @@ y_mean = np.mean(y_filter, -1)
 std = np.std(y_filter[:, 0, :], axis=1)
 
 t = filter_ens.hist_t
+
+
+
+
 
 fig, ax = plt.subplots(3, 3, figsize=[20, 12], layout="tight")
 p_ax = ax[0, 0]
@@ -83,6 +93,7 @@ zoom_ax.plot((t_obs[-1], t_obs[-1]), (-1E6, 1E6), '--', color='black', linewidth
 if filter_ens.bias is not None:
     c = 'navy'
     b = filter_ens.bias.hist
+    b /= norm
     t_b = filter_ens.bias.hist_t
 
     # spline = CubicSpline(t_b, b, extrapolate=False)
@@ -96,6 +107,7 @@ if filter_ens.bias is not None:
 
     t_wash = filter_ens.bias.washout_t
     wash = filter_ens.bias.washout_obs
+    wash /= norm
 
     try:
         p_ax.plot(t_wash, wash[:, 0], '.', color='r')

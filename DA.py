@@ -13,11 +13,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy import linalg
 
-"""  
-    TODO: 
-        - Define inflateEnsemble()
-        - Maybe include a func that computes the cost? J(psi)
-"""
 
 rng = np.random.default_rng(6)
 
@@ -48,16 +43,11 @@ def dataAssimilation(ensemble,
         print('\t Bias penalisation factor k = ', ensemble.bias.k)
     print(' --------------------------------------------')
 
-    Nt = int(np.round((t_obs[ti] - ensemble.t) / dt))
-
-    # Parallel forecast until first observation
+    # Forecast ensemble until first observation
     time1 = time.time()
-    ensemble = forecastStep(ensemble, Nt)
+    Nt = int(np.round((t_obs[ti] - ensemble.t) / dt))
+    ensemble = forecastStep(ensemble, Nt, averaged=False)
     print('Elapsed time to first observation: ' + str(time.time() - time1) + ' s')
-
-    # plt.figure()
-    # plt.plot(ensemble.bias.washout_t, ensemble.bias.washout_obs[:,0], '-o')
-    # plt.plot(ensemble.bias.hist_t, ensemble.bias.hist[:,0], '-x')
 
     # ------------------------- ASSIMILATION LOOP ------------------------- ##
     num_obs = len(t_obs)
@@ -81,7 +71,7 @@ def dataAssimilation(ensemble,
         # Cdd = np.diag((std_obs * obs[ti])**2)
 
         # Analysis step
-        Aa, J = analysisStep(ensemble, obs[ti], Cdd, method, getJ=ensemble.getJ)
+        Aa, J = analysisStep(ensemble, obs[ti], Cdd, method)
 
         # Store cost function
         if ensemble.getJ:
@@ -134,7 +124,7 @@ def dataAssimilation(ensemble,
 # =================================================================================================================== #
 
 
-def forecastStep(case, Nt):
+def forecastStep(case, Nt, averaged=False):
     """ Forecast step in the data assimilation algorithm. The state vector of
         one of the ensemble members is integrated in time
         Inputs:
@@ -151,7 +141,7 @@ def forecastStep(case, Nt):
     #  [might not be doable on washout]
 
     # Forecast ensemble and update the history
-    psi, t = case.timeIntegrate(Nt=Nt)
+    psi, t = case.timeIntegrate(Nt=Nt, averaged=averaged)
     case.updateHistory(psi, t)
     # Forecast ensemble bias and update its history
     if case.bias is not None:
@@ -162,13 +152,14 @@ def forecastStep(case, Nt):
     return case
 
 
-def analysisStep(case, d, Cdd, filt='EnSRKF', getJ=False):
+def analysisStep(case, d, Cdd, filt='EnSRKF'):
     """ Analysis step in the data assimilation algorithm. First, the ensemble
         is augmented with parameters and/or bias and/or state
         Inputs:
             case: ensemble forecast as a class object
             d: observation at time t
             Cdd: observation error covariance matrix
+            filt: desired filter to use. Default EnSRKF bias-blind
         Returns:
             Aa: analysis ensemble (or Af is Aa is not real)
     """

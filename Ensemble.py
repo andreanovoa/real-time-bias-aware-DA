@@ -97,31 +97,13 @@ def createEnsemble(parent, DA_params=None, TA_params=None, Bias_params=None):
             # ======================= DEFINE STATE MATRIX ======================= ##
             # Note: if est_p and est_b psi = [psi; alpha; biasWeights]
             mean = np.array(self.psi0)  # * rng.uniform(0.9, 1.1, len(self.psi0))
-            cov = np.diag(self.std_psi ** 2 * abs(mean))
+            # self.psi = self.addUncertainty(mean, self.std_psi, self.m, method=self.alpha_distr)
+            cov = np.diag((self.std_psi**2 * abs(mean)))
             self.psi = rng.multivariate_normal(mean, cov, self.m).T
             if len(self.est_p) > 0:
                 self.N += len(self.est_p)  # Increase ensemble size
-                ens_a = np.zeros((len(self.est_p), self.m))
-                if self.alpha_distr == 'uniform':
-                    for i, p in enumerate(self.est_p):
-                        p = np.array([getattr(self, p)])
-                        # p *=  rng.uniform(0.5,2, len(p))
-                        if p > 0:
-                            ens_a[i, :] = rng.uniform(p * (1. - self.std_a), p * (1. + self.std_a), self.m)
-                        else:
-                            ens_a[i, :] = rng.uniform(p * (1. + self.std_a), p * (1. - self.std_a), self.m)
-                elif self.alpha_distr == 'normal':
-                    mean = np.array([getattr(self, p) for p in self.est_p])  # * rng.uniform(0.9, 1.1, len(self.psi0))
-                    cov = np.diag((self.std_a * mean) ** 2)
-                    ens_a = rng.multivariate_normal(mean, cov, self.m).T
-                    # plt.figure()
-                    # for i in [0,1,2]:
-                    #     plt.plot(ens_a[i, :]/mean[i], 'o')
-                    # plt.show()
-
-                else:
-                    raise 'Parameter distribution not recognised'
-
+                mean = np.array([getattr(self, p) for p in self.est_p])  # * rng.uniform(0.9, 1.1, len(self.psi0))
+                ens_a = self.addUncertainty(mean, self.std_a, self.m, method=self.alpha_distr)
                 self.psi = np.vstack((self.psi, ens_a))
 
             # ========================= INITIALISE BIAS ========================= ##
@@ -181,6 +163,21 @@ def createEnsemble(parent, DA_params=None, TA_params=None, Bias_params=None):
                     self.M[iq, i] = 1
                     iq += 1
 
+        @staticmethod
+        def addUncertainty(mean, std, m, method='normal'):
+            if method == 'normal':
+                cov = np.diag((std * mean)**2)
+                return rng.multivariate_normal(mean, cov, m).T
+            elif method == 'uniform':
+                ens_aug = np.zeros((len(mean), m))
+                for i, p in enumerate(mean):
+                    if p > 0:
+                        ens_aug[i, :] = rng.uniform(p * (1. - std), p * (1. + std), m)
+                    else:
+                        ens_aug[i, :] = rng.uniform(p * (1. + std), p * (1. - std), m)
+                return ens_aug
+            else:
+                raise 'Parameter distribution not recognised'
         @staticmethod
         def _wrapper(mi, queueOUT, **kwargs):
             psi = Ensemble.forecast(**kwargs)
@@ -288,9 +285,13 @@ def createEnsemble(parent, DA_params=None, TA_params=None, Bias_params=None):
                 # ---------------------------------------------------------------------------------------------------
             else:
                 mean = np.mean(self.psi, 1)
+                # std = np.std(self.psi)
+                std = (self.psi - np.expand_dims(mean, 1))/np.expand_dims(mean, 1)
                 # psi = [odeint(self.timeDerivative, mean, t_interp, (self_dict,))]
-                psi = [Ensemble.forecast(y0=mean, fun=self.timeDerivative, t=t, params=self_dict)]
-                psi = np.repeat(psi, self.m, axis=0)
+                mean = Ensemble.forecast(y0=mean, fun=self.timeDerivative, t=t, params=self_dict)
+                psi = []
+                for i in range(self.m):
+                    psi.append(mean * (1 + std[:, i]))
 
             psi = np.array(psi)
             psi = psi.transpose(1, 2, 0)

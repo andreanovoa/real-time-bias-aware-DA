@@ -24,13 +24,14 @@ rng = np.random.default_rng(0)
 # ---------------------------------------------------------------- #
 save_ = True  # Save simulation? If false, plot results
 
-L = 10
+L = 50
 std = 0.1
-ks = np.linspace(0., 70., 36)
-ks_plot = ks
+ks = np.linspace(0., 100., 51)
+ks_plot = []
 est_p = ['beta', 'zeta', 'kappa']
+kmeas = 25  # number of time steps between observations
 
-parent_folder = 'results/VdP_11.24_{}PE/'.format(len(est_p))
+parent_folder = 'results/VdP_11.25_uniform_{}PE_{}kmeas/'.format(len(est_p), kmeas)
 results_folder = parent_folder + 'std{}/L{}/'.format(std, L)
 figs_folder = parent_folder + 'figs/'
 if not os.path.isdir(results_folder):
@@ -54,8 +55,7 @@ name_truth += '_+cosy_twin'
 
 # Define the observations
 t_start = 2.5
-t_stop = 3.5
-kmeas = 25  # number of time steps between observations
+t_stop = 4.5
 
 dt_true = t_true[1] - t_true[0]
 obs_idx = np.arange(round(t_start / dt_true), round(t_stop / dt_true) + 1, kmeas)
@@ -202,12 +202,12 @@ for k in ks:
             pickle.dump(filter_ens, f)
 
 
-    # if k in ks_plot:
-    #     exec(open("post_process.py").read(), {'parameters': parameters,
-    #                                           'filter_ens': filter_ens,
-    #                                           'truth': truth,
-    #                                           'folder': figs_folder,
-    #                                           'name': str(L) + '_' + str(k) + '_' + str(std) + '_results'})
+    if k in ks_plot:
+        exec(open("post_process.py").read(), {'parameters': parameters,
+                                              'filter_ens': filter_ens,
+                                              'truth': truth,
+                                              'folder': figs_folder,
+                                              'name': str(L) + '_' + str(k) + '_' + str(std) + '_results'})
 
 
 exec(open("plot_t_analysus.py").read(), {'folder': results_folder,
