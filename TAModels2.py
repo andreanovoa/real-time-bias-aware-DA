@@ -185,12 +185,7 @@ class Model:
             raise 'Parameter distribution not recognised'
 
     @staticmethod
-    def forecast(y0, fun, t, params, alpha=None, mi=0):
-        try:
-            alpha = alpha[mi]
-        except:
-            alpha = alpha
-
+    def forecast(y0, fun, t, params, alpha=None):
         # SOLVE IVP ========================================
         out = solve_ivp(fun, t_span=(t[0], t[-1]), y0=y0, t_eval=t, method='RK45', args=(params, alpha))
         psi = out.y.T
@@ -205,15 +200,16 @@ class Model:
 
     @staticmethod
     def _wrapper(mi, queueOUT, **kwargs):
-        kwargs['mi'] = mi
         psi = Model.forecast(**kwargs)
         queueOUT.put((mi, psi))
 
     def runProcesses(self, **kwargs):
+        alpha = kwargs['alpha']
         kwargs['queueOUT'] = self.queueOUT
         for mi in range(self.m):
             kwargs['mi'] = mi
             kwargs['y0'] = self.psi[:, mi].T
+            kwargs['alpha'] = alpha[mi]
             proc = mp.Process(target=self._wrapper, kwargs=kwargs)
             self.processes.append(proc)
             proc.start()
