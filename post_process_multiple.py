@@ -5,22 +5,26 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 
 from Util import interpolate, CR, getEnvelope
-from Ensemble import createEnsemble
 
 plt.rc('text', usetex=True)
 plt.rc('font', family='serif', size=16)
 plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 
-try:
+if __name__ == '__main__':
+    L = 10
+    std = 0.1
+    est_p = ['beta', 'zeta', 'kappa']
+    kmeas = 25  # number of time steps between observations
+
+    parent_folder = 'results/VdP_11.27_newEnsemble{}PE_{}kmeas/'.format(len(est_p), kmeas)
+    folder = parent_folder + 'std{}/L{}/'.format(std, L)
+    figs_folder = parent_folder + 'figs/'
+
+    name = 'all_' + str(L) + '_' + str(std) + '_results'
+    show_ = True
+else:
     folder = folder
     show_ = False
-except:
-
-    folder = 'results/VdP_11.19_APS_2_{}PE/std{}/L{}/'.format(3, 0.25, 10)
-    figs_folder = folder
-    name = 'results'
-    show_ = True
-
 
 files = os.listdir(folder)
 flag = True
@@ -30,19 +34,16 @@ ks, CBs, RBs, CUs, RUs, Cpres, Rpres = [], [], [], [], [], [], []
 fig = plt.figure(figsize=(19, 7.5), layout="constrained")
 fig.suptitle(folder)
 subfigs = fig.subfigures(2, 2, wspace=0.07, width_ratios=[3.5, 1])
-
 axCRP = subfigs[0, 0].subplots(1, 3)
 axNU = subfigs[0, 1].subplots(1, 1)
 for file in files:
     if file[-3:] == '.py' or file[-4] == '.':
         continue
     k = float(file.split('_k')[-1])
-    # if k > 20:
+    # if k > 20: # uncomment these lines to avoid ploting values over 20
     #     continue
     with open(folder + file, 'rb') as f:
         parameters = pickle.load(f)
-        if flag:  # init the ensemble class with the first file
-            createEnsemble(parameters['forecast_model'])
         truth = pickle.load(f)
         filter_ens = pickle.load(f)
     # Observable bias
@@ -106,9 +107,9 @@ for file in files:
     # Correlation
     bias_c = 'tab:red'
     unbias_c = 'tab:blue'
-    # axCRP[0].plot(k, CB, '+', color=bias_c, label='Biased ')
+    axCRP[0].plot(k, CB, '+', color=bias_c, label='Biased at $t^a$')
     # RMS error
-    # axCRP[1].plot(k, RB, '+', color=bias_c, label='Biased ')
+    axCRP[1].plot(k, RB, '+', color=bias_c, label='Biased at $t^a$')
 
 
 
@@ -220,7 +221,5 @@ clb.ax.set_title('$\\gamma$')
 plt.savefig(figs_folder + name + '.svg', dpi=350)
 plt.savefig(figs_folder + name + '.pdf', dpi=350)
 
-# if show_:
-#     plt.show()
-
-plt.show()
+if show_:
+    plt.show()

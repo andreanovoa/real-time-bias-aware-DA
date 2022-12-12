@@ -5,20 +5,14 @@ Created on Fri Apr  8 19:02:23 2022
 @author: an553
 """
 
-import os
-
-import matplotlib.pyplot as plt
-# os.environ["OMP_NUM_THREADS"]= '1'
-
-import numpy as np
-from scipy import linalg
-
-
-rng = np.random.default_rng(6)
-
 import os as os
 import time
 
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy import linalg
+# os.environ["OMP_NUM_THREADS"]= '1'
+rng = np.random.default_rng(6)
 data_folder = os.getcwd() + '\\data\\'
 
 
@@ -26,30 +20,55 @@ def dataAssimilation(ensemble,
                      obs, t_obs,
                      std_obs=0.01,
                      method='EnSRKF'):
+    ensemble.filt = method
     dt = ensemble.dt
     ti = 0  # iterator
 
+    bias_name = 'NA'
     if ensemble.bias is not None:
         bias_name = ensemble.bias.name
-    else:
-        bias_name = 'NA'
 
+    # ensemble.printModelParams()
     print('\n -------------------- ASSIMILATION PARAMETERS -------------------- \n',
-          '\t Filter = {0}  \n\t bias = {1} \n\t m = {2} \n'.format(method, bias_name, ensemble.m),
-          '\t Time between analysis = {0:.2} s \n\t dt = {1:.2} s\n'.format(t_obs[-1] - t_obs[-2], ensemble.dt),
+          '\t Filter = {0}  \n\t bias = {1} \n'.format(method, bias_name),
+          '\t m = {} \n'.format(ensemble.m),
+          '\t Time between analysis = {0:.2} s \n'.format(t_obs[-1] - t_obs[-2]),
           '\t Inferred params = {0} \n'.format(ensemble.est_p),
-          '\t Bias weights estimation = {0}'.format(ensemble.est_b))
+          '\t Ensemble standard deviation = {0}'.format(ensemble.std_psi)
+          )
     if method == 'EnKFbias':
-        print('\t Bias penalisation factor k = ', ensemble.bias.k)
+        print('\t Bias penalisation factor k = {}\n'.format(ensemble.bias.k),
+              '\t Multi-parameter training L = {}'.format(ensemble.bias.L))
     print(' --------------------------------------------')
 
-    # Forecast ensemble until first observation
+    # ----------------------------- FORECAST UNTIL FIRST OBS ----------------------------- ##
     time1 = time.time()
+    if t_obs[ti] - ensemble.t > 1.:
+        t1 = t_obs[ti] - (t_obs[-1] - t_obs[-2])
+        Nt = int(np.round((t1 - ensemble.t) / dt))
+        ensemble = forecastStep(ensemble, Nt, averaged=True, alpha=ensemble.alpha0)
+        # ensemble = forecastStep(ensemble, Nt, averaged=True)
+
     Nt = int(np.round((t_obs[ti] - ensemble.t) / dt))
     ensemble = forecastStep(ensemble, Nt, averaged=False)
+
+    # if t_obs[ti] - ensemble.t > 1.:
+    #     t1 = t_obs[ti] - 0.5
+    #     Nt = int(np.round((t1 - ensemble.t) / dt))
+    #     ensemble = forecastStep(ensemble, Nt, averaged=True, alpha=ensemble.alpha0)
+    #
+    # Nt = int(np.round((t_obs[ti] - ensemble.t) / dt))
+    # ensemble = forecastStep(ensemble, Nt, averaged=False)
+
+    # if ensemble.bias.L == 100 and ensemble.std_psi == 0.25:
+    # plt.figure()
+    # plt.plot(ensemble.hist_t, np.mean(ensemble.getObservableHist()[0], -1))
+    # plt.xlim([ensemble.t-0.05, ensemble.t])
+    # plt.show()
+
     print('Elapsed time to first observation: ' + str(time.time() - time1) + ' s')
 
-    # ------------------------- ASSIMILATION LOOP ------------------------- ##
+    # --------------------------------- ASSIMILATION LOOP -------------------------------- ##
     num_obs = len(t_obs)
     time1 = time.time()
     print_i = int(len(t_obs) / 4) * np.array([1, 2, 3])
@@ -57,6 +76,7 @@ def dataAssimilation(ensemble,
 
     ensemble.activate_bias_aware = False
     ensemble.activate_parameter_estimation = False
+
     # Define observation covariance matrix
     Cdd = np.diag((std_obs * np.ones(np.size(obs[ti])) * max(abs(obs[ti]))) ** 2)
     while True:
@@ -74,8 +94,7 @@ def dataAssimilation(ensemble,
         Aa, J = analysisStep(ensemble, obs[ti], Cdd, method)
 
         # Store cost function
-        if ensemble.getJ:
-            ensemble.hist_J.append(J)
+        ensemble.hist_J.append(J)
 
         # Update state with analysis
         ensemble.psi = Aa
@@ -88,20 +107,10 @@ def dataAssimilation(ensemble,
                 b = obs[ti] - np.mean(y, -1)
                 ensemble.bias.b = b
                 ensemble.bias.hist[-1] = b
-
-                # ESN PLOT DEBUG
-                # if flag:
-                #     plt.legend()
-                #     flag = False
-                # plt.plot(ensemble.t, b[0], 'ro', label='updated b')
-                # plt.show()
-
             # if ensemble.est_b:
             #     b_weights = Aa[-ensemble.bias.Nw:]
             #     ensemble.bias.updateWeights(b_weights)
         if len(ensemble.hist_t) != len(ensemble.hist):
-            # print(len(ensemble.hist_t), len(ensemble.hist))
-            # print(ti)
             raise Exception('something went wrong')
         # ------------------------------ FORECAST TO NEXT OBSERVATION ---------------------- #
         # next observation index
@@ -120,16 +129,15 @@ def dataAssimilation(ensemble,
 
     return ensemble
 
-
 # =================================================================================================================== #
 
 
-def forecastStep(case, Nt, averaged=False):
+def forecastStep(case, Nt, averaged=False, alpha=None):
     """ Forecast step in the data assimilation algorithm. The state vector of
         one of the ensemble members is integrated in time
         Inputs:
             case: ensemble forecast as a class object
-            Nt: number of timesteps to forecast
+            Nt: number of timesteps to forecastself.N_units
             esn: class ESN
             truth: class containing the true state (only used for washout)
         Returns:
@@ -141,13 +149,12 @@ def forecastStep(case, Nt, averaged=False):
     #  [might not be doable on washout]
 
     # Forecast ensemble and update the history
-    psi, t = case.timeIntegrate(Nt=Nt, averaged=averaged)
+    psi, t = case.timeIntegrate(Nt=Nt, averaged=averaged, alpha=alpha)
     case.updateHistory(psi, t)
     # Forecast ensemble bias and update its history
     if case.bias is not None:
         y = case.getObservableHist(Nt + 1)[0]
-        a = np.mean(case.hist[-1, -len(case.est_p):, :], axis=-1)
-        b, t_b = case.bias.timeIntegrate(Nt=Nt, y=[y, a])
+        b, t_b = case.bias.timeIntegrate(t=t, y=y)
         case.bias.updateHistory(b, t_b)
     return case
 
@@ -205,8 +212,8 @@ def analysisStep(case, d, Cdd, filt='EnSRKF'):
         # #  ADD BIAS TO Y [obsolete] #
         # # If model bias provided, add the bias to the observables and assimilate
         # # the observations on the unbiased \tilde{y}. This is the JFM(2022) method.
-        if case.bias is not None:
-            b = case.bias.getBias()
+        # if case.bias is not None:
+        #     b = case.bias.getBias()
         #     y += np.expand_dims(b, 1)
 
         Af = np.vstack((Af, y))
@@ -218,14 +225,14 @@ def analysisStep(case, d, Cdd, filt='EnSRKF'):
             raise ValueError('Filter ' + filt + ' not defined.')
 
     # ============================ CHECK PARAMETERS AND INFLATE =========================== #
-    # if case.est_p:
+    Aa = inflateEnsemble(Aa, case.inflation)
     if case.est_p:
         if not case.activate_parameter_estimation:
             return np.concatenate((Aa[:-np.size(y, 0), :], Af_params)), J
         else:
             isphysical = checkParams(Aa, case)
             if not isphysical:
-                Aa = inflateEnsemble(Af, case.inflation)
+                Aa = inflateEnsemble(Af, 1.01)
                 if not checkParams(Aa, case):
                     print('booooo')
                     Aa = Af.copy()
@@ -236,12 +243,9 @@ def analysisStep(case, d, Cdd, filt='EnSRKF'):
 
 
 # =================================================================================================================== #
-
-
 def inflateEnsemble(A, rho):
     A_m = np.mean(A, -1, keepdims=True)
-    Psi = A - A_m
-    return A_m + rho * Psi
+    return A_m + rho * (A - A_m)
 
 
 def checkParams(Aa, case):
@@ -250,18 +254,15 @@ def checkParams(Aa, case):
     for param in case.est_p:
         lims = case.param_lims[param]
         vals = Aa[ii, :]
-        if lims[0] is not None:
+        if lims[0] is not None:  # lower bound
             isphysical = all([isphysical, all(vals >= lims[0])])
-        if lims[1] is not None:
+        if lims[1] is not None:  # upper bound
             isphysical = all([isphysical, all(vals <= lims[1])])
         ii += 1
-
     return isphysical
 
 
 # =================================================================================================================== #
-
-
 def EnSRKF(Af, d, Cdd, M):
     """Ensemble Square-Root Kalman Filter as derived in Evensen (2009)
         Inputs:

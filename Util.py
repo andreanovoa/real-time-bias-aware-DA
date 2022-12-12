@@ -44,7 +44,7 @@ def Cheb(Nc, lims=[0, 1], getg=False):  # ______________________________________
         return D
 
 
-def createObservations(classType, TA_params=None, t_max=8.):
+def createObservations(classType=None, TA_params=None, t_max=8.):
     if type(classType) is str:
         try:
             mat = sio.loadmat('data/' + classType)
@@ -65,47 +65,43 @@ def createObservations(classType, TA_params=None, t_max=8.):
         except:
             raise ValueError('File ' + classType + ' not defined')
         filename = 'Wave'
+
+        return p_obs, t_obs, filename
+
+    if type(classType) is dict:
+        TA_params = classType.copy()
+        classType = classType['model']
+    # Add key parameters to filename
+    suffix = ''
+    key_save = classType.params + ['law']
+    for key, val in TA_params.items():
+        if key in key_save:
+            if type(val) == str:
+                suffix += val + '_'
+            else:
+                suffix += key + '{:.2e}'.format(val) + '_'
+    name = '/data/Truth_{}_{}tmax-{:.2}'.format(classType.name, suffix, t_max)
+    name = os.path.join(os.getcwd() + name)
+    # Load or create and save file
+    if os.path.isfile(name):
+        print('Loading Truth')
+        with open(name, 'rb') as f:
+            case = pickle.load(f)
     else:
-        if TA_params is None:
-            suffix = 'law-sqrt'
-        else:
-            suffix = ''
-            key_save = classType.params + ['law']
-            for key, val in TA_params.items():
-                if key in key_save:
-                    if type(val) == str:
-                        suffix += val + '_'
-                    else:
-                        suffix += key + '{:.2e}'.format(val) + '_'
-
-        name = '/data/Truth_{}_{}tmax-{:.2}'.format(classType.name, suffix, t_max)
-        name = os.path.join(os.getcwd() + name)
-
-        if os.path.isfile(name):
-            print('Loading Truth')
-            with open(name, 'rb') as f:
-                case = pickle.load(f)
-        else:
-            case = classType(TA_params)
-            psi, t = case.timeIntegrate(Nt=int(t_max / case.dt))
-            case.updateHistory(psi, t)
-
-            # print('Creating Truth. Not saving - uncomment lines below')
-            with open(name, 'wb') as f:
-                pickle.dump(case, f)
-        # Retrieve observables
-        t_obs = case.hist_t
-        p_obs = case.getObservableHist()[0]
-        if len(np.shape(p_obs)) > 2:
-            p_obs = np.squeeze(p_obs, axis=2)
-
-        filename = name.split('Truth_')[-1]
-    return p_obs, t_obs, filename
-
+        case = classType(TA_params)
+        psi, t = case.timeIntegrate(Nt=int(t_max / case.dt))
+        case.updateHistory(psi, t)
+        with open(name, 'wb') as f:
+            pickle.dump(case, f)
+    # Retrieve observables
+    p_obs = case.getObservableHist()[0]
+    if len(np.shape(p_obs)) > 2:
+        p_obs = np.squeeze(p_obs, axis=2)
+    return p_obs, case.hist_t, name.split('Truth_')[-1]
 
 
 def RK4(t, q0, func, *kwargs):
-    ''' 4th order RK for autonomous systems described by func '''
+    """ 4th order RK for autonomous systems described by func """
     dt = t[1] - t[0]
     N = len(t) - 1
     qhist = [q0]

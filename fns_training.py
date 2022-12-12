@@ -1,6 +1,9 @@
 import os as os
 os.environ["OMP_NUM_THREADS"] = '1'  # imposes only one core
 import numpy as np
+import multiprocessing as mp
+from functools import partial
+import time
 
 def RVC_Noise(x):
     # chaotic Recycle Validation
@@ -119,10 +122,10 @@ def train_n(U_wash, U_train, Y_train, tikh, sigma_in, rho):
             optimal output matrix
     """
 
-    LHS = 0.
-    RHS = 0.
+    LHS, RHS = 0., 0.
     Xa = []
     alph = None
+    # time1 = time.time()
     for kk in range(N_alpha):
         if norm_alpha is not None:
             alph = alpha[kk]
@@ -135,6 +138,29 @@ def train_n(U_wash, U_train, Y_train, tikh, sigma_in, rho):
         # Compute matrices for linear regression system
         LHS += np.dot(Xa[kk][1:].T, Xa[kk][1:])
         RHS += np.dot(Xa[kk][1:].T, Y_train[kk])
+
+    # print('for loop: ', time.time()-time1)
+    #
+    # time1 = time.time()
+    # with mp.Pool() as pool:
+    #     sol = [pool.apply_async(open_loop, (U_wash[kk], np.zeros(N_units), sigma_in, rho, alph))
+    #            for kk in range(N_alpha)]
+    #     xf_washout = [s.get() for s in sol]
+    #
+    #     # Open-loop train phase
+    #     sol = [pool.apply_async(open_loop, (U_train[kk], xf_washout[kk], sigma_in, rho, alph))
+    #           for kk in range(N_alpha)]
+    #
+    #     Xa = [s.get() for s in sol]
+    #
+    # LHS2, RHS2 = 0., 0.
+    # for kk in range(len(Xa)):
+    #     LHS2 += np.dot(Xa[kk][1:].T, Xa[kk][1:])
+    #     RHS2 += np.dot(Xa[kk][1:].T, Y_train[kk])
+    #
+    # print('parallel loop: ', time.time()-time1)
+    #
+    # print(sum(LHS2-LHS), sum(RHS2-RHS))
 
     Wout = np.empty((len(tikh), N_units + 1, N_dim))
     for j in range(len(tikh)):

@@ -2,7 +2,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pickle
 from scipy.interpolate import CubicSpline, interp1d
-from Ensemble import createEnsemble
+
+"""
+TODO:
+    - NORMALISE PLOTS
+"""
+
 import os as os
 plt.rc('text', usetex=True)
 plt.rc('font', family='serif', size=16)
@@ -20,13 +25,11 @@ if __name__ == '__main__':
 
     with open(folder + name, 'rb') as f:
         parameters = pickle.load(f)
-        createEnsemble(parameters['forecast_model'])
-
         truth = pickle.load(f)
         filter_ens = pickle.load(f)
 
-filt = parameters['filt']
-biasType = parameters['biasType']
+filt = filter_ens.filt
+biasType = filter_ens.biasType
 num_DA = parameters['num_DA']
 Nt_extra = parameters['Nt_extra']
 
@@ -47,21 +50,16 @@ if len(np.shape(y_true)) < 3:
     y_true = np.expand_dims(y_true, axis=-1)
 
 # normalise results
-norm = 1.  #np.max(abs(y_true[:, 0]))
+norm = 1.  # np.max(abs(y_true[:, 0]))
 y_filter /= norm
 y_true /= norm
 
-
 hist = filter_ens.hist
+t = filter_ens.hist_t
 
 mean = np.mean(hist, -1, keepdims=True)
 y_mean = np.mean(y_filter, -1)
 std = np.std(y_filter[:, 0, :], axis=1)
-
-t = filter_ens.hist_t
-
-
-
 
 
 fig, ax = plt.subplots(3, 3, figsize=[20, 12], layout="tight")
@@ -109,10 +107,12 @@ if filter_ens.bias is not None:
     wash = filter_ens.bias.washout_obs
     wash /= norm
 
-    try:
-        p_ax.plot(t_wash, wash[:, 0], '.', color='r')
-    except:
-        pass
+    # try:
+    p_ax.plot(t_wash, wash[:, 0], '.', color='r')
+    zoom2_ax.plot(t_wash, wash[:, 0], '.', color='r', markersize=10)
+
+    # except:
+    #     pass
 
     washidx = int(t_obs[0]/filter_ens.dt) - filter_ens.bias.N_wash * filter_ens.bias.upsample
     p_ax.plot(t, y_mean_u[:, 0], '-', color=c, label='Unbiased filtered signal', linewidth=1.2)
@@ -141,9 +141,9 @@ p_ax.fill_between(t, y_mean[:, 0] + std, y_mean[:, 0] - std, alpha=0.2, color=c)
 zoom_ax.fill_between(t, y_mean[:, 0] + std, y_mean[:, 0] - std, alpha=0.2, color=c)
 zoom2_ax.fill_between(t, y_mean[:, 0] + std, y_mean[:, 0] - std, alpha=0.2, color=c)
 
-p_ax.plot(t_obs, obs[:, 0], '.', color='r', label='Assimilation step')
-zoom_ax.plot(t_obs, obs[:, 0], '.', color='r', label='Assimilation step', markersize=10)
-zoom2_ax.plot(t_obs, obs[:, 0], '.', color='r', label='Assimilation step', markersize=10)
+p_ax.plot(t_obs, obs[:, 0], '.', color='r', label='Observation data')
+zoom_ax.plot(t_obs, obs[:, 0], '.', color='r', label='Observation data', markersize=10)
+zoom2_ax.plot(t_obs, obs[:, 0], '.', color='r', label='Observation data', markersize=10)
 
 y_lims = [min(min(y_true[:, 0]), min(y_mean[:, 0])) * 1.5, max(max(y_true[:, 0]), max(y_mean[:, 0])) * 1.5]
 p_ax.set(ylabel="$p'_\mathrm{mic_1}$ [Pa]", xlabel='$t$ [s]', xlim=x_lims, ylim=y_lims)
@@ -205,17 +205,17 @@ RMS_ax.plot(t[:-Nt_extra], RMS, color='firebrick')
 RMS_ax.set(ylabel='RMS error', xlabel='$t$', xlim=x_lims, yscale='log')
 
 # PLOT COST FUNCTION
-if filter_ens.getJ:
-    J = np.array(filter_ens.hist_J)
-    J_ax.plot(t_obs, J[:, :-1])
-    dJ_ax.plot(t_obs, J[:, -1], color='tab:red')
-    # ax[1, 1].plot(t_obs[:num_DA], np.sum(J, -1), label='$\\mathcal{J}$')
+# if filter_ens.getJ:
+J = np.array(filter_ens.hist_J)
+J_ax.plot(t_obs, J[:, :-1])
+dJ_ax.plot(t_obs, J[:, -1], color='tab:red')
+# ax[1, 1].plot(t_obs[:num_DA], np.sum(J, -1), label='$\\mathcal{J}$')
 
-    dJ_ax.set(ylabel='$d\\mathcal{J}/d\\psi$', xlabel='$t$', xlim=x_lims, yscale='log')
-    J_ax.set(ylabel='$\\mathcal{J}$', xlabel='$t$', xlim=x_lims, yscale='log')
-    J_ax.legend(['$\\mathcal{J}_{\\psi}$', '$\\mathcal{J}_{d}$',
-                 '$\\mathcal{J}_{b}$'], bbox_to_anchor=(1., 1.),
-                loc="upper left", ncol=1)
+dJ_ax.set(ylabel='$d\\mathcal{J}/d\\psi$', xlabel='$t$', xlim=x_lims, yscale='log')
+J_ax.set(ylabel='$\\mathcal{J}$', xlabel='$t$', xlim=x_lims, yscale='log')
+J_ax.legend(['$\\mathcal{J}_{\\psi}$', '$\\mathcal{J}_{d}$',
+             '$\\mathcal{J}_{b}$'], bbox_to_anchor=(1., 1.),
+            loc="upper left", ncol=1)
 
 # plt.tight_layout()
 
@@ -236,6 +236,6 @@ plt.savefig(folder + name + '.svg', dpi=350)
 plt.savefig(folder + name + '.pdf', dpi=350)
 
 # if __name__ == '__main__':
-plt.show()
+# plt.show()
 
 

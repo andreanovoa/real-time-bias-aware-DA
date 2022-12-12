@@ -72,12 +72,16 @@ try:
 except:
     test_run = True
     print('Set default value for test_run =', test_run)
-
 try:
     N_units = N_units  # neurones in the reservoir
 except:
     N_units = 500  # neurones in the reservoir
     print('Set default value for N_units =', N_units)
+try:
+    augment_data = augment_data  # neurones in the reservoir
+except:
+    augment_data = True  # neurones in the reservoir
+    print('Set default value for augment_data =', augment_data)
 
 # Force data to be (Nalpha, Nt, Nmic)
 if len(np.shape(data)) == 1:  # (Nt,)
@@ -97,18 +101,17 @@ if any(is_param):
 else:
     alpha = []
 
-
 #  ____________________________ APPLY UPSAMPLE - CONVERT INTO ESN dt ______________________________________
 dt_ESN = dt * upsample  # ESN time step
 data = data[:, ::upsample]
 
 #  _____________________________________ DATA AUGMENTATION ___________________________________________________
-augment_data = True
 if augment_data:
     norm_alpha = None
     l = int(data.shape[0])
     U = np.vstack([data * 1., data[-l:] * -1e-2, data[:l] * 1e-1])
-    # U = data
+else:
+    U = data
 
 #  _______________________________ SEPARATE INTO WASH/TRAIN/VAL SETS ________________________________________
 N_dim = U.shape[-1]  # dimension of inputs (and outputs)
