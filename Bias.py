@@ -105,7 +105,8 @@ class ESN(Bias):
                        'upsample': 5,
                        'test_run': True,
                        'L': 1,
-                       'k': 1.
+                       'k': 0.,
+                       'augment_data': True
                        }
 
     def __init__(self, y, t, Bdict=None):
@@ -136,7 +137,9 @@ class ESN(Bias):
     # @staticmethod
     def trainESN(self, Bdict):
         # --------------------- Train a new ESN if not in folder --------------------- #
-        ESN_filename = './' + Bdict['filename'][:-len('bias')] + 'ESN' + str(self.N_units)
+        ESN_filename = Bdict['filename'][:-len('bias')] +  \
+                       'ESN{}_augment{}'.format(self.N_units, self.augment_data)
+
         # Check that the saved ESN has the same parameters as the wanted one
         flag = False
         if os.path.isfile(ESN_filename + '.mat'):
@@ -145,6 +148,9 @@ class ESN(Bias):
                 if key in Bdict.keys() and val != Bdict[key]:
                     flag = True
                     print('\n Retraining ESN...')
+                    print(key)
+                    print(val)
+                    print(Bdict[key])
                     break
 
         if not os.path.isfile(ESN_filename + '.mat') or flag:
@@ -177,6 +183,8 @@ class ESN(Bias):
                     # elif np.shape(val)[-1] == 1:
                     elif key in ['dt_ESN', 'rho', 'sigma_in', 'upsample']:
                         setattr(self, key, float(val))
+                    elif key == 'augment_data':
+                        setattr(self, key, bool(val))
                     else:
                         setattr(self, key, np.squeeze(val, axis=1))
                 except:
@@ -201,7 +209,7 @@ class ESN(Bias):
               '\n Training time: {} s, \t Validation time: {} s'.format(self.t_train, self.t_val),
               '\n Washout steps: {}, \t Upsample'.format(self.N_wash, self.upsample),
               '\n Num of neurones: {}, \t Run test?: {}'.format(self.N_units, self.test_run),
-              '\n Augmentation factor: {}, \t Num of training datasets: {}'.format(ff, self.L)
+              '\n Augmentat data?: {}, \t Num of training datasets: {}'.format(self.augment_data, self.L)
               )
 
     def getWeights(self):  # TODO maybe

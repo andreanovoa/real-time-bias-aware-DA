@@ -29,6 +29,8 @@ exec(open("fns_training.py").read())
 ##  SET TRAINING PARAMETERS (from input dict) __________________________________________________
 try:
     data = trainData
+
+
     # np.save('data/test_results_bias', data, allow_pickle=True)
     # plt.figure()
     # plt.plot(data[:, 0])
@@ -83,6 +85,9 @@ except:
     augment_data = True  # neurones in the reservoir
     print('Set default value for augment_data =', augment_data)
 
+
+ESN_filename = filename[:-len('bias')] + 'ESN{}_augment{}.mat'.format(N_units, augment_data)
+
 # Force data to be (Nalpha, Nt, Nmic)
 if len(np.shape(data)) == 1:  # (Nt,)
     data = np.expand_dims(data, 1)
@@ -94,6 +99,8 @@ else:
         data = data.transpose((2, 0, 1))
 
 is_param = data.min(axis=1)[0]-data.max(axis=1)[0] == 0
+
+
 if any(is_param):
     alpha = data[:, 0, is_param]
     data = data[:, :, ~is_param]
@@ -101,17 +108,25 @@ if any(is_param):
 else:
     alpha = []
 
+parametrise = False  # THIS WAS DEFINED BEFORE DATA AUGMENTATION, MAY JUST DELETE THE IMPLEMENTAITON
+if not parametrise:
+    norm_alpha = None
+
+
 #  ____________________________ APPLY UPSAMPLE - CONVERT INTO ESN dt ______________________________________
 dt_ESN = dt * upsample  # ESN time step
 data = data[:, ::upsample]
 
 #  _____________________________________ DATA AUGMENTATION ___________________________________________________
 if augment_data:
-    norm_alpha = None
     l = int(data.shape[0])
     U = np.vstack([data * 1., data[-l:] * -1e-2, data[:l] * 1e-1])
 else:
     U = data
+
+# print(data.shape)
+# U2 = np.vstack([data * 1., data[-l:] * -1e-2, data[:l] * 1e-1])
+# print(U2.shape)
 
 #  _______________________________ SEPARATE INTO WASH/TRAIN/VAL SETS ________________________________________
 N_dim = U.shape[-1]  # dimension of inputs (and outputs)
@@ -256,7 +271,7 @@ print('\n Time per hyperparameter eval.:', (time.time() - ti) / n_tot,
       '\n Best Results: x', minimum[0], 10 ** minimum[1], minimum[2], ', f', -minimum[-1])
 
 
-pdf = plt_pdf.PdfPages(filename[:-len('bias')] + 'ESN'+str(N_units) +'_Training.pdf')
+pdf = plt_pdf.PdfPages(ESN_filename[:-len('.mat')] +'_Training.pdf')
 
 fig = plt.figure()
 plot_convergence(res)
@@ -375,6 +390,7 @@ save_dict = dict(t_train=t_train,
                  Wout=Wout,
                  W=W,
                  dt_ESN=dt_ESN,
+                 augment_data=augment_data,
                  N_augment=int(N_alpha),
                  N_wash=int(N_wash),
                  N_units=int(N_units),
@@ -391,7 +407,9 @@ save_dict = dict(t_train=t_train,
 if norm_alpha is not None:
     save_dict['norm_alpha'] = norm_alpha
 
-savemat(filename[:-len('bias')] + 'ESN'+str(N_units)+'.mat', save_dict, oned_as='column')
+
+
+savemat(ESN_filename, save_dict, oned_as='column')
 
 
 pdf.close()

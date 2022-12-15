@@ -7,7 +7,7 @@ from plotResults import *
 rng = np.random.default_rng(0)
 
 # %% ========================== SELECT LOOP PARAMETERS ================================= #
-folder = 'results/VdP_12.07_newArch'
+folder = 'results/VdP_12.13_newArch'
 Ls = [1, 10, 50, 100]
 stds = [0.01, 0.1, 0.25]
 ks = np.linspace(0., 50., 26)
@@ -21,15 +21,15 @@ true_params = {'model': TAModels.VdP,
                'beta': 80.,  # forcing
                'zeta': 60.,  # damping
                'kappa': 3.4,  # nonlinearity
-               'omega': 2 * np.pi * 120.
                }
 
-forecast_params = true_params.copy()
+# forecast_params = true_params.copy()
 forecast_params = {'model': TAModels.VdP,
                    'beta': 70,
                    'zeta': 55,
-                   'kappa': 4.2,
+                   'kappa': 4.2
                    }
+
 # ==================================== SELECT FILTER PARAMETERS =================================== #
 filter_params = {'filt': 'EnKFbias',  # 'EnKFbias' 'EnKF' 'EnSRKF'
                  'm': 10,  # Dictionary of DA parameters
@@ -47,11 +47,17 @@ filter_params = {'filt': 'EnKFbias',  # 'EnKFbias' 'EnKF' 'EnSRKF'
 
 if filter_params['biasType'] is not None and filter_params['biasType'].name == 'ESN':
     train_params = forecast_params.copy()
-    train_params = {'std_a': 0.5,
-                    'std_psi': 0.5,
-                    'est_p': filter_params['est_p'],
-                    'alpha_distr': 'uniform'  # training reference data created with uniform distributions
-                    }
+    # train_params = {'std_a': 0.5,
+    #                 'std_psi': 0.5,
+    #                 'est_p': filter_params['est_p'],
+    #                 'alpha_distr': 'uniform'  # training reference data created with uniform distributions
+    #                 }
+    train_params['std_a'] = 0.5
+    train_params['std_psi'] = 0.5
+    train_params['est_p'] = filter_params['est_p']
+    train_params['alpha_distr'] = 'uniform'  # training reference data created with uniform distributions
+
+
     bias_params = {'N_wash': 50,
                    'upsample': 5,
                    'N_units': 200,

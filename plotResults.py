@@ -515,10 +515,12 @@ def post_process_multiple(folder, filename=None):
 
 
 # ==================================================================================================================
-def fig2(folder, Ls, stds):
+def fig2(folder, Ls, stds, figs_folder):
     plt.rc('font', family='serif', size=12)
     fig = plt.figure(figsize=(15, 10), layout="constrained")
     fig.suptitle(folder)
+
+
     subfigs = fig.subfigures(max(len(Ls), 2), max(len(stds), 2), wspace=0.07)
 
     for si in range(len(stds)):
@@ -529,7 +531,6 @@ def fig2(folder, Ls, stds):
 
             files = os.listdir(files_folder)
             flag = True
-            biases, esn_errors, biases_ESN = [], [], []
             ks, CBs, RBs, CUs, RUs, Cpres, Rpres = [], [], [], [], [], [], []
 
             for file in files:
@@ -571,11 +572,23 @@ def fig2(folder, Ls, stds):
                 # Correlation
                 bias_c = 'tab:red'
                 unbias_c = 'tab:blue'
-                ax[0].plot(k, CB, 'o', color=bias_c, label='Biased', markersize=4)
-                ax[0].plot(k, CU, '*', color=unbias_c, label='Unbiased', markersize=4)
+                # ax[0].plot(k, CB, 'o', color=bias_c, label='Biased', markersize=4)
+                # ax[0].plot(k, CU, '*', color=unbias_c, label='Unbiased', markersize=4)
+                # # RMS error
+                # ax[1].plot(k, RB, 'o', color=bias_c, label='Biased ', markersize=4)
+                # ax[1].plot(k, RU, '*', color=unbias_c, label='Unbiased', markersize=4)
+                ms = 4
+                ax[0].plot(k, CB, 'o', color=bias_c, label='Biased ', markersize=ms, alpha=0.6)
+                ax[0].plot(k, CU, 'o', markeredgecolor=unbias_c, label='Unbiased', markersize=ms, fillstyle='none')
+                ax[1].plot(k, RB, 'o', color=bias_c, label='Biased ', markersize=ms, alpha=0.6)
+                ax[1].plot(k, RU, 'o', markeredgecolor=unbias_c, label='Unbiased', markersize=ms, fillstyle='none')
+
+                CB, RB = CR(y_obs, y_obs_b)  # biased
+                # Correlation
+                bias_c = 'tab:red'
+                ax[0].plot(k, CB, '+', color=bias_c, label='Biased at $t^a$', markersize=ms)
                 # RMS error
-                ax[1].plot(k, RB, 'o', color=bias_c, label='Biased ', markersize=4)
-                ax[1].plot(k, RU, '*', color=unbias_c, label='Unbiased', markersize=4)
+                ax[1].plot(k, RB, '+', color=bias_c, label='Biased at $t^a$', markersize=ms)
 
                 if flag:
                     # compute and plot the baseline correlation and MSE
@@ -600,15 +613,49 @@ def fig2(folder, Ls, stds):
                 y0, y1 = ax1.get_ylim()
                 ax1.set_aspect((x1 - x0) / (y1 - y0))
 
-    plt.savefig(folder + 'figs/Fig2_results_all_small.svg', dpi=350)
+    plt.savefig(figs_folder + 'Fig2_results_all_small.svg', dpi=350)
 
+
+def barPlot(k0_U, k0_B, k10_U, k10_B, Ct, Rt, Cpre, Rpre, figs_folder):
+    # =========================================================================================================
+    barWidth = 0.1
+    br1 = np.arange(len(k0_U))
+    br2 = [x + barWidth for x in br1]
+    br3 = [x + barWidth for x in br2]
+    br4 = [x + barWidth for x in br3]
+
+    cols = ['b', 'c', 'r', 'coral']
+    labels = ['$\\gamma = 0$, Unbiased', '$\\gamma = 0$, Biased',
+              '$\\gamma = 10$, Unbiased', '$\\gamma = 10$, Biased']
+
+    fig, ax = plt.subplots(1, 2, figsize=(15, 4), layout="constrained")
+    for data, br, c, lb in zip([k0_U, k0_B, k10_U, k10_B], [br1, br2, br3, br4], cols, labels):
+        C = np.array([x[0] for x in data]).squeeze()
+        R = np.array([x[1] for x in data]).squeeze()
+        ax[0].bar(br, C, color=c, width=barWidth, edgecolor='k', label=lb)
+        ax[1].bar(br, R, color=c, width=barWidth, edgecolor='k', label=lb)
+
+    for axi, cr in zip(ax, [(Ct, Cpre), (Rt, Rpre)]):
+        axi.axhline(y=cr[0], color='lightgray', linewidth=4, label='Truth')
+        axi.axhline(y=cr[1], color='k', linewidth=2, label='Pre-DA')
+        axi.set_xticks([r + barWidth for r in range(len(k0_U))],
+                       ['$L=1$', '$L=1$ + data augmentation', '$L=10$ + data augmentation'])
+    ax[0].set(ylabel='Correlation', ylim=[.85, 1.02])
+    ax[1].set(ylabel='RMS error', ylim=[0, 1])
+    axi.legend(bbox_to_anchor=(1., 1.), loc="upper left")
+
+    plt.savefig(figs_folder + 'WhyAugment.svg', dpi=350)
+    plt.savefig(figs_folder + 'WhyAugment.pdf', dpi=350)
+
+    plt.show()
 
 
 if __name__ == '__main__':
-    folder = 'results/VdP_12.07_newArch_3PE_25kmeas/'
-    Ls = [1, 10, 50, 100]
-    stds = [0.01, 0.1, 0.25]
+    # folder = 'results/VdP_12.07_newArch_3PE_25kmeas/'
+    # Ls = [1, 10, 50, 100]
+    # stds = [0.01, 0.1, 0.25]
     # ks = np.linspace(0., 50., 51)
     # plotResults(folder, stds, Ls, k_plot=(0.1,))
-    fig2(folder, Ls, stds)
+    # fig2(folder, Ls, stds)
+    myfolder = 'results/VdP_12.12_augment/results/'
 

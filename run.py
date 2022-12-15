@@ -55,41 +55,55 @@ def main(filter_ens, truth, filter_p,
 
 # ====================================================================================================
 def createEnsemble(true_p, forecast_p, filter_p, bias_p, folder="results"):
+    filename = 'reference_Ensemble'
+    if not os.path.isfile(folder + filename):
 
-    if not os.path.isdir(folder + 'figs/'):
-        os.makedirs(folder + 'figs/')
-        print('created dir', folder + 'figs/')
-    # %% =====================================  CREATE OBSERVATIONS ===================================== #
-    y_true, t_true, name_truth = createObservations(true_p, t_max=5.)
-    print(name_truth)
-    if true_p['manual_bias']:
-        b_true = np.cos(y_true)
-        y_true += b_true
-        name_truth += '_+cosy'
+        if not os.path.isdir(folder + 'figs/'):
+            os.makedirs(folder + 'figs/')
+            print('created dir', folder + 'figs/')
+        # %% =====================================  CREATE OBSERVATIONS ===================================== #
+        y_true, t_true, name_truth = createObservations(true_p, t_max=5.)
 
-    t_start = filter_p['t_start']
-    t_stop = filter_p['t_stop']
-    dt_true = t_true[1] - t_true[0]
+        if true_p['manual_bias']:
+            b_true = np.cos(y_true)
+            y_true += b_true
+            name_truth += '_+cosy'
 
-    obs_idx = np.arange(round(t_start / dt_true), round(t_stop / dt_true) + 1, filter_p['kmeas'])
-    t_obs = t_true[obs_idx]
-    obs = y_true[obs_idx]
+        t_start = filter_p['t_start']
+        t_stop = filter_p['t_stop']
+        dt_true = t_true[1] - t_true[0]
 
-    truth = dict(y=y_true, t=t_true, name=name_truth, t_obs=t_obs, p_obs=obs, b_true=b_true,
-                 true_params=true_p, model=true_p['model'])
-    # %% =====================================  DEFINE BIAS ======================================== #
-    forecast_model = forecast_p['model']
-    if filter_p['biasType'] is not None:
-        if filter_p['biasType'].name == 'ESN':
-            b_args = (filter_p, forecast_model, y_true, t_true, t_obs, name_truth, folder)
-            filter_p['Bdict'] = createESNbias(*b_args, bias_param=bias_p)
+        obs_idx = np.arange(round(t_start / dt_true), round(t_stop / dt_true) + 1, filter_p['kmeas'])
+        t_obs = t_true[obs_idx]
+        obs = y_true[obs_idx]
+
+        truth = dict(y=y_true, t=t_true, name=name_truth, t_obs=t_obs, p_obs=obs, b_true=b_true,
+                     true_params=true_p, model=true_p['model'])
+        # %% =====================================  DEFINE BIAS ======================================== #
+        forecast_model = forecast_p['model']
+        if filter_p['biasType'] is not None:
+            if filter_p['biasType'].name == 'ESN':
+                b_args = (filter_p, forecast_model, y_true, t_true, t_obs, name_truth, folder)
+                if 'L' in bias_p.keys():
+                    filter_p['Bdict'] = createESNbias(*b_args, L=bias_p['L'], bias_param=bias_p)
+                else:
+                    filter_p['Bdict'] = createESNbias(*b_args, bias_param=bias_p)
+            else:
+                raise ValueError('Bias model not defined')
         else:
-            raise ValueError('Bias model not defined')
+            b_args = 'None'
+        # ===========================================  INITIALISE ENSEMBLE  ========================================== #
+        ensemble = forecast_model(forecast_p, filter_p)
+        with open(folder + filename, 'wb') as f:
+            pickle.dump(ensemble, f)
+            pickle.dump(truth, f)
+            pickle.dump(b_args, f)
     else:
-        b_args = 'None'
+        with open(folder + filename, 'rb') as f:
+            ensemble = pickle.load(f)
+            truth = pickle.load(f)
+            b_args = pickle.load(f)
 
-    # ===========================================  INITIALISE ENSEMBLE  ========================================== #
-    ensemble = forecast_model(forecast_p, filter_p)
     return ensemble, truth, b_args
 
 

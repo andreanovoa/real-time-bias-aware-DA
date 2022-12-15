@@ -1,18 +1,15 @@
-import numpy as np
 import TAModels
 import Bias
-from run import main
+from run import main, createESNbias, createEnsemble
 from plotResults import *
 
-rng = np.random.default_rng(0)
 
 # %% ========================== SELECT LOOP PARAMETERS ================================= #
-folder = 'results/VdP_12.06_LargeBeta_avg'
-Ls = [1, 10, 50, 100]
-stds = [0.01, 0.1, 0.25]
-ks = np.linspace(0., 48., 13)
+folder = 'results/VdP_12.14_bigRun_200/'
+figs_folder = folder + 'figs/'
 
-save_ = True
+run_whyAugment, run_loopParams = False, True
+
 
 # %% ============================= SELECT TRUE AND FORECAST MODELS ================================= #
 true_params = {'model': TAModels.VdP,
@@ -21,49 +18,158 @@ true_params = {'model': TAModels.VdP,
                'beta': 80.,  # forcing
                'zeta': 60.,  # damping
                'kappa': 3.4,  # nonlinearity
-               'omega': 2 * np.pi * 120.
                }
 
-forecast_params = true_params.copy()
 forecast_params = {'model': TAModels.VdP,
-                   'beta': 70,
+                   'law': 'tan',
+                   'beta': 65,
                    'zeta': 55,
-                   'kappa': 4.2,
+                   'kappa': 4.2
                    }
+
 # ==================================== SELECT FILTER PARAMETERS =================================== #
 filter_params = {'filt': 'EnKFbias',  # 'EnKFbias' 'EnKF' 'EnSRKF'
-                 'm': 10,  # Dictionary of DA parameters
+                 'm': 10,
                  'est_p': ['beta', 'zeta', 'kappa'],
                  'biasType': Bias.ESN,  # Bias.ESN  # None
                  # Define the observation timewindow
                  't_start': 2.0,
                  't_stop': 4.5,
                  'kmeas': 25,
-                 # Inflation and optional parameters
-                 'inflation': 1.002,
-                 'num_DA_blind': 0,  # int(0.0 / t_obs[1] - t_obs[0]),  # num of obs to start accounting for the bias
-                 'num_SE_only': 0  # int(0.0 / t_obs[1] - t_obs[0])  # num of obs to start parameter estimation
+                 # Inflation
+                 'inflation': 1.002
                  }
 
 if filter_params['biasType'] is not None and filter_params['biasType'].name == 'ESN':
-    train_params = forecast_params.copy()
-    train_params = {'std_a': 0.5,
+    # using default TA parameters for ESN training
+    train_params = {'model': TAModels.VdP,
+                    'law': 'tan',
+                    'std_a': 0.5,
                     'std_psi': 0.5,
                     'est_p': filter_params['est_p'],
-                    'alpha_distr': 'uniform'  # training reference data created with uniform distributions
+                    'alpha_distr': 'uniform'
                     }
+
     bias_params = {'N_wash': 50,
                    'upsample': 5,
-                   'N_units': 200,
+                   'N_units': 100,
                    't_train': 1.0,
+                   'L': 1,
                    'augment_data': True,
                    'train_params': train_params
                    }
 else:
     bias_params = None
+# ================================== CREATE REFERENCE ENSEMBLE =================================
 
-folder += '_{}PE_{}kmeas/'.format(len(filter_params['est_p']), filter_params['kmeas'])
+ensemble, truth, b_args = createEnsemble(true_params, forecast_params,
+                                         filter_params, bias_params, folder=folder)
 
-out = main(true_params, forecast_params, filter_params, bias_params, Ls, stds, ks, folder, save_)[:2]
-plotResults(folder, stds, Ls, k_plot=(0, 10, 50))
 
+# ================================================================================== #
+# ================================================================================== #
+
+if run_whyAugment:
+    results_folder: str = folder + 'results_whyAugment/'
+    flag: bool = True
+    k0_U, k0_B, k10_U, k10_B = [], [], [], []
+
+    for L, augment in [(1, False), (1, True), (10, True)]:
+        # Reset ESN
+        blank_ens = ensemble.copy()
+        bias_p = bias_params.copy()
+        bias_p['augment_data'] = augment
+        bias_p['L'] = L
+        bias_p = createESNbias(*b_args, L=L, bias_param=bias_p)
+        filter_params['Bdict'] = bias_p
+        blank_ens.initBias(bias_p)
+
+        # Add standard deviation to the state
+        std = 0.10
+        blank_ens.psi = blank_ens.addUncertainty(np.mean(blank_ens.psi, 1), std, blank_ens.m, method='normal')
+        blank_ens.hist[-1] = blank_ens.psi
+        blank_ens.std_psi, blank_ens.std_a = std, std
+
+        # Run simulation for each gamma --------------------------------------------------------------------------
+        ks = [0, 10]
+        for k in ks:
+            filter_ens = blank_ens.copy()
+            filter_ens.bias.k = k
+
+            filter_ens, truth, parameters = main(filter_ens, truth, filter_params,
+                                                 results_folder=results_folder, figs_folder=figs_folder, save_=True)
+
+            # GET CORRELATION AND RMS FOR SOLUTION ================================================
+            # Observable bias
+            y_filter, t_filter = filter_ens.getObservableHist()[0], filter_ens.hist_t
+            y_truth = truth['y'][:len(y_filter)]
+            b_truth = truth['b_true'][:len(y_filter)]
+
+            # ESN estimated bias
+            b, t_b = filter_ens.bias.hist, filter_ens.bias.hist_t
+
+            # Ubiased signal recovered through interpolation
+            y_unbiased = y_filter[::filter_ens.bias.upsample] + np.expand_dims(b, -1)
+            y_unbiased = interpolate(t_b, y_unbiased, t_filter)
+
+            if flag:
+                N_CR = int(.1 / filter_ens.dt)  # Length of interval to compute correlation and RMS
+                istop = np.argmin(abs(t_filter - truth['t_obs'][parameters['num_DA'] - 1]))  # end of assimilation
+                istart = np.argmin(abs(t_filter - truth['t_obs'][0]))  # start of assimilation
+                flag = False
+
+            # PLOT CORRELATION AND RMS ERROR =====================================================================
+            CB, RB = CR(y_truth[istop - N_CR:istop], np.mean(y_filter, -1)[istop - N_CR:istop])  # biased
+            CU, RU = CR(y_truth[istop - N_CR:istop], np.mean(y_unbiased, -1)[istop - N_CR:istop])  # unbiased
+
+            if k == ks[0]:
+                k0_U.append((CU, RU))
+                k0_B.append((CB, RB))
+            elif k == ks[1]:
+                k10_U.append((CU, RU))
+                k10_B.append((CB, RB))
+
+    # Plot results -------------------------------------------------------------------------
+    y_truth_u = y_truth - b_truth
+    Ct, Rt = CR(y_truth[-N_CR:], y_truth_u[-N_CR:])
+    Cpre, Rpre = CR(y_truth[istart - N_CR:istart + 1:], np.mean(y_filter, -1)[istart - N_CR:istart + 1:])
+    args = (k0_U, k0_B, k10_U, k10_B, Ct, Rt, Cpre, Rpre)
+
+    np.save(results_folder + 'barPlot_args', args)
+    barPlot(*args, figs_folder)
+
+if run_loopParams:
+
+    Ls = [1, 10, 50, 100]
+    stds = [0.01, .1, 0.25, 0.4]
+    ks = np.linspace(0., 50., 26)
+
+    for L in Ls:
+        blank_ens = ensemble.copy()
+        # Reset ESN
+        bias_p = createESNbias(*b_args, L=L, bias_param=bias_params)
+        filter_params['Bdict'] = bias_p
+        blank_ens.initBias(bias_p)
+        for std in stds:
+            # Reset std
+            blank_ens.psi = blank_ens.addUncertainty(np.mean(blank_ens.psi, 1), std, blank_ens.m, method='normal')
+            blank_ens.hist[-1] = blank_ens.psi
+            blank_ens.std_psi, blank_ens.std_a = std, std
+
+            results_folder = folder + 'results_loopParams/std{}/L{}/'.format(std, L)
+            for k in ks:  # Reset gamma value
+                filter_ens = blank_ens.copy()
+                filter_ens.bias.k = k
+
+                out = main(filter_ens, truth, filter_params,
+                           results_folder=results_folder, figs_folder=figs_folder, save_=True)
+
+                if k in (0, 10, 50):
+                    filename = '{}L{}_std{}_k{}_time'.format(figs_folder, L, std, k)
+                    post_process_single_SE_Zooms(*out[:2], filename=filename)
+
+            filename = '{}CR_L{}_std{}_results'.format(figs_folder, L, std)
+            post_process_multiple(results_folder, filename)
+            plt.close('all')
+
+    fig2(folder + 'results_loopParams/', Ls, stds, figs_folder)

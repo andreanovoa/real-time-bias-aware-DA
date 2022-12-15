@@ -68,8 +68,6 @@ class Model:
                     self.N += self.Na
                     mean = np.array([getattr(self, p) for p in self.est_p])  # * rng.uniform(0.9, 1.1, len(self.psi0))
                     ens_a = self.addUncertainty(mean, self.std_a, self.m, method=self.alpha_distr)
-
-                    print(np.mean(ens_a, -1), mean)
                     self.psi = np.vstack((self.psi, ens_a))
             else:
                 self.psi = np.array(self.psi0)
@@ -269,8 +267,8 @@ class Rijke(Model):
                 > tau [2E-3] - Time delay [s]
                 > C1 [.1] - First damping constant [?]
                 > C2 [.06] - Second damping constant [?]
-                > xf [.2] - Flame location [m]
-                > L [1] - Tube length [m]
+                > xf- Flame location [m]
+                > L - Tube length [m]
     """
 
     name: str = 'Rijke'
@@ -513,8 +511,8 @@ class VdP(Model):
         super().__init__(TAdict, DAdict)
 
         # set limits for the parameters
-        self.param_lims = dict(omega=(0, None), zeta=(20, 100), kappa=(0.1, 10.),
-                               gamma=(None, None), beta=(20, 100))
+        self.param_lims = dict(omega=(0, None), zeta=(20, 120), kappa=(0.1, 10.),
+                               gamma=(None, None), beta=(20, 120))
 
     # _______________ VdP specific properties and methods ________________ #
     def printModelParams(self):
