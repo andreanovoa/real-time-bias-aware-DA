@@ -289,7 +289,7 @@ def EnSRKF(Af, d, Cdd, M):
     Linv = linalg.inv(L)
 
     X2 = np.dot(linalg.sqrtm(Linv), np.dot(Z.T, S))
-    [U, E, V] = linalg.svd(X2)
+    E, V = linalg.svd(X2)[1:]
     V = V.T
     if len(E) is not m:  # case for only one eigenvalue (q=1). The rest zeros.
         E = np.hstack((E, np.zeros(m - len(E))))

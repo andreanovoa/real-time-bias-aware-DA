@@ -167,8 +167,8 @@ if __name__ == '__main__':
     filename = 'bias_VdP_' + str(date.today())
     tmax = 5.
 
-    HOM = createObservations(Model, law='atan', name='HOM', t_max=tmax)
-    LOM = createObservations(Model, law='cubic', name='LOM', t_max=tmax)
+    HOM = createObservations(Model, t_max=tmax)
+    LOM = createObservations(Model, t_max=tmax)
 
     if not os.path.isfile(datafolder + filename + '.npz'):
         bias = HOM[0].hist[:, 0, :] - LOM[0].hist[:, 0, :]

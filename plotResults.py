@@ -115,9 +115,9 @@ def post_process_single_SE_Zooms(filter_ens, truth, filename=None, figs_folder=N
 
     zoomPre_ax.legend(bbox_to_anchor=(0., 1.), loc="lower left", ncol=2)
     zoom_ax.legend(bbox_to_anchor=(0., 1.), loc="lower left", ncol=2)
-    # y_lims = [min(min(y_true[:, 0]), min(y_mean[:, 0])) * 1.2,
-    #           max(max(y_true[:, 0]), max(y_mean[:, 0])) * 1.2]
-    y_lims = [-7.5, 9.5]
+    y_lims = [min(y_mean[:, 0]) * 1.2,
+              max(y_mean[:, 0]) * 1.2]
+    # y_lims = [-7.5, 9.5]
     zoom_ax.set(ylabel="$\\eta$", xlabel='$t$ [s]', xlim=[t_obs[-1] - 0.03, t_obs[-1] + 0.02], ylim=y_lims)
     zoomPre_ax.set(ylabel="$\\eta$", xlabel='$t$ [s]', xlim=[t_obs[0] - 0.03, t_obs[0] + 0.02], ylim=y_lims)
 
@@ -198,7 +198,7 @@ def post_process_single(filter_ens, truth, parameters, filename=None):
 
     fig, ax = plt.subplots(3, 3, figsize=[20, 12], layout="tight")
     p_ax, zoomPre_ax, zoom_ax = ax[0, :]
-    params_ax, bias_ax = ax[1, :1]
+    params_ax, bias_ax = ax[1, :2]
     RMS_ax, J_ax, dJ_ax = ax[2, :]
 
     if biasType is None:
@@ -371,7 +371,6 @@ def post_process_multiple(folder, filename=None):
         # Observable bias
         y_filter, t_filter = filter_ens.getObservableHist()[0], filter_ens.hist_t
         y_truth = truth['y'][:len(y_filter)]
-        b_truth = truth['b_true'][:len(y_filter)]
         b_obs = y_truth - np.mean(y_filter, -1)
         if flag:
             N_CR = int(.1 / filter_ens.dt)  # Length of interval to compute correlation and RMS
@@ -461,10 +460,12 @@ def post_process_multiple(folder, filename=None):
 
         if flag:
             # compute and plot the baseline correlation and MSE
-            y_truth_u = y_truth - b_truth
-            Ct, Rt = CR(y_truth[-N_CR:], y_truth_u[-N_CR:])
-            axCRP[0].plot((-10, 100), (Ct, Ct), '-', color='k', label='Truth', alpha=0.2, linewidth=5.)
-            axCRP[1].plot((-10, 100), (Rt, Rt), '-', color='k', label='Truth', alpha=0.2, linewidth=5.)
+            if len(truth['b_true']) > 1:
+                b_truth = truth['b_true'][:len(y_filter)]
+                y_truth_u = y_truth - b_truth
+                Ct, Rt = CR(y_truth[-N_CR:], y_truth_u[-N_CR:])
+                axCRP[0].plot((-10, 100), (Ct, Ct), '-', color='k', label='Truth', alpha=0.2, linewidth=5.)
+                axCRP[1].plot((-10, 100), (Rt, Rt), '-', color='k', label='Truth', alpha=0.2, linewidth=5.)
             # compute C and R before the assimilation (the initial ensemble has some initialisation error)
             Cpre, Rpre = CR(y_truth[istart - N_CR:istart + 1:], np.mean(y_filter, -1)[istart - N_CR:istart + 1:])
             axCRP[0].plot((-10, 100), (Cpre, Cpre), '-', color='k', label='Pre-DA')
@@ -544,7 +545,6 @@ def fig2(folder, Ls, stds, figs_folder):
                 # Observable bias
                 y_filter, t_filter = filter_ens.getObservableHist()[0], filter_ens.hist_t
                 y_truth = truth['y'][:len(y_filter)]
-                b_truth = truth['b_true'][:len(y_filter)]
                 b_obs = y_truth - np.mean(y_filter, -1)
                 if flag:
                     N_CR = int(.1 / filter_ens.dt)  # Length of interval to compute correlation and RMS
@@ -592,10 +592,12 @@ def fig2(folder, Ls, stds, figs_folder):
 
                 if flag:
                     # compute and plot the baseline correlation and MSE
-                    y_truth_u = y_truth - b_truth
-                    Ct, Rt = CR(y_truth[-N_CR:], y_truth_u[-N_CR:])
-                    ax[0].plot((-10, 100), (Ct, Ct), '-', color='k', label='Truth', alpha=0.2, linewidth=5.)
-                    ax[1].plot((-10, 100), (Rt, Rt), '-', color='k', label='Truth', alpha=0.2, linewidth=5.)
+                    if len(truth['b_true']) > 1:
+                        b_truth = truth['b_true'][:len(y_filter)]
+                        y_truth_u = y_truth - b_truth
+                        Ct, Rt = CR(y_truth[-N_CR:], y_truth_u[-N_CR:])
+                        ax[0].plot((-10, 100), (Ct, Ct), '-', color='k', label='Truth', alpha=0.2, linewidth=5.)
+                        ax[1].plot((-10, 100), (Rt, Rt), '-', color='k', label='Truth', alpha=0.2, linewidth=5.)
                     # compute C and R before the assimilation (the initial ensemble has some initialisation error)
                     Cpre, Rpre = CR(y_truth[istart - N_CR:istart + 1:],
                                     np.mean(y_filter, -1)[istart - N_CR:istart + 1:])

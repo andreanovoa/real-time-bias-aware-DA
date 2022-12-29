@@ -45,7 +45,7 @@ for L in Ls:
                    'kappa': 3.4,  # nonlinearity
                    'omega': 2 * np.pi * 120.
                    }
-    y_true, t_true, name_truth = createObservations(true_model, true_params, t_max=5.)
+    y_true, t_true, name_truth = createObservations(true_model, t_max=5.)
     # # Manually add bias
     b_true = np.cos(y_true)
     y_true += b_true

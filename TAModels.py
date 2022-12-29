@@ -173,15 +173,15 @@ class Model:
     @staticmethod
     def addUncertainty(mean, std, m, method='normal'):
         if method == 'normal':
-            cov = np.diag((std * mean) ** 2)
-            return rng.multivariate_normal(mean, cov, m).T
+            cov = np.diag((std * np.ones(len(mean))) ** 2)
+            return (mean * rng.multivariate_normal(np.ones(len(mean)), cov, m)).T
         elif method == 'uniform':
             ens_aug = np.zeros((len(mean), m))
-            for ii, p in enumerate(mean):
-                if p > 0:
-                    ens_aug[ii, :] = rng.uniform(p * (1. - std), p * (1. + std), m)
+            for ii, pp in enumerate(mean):
+                if pp > 0:
+                    ens_aug[ii, :] = rng.uniform(pp * (1. - std), pp * (1. + std), m)
                 else:
-                    ens_aug[ii, :] = rng.uniform(p * (1. + std), p * (1. - std), m)
+                    ens_aug[ii, :] = rng.uniform(pp * (1. + std), pp * (1. - std), m)
             return ens_aug
         else:
             raise 'Parameter distribution not recognised'
@@ -273,7 +273,7 @@ class Rijke(Model):
 
     name: str = 'Rijke'
     attr: dict = dict(Nm=10, Nc=10, Nmic=6,
-                      beta=1E6, tau=2.E-3, C1=.1, C2=.06, kappa=1E5,
+                      beta=4E6, tau=2.E-3, C1=.1, C2=.06, kappa=1E5,
                       xf=1.18, L=1.92, law='sqrt')
     params: list = ['beta', 'tau', 'C1', 'C2', 'kappa']
 
@@ -332,7 +332,7 @@ class Rijke(Model):
         # initialise Model parent (history)
         super().__init__(TAdict, DAdict)
 
-        self.param_lims = dict(beta=(1E3, 1E8), tau=(0, self.tau_adv),
+        self.param_lims = dict(beta=(1E5, 1E7), tau=(0, self.tau_adv),
                                C1=(None, None), C2=(None, None),
                                kappa=(1E3, 1E8))
         print('\n -------------------- RIJKE MODEL PARAMETERS -------------------- \n',
@@ -392,6 +392,14 @@ class Rijke(Model):
             return np.concatenate((p, u))
         else:
             return p
+
+    def getParameters(self):
+        if self.law == 'sqrt':
+            return {key: self.alpha0[key] for key in ['beta', 'tau']}
+        elif self.law == 'tan':
+            return {key: self.alpha0[key] for key in ['beta', 'tau', 'kappa']}
+        else:
+            raise TypeError("Undefined heat release law. Choose 'sqrt' or 'tan'.")
 
     # _________________________ Governing equations ________________________ #
     def govEqnDict(self):

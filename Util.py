@@ -44,10 +44,15 @@ def Cheb(Nc, lims=[0, 1], getg=False):  # ______________________________________
         return D
 
 
-def createObservations(classType=None, TA_params=None, t_max=8.):
+def createObservations(classParams=None, t_max=8.):
+    if type(classParams) is dict:
+        TA_params = classParams.copy()
+        classType = classParams['model']
+    else:
+        raise ValueError('classParams must be dict')
     if type(classType) is str:
         try:
-            mat = sio.loadmat('data/' + classType)
+            mat = sio.loadmat('data/Truth_wave.mat')
             p_obs = mat['p_obs'].transpose()
             t_obs = mat['t_obs'].transpose()
             if len(np.shape(t_obs)) > 1:
@@ -68,19 +73,16 @@ def createObservations(classType=None, TA_params=None, t_max=8.):
 
         return p_obs, t_obs, filename
 
-    if type(classType) is dict:
-        TA_params = classType.copy()
-        classType = classType['model']
     # Add key parameters to filename
     suffix = ''
-    key_save = classType.params + ['law']
+    key_save = TA_params.params + ['law']
     for key, val in TA_params.items():
         if key in key_save:
             if type(val) == str:
                 suffix += val + '_'
             else:
                 suffix += key + '{:.2e}'.format(val) + '_'
-    name = '/data/Truth_{}_{}tmax-{:.2}'.format(classType.name, suffix, t_max)
+    name = '/data/Truth_{}_{}tmax-{:.2}'.format(TA_params.name, suffix, t_max)
     name = os.path.join(os.getcwd() + name)
     # Load or create and save file
     if os.path.isfile(name):
@@ -88,7 +90,7 @@ def createObservations(classType=None, TA_params=None, t_max=8.):
         with open(name, 'rb') as f:
             case = pickle.load(f)
     else:
-        case = classType(TA_params)
+        case = classParams(TA_params)
         psi, t = case.timeIntegrate(Nt=int(t_max / case.dt))
         case.updateHistory(psi, t)
         with open(name, 'wb') as f:
@@ -183,9 +185,9 @@ def CR(y_true, y_est):
     y_tm = np.mean(y_true, 0, keepdims=True)
     y_em = np.mean(y_est, 0, keepdims=True)
     # correlation
-    C = sum((y_est - y_em) * (y_true - y_tm)) / np.sqrt(sum((y_est - y_em) ** 2) * sum((y_true - y_tm) ** 2))
+    C = np.sum((y_est - y_em) * (y_true - y_tm)) / np.sqrt(np.sum((y_est - y_em) ** 2) * np.sum((y_true - y_tm) ** 2))
     # root-mean square error
-    R = np.sqrt(sum((y_true - y_est) ** 2) / sum(y_true** 2))
+    R = np.sqrt(np.sum((y_true - y_est) ** 2) / np.sum(y_true ** 2))
     # print(R,C)
     # plt.figure()
     # plt.plot(y_t)

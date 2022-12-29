@@ -64,10 +64,13 @@ def createEnsemble(true_p, forecast_p, filter_p, bias_p, folder="results"):
         # %% =====================================  CREATE OBSERVATIONS ===================================== #
         y_true, t_true, name_truth = createObservations(true_p, t_max=5.)
 
-        if true_p['manual_bias']:
+        if 'manual_bias' in true_p.keys() and true_p['manual_bias']:
             b_true = np.cos(y_true)
             y_true += b_true
             name_truth += '_+cosy'
+        else:
+            b_true = np.zeros(1)
+
 
         t_start = filter_p['t_start']
         t_stop = filter_p['t_stop']
@@ -103,6 +106,14 @@ def createEnsemble(true_p, forecast_p, filter_p, bias_p, folder="results"):
             ensemble = pickle.load(f)
             truth = pickle.load(f)
             b_args = pickle.load(f)
+
+        t_start = filter_p['t_start']
+        t_stop = filter_p['t_stop']
+        if t_start != truth['t_obs'][0] or t_stop != truth['t_obs'][-1]:
+            dt_true = truth['t'][1] - truth['t'][0]
+            obs_idx = np.arange(round(t_start / dt_true), round(t_stop / dt_true) + 1, filter_p['kmeas'])
+            truth['t_obs'] = truth['t'][obs_idx]
+            truth['p_obs'] = truth['y'][obs_idx]
 
     return ensemble, truth, b_args
 
@@ -168,6 +179,7 @@ def createESNbias(filter_p, model, y_true, t_true, t_obs, name_truth, folder, bi
         y0, y1 = ax1.get_ylim()
         ax1.set_aspect(l * (x1 - x0) / (y1 - y0))
     plt.savefig(folder + 'figs/L{}_training_data.svg'.format(train_params['m']), dpi=350)
+    # plt.show()
     plt.close()
 
     return bias_p
