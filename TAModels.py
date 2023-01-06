@@ -263,7 +263,7 @@ class Rijke(Model):
             TAdict: dictionary with the model parameters. If not defined, the default value is used.
                 > Nm [10] - Number of Galerkin modes
                 > Nc [50] - Number of Chebyshev modes
-                > beta [1E6] - Heat source strength [W s^1/2 m^-2/5]
+                > beta [1E6] - Heat source strength [W s^1/2 m^-5/2]
                 > tau [2E-3] - Time delay [s]
                 > C1 [.1] - First damping constant [?]
                 > C2 [.06] - Second damping constant [?]
@@ -312,18 +312,20 @@ class Rijke(Model):
 
         # Mean Flow Properties
         c1, c2 = [350., 300.]
-        c = (1. - self.xf / self.L) * c1 + self.xf / self.L * c2
-        self.meanFlow = dict(rho=1.20387, u=1E-4, p=101300., gamma=1.4, c1=c1, c2=c2, c=c)
+        cc = (1. - self.xf / self.L) * c1 + self.xf / self.L * c2
+        self.meanFlow = dict(rho=1.20387, u=10., p=101300., gamma=1.4, c1=c1, c2=c2, c=cc)
 
         # Define modes frequency of each mode and sin cos etc
         self.j = np.arange(1, self.Nm + 1)
+
+        # Compute omegas from mean flow properties
         xf, L, MF = [self.xf, self.L, self.meanFlow]
 
         def fun(om):
             return MF['c2'] * np.sin(om * xf / MF['c1']) * np.cos(om * (L - xf) / MF['c2']) + \
                    MF['c1'] * np.cos(om * xf / MF['c1']) * np.sin(om * (L - xf) / MF['c2'])
 
-        omegaj = fsolve(fun, self.j * c / L * np.pi)  # Initial guess using a weighted averaged mean speed of sound
+        omegaj = fsolve(fun, self.j * cc / L * np.pi)  # Initial guess using a weighted averaged mean speed of sound
         self.omegaj = np.array(omegaj)
 
         self.sinomjxf = np.sin(self.omegaj / self.meanFlow['c'] * self.xf)
@@ -395,9 +397,9 @@ class Rijke(Model):
 
     def getParameters(self):
         if self.law == 'sqrt':
-            return {key: self.alpha0[key] for key in ['beta', 'tau']}
+            return {key: self.alpha0[key] for key in ['beta', 'tau', 'C1', 'C2']}
         elif self.law == 'tan':
-            return {key: self.alpha0[key] for key in ['beta', 'tau', 'kappa']}
+            return {key: self.alpha0[key] for key in ['beta', 'tau', 'kappa', 'C1', 'C2']}
         else:
             raise TypeError("Undefined heat release law. Choose 'sqrt' or 'tan'.")
 
@@ -463,7 +465,8 @@ class Rijke(Model):
         MF = params['meanFlow']  # Physical properties
 
         if params['law'] == 'sqrt':
-            qdot = alpha['beta'] * (np.sqrt(abs(MF['u'] / 3. + u_tau)) - np.sqrt(MF['u'] / 3.))  # [W/m2]=[m/s3]
+            # qdot = alpha['beta'] * (np.sqrt(abs(MF['u'] / 3. + u_tau)) - np.sqrt(MF['u'] / 3.))  # [W/m2]=[m/s3]
+            qdot = MF['p'] * MF['u'] * alpha['beta'] * (np.sqrt(abs(1./3. + u_tau/MF['u'])) - np.sqrt(1./3.))  # [W/m2]=[m/s3]
         elif params['law'] == 'tan':
             qdot = alpha['beta'] * np.sqrt(alpha['beta'] / alpha['kappa']) * np.arctan(
                 np.sqrt(alpha['beta'] / alpha['kappa']) * u_tau)  # [m / s3]

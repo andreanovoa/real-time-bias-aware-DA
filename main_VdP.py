@@ -1,221 +1,119 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Fri Apr  8 09:06:25 2022
-
-@author: an553
-"""
-import os
 import numpy as np
-import pylab as plt
-import pickle
-import matplotlib as mpl
-
-from Util import createObservations, CR
-from DA import dataAssimilation
 import TAModels
 import Bias
-
-plt.rc('text', usetex=True)
-plt.rc('font', family='serif', size=16)
-plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
+from run import main, createESNbias, createEnsemble
+from plotResults import *
 
 rng = np.random.default_rng(0)
 
-# ---------------------------------------------------------------- #
-save_ = True  # Save simulation? If false, plot results
-
-Ls = [50]
+# %% ========================== SELECT LOOP PARAMETERS ================================= #
+folder = 'results/VdP_12.13_newArch'
+Ls = [1, 10, 50, 100]
 stds = [0.01, 0.1, 0.25]
-ks = np.linspace(0., 50., 51)
-ks_plot = [0, 10, 50]
-est_p = ['beta', 'zeta', 'kappa']
-kmeas = 25  # number of time steps between observations
+ks = np.linspace(0., 50., 26)
 
-for L in Ls:
-    parent_folder = 'results/VdP_11.27_bigLoop_{}PE_{}kmeas/'.format(len(est_p), kmeas)
-    figs_folder = parent_folder + 'figs/'
-    if not os.path.isdir(figs_folder):
-        os.makedirs(figs_folder)
+save_ = True
 
-    # %% =====================================  CREATE OBSERVATIONS ===================================== #
-    true_model = TAModels.VdP
-    true_params = {'law': 'tan',
-                   'beta': 80.,  # forcing
-                   'zeta': 60.,  # damping
-                   'kappa': 3.4,  # nonlinearity
-                   'omega': 2 * np.pi * 120.
+# %% ============================= SELECT TRUE AND FORECAST MODELS ================================= #
+true_params = {'model': TAModels.VdP,
+               'manual_bias': True,
+               'law': 'tan',
+               'beta': 80.,  # forcing
+               'zeta': 60.,  # damping
+               'kappa': 3.4,  # nonlinearity
+               }
+
+# forecast_params = true_params.copy()
+forecast_params = {'model': TAModels.VdP,
+                   'beta': 70,
+                   'zeta': 55,
+                   'kappa': 4.2
                    }
-    y_true, t_true, name_truth = createObservations(true_model, t_max=5.)
-    # # Manually add bias
-    b_true = np.cos(y_true)
-    y_true += b_true
-    name_truth += '_+cosy'
 
-    # Define the observations
-    t_start = 2.5
-    t_stop = 4.5
+# ==================================== SELECT FILTER PARAMETERS =================================== #
+filter_params = {'filt': 'EnKFbias',  # 'EnKFbias' 'EnKF' 'EnSRKF'
+                 'm': 10,  # Dictionary of DA parameters
+                 'est_p': ['beta', 'zeta', 'kappa'],
+                 'biasType': Bias.ESN,  # Bias.ESN  # None
+                 # Define the observation timewindow
+                 't_start': 2.0,
+                 't_stop': 4.5,
+                 'kmeas': 25,
+                 # Inflation and optional parameters
+                 'inflation': 1.002,
+                 'num_DA_blind': 0,  # int(0.0 / t_obs[1] - t_obs[0]),  # num of obs to start accounting for the bias
+                 'num_SE_only': 0  # int(0.0 / t_obs[1] - t_obs[0])  # num of obs to start parameter estimation
+                 }
 
-    dt_true = t_true[1] - t_true[0]
-    obs_idx = np.arange(round(t_start / dt_true), round(t_stop / dt_true) + 1, kmeas)
-    t_obs = t_true[obs_idx]
-    obs = y_true[obs_idx]
+if filter_params['biasType'] is not None and filter_params['biasType'].name == 'ESN':
+    train_params = forecast_params.copy()
+    # train_params = {'std_a': 0.5,
+    #                 'std_psi': 0.5,
+    #                 'est_p': filter_params['est_p'],
+    #                 'alpha_distr': 'uniform'  # training reference data created with uniform distributions
+    #                 }
+    train_params['std_a'] = 0.5
+    train_params['std_psi'] = 0.5
+    train_params['est_p'] = filter_params['est_p']
+    train_params['alpha_distr'] = 'uniform'  # training reference data created with uniform distributions
 
-    # %% ============================== SELECT TA & BIAS MODELS AND FILTER PARAMETERS ============================== #
-    forecast_model = TAModels.VdP
-    biasType = Bias.ESN  # Bias.ESN  # Bias.ESN # None
 
-    filt = 'EnKFbias'  # 'EnKFbias' 'EnKF' 'EnSRKF'
+    bias_params = {'N_wash': 50,
+                   'upsample': 5,
+                   'N_units': 200,
+                   't_train': 1.0,
+                   'augment_data': True,
+                   'train_params': train_params
+                   }
+else:
+    bias_params = None
 
-    model_params = true_params.copy()
-    model_params['beta'] = 70
-    model_params['zeta'] = 65
-    model_params['kappa'] = 3.
+folder += '_{}PE_{}kmeas/'.format(len(filter_params['est_p']), filter_params['kmeas'])
 
-    filter_params = {'m': 10,  # Dictionary of DA parameters
-                     'est_p': est_p,
-                     'bias': biasType,
-                     'std_psi': 0.1,
-                     'std_a': 0.1,
-                     'est_b': False,
-                     'inflation': 1.01,
-                     'num_DA_blind': 0,  # int(0.0 / t_obs[1] - t_obs[0]),  # num of obs to start accounting for the bias
-                     'num_SE_only': 0  # int(0.0 / t_obs[1] - t_obs[0])  # num of obs to start parameter estimation
-                     }
+# ========================================================================================
 
-    train_params = model_params.copy()
-    train_params = {'m': L,
-                    'std_a': 0.3,
-                    'std_psi': 0.3,
-                    'est_p': est_p,
-                    'alpha_distr': 'uniform'
-                    }
+ensemble, truth, b_args = createEnsemble(true_params, forecast_params, filter_params, bias_params, folder=folder)
 
-    ESN_params = {'N_wash': 50,
-                  'upsample': 5,
-                  'N_units': 200,
-                  't_train': 1.0,
-                  'train_TAparams': train_params
-                  }
-
-    if biasType is not None:
-        if biasType.name == 'ESN':
-            # Compute reference bias. Create an ensemble of training data
-            ref_ens = forecast_model(train_params, train_params)
-            name_train = parent_folder + 'Truth_{}_{}'.format(ref_ens.name, ref_ens.law)
-            for k, v in ref_ens.getParameters().items():
-                name_train += '_{}{}'.format(k, v)
-            name_train += '_tmax-{:.2}_std{:.2}_m{}_{}'.format(t_true[-1], ref_ens.std_a, ref_ens.m, ref_ens.alpha_distr)
-
-            if os.path.isfile(name_train):
-                print('Loading Reference solution(s)')
-                with open(name_train, 'rb') as f:
-                    ref_ens = pickle.load(f)
-                # ref_ens = np.load(name_train+'.npy', allow_pickle=True)
-            else:
-                psi, t = ref_ens.timeIntegrate(Nt=len(t_true) - 1)
-                ref_ens.updateHistory(psi, t)
-                ref_ens.close()
-                # np.save(name_train, ref_ens)
-
-                with open(name_train, 'wb') as f:
-                    pickle.dump(ref_ens, f)
-
-            y_ref, lbl = ref_ens.getObservableHist()
-            # if not save_:
-            fig, ax = plt.subplots(1, 3, figsize=(15, 3.5))
-            norm = mpl.colors.Normalize(vmin=-5, vmax=y_ref.shape[-1])
-            cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.magma)
-            fig.suptitle('Training data')
-            ax[0].plot(t_true, y_true, color='silver', linewidth=6, alpha=.8)
-            Nt = int(.2 // dt_true)
-            for ii in range(y_ref.shape[-1]):
-                C, R = CR(y_true[-Nt:], y_ref[-Nt:, :, ii])
-                line = ax[0].plot(t_true, y_ref[:, :, ii], color=cmap.to_rgba(ii))
-                ax[1].plot(ii, C, 'o', color=cmap.to_rgba(ii))
-                ax[2].plot(ii, R, 'x', color=cmap.to_rgba(ii))
-            plt.tight_layout()
-            ax[0].legend(['Truth'], bbox_to_anchor=(0., 1.25), loc="upper left")
-            ax[0].set(xlabel='$t$', ylabel=lbl, xlim=[t_true[-1] - 0.05, t_true[-1]])
-            ax[1].set(xlabel='$l$', ylabel='Correlation')
-            ax[2].set(xlabel='$l$', ylabel='RMS error')
-            ax[0].plot(t_true, y_true, color='silver', linewidth=6, alpha=.8)
-            for ax1, l in zip(ax[:], [.5, 1., 1.]):
-                x0, x1 = ax1.get_xlim()
-                y0, y1 = ax1.get_ylim()
-                ax1.set_aspect(l * (x1 - x0) / (y1 - y0))
-            plt.savefig(figs_folder + 'm{}_training_data.svg'.format(train_params['m']), dpi=350)
-            # plt.show()
-
-            biasData = np.expand_dims(y_true, -1) - y_ref  # [Nt x Nmic x Ntrain]
-            biasData = np.append(biasData, ref_ens.hist[:, -len(ref_ens.est_p):], axis=1)
-            # provide data for washout before first observation
-            i1 = int(np.where(t_true == t_obs[0])[0]) - kmeas
-            i0 = i1 - int(0.1 / dt_true)
-
-            # create bias dictionary
-            bias_params = ESN_params.copy()
-            bias_params['trainData'] = biasData[int(1. / dt_true):]  # remove transient - steady state solution
-            bias_params['washout_obs'] = y_true[i0:i1 + 1]
-            bias_params['washout_t'] = t_true[i0:i1 + 1]
-            bias_params['filename'] = parent_folder + name_truth + '_' + name_train.split('Truth_')[-1] + '_bias'
-        else:
-            raise ValueError('Bias model not defined')
-        bias_name = biasType.name
-        filter_params['Bdict'] = bias_params
-    else:
-        bias_name = 'None'
-
-    # ===========================================  INITIALISE ENSEMBLE  ========================================== #
-    # filter_params['est_p'] = ['beta']
-    ensemble = forecast_model(model_params, filter_params)
+figs_folder = folder + 'figs/'
+flag = False
+for L in Ls:
+    blank_ens = ensemble.copy()
+    # Reset ESN
+    if b_args is not None:
+        bias_p = createESNbias(*b_args, L=L, bias_param=bias_params)
+        filter_params['Bdict'] = bias_p
+        blank_ens.initBias(bias_p)
+    flag = True
     for std in stds:
-        for k in ks:
-            filter_ens = ensemble.copy()  # copy the initialised ensemble
-            filter_ens.std_psi = std,
-            filter_ens.std_a = std,
-            if filter_ens.bias is not None:
-                filter_ens.bias.k = k
-            # ======================================  PERFORM DATA ASSIMILATION ====================================== #
+        # Reset stdt
+        psi_mean = np.mean(blank_ens.psi, 1)
+        # if len(blank_ens.est_p) > 0:
+        #     psi_mean[-len(blank_ens.est_p):] = np.array([getattr(blank_ens, p) for p in blank_ens.est_p])
+        blank_ens.psi = blank_ens.addUncertainty(psi_mean, std, blank_ens.m, method='normal')
+        blank_ens.hist[-1] = blank_ens.psi
+        blank_ens.std_psi = std
+        blank_ens.std_psi = std
 
-            filter_ens = dataAssimilation(filter_ens, obs, t_obs, method=filt)
+        print(np.mean(blank_ens.psi[-len(blank_ens.est_p):], 1), psi_mean[-len(blank_ens.est_p):])
+        results_folder = folder + 'std{}/L{}/'.format(std, L)
 
-            # Integrate further without assimilation as ensemble mean (if truth very long, integrate only .2s more)
-            Nt_extra = 0
-            if filter_ens.hist_t[-1] < t_true[-1]:
-                Nt_extra = int(min((t_true[-1] - filter_ens.hist_t[-1]), 0.2) / filter_ens.dt) + 1
-                psi, t = filter_ens.timeIntegrate(Nt_extra, averaged=True)
-                filter_ens.updateHistory(psi, t)
-                if filter_ens.bias is not None:
-                    y = filter_ens.getObservableHist(Nt_extra)[0]
-                    a = np.mean(filter_ens.hist[-1, -len(filter_ens.est_p):, :], axis=-1)
-                    b, t_b = filter_ens.bias.timeIntegrate(Nt=Nt_extra, y=[y, a])
-                    filter_ens.bias.updateHistory(b, t_b)
-            filter_ens.close()
-            # =========================================== SAVE DATA & PLOT =========================================== #
-            truth = dict(y=y_true, t=t_true, name=name_truth, t_obs=t_obs, p_obs=obs, b_true=b_true, true_params=true_params)
-            parameters = dict(kmeas=kmeas, filt=filt, biasType=biasType, forecast_model=forecast_model,
-                              true_model=true_model, num_DA=len(t_obs), Nt_extra=Nt_extra)
-            if save_:
+        for k in ks:  # Reset gamma value
+            filter_ens = blank_ens.copy()
+            filter_ens.bias.k = k
 
-                results_folder = parent_folder + 'std{}/L{}/'.format(std, L)
-                if not os.path.isdir(results_folder):
-                    os.makedirs(results_folder)
+            out = main(filter_ens, truth, filter_params,
+                       results_folder=results_folder, figs_folder=figs_folder, save_=True)
 
-                filename = '{}{}_Truth{}_Forecast{}_Bias{}_k{}'.format(results_folder, filt, name_truth,
-                                                                       forecast_model.name, bias_name, k)
-                with open(filename, 'wb') as f:
-                    pickle.dump(parameters, f)
-                    pickle.dump(truth, f)
-                    pickle.dump(filter_ens, f)
+            if k in (0, 10, 50):
+                filename = '{}L{}_std{}_k{}_time'.format(figs_folder, L, std, k)
+                post_process_single_SE_Zooms(*out[:2], filename=filename)
+        filename = '{}CR_L{}_std{}_results'.format(figs_folder, L, std)
+        post_process_multiple(results_folder, filename)
+        plt.close()
 
-            if k in ks_plot:
-                exec(open("post_process_single.py").read(), {'parameters': parameters,
-                                                             'filter_ens': filter_ens,
-                                                             'truth': truth,
-                                                             'folder': figs_folder,
-                                                             'name': str(L) + '_' + str(k) + '_' + str(std) + '_results'})
+# out = main(true_params, forecast_params, filter_params, bias_params, Ls, stds, ks, folder, save_)[:2]
+# plotResults(folder, stds, Ls, k_plot=(0, 10, 50))
 
-        exec(open("post_process_multiple.py").read(), {'folder': results_folder,
-                                                       'figs_folder': figs_folder,
-                                                       'name': str(L) + '_' + str(std) + '_results'})
-
+# if len(stds) == 1 and len(Ls) == 1:
+#   post_process_single_SE_Zooms(*out)
+#   post_process_multiple(folder + 'std{}/L{}/'.format(stds[-1], Ls[-1]))

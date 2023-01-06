@@ -4,7 +4,7 @@ from run import main, createESNbias, createEnsemble
 from plotResults import *
 
 # %% ========================== SELECT LOOP PARAMETERS ================================= #
-folder = 'results/Rijke_12.29_beta_tau/'
+folder = 'results/Rijke_12.29_beta_tau_m50/'
 figs_folder = folder + 'figs/'
 
 run_whyAugment, run_loopParams = False, True
@@ -20,7 +20,7 @@ forecast_params = {'model': TAModels.Rijke,
 
 # ==================================== SELECT FILTER PARAMETERS =================================== #
 filter_params = {'filt': 'EnKFbias',  # 'EnKFbias' 'EnKF' 'EnSRKF'
-                 'm': 10,
+                 'm': 50,
                  'est_p': ['beta', 'tau'],
                  'biasType': Bias.ESN,  # Bias.ESN  # None
                  # Define the observation timewindow

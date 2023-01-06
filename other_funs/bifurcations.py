@@ -11,53 +11,58 @@ from scipy.signal import find_peaks
 import os as os
 import pickle
 import TAModels
-from scipy.integrate import odeint, solve_ivp
+
 plt.rc('text', usetex=True)
 plt.rc('font', family='serif', size=20)
 plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 
-import time
+
 def one_dim_sweep(model, model_params: dict, sweep_p: str, range_p: list, plot=False):
     data_folder = 'data/' + model.name + '/'
     if not os.path.isdir(data_folder):
         os.makedirs(data_folder)
 
-    y_all = []
-    cases = []
+    y_all, cases = [], []
     for p in range_p:
         model_params[sweep_p] = p
-        case = model(model_params)
-        filename = data_folder + TAfilename(case)
+        case_p = model(model_params)
+
+        filename = data_folder + TAfilename(case_p)
         # load or save
         if os.path.isfile(filename):
             with open(filename, 'rb') as f:
-                case = pickle.load(f)
+                case_p = pickle.load(f)
         else:
-            psi_i, t = case.timeIntegrate(Nt=int(6. / case.dt))
-            case.updateHistory(psi_i, t)
+            psi_i, tt = case_p.timeIntegrate(Nt=int(8. / case_p.dt))
+            case_p.updateHistory(psi_i, tt)
             with open(filename, 'wb') as f:
-                pickle.dump(case, f)
+                pickle.dump(case_p, f)
 
-        obs = case.getObservableHist()[0]
+        # psi_i, tt = case_p.timeIntegrate(Nt=int(2. / case_p.dt))
+        # case_p.updateHistory(psi_i, tt)
+        obs, lbl = case_p.getObservableHist()
         if len(obs.shape) > 2:
-            obs = np.squeeze(obs, axis=1)
-        obs = obs[-int(1. / case.dt):, 0]
+            obs, lbl = obs[:, 0], lbl[0]
         # store
-        y_all.append(obs)
-        cases.append(case)
+        y_all.append(obs[-int(1. / case_p.dt):])
+        cases.append(case_p)
+
     # Plot 1D bigurcation diagram
     if plot:
-        plt.figure()
-        for y, val in zip(y_all, range_p):
+        fig, ax_bif = plt.subplots(1, 1, layout="tight")
+        fig, ax = plt.subplots(int(np.ceil(len(range_p)/3)), 3, figsize=[20, 12], layout="tight")
+        ax = ax.flatten()
+        kk = 0
+        for yy, val in zip(y_all, range_p):
             for k in [1, -1]:
-                peaks = find_peaks(y * k)
-                peaks = y[peaks[0]]
-                plt.plot(np.ones(len(peaks)) * val, peaks, '.', color='b')
-                plt.xlabel('$\\' + sweep_p + '$')
-                plt.ylabel(case.getObservableHist()[1])
-        plt.tight_layout()
-        plt.show()
-
+                peaks = find_peaks(yy.squeeze() * k)
+                peaks = yy[peaks[0]]
+                ax_bif.plot(np.ones(len(peaks)) * val, peaks, '.', color='b', markersize=2)
+                ax_bif.set(xlabel='$' + sweep_p + '$', ylabel=lbl)
+                # xscale='log', title='C1={}, C2={}'.format(case_p.C1, case_p.C2))
+            ax[kk].plot(yy[:5000])
+            ax[kk].set(ylabel=lbl, xlabel='timestep', title=val)
+            kk += 1
     return cases, y_all
 
 
@@ -112,27 +117,47 @@ def Lyap_Classification(exponents):
 
 # ==================================================================================================== #
 if __name__ == '__main__':
-
+    # for c1 in [0.05, 0.08, 0.2, 0.4, 0.6]:
+    #     for c2 in [0.01, 0.1, 0.2]:
     # ----------------------------- Select working model ----------------------------- #
-    TAmodel = TAModels.VdP
-    TAdict = {'law': 'tan'}
-
+    TAmodel = TAModels.Rijke
+    TAdict = dict(law='sqrt',
+                  beta=0.4,
+                  tau=2.E-3,
+                  C1=0.05,
+                  C2=0.01,
+                  xf=0.2,
+                  L=1.
+                  )
     # ------------------------------- Plot 1D diagram ------------------------------- #
-    param = 'kappa'  # desired parameter to sweep
-    range_param = np.arange(0.1, 12, .2)
-    # range_param = np.append(range_param, np.arange(20.1, 100, 5))
-    # range_param = [72, 60, 48]
-    og_cases = one_dim_sweep(TAmodel, TAdict, param, range_param, plot=False)[0]
+    param = 'tau'  # desired parameter to sweep
+    # range_param = np.linspace(6, 26, 41) * 1E-4
+    range_param = np.linspace(69, 90, 43) * 1E-4
+    # range_param = [0.0044, 0.0048]
 
+    # param = 'beta'  # desired parameter to sweep
+    # # range_param = np.linspace(0, 10, 101)[1:] * 1E5
+    # # range_param = np.linspace(0, 60, 61)[1:] * 1E5
+    # range_param = np.linspace(0, .5, 21)
+
+
+    # param = 'C1'  # desired parameter to sweep
+    # range_param = np.linspace(0.01, 1, 10)
+
+    og_cases = one_dim_sweep(TAmodel, TAdict, param, range_param, plot=True)[0]
+
+    plt.show()
     # ------------------------- Compute lyapunov exponents -------------------------- #
-    N_exp = 2   # compute the N_exp-first Lyapunov exponents
-    eps = 1e-8  # multiplication factor to make the orthonormalized perturbation infinitesimalv
-    N_dim = og_cases[0].N
+    compute_Lyapunov = False
+    if compute_Lyapunov:
+        N_exp = 2  # compute the N_exp-first Lyapunov exponents
+        eps = 1e-8  # multiplication factor to make the orthonormalized perturbation infinitesimalv
+        N_dim = og_cases[0].N
 
-    if True:
         Lambdas = []
         for case in og_cases:
             import nolds as ns
+
             psi, t = case.timeIntegrate(int(1. / case.dt))
             y = psi[::10, 0]
             aa = ns.lyap_r(y.squeeze())
@@ -142,12 +167,10 @@ if __name__ == '__main__':
             plt.plot(y.squeeze())
             plt.show()
 
-
             break
 
-
             N = int(200. / case.dt)
-            N_orth = 100 #int(.2 / case.dt)
+            N_orth = 100  # int(.2 / case.dt)
             # NOTE:  N_orth*dt should easily be 5 Lyapunov times with eps small enough. Because in 5 lyapunov
             # times the magnitude of the perturbation increases only be 2^5=32 times on average.
             # NOTE 2: if N_orth too large, do not trust exponents, only sign as the slope can be misleading due to the
@@ -181,10 +204,10 @@ if __name__ == '__main__':
                 # integrate perturbed cases
                 t1111 = time.time()
                 for ii in range(N_exp):
-                    sol = solve_ivp(fun, t_span=([t0, t1]), y0=q0_pert[ii], args=(params,))#, t_eval=t_vect)
+                    sol = solve_ivp(fun, t_span=([t0, t1]), y0=q0_pert[ii], args=(params,))  # , t_eval=t_vect)
                     q0_pert[ii] = sol.y[:, -1]
 
-                sol = solve_ivp(fun, t_span=([t0, t1]), y0=q0.squeeze(), args=(params,))#, t_eval=t_vect)
+                sol = solve_ivp(fun, t_span=([t0, t1]), y0=q0.squeeze(), args=(params,))  # , t_eval=t_vect)
                 q0 = sol.y[:, -1]
                 # print('integration time = ', time.time() - t1111)
                 time_int += time.time() - t1111
