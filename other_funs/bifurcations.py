@@ -17,35 +17,36 @@ plt.rc('font', family='serif', size=20)
 plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 
 
-def one_dim_sweep(model, model_params: dict, sweep_p: str, range_p: list, plot=False):
-    data_folder = 'data/' + model.name + '_avgproperties/'
-    if not os.path.isdir(data_folder):
-        os.makedirs(data_folder)
+def one_dim_sweep(model, model_params: dict, sweep_p: str, range_p: list,  t_max=8., plot=False, save=True):
 
     y_all, cases = [], []
     for p in range_p:
         model_params[sweep_p] = p
         case_p = model(model_params)
 
-        filename = data_folder + TAfilename(case_p)
-        # load or save
-        if os.path.isfile(filename):
-            with open(filename, 'rb') as f:
-                case_p = pickle.load(f)
+        if save:
+            data_folder = 'data/' + model.name + '_avgproperties/'
+            if not os.path.isdir(data_folder):
+                os.makedirs(data_folder)
+            filename = data_folder + TAfilename(case_p)
+            # load or save
+            if os.path.isfile(filename):
+                with open(filename, 'rb') as f:
+                    case_p = pickle.load(f)
+            else:
+                psi_i, tt = case_p.timeIntegrate(Nt=int(t_max / case_p.dt))
+                case_p.updateHistory(psi_i, tt)
+                with open(filename, 'wb') as f:
+                    pickle.dump(case_p, f)
         else:
-            psi_i, tt = case_p.timeIntegrate(Nt=int(8. / case_p.dt))
+            psi_i, tt = case_p.timeIntegrate(Nt=int(t_max / case_p.dt))
             case_p.updateHistory(psi_i, tt)
-            with open(filename, 'wb') as f:
-                pickle.dump(case_p, f)
 
-
-        # psi_i, tt = case_p.timeIntegrate(Nt=int(2. / case_p.dt))
-        # case_p.updateHistory(psi_i, tt)
-        obs, lbl = case_p.getObservableHist()
+        obs, lbl = case_p.getObservableHist(int(10. / case_p.dt))
         if len(obs.shape) > 2:
             obs, lbl = obs[:, 0], lbl[0]
         # store
-        y_all.append(obs[-int(1. / case_p.dt):])
+        y_all.append(obs - np.mean(obs))
         cases.append(case_p)
 
     # Plot 1D bigurcation diagram
@@ -118,34 +119,42 @@ def Lyap_Classification(exponents):
 
 # ==================================================================================================== #
 if __name__ == '__main__':
-    # for c1 in [0.05, 0.08, 0.2, 0.4, 0.6]:
-    #     for c2 in [0.01, 0.1, 0.2]:
-    # ----------------------------- Select working model ----------------------------- #
-    TAmodel = TAModels.Rijke
-    TAdict = dict(law='sqrt',
-                  beta=3.6,
-                  tau=2.E-3,
-                  C1=0.06,
-                  C2=0.01,
-                  xf=0.2,
-                  L=1.
-                  )
-    # ------------------------------- Plot 1D diagram ------------------------------- #
-    # param = 'tau'  # desired parameter to sweep
-    # range_param = np.linspace(0.1, 1., 11) * 1E-3
 
-    param = 'beta'  # desired parameter to sweep
-    # range_param = np.linspace(0, 10, 101)[1:] * 1E5
-    # range_param = np.linspace(0, 60, 61)[1:] * 1E5
-    range_param = np.linspace(0, 3.5, 15)
+    # ==================== RIJKE MODEL ==================== #
+    # TAmodel = TAModels.Rijke
+    # TAdict = dict(law='sqrt',
+    #               beta=3.6,
+    #               tau=2.E-3,
+    #               C1=0.06,
+    #               C2=0.01,
+    #               xf=0.2,
+    #               L=1.
+    #               )
+    # # param = 'tau'  # desired parameter to sweep
+    # # range_param = np.linspace(0.1, 1., 11) * 1E-3
+    #
+    # param = 'beta'  # desired parameter to sweep
+    # # range_param = np.linspace(0, 10, 101)[1:] * 1E5
+    # # range_param = np.linspace(0, 60, 61)[1:] * 1E5
+    # range_param = np.linspace(0, 3.5, 15)
+    #
+    #
+    # # param = 'C1'  # desired parameter to sweep
+    # # range_param = np.linspace(0.005, 0.1, 39)
+    # og_cases = one_dim_sweep(TAmodel, TAdict, param, range_param, plot=True)[0]
 
-
-    # param = 'C1'  # desired parameter to sweep
-    # range_param = np.linspace(0.005, 0.1, 39)
-
-    og_cases = one_dim_sweep(TAmodel, TAdict, param, range_param, plot=True)[0]
+    # ==================== LORENTZ 63 ==================== #
+    TAmodel = TAModels.Lorenz63
+    TAdict = dict(rho=28., sigma=10., beta=8. / 3., dt=2E-2)
+    param = 'rho'  # desired parameter to sweep
+    range_param = np.linspace(10, 30, 100)
+    og_cases = one_dim_sweep(TAmodel, TAdict, param, range_param,
+                             plot=True, save=False, t_max=50)[0]
 
     plt.show()
+
+
+
     # ------------------------- Compute lyapunov exponents -------------------------- #
     compute_Lyapunov = False
     if compute_Lyapunov:

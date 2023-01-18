@@ -76,6 +76,8 @@ def createEnsemble(true_p, forecast_p, filter_p, bias_p, folder="results", folde
                     reinit = True
                     print('Re-initialise ensemble as ensemble {}={} != {}'.format(key, getattr(ensemble, key), val))
                     break
+            if truth['t_obs'][-1] < filter_p['t_stop']:
+                reinit = True
 
         if not reinit:
             if truth['t_obs'][0] != filter_p['t_start'] or truth['t_obs'][-1] != filter_p['t_stop']:
@@ -101,6 +103,7 @@ def createEnsemble(true_p, forecast_p, filter_p, bias_p, folder="results", folde
         b_true = np.cos(y_true)
         y_true += b_true
         name_truth += '_+cosy'
+        print('added bias')
     else:
         b_true = np.zeros(1)
 
@@ -109,7 +112,10 @@ def createEnsemble(true_p, forecast_p, filter_p, bias_p, folder="results", folde
     t_obs = t_true[obs_idx]
 
     q = np.shape(y_true)[1]
-    Cdd = np.eye(q) * true_p['std_obs']**2
+    if 'std_obs' in true_p.keys():
+        Cdd = np.eye(q) * true_p['std_obs']**2
+    else:
+        Cdd = np.eye(q) * 0.01**2
     # obs = rng.multivariate_normal(y_true[obs_idx], Cdd)
 
     # add_noise = rng.normal(0, true_p['std_obs'])

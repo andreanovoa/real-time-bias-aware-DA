@@ -1,10 +1,10 @@
-from scipy.optimize import fsolve
 from scipy.interpolate import splrep, splev
 import pylab as plt
 
 import Bias
 from Util import Cheb, RK4
 import os
+import time
 
 import numpy as np
 from scipy.integrate import solve_ivp
@@ -26,7 +26,7 @@ class Model:
     """ Parent Class with the general thermoacoustic model
         properties and methods definitions.
     """
-    attr_model: dict = dict(dt=1E-4, t=0., psi0=np.empty(1), ensemble=False)
+    attr_parent: dict = dict(dt=1E-4, t=0., psi0=np.empty(1), ensemble=False)
 
     attr_ens: dict = dict(m=10, est_p=[], est_s=True, est_b=False,
                           biasType=Bias.NoBias, inflation=1.01,
@@ -34,17 +34,17 @@ class Model:
                           num_DA_blind=0, num_SE_only=0)
 
     def __init__(self, TAdict):
-        TAdict = TAdict.copy()
+        model_dict = TAdict.copy()
         # ================= INITIALISE THERMOACOUSTIC MODEL ================== ##
-        for key, val in self.attr.items():
-            if key in TAdict.keys():
-                setattr(self, key, TAdict[key])
+        for key, val in self.attr_child.items():
+            if key in model_dict.keys():
+                setattr(self, key, model_dict[key])
             else:
                 setattr(self, key, val)
 
-        for key, val in Model.attr_model.items():
-            if key in TAdict.keys():
-                setattr(self, key, TAdict[key])
+        for key, val in Model.attr_parent.items():
+            if key in model_dict.keys():
+                setattr(self, key, model_dict[key])
             else:
                 setattr(self, key, val)
 
@@ -54,10 +54,47 @@ class Model:
         self.psi = np.array([self.psi0]).T
 
         # ========================== CREATE HISTORY ========================== ##
-        self.ensemble = False
         self.hist = np.array([self.psi])
         self.hist_t = np.array([self.t])
         self.hist_J = []
+
+
+    def copy(self):
+        return deepcopy(self)
+
+    @property
+    def M(self):
+        if not hasattr(self, '_M'):
+            # --------------------- DEFINE OBS-STATE MAP --------------------- ##
+            obs = self.getObservables()
+            Nq = np.shape(obs)[0]
+            # if ensemble.est_b:
+            #     y0 = np.concatenate(y0, np.zeros(ensemble.bias.Nb))
+            y0 = np.concatenate((np.zeros(self.N), np.ones(Nq)))
+            self._M = np.zeros((Nq, len(y0)))
+            iq = 0
+            for ii in range(len(y0)):
+                if y0[ii] == 1:
+                    self._M[iq, ii] = 1
+                    iq += 1
+        return self._M
+
+    # -------------- Functions for update/initialise the model ------------------- #
+    @staticmethod
+    def addUncertainty(y_mean, y_std, m, method='normal'):
+        if method == 'normal':
+            cov = np.diag((y_std * np.ones(len(y_mean))) ** 2)
+            return (y_mean * rng.multivariate_normal(np.ones(len(y_mean)), cov, m)).T
+        elif method == 'uniform':
+            ens_aug = np.zeros((len(y_mean), m))
+            for ii, pp in enumerate(y_mean):
+                if pp > 0:
+                    ens_aug[ii, :] = rng.uniform(pp * (1. - y_std), pp * (1. + y_std), m)
+                else:
+                    ens_aug[ii, :] = rng.uniform(pp * (1. + y_std), pp * (1. - y_std), m)
+            return ens_aug
+        else:
+            raise 'Parameter distribution not recognised'
 
     def resetInitialConditions(self):
         self.psi = np.array([self.psi0]).T
@@ -95,6 +132,7 @@ class Model:
                 self.N += self.Na
                 self.psi = np.append(self.psi, np.array([getattr(self, pp) for pp in self.est_p]))
 
+
         # ------------------------ INITIALISE BIAS ------------------------ ##
         if 'Bdict' not in DAdict.keys():
             DAdict['Bdict'] = {}
@@ -119,9 +157,13 @@ class Model:
         b = self.bias.getBias(yb)
         self.bias.updateHistory(b, self.t, reset=True)
 
-    def copy(self):
-        return deepcopy(self)
+    def updateHistory(self, psi, t):
+        self.hist = np.concatenate((self.hist, psi), axis=0)
+        self.hist_t = np.hstack((self.hist_t, t))
+        self.psi = psi[-1]
+        self.t = t[-1]
 
+    # -------------- Functions required for the forecasting ------------------- #
     @property
     def pool(self):
         if not hasattr(self, '_pool'):
@@ -132,41 +174,6 @@ class Model:
         self.pool.close()
         self.pool.join()
         delattr(self, "_pool")
-
-    def updateHistory(self, psi, t):
-        self.hist = np.concatenate((self.hist, psi), axis=0)
-        self.hist_t = np.hstack((self.hist_t, t))
-        self.psi = psi[-1]
-        self.t = t[-1]
-
-    def getAlpha(self, psi=None):
-        alpha = []
-        if psi is None:
-            psi = self.psi
-        for mi in range(psi.shape[-1]):
-            ii = -self.Na
-            alph = self.alpha0.copy()
-            for param in self.est_p:
-                alph[param] = psi[ii, mi]
-                ii += 1
-            alpha.append(alph)
-        return alpha
-
-    @staticmethod
-    def addUncertainty(y_mean, y_std, m, method='normal'):
-        if method == 'normal':
-            cov = np.diag((y_std * np.ones(len(y_mean))) ** 2)
-            return (y_mean * rng.multivariate_normal(np.ones(len(y_mean)), cov, m)).T
-        elif method == 'uniform':
-            ens_aug = np.zeros((len(y_mean), m))
-            for ii, pp in enumerate(y_mean):
-                if pp > 0:
-                    ens_aug[ii, :] = rng.uniform(pp * (1. - y_std), pp * (1. + y_std), m)
-                else:
-                    ens_aug[ii, :] = rng.uniform(pp * (1. + y_std), pp * (1. - y_std), m)
-            return ens_aug
-        else:
-            raise 'Parameter distribution not recognised'
 
     @staticmethod
     def forecast(y0, fun, t, params, alpha=None):
@@ -181,6 +188,19 @@ class Model:
         # psi = RK4(t_interp, y0, fun, params)
 
         return psi
+
+    def getAlpha(self, psi=None):
+        alpha = []
+        if psi is None:
+            psi = self.psi
+        for mi in range(psi.shape[-1]):
+            ii = -self.Na
+            alph = self.alpha0.copy()
+            for param in self.est_p:
+                alph[param] = psi[ii, mi]
+                ii += 1
+            alpha.append(alph)
+        return alpha
 
     def timeIntegrate(self, Nt=100, averaged=False, alpha=None):
         """
@@ -237,6 +257,11 @@ class Model:
         psi = psi.transpose(1, 2, 0)
         return psi[1:], t[1:]
 
+    def printModelParameters(self):
+        print('\n ------------------ {} Model Parameters ------------------ '.format(self.name))
+        for k in self.attr_child.keys():
+            print('\t {} = {}'.format(k, getattr(self, k)))
+
 
 # %% ==================================== RIJKE TUBE MODEL ============================================== %% #
 class Rijke(Model):
@@ -255,15 +280,12 @@ class Rijke(Model):
     """
 
     name: str = 'Rijke'
-    attr: dict = dict(Nm=10, Nc=10, Nmic=6,
+    attr_child: dict = dict(Nm=10, Nc=10, Nmic=6,
                       beta=0.6, tau=2.E-3, C1=.05, C2=.01, kappa=1E5,
-                      xf=0.2, L=1., law='sqrt', psi0=None)
-
+                      xf=0.2, L=1., law='sqrt')
     params: list = ['beta', 'tau', 'C1', 'C2', 'kappa']
 
-    # __________________________ Init method ___________________________ #
     def __init__(self, TAdict=None, DAdict=None):
-
         if TAdict is None:
             TAdict = {}
         super().__init__(TAdict)
@@ -272,8 +294,7 @@ class Rijke(Model):
             DAdict = {}
 
         if 'est_p' in DAdict.keys() and 'tau' in DAdict['est_p']:
-            self.tau_adv = 1E-2
-            self.Nc = 50
+            self.tau_adv, self.Nc = 1E-2, 50
         else:
             self.tau_adv = self.tau
 
@@ -325,15 +346,10 @@ class Rijke(Model):
         ##############################################################################################################
 
         # ------------------------------------------------------------------------------------- #
-        # initialise Ensemble
-
         if DAdict is not None:
             self.initEnsemble(DAdict)
 
-        print('\n -------------------- RIJKE MODEL PARAMETERS -------------------- \n',
-              '\t Nm = {}  \t beta = {:.2} \t law = {} \n'.format(self.Nm, self.beta, self.law),
-              '\t Nc = {}  \t tau = {:.2} \t C1 = {:.2}\n'.format(self.Nc, self.tau, self.C1),
-              '\t Nmic = {} \t xf = {:.2} \t C2 = {:.2}'.format(self.Nmic, self.xf, self.C2))
+        self.printModelParameters()
 
     # _______________ Rijke specific properties and methods ________________ #
     @property
@@ -374,10 +390,8 @@ class Rijke(Model):
                 return p[-Nt:], labels_p
 
     def getObservables(self, velocity=False):
-
         # Compute acoustic pressure and velocity at microphone locations
         om = np.array([self.jpiL])
-
         eta = self.psi[:self.Nm]
         mu = self.psi[self.Nm:2 * self.Nm]
 
@@ -390,14 +404,6 @@ class Rijke(Model):
             return np.concatenate((p, u))
         else:
             return p
-
-    def getParameters(self):
-        if self.law == 'sqrt':
-            return {key: self.alpha0[key] for key in ['beta', 'tau', 'C1', 'C2']}
-        elif self.law == 'tan':
-            return {key: self.alpha0[key] for key in ['beta', 'tau', 'kappa', 'C1', 'C2']}
-        else:
-            raise TypeError("Undefined heat release law. Choose 'sqrt' or 'tan'.")
 
     # _________________________ Governing equations ________________________ #
     def govEqnDict(self):
@@ -489,7 +495,7 @@ class VdP(Model):
     """
 
     name: str = 'VdP'
-    attr: dict = dict(omega=2 * np.pi * 120., law='tan',
+    attr_child: dict = dict(omega=2 * np.pi * 120., law='tan',
                       zeta=60., beta=70., kappa=3.4, gamma=1.7)  # beta, zeta [rad/s]
     params: list = ['omega', 'zeta', 'kappa', 'beta']  # ,'omega', 'gamma']
 
@@ -513,12 +519,8 @@ class VdP(Model):
         self.param_lims = dict(omega=(0, None), zeta=(20, 120), kappa=(0.1, 10.),
                                gamma=(None, None), beta=(20, 120))
 
+
     # _______________ VdP specific properties and methods ________________ #
-    def printModelParams(self):
-        print('\n ------------------ VAN DER POL MODEL PARAMETERS ------------------ \n',
-              '\t Heat law = {0}'.format(self.law))
-        for k, v in self.getParameters().items():
-            print('\t {} = {}'.format(k, v))
 
     def getObservableHist(self, Nt=0):
         if np.shape(self.hist)[0] == 1:
@@ -527,13 +529,7 @@ class VdP(Model):
             return self.hist[-Nt:, [0], :], "$\\eta$"
 
     def getObservables(self):
-        eta = self.psi[0, :]
-        return np.expand_dims(eta, axis=0)
-
-    def getParameters(self):
-        if self.law not in ['cubic', 'tan']:
-            raise TypeError("Undefined heat release law. Choose 'cubic' or 'tan'.")
-        return {key: self.alpha0[key] for key in ['zeta', 'kappa', 'beta']}  # ['beta', 'zeta', 'kappa']}
+        return np.expand_dims(self.psi[0, :], axis=0)
 
     @property
     def growth_rate(self, zeta, beta):
@@ -543,10 +539,9 @@ class VdP(Model):
     def govEqnDict(self):
         d = dict(law=self.law,
                  N=self.N,
-                 Na=self.Na,
-                 psi0=self.psi0
+                 Na=self.Na
                  )
-        if d['N'] > len(d['psi0']):
+        if d['Na'] > 0:
             d['est_p'] = self.est_p
         return d
 
@@ -572,7 +567,7 @@ class Lorenz63(Model):
     """
 
     name: str = 'Lorenz63'
-    attr: dict = dict(rho=28., sigma=10., beta=8. / 3.)
+    attr_child: dict = dict(rho=28., sigma=10., beta=8. / 3.)
     params: list = ['rho', 'sigma', 'beta']
 
     # __________________________ Init method ___________________________ #
@@ -593,31 +588,21 @@ class Lorenz63(Model):
         self.param_lims = dict(rho=(None, None), beta=(None, None), sigma=(None, None))
 
     # _______________ VdP specific properties and methods ________________ #
-    def printModelParams(self):
-        print('\n ------------------ LORENZ63 MODEL PARAMETERS ------------------ \n')
-        for k, v in self.getParameters().items():
-            print('\t {} = {}'.format(k, v))
 
     def getObservableHist(self, Nt=0):
         if np.shape(self.hist)[0] == 1:
-            return None, "$x$"
+            return None, "x"
         else:
-            return self.hist[-Nt:, [0], :], "$x$"
+            return self.hist[-Nt:, [0], :], "x"
 
     def getObservables(self):
-        eta = self.psi[0, :]
-        return np.expand_dims(eta, axis=0)
-
-    def getParameters(self):
-        return {key: self.alpha0[key] for key in self.params}
+        return np.expand_dims(self.psi[0, :], axis=0)
 
     # _________________________ Governing equations ________________________ #
     def govEqnDict(self):
         d = dict(N=self.N,
-                 Na=self.Na,
-                 psi0=self.psi0
-                 )
-        if d['N'] > len(d['psi0']):
+                 Na=self.Na)
+        if d['Na'] > 0:
             d['est_p'] = self.est_p
         return d
 
@@ -631,15 +616,13 @@ class Lorenz63(Model):
 
 
 if __name__ == '__main__':
-    import time
-
-    dt = 2E-4
-    paramsTA = dict(law='tan', dt=dt)
+    MyModel = Lorenz63
+    paramsTA = dict(law='tan', dt=2E-2)
 
     t1 = time.time()
     # Non-ensemble case =============================
-    case = VdP(paramsTA)
-    state, t_ = case.timeIntegrate(int(2 / dt))
+    case = MyModel(paramsTA)
+    state, t_ = case.timeIntegrate(int(40 / case.dt))
     case.updateHistory(state, t_)
 
     print('Elapsed time = ', str(time.time() - t1))
@@ -658,14 +641,14 @@ if __name__ == '__main__':
     ax[1].plot(t_h[-t_zoom:], y[-t_zoom:, 0], color='green')
     # plt.show()
     #
-    print(paramsTA)
+
     # Ensemble case =============================
     paramsDA = dict(m=10, est_p=['beta'])
-    case = VdP(paramsTA, paramsDA)
+    case = MyModel(paramsTA, paramsDA)
 
     t1 = time.time()
-    for _ in range(10):
-        state, t_ = case.timeIntegrate(int(.25 / dt))
+    for _ in range(5):
+        state, t_ = case.timeIntegrate(int(1. / case.dt))
         case.updateHistory(state, t_)
 
     print('Elapsed time = ', str(time.time() - t1))

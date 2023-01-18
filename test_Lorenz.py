@@ -3,35 +3,35 @@ import Bias
 from run import main, createESNbias, createEnsemble
 from plotResults import *
 
-# %% ========================== SELECT LOOP PARAMETERS ================================= #
-folder = 'results/Rijke_mod_Model/'
+folder = 'results/Lorenz/'
 
 
 # %% ============================= SELECT TRUE AND FORECAST MODELS ================================= #
-true_params = {'model': 'wave',
-               't_max': 4.,
-               'std_obs': 0.05
+true_params = {'model': TAModels.Lorenz63,
+               'dt': 1E-2,
+               't_max': 100.,
+               'std_obs': 0.1,
+               'manual_bias': True
                }
 
-forecast_params = {'model': TAModels.Rijke,
-                   'beta': 1.,
-                   'tau': 2.E-3,
-                   'C1': 0.1,
+forecast_params = {'model': TAModels.Lorenz63,
+                   'dt': 1E-2,
+                   't_max': 100.
                    }
 
 # ==================================== SELECT FILTER PARAMETERS =================================== #
-filter_params = {'filt': 'EnKFbias',  # 'EnKFbias' 'EnKF' 'EnSRKF'
-                 'm': 10,
-                 'est_p': ['beta', 'C1', 'tau'],
+filter_params = {'filt': 'EnSRKF',  # 'EnKFbias' 'EnKF' 'EnSRKF'
+                 'm': 500,
+                 'est_p': [],
                  'biasType': Bias.NoBias,  # Bias.ESN  # None
                  'std_a': 0.1,
                  'std_psi': 0.1,
-                 # Define the observation timewindow
-                 't_start': 2.0,  # ensure SS
-                 't_stop': 3.5,
-                 'kmeas': 25,
+                 # Define the observation time-window
+                 't_start': 20.,  # ensure SS
+                 't_stop': 100.,
+                 'kmeas': 75,
                  # Inflation
-                 'inflation': 1.002
+                 'inflation': 1.00
                  }
 
 if filter_params['biasType'].name == 'ESN':
@@ -68,7 +68,7 @@ if __name__ == '__main__':
     # ================================================================================== #
 
     blank_ens = ensemble.copy()
-    ks = np.linspace(0, 10, 11)
+    ks = [0.] #np.linspace(0, 10, 11)
     for k in ks:  # Reset gamma value
         filter_ens = blank_ens.copy()
         filter_ens.bias.k = k
