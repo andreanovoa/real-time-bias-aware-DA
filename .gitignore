@@ -1,4 +1,6 @@
 
 figs/
-data/
-results/
+/data/
+/results/
+/figures_paper/
+/old_codes/

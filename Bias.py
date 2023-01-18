@@ -1,11 +1,8 @@
 import os
 # os.environ["OMP_NUM_THREADS"]= '1'
 import numpy as np
-import matplotlib.pyplot as plt
 import scipy.linalg as la
-from scipy.sparse import csr_matrix, lil_matrix
 from scipy.io import loadmat, savemat
-import time
 from scipy.interpolate import interp1d
 
 
@@ -33,6 +30,21 @@ class Bias:
 
 # =================================================================================================================== #
 
+class NoBias(Bias):
+    name = 'None'
+    def __init__(self, y, t, Bdict=None):
+        # Initialise bias parent
+        b = np.zeros(len(y))
+        super().__init__(b, t)
+
+    def getBias(self, *args):
+        return self.b
+
+    def stateDerivative(self, y):
+        return np.zeros([len(self.b), len(self.b)])
+
+    def timeIntegrate(self, t, y=None, t_end=0):
+        return np.zeros([len(t), len(self.b)]), t
 
 class LinearBias(Bias):
     name = 'LinearBias'
@@ -209,8 +221,11 @@ class ESN(Bias):
               '\n Training time: {} s, \t Validation time: {} s'.format(self.t_train, self.t_val),
               '\n Washout steps: {}, \t Upsample'.format(self.N_wash, self.upsample),
               '\n Num of neurones: {}, \t Run test?: {}'.format(self.N_units, self.test_run),
-              '\n Augmentat data?: {}, \t Num of training datasets: {}'.format(self.augment_data, self.L)
+              '\n Augmentat data?: {}, \t Num of training datasets: {}'.format(self.augment_data, self.L),
+              '\n Connectvity: {}, \t Tikhonov parameter: {}'.format(self.connect, self.tikh),
+              '\n Spectral radius: {}, \t Input scaling: {}'.format(self.rho, self.sigma_in)
               )
+
 
     def getWeights(self):  # TODO maybe
         pass
@@ -299,6 +314,8 @@ class ESN(Bias):
             r[-(Nt_open + Nt_closed):] = np.append(r_open, r_closed[1:], axis=0)
 
             self.initialised = True
+
+            print('initialised bias')
 
             # # ESN PLOT DEBUG
             # plt.figure()

@@ -173,6 +173,7 @@ sigin_ = [np.log10(1e-4), np.log10(0.5)]
 tikh = np.array([1e-10, 1e-12, 1e-16])  # Tikhonov
 
 # _________________________________ GRID SEARCH AND BAYESIAN OPTIMISATION PARAMS ____________________________________
+# _________________________________ GRID SEARCH AND BAYESIAN OPTIMISATION PARAMS ____________________________________
 n_tot = 20  # Total Number of Function Evaluations
 n_in = 0  # Number of Initial random points
 
@@ -399,10 +400,12 @@ save_dict = dict(t_train=t_train,
                  bias_out=bias_out,
                  rho=minimum[0],
                  sigma_in=10 ** minimum[1],
+                 tikh=minimum[2],
                  upsample=int(upsample),
                  hyperparameters=[minimum[0], 10 ** minimum[1], bias_in],
                  training_time=(N_train + N_val) * dt_ESN,
-                 filename=filename
+                 filename=filename,
+                 connect=connect
                  )
 if norm_alpha is not None:
     save_dict['norm_alpha'] = norm_alpha

@@ -4,28 +4,31 @@ from run import main, createESNbias, createEnsemble
 from plotResults import *
 
 # %% ========================== SELECT LOOP PARAMETERS ================================= #
-folder = 'results/Rijke_12.29_beta_tau_m50/'
+folder = 'results/Rijke_short_zeta/'
 figs_folder = folder + 'figs/'
 
 run_whyAugment, run_loopParams = False, True
 
 # %% ============================= SELECT TRUE AND FORECAST MODELS ================================= #
-true_params = {'model': 'wave'
+true_params = {'model': 'wave',
+               't_max': 4.
                }
 
 forecast_params = {'model': TAModels.Rijke,
-                   'beta': 3E6,
+                   'beta': 0.6,
                    'tau': 2.E-3,
+                   'C1': 0.02,
+                   'C2': 0.01,
                    }
 
 # ==================================== SELECT FILTER PARAMETERS =================================== #
 filter_params = {'filt': 'EnKFbias',  # 'EnKFbias' 'EnKF' 'EnSRKF'
-                 'm': 50,
-                 'est_p': ['beta', 'tau'],
+                 'm': 10,
+                 'est_p': ['beta', 'tau', 'C1', 'C2'],
                  'biasType': Bias.ESN,  # Bias.ESN  # None
                  # Define the observation timewindow
-                 't_start': 2.0,
-                 't_stop': 4.5,
+                 't_start': 2.0,  # ensure SS
+                 't_stop': 2.5,
                  'kmeas': 25,
                  # Inflation
                  'inflation': 1.002
@@ -34,10 +37,12 @@ filter_params = {'filt': 'EnKFbias',  # 'EnKFbias' 'EnKF' 'EnSRKF'
 if filter_params['biasType'] is not None and filter_params['biasType'].name == 'ESN':
     # using default TA parameters for ESN training
     train_params = {'model': TAModels.Rijke,
-                    'beta': 3.5E6,
+                    'beta': 0.7,
                     'tau': 2.1E-3,
-                    'std_a': 0.3,
-                    'std_psi': 0.3,
+                    'std_a': 0.5,
+                   'C1': 0.03,
+                   'C2': 0.01,
+                    'std_psi': 0.5,
                     'est_p': filter_params['est_p'],
                     'alpha_distr': 'uniform'
                     }
@@ -131,9 +136,10 @@ if run_whyAugment:
 
 if run_loopParams:
 
-    Ls = [1, 10, 50, 100]
-    stds = [0.01, 0.1, 0.25]
-    ks = np.linspace(0., 7., 8)
+    Ls = [100]
+    stds = [0.1, 0.25]
+    # stds = [0.1]
+    ks = np.linspace(0., 3., 4)
 
     for L in Ls:
         blank_ens = ensemble.copy()

@@ -8,7 +8,6 @@ Created on Fri Apr  8 19:02:23 2022
 import os as os
 import time
 
-import matplotlib.pyplot as plt
 import numpy as np
 from scipy import linalg
 # os.environ["OMP_NUM_THREADS"]= '1'
@@ -18,27 +17,22 @@ data_folder = os.getcwd() + '\\data\\'
 
 def dataAssimilation(ensemble,
                      obs, t_obs,
-                     std_obs=0.01,
+                     std_obs=0.05,
                      method='EnSRKF'):
     ensemble.filt = method
     dt = ensemble.dt
     ti = 0  # iterator
 
-    bias_name = 'NA'
-    if ensemble.bias is not None:
-        bias_name = ensemble.bias.name
-
     # ensemble.printModelParams()
     print('\n -------------------- ASSIMILATION PARAMETERS -------------------- \n',
-          '\t Filter = {0}  \n\t bias = {1} \n'.format(method, bias_name),
+          '\t Filter = {0}  \n\t bias = {1} \n'.format(method, ensemble.bias.name),
           '\t m = {} \n'.format(ensemble.m),
           '\t Time between analysis = {0:.2} s \n'.format(t_obs[-1] - t_obs[-2]),
           '\t Inferred params = {0} \n'.format(ensemble.est_p),
           '\t Ensemble standard deviation = {0}'.format(ensemble.std_psi)
           )
     if method == 'EnKFbias':
-        print('\t Bias penalisation factor k = {}\n'.format(ensemble.bias.k),
-              '\t Multi-parameter training L = {}'.format(ensemble.bias.L))
+        print('\t Bias penalisation factor k = {}\n'.format(ensemble.bias.k))
     print(' --------------------------------------------')
 
     # ----------------------------- FORECAST UNTIL FIRST OBS ----------------------------- ##
@@ -78,19 +72,17 @@ def dataAssimilation(ensemble,
     ensemble.activate_parameter_estimation = False
 
     # Define observation covariance matrix
-    Cdd = np.diag((std_obs * np.ones(np.size(obs[ti])) * max(abs(obs[ti]))) ** 2)
+    Cdd_norm = np.diag((std_obs * np.ones(np.size(obs[ti]))))
+    # Cdd = np.diag((std_obs * np.ones(np.size(obs[ti])) * max(abs(obs[ti]))))
     while True:
         if ti >= ensemble.num_DA_blind:
             ensemble.activate_bias_aware = True
         if ti >= ensemble.num_SE_only:
             ensemble.activate_parameter_estimation = True
         # ------------------------------  PERFORM ASSIMILATION ------------------------------ #
-        # Define observation covariance matrix
-        # Cdd = np.diag((std_obs * np.ones(np.size(obs[ti])) * max(abs(obs[ti]))) ** 2)
-        # Cdd = np.diag((std_obs * np.ones(np.size(obs[ti]))  * 1013250)**2)
-        # Cdd = np.diag((std_obs * obs[ti])**2)
-
         # Analysis step
+        Cdd = Cdd_norm * abs(obs[ti])
+        # print(Cdd)
         Aa, J = analysisStep(ensemble, obs[ti], Cdd, method)
 
         # Store cost function
@@ -101,15 +93,11 @@ def dataAssimilation(ensemble,
         ensemble.hist[-1] = Aa
 
         # Update bias as d - y^a
-        if ensemble.bias is not None:
-            if bias_name == 'ESN':
-                y = ensemble.getObservables()  # TODO: investigate changes using y=y^a and not y=M psi^a
-                b = obs[ti] - np.mean(y, -1)
-                ensemble.bias.b = b
-                ensemble.bias.hist[-1] = b
-            # if ensemble.est_b:
-            #     b_weights = Aa[-ensemble.bias.Nw:]
-            #     ensemble.bias.updateWeights(b_weights)
+        y = ensemble.getObservables()  # TODO: investigate changes using y=y^a and not y=M psi^a
+        b = obs[ti] - np.mean(y, -1)
+        ensemble.bias.b = b
+        # ensemble.bias.hist[-1] = b
+
         if len(ensemble.hist_t) != len(ensemble.hist):
             raise Exception('something went wrong')
         # ------------------------------ FORECAST TO NEXT OBSERVATION ---------------------- #
@@ -232,7 +220,7 @@ def analysisStep(case, d, Cdd, filt='EnSRKF'):
         else:
             isphysical = checkParams(Aa, case)
             if not isphysical:
-                Aa = inflateEnsemble(Af, 1.01)
+                Aa = inflateEnsemble(Af, 1.05)
                 if not checkParams(Aa, case):
                     print('booooo')
                     Aa = Af.copy()
@@ -344,6 +332,8 @@ def EnKF(Af, d, Cdd, M):
 
     # Create an ensemble of observations
     D = rng.multivariate_normal(d, Cdd, m).transpose()
+    # D = np.repeat(np.expand_dims(d, 1), m, axis=1)
+
 
     # Mapped forecast matrix M(Af) and mapped deviations M(Af')
     Y = np.dot(M, Af)
@@ -356,8 +346,6 @@ def EnKF(Af, d, Cdd, M):
     X = np.dot(S.T, np.dot(Cinv, (D - Y)))
 
     Aa = Af + np.dot(Af, X)
-    psi_a_m = np.mean(Aa, -1, keepdims=True)
-    Aa = psi_a_m + (Aa - psi_a_m)
 
     J = np.array([None] * 4)
     if np.isreal(Aa).all():
@@ -382,15 +370,13 @@ def EnKF(Af, d, Cdd, M):
 
 def EnKFbias(Af, d, Cdd, Cbb, k, M, b, dbdy):
     """ Bias-aware Ensemble Kalman Filter.
-    
         Inputs:
             Af: forecast ensemble at time t (augmented with Y) [N x m]
             d: observation at time t_interpt [q x 1]
             Cdd: observation error covariance matrix [q x q]
             M: matrix mapping from state to observation space [q x N]
             b: bias of the forecast observables (\tilde{Y} = Y + B) [q x 1]
-            dbdy: derivative of the bias with respect to the input y
-            
+            dbdy: derivative of the bias with respect to the input
         Returns:
             Aa: analysis ensemble (or Af is Aa is not real)
     """
@@ -405,7 +391,9 @@ def EnKFbias(Af, d, Cdd, Cbb, k, M, b, dbdy):
 
     # Create an ensemble of observations
     D = rng.multivariate_normal(d, Cdd, m).transpose()
-    B = rng.multivariate_normal(b, Cbb, m).transpose()
+    # B = rng.multivariate_normal(b, Cbb, m).transpose()
+    # D = np.repeat(np.expand_dims(d, 1), m, axis=1)
+    B = np.repeat(np.expand_dims(b, 1), m, axis=1)
 
     # Mapped forecast matrix
     Y = np.dot(M, Af)
@@ -423,6 +411,23 @@ def EnKFbias(Af, d, Cdd, Cbb, k, M, b, dbdy):
 
     K = np.dot(np.dot(Psi_f, S.T), linalg.inv((m - 1) * C + np.dot(S, S.T)))
     Aa = Af + np.dot(K, np.dot(C, Q) - np.dot(M, Af))
+
+    # if sum(b) == 0:
+    #
+    #     # Mapped forecast matrix M(Af) and mapped deviations M(Af')
+    #     Y = np.dot(M, Af)
+    #     S = np.dot(M, Psi_f)
+    #
+    #     # Matrix to invert
+    #     C = (m - 1) * Cdd + np.dot(S, S.T)
+    #     Cinv = linalg.inv(C)
+    #
+    #     X = np.dot(S.T, np.dot(Cinv, (D - Y)))
+    #
+    #     Aa2 = Af + np.dot(Af, X)
+    #
+    #     print(np.linalg.norm(Aa-Aa2))
+
 
     J = np.array([None] * 4)
     if np.isreal(Aa).all():

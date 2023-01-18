@@ -44,45 +44,48 @@ def Cheb(Nc, lims=[0, 1], getg=False):  # ______________________________________
         return D
 
 
-def createObservations(classParams=None, t_max=8.):
+def createObservations(classParams=None):
     if type(classParams) is dict:
         TA_params = classParams.copy()
-        classType = classParams['model']
+        classType = TA_params['model']
+        if 't_max' in TA_params.keys():
+            t_max = TA_params['t_max']
+        else:
+            t_max = 8.
     else:
         raise ValueError('classParams must be dict')
+
+    # Wave case: load .mat file ====================================
     if type(classType) is str:
         try:
             mat = sio.loadmat('data/Truth_wave.mat')
-            p_obs = mat['p_obs'].transpose()
-            t_obs = mat['t_obs'].transpose()
-            if len(np.shape(t_obs)) > 1:
-                t_obs = np.squeeze(t_obs, axis=-1)
-            if t_obs[-1] < t_max:
-                t_max = t_obs[-1]
-                print('Data too short. Redefine t_max = ', t_max)
-            elif t_obs[-1] > t_max:
-                # t_max = t_obs[-1]
-                idx = np.argmin(abs(t_obs - t_max))
-                t_obs = t_obs[:idx+1]
-                p_obs = p_obs[:idx + 1]
-                print('Data too long. Redefine t_max = ', t_max)
-
         except:
             raise ValueError('File ' + classType + ' not defined')
-        filename = 'Wave'
+        p_obs = mat['p_mic'].transpose()
+        t_obs = mat['t_mic'].transpose()
+        if len(np.shape(t_obs)) > 1:
+            t_obs = np.squeeze(t_obs, axis=-1)
 
-        return p_obs, t_obs, filename
+        if t_obs[-1] > t_max:
+            idx = np.argmin(abs(t_obs - t_max))
+            t_obs = t_obs[:idx + 1]
+            p_obs = p_obs[:idx + 1]
+            print('Data too long. Redefine t_max = ', t_max)
 
+        return p_obs, t_obs, 'Wave'
+
+    # ============================================================
     # Add key parameters to filename
     suffix = ''
-    key_save = TA_params.params + ['law']
+    key_save = classType.params + ['law']
     for key, val in TA_params.items():
         if key in key_save:
             if type(val) == str:
                 suffix += val + '_'
             else:
                 suffix += key + '{:.2e}'.format(val) + '_'
-    name = '/data/Truth_{}_{}tmax-{:.2}'.format(TA_params.name, suffix, t_max)
+
+    name = '/data/Truth_{}_{}tmax-{:.2}'.format(classType.name, suffix, t_max)
     name = os.path.join(os.getcwd() + name)
     # Load or create and save file
     if os.path.isfile(name):
@@ -90,7 +93,7 @@ def createObservations(classParams=None, t_max=8.):
         with open(name, 'rb') as f:
             case = pickle.load(f)
     else:
-        case = classParams(TA_params)
+        case = classType(TA_params)
         psi, t = case.timeIntegrate(Nt=int(t_max / case.dt))
         case.updateHistory(psi, t)
         with open(name, 'wb') as f:
@@ -99,6 +102,7 @@ def createObservations(classParams=None, t_max=8.):
     p_obs = case.getObservableHist()[0]
     if len(np.shape(p_obs)) > 2:
         p_obs = np.squeeze(p_obs, axis=2)
+
     return p_obs, case.hist_t, name.split('Truth_')[-1]
 
 
@@ -168,6 +172,7 @@ def plotHistory(ensemble, truth=None):  # ______________________________________
 def interpolate(t_y, y, t_eval, method='cubic', ax=0, bound=False):
     spline = interp1d(t_y, y, kind=method, axis=ax, copy=True, bounds_error=bound, fill_value=0)
     return spline(t_eval)
+
 
 def getEnvelope(timeseries_x, timeseries_y, rejectCloserThan=0):
     peaks, peak_properties = find_peaks(timeseries_y, distance=200)

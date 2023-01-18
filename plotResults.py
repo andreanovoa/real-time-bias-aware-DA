@@ -146,7 +146,10 @@ def post_process_single_SE_Zooms(filter_ens, truth, filename=None, figs_folder=N
             max_p = max(max_p, max(mean_p))
             min_p = min(min_p, min(mean_p))
 
-            params_ax.plot(t, mean_p, color=c[ii - len(filter_ens.psi0)], label='$\\' + p + '/\\' + p + superscript)
+            if p in ['C1', 'C2']:
+                params_ax.plot(t, mean_p, color=c[ii - len(filter_ens.psi0)], label='$' + p + '/' + p + superscript)
+            else:
+                params_ax.plot(t, mean_p, color=c[ii - len(filter_ens.psi0)], label='$\\' + p + '/\\' + p + superscript)
 
             params_ax.set(xlabel='$t$ [s]', xlim=x_lims)
             params_ax.fill_between(t, mean_p + std, mean_p - std, alpha=0.2, color=c[ii - len(filter_ens.psi0)])
@@ -196,7 +199,7 @@ def post_process_single(filter_ens, truth, parameters, filename=None):
     y_mean = np.mean(y_filter, -1)
     std = np.std(y_filter[:, 0, :], axis=1)
 
-    fig, ax = plt.subplots(3, 3, figsize=[20, 12], layout="tight")
+    fig, ax = plt.subplots(3, 3, figsize=[20, 12], layout="constrained")
     p_ax, zoomPre_ax, zoom_ax = ax[0, :]
     params_ax, bias_ax = ax[1, :2]
     RMS_ax, J_ax, dJ_ax = ax[2, :]
@@ -222,21 +225,26 @@ def post_process_single(filter_ens, truth, parameters, filename=None):
         b = filter_ens.bias.hist
         b /= norm
         t_b = filter_ens.bias.hist_t
-        y_unbiased = y_filter[::filter_ens.bias.upsample] + np.expand_dims(b, -1)
 
-        spline = interp1d(t_b, y_unbiased, kind='cubic', axis=0, copy=True, bounds_error=False, fill_value=0)
-        y_unbiased = spline(t)
+        if filter_ens.bias.name == 'ESN':
+            y_unbiased = y_filter[::filter_ens.bias.upsample] + np.expand_dims(b, -1)
+            spline = interp1d(t_b, y_unbiased, kind='cubic', axis=0, copy=True, bounds_error=False, fill_value=0)
+            y_unbiased = spline(t)
 
-        y_mean_u = np.mean(y_unbiased, -1)
+            y_mean_u = np.mean(y_unbiased, -1)
 
-        t_wash = filter_ens.bias.washout_t
-        wash = filter_ens.bias.washout_obs
-        wash /= norm
+            t_wash = filter_ens.bias.washout_t
+            wash = filter_ens.bias.washout_obs
+            wash /= norm
 
-        p_ax.plot(t_wash, wash[:, 0], '.', color='r')
-        zoomPre_ax.plot(t_wash, wash[:, 0], '.', color='r', markersize=10)
+            p_ax.plot(t_wash, wash[:, 0], '.', color='r')
+            zoomPre_ax.plot(t_wash, wash[:, 0], '.', color='r', markersize=10)
+            washidx = int(t_obs[0] / filter_ens.dt) - filter_ens.bias.N_wash * filter_ens.bias.upsample
+        else:
+            y_unbiased = y_filter + np.expand_dims(b, -1)
+            y_mean_u = np.mean(y_unbiased, -1)
+            washidx = int(t_obs[0] / filter_ens.dt)
 
-        washidx = int(t_obs[0] / filter_ens.dt) - filter_ens.bias.N_wash * filter_ens.bias.upsample
         p_ax.plot(t, y_mean_u[:, 0], '-', color=c, label='Unbiased filtered signal', linewidth=1.2)
         zoom_ax.plot(t, y_mean_u[:, 0], '-', color=c, label='Unbiased filtered signal', linewidth=1.5)
         zoomPre_ax.plot(t[washidx:], y_mean_u[washidx:, 0], '-', color=c, label='Unbiased filtered signal',
@@ -251,10 +259,9 @@ def post_process_single(filter_ens, truth, parameters, filename=None):
         # std = np.std(b[:, 0, :], axis=1)
         bias_ax.fill_between(t, b_mean[:, 0] + std, b_mean[:, 0] - std, alpha=0.5, color='darkorchid')
 
-        y_lims = [min(b_mean[:, 0]) - np.mean(std), (max(b_mean[:, 0]) + max(std))]
-
+        # y_lims = [min(b_mean[:, 0]) - np.mean(std), (max(b_mean[:, 0]) + max(std))]
         bias_ax.legend()
-        bias_ax.set(ylabel='Bias', xlabel='$t$', xlim=x_lims, ylim=y_lims)
+        bias_ax.set(ylabel='Bias', xlabel='$t$')
 
     c = 'lightseagreen'  # '#021bf9'
     p_ax.plot(t, y_mean[:, 0], '--', color=c, label='Biased filtered signal', linewidth=1.)
@@ -303,8 +310,10 @@ def post_process_single(filter_ens, truth, parameters, filename=None):
 
             max_p = max(max_p, max(mean_p))
             min_p = min(min_p, min(mean_p))
-
-            params_ax.plot(t, mean_p, color=c[ii - len(filter_ens.psi0)], label='$\\' + p + '/\\' + p + superscript)
+            if p in ['C1', 'C2']:
+                params_ax.plot(t, mean_p, color=c[ii - len(filter_ens.psi0)], label='$' + p + '/' + p + superscript)
+            else:
+                params_ax.plot(t, mean_p, color=c[ii - len(filter_ens.psi0)], label='$\\' + p + '/\\' + p + superscript)
 
             params_ax.set(xlabel='$t$', xlim=x_lims)
             params_ax.fill_between(t, mean_p + std, mean_p - std, alpha=0.2, color=c[ii - len(filter_ens.psi0)])
@@ -336,8 +345,8 @@ def post_process_single(filter_ens, truth, parameters, filename=None):
     if filename is not None:
         plt.savefig(filename + '.svg', dpi=350)
         plt.savefig(filename + '.pdf', dpi=350)
-    else:
-        plt.show()
+    # else:
+    #     plt.show()
 
 
 # ==================================================================================================================
@@ -359,11 +368,13 @@ def post_process_multiple(folder, filename=None):
     axCRP = subfigs[0].subplots(1, 3)
     mean_ax = subfigs[1].subplots(1, 2)
     for file in files:
-        if file[-3:] == '.py' or file[-4] == '.':
+        # if file[-3:] == '.py' or file[-4] == '.':
+        #     continue
+        if file.find('_k') == -1:
             continue
         k = float(file.split('_k')[-1])
-        # if k > 20: # uncomment these lines to avoid ploting values over 20
-        #     continue
+        if k > 10: # uncomment these lines to avoid ploting values over 20
+            continue
         with open(folder + file, 'rb') as f:
             parameters = pickle.load(f)
             truth = pickle.load(f)
@@ -384,9 +395,16 @@ def post_process_multiple(folder, filename=None):
         b_ESN = interpolate(t_b, b, t_filter)
 
         # Ubiased signal error
-        y_unbiased = y_filter[::filter_ens.bias.upsample] + np.expand_dims(b, -1)
-        y_unbiased = interpolate(t_b, y_unbiased, t_filter)
+
+
+        if filter_ens.bias.name == 'ESN':
+            y_unbiased = y_filter[::filter_ens.bias.upsample] + np.expand_dims(b, -1)
+            y_unbiased = interpolate(t_b, y_unbiased, t_filter)
+        else:
+            y_unbiased = y_filter + np.expand_dims(b, -1)
+
         b_obs_u = y_truth - np.mean(y_unbiased, -1)
+
 
         # compute mean error, time averaged over a kinterval
         bias, bias_esn, esn_err = [], [], []
@@ -439,7 +457,7 @@ def post_process_multiple(folder, filename=None):
             if flag:
                 N_psi = len(filter_ens.psi0)
                 # c = ['tab:orange', 'navy', 'darkcyan', 'cyan']
-                c = ['g', 'mediumpurple', 'sandybrown']
+                c = ['g', 'mediumpurple', 'sandybrown', 'r']
                 # c = ['navy', 'chocolate', 'mediumturquoise', 'lightseagreen', 'cyan']
                 marker = ['x', '+']
                 time = ['$(t_\mathrm{end})$', '$(t_\mathrm{start})$']
@@ -449,9 +467,14 @@ def post_process_multiple(folder, filename=None):
             for jj, p in enumerate(filter_ens.est_p):
                 for kk, idx in enumerate([istop, istart]):
                     hist_p = filter_ens.hist[idx - 1, N_psi + jj] / reference_p[p]
-                    axCRP[2].errorbar(k, np.mean(hist_p).squeeze(), yerr=np.std(hist_p), alpha=alphas[kk],
-                                      fmt=marker[kk], color=c[jj], label='$\\' + p + '/\\' + p + superscript + time[kk],
-                                      capsize=ms, markersize=ms)
+                    if p in ['C1', 'C2']:
+                        axCRP[2].errorbar(k, np.mean(hist_p).squeeze(), yerr=np.std(hist_p), alpha=alphas[kk],
+                                          fmt=marker[kk], color=c[jj], label='$'+p+'/'+ p + superscript + time[kk],
+                                          capsize=ms, markersize=ms)
+                    else:
+                        axCRP[2].errorbar(k, np.mean(hist_p).squeeze(), yerr=np.std(hist_p), alpha=alphas[kk],
+                                          fmt=marker[kk], color=c[jj], label='$\\'+p+'/\\' + p + superscript + time[kk],
+                                          capsize=ms, markersize=ms)
 
                     # axCRP[2].plot([min(ks)-1, max(ks)+1],
                     #               [truth['true_params'][p]/ reference_p[p], truth['true_params'][p]/ reference_p[p]],
@@ -511,8 +534,8 @@ def post_process_multiple(folder, filename=None):
     if filename is not None:
         plt.savefig(filename + '.svg', dpi=350)
         plt.savefig(filename + '.pdf', dpi=350)
-    else:
-        plt.show()
+    # else:
+    #     plt.show()
 
 
 # ==================================================================================================================
@@ -649,7 +672,7 @@ def barPlot(k0_U, k0_B, k10_U, k10_B, Ct, Rt, Cpre, Rpre, figs_folder):
     plt.savefig(figs_folder + 'WhyAugment.svg', dpi=350)
     plt.savefig(figs_folder + 'WhyAugment.pdf', dpi=350)
 
-    plt.show()
+    # plt.show()
 
 
 if __name__ == '__main__':

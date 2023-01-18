@@ -11,9 +11,8 @@ plt.rc('text', usetex=True)
 plt.rc('font', family='serif', size=16)
 plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 
-rng = np.random.default_rng(0)
 
-
+rng = np.random.default_rng(6)
 def main(filter_ens, truth, filter_p,
          results_folder="results/", figs_folder='results/figs/', save_=False):
     # Create parent directory
@@ -33,6 +32,7 @@ def main(filter_ens, truth, filter_p,
         if filter_ens.bias is not None:
             y = filter_ens.getObservableHist(Nt_extra)[0]
             b, t_b = filter_ens.bias.timeIntegrate(t=t, y=y)
+            print(y.shape, b.shape)
             filter_ens.bias.updateHistory(b, t_b)
     filter_ens.close()
 
@@ -54,66 +54,98 @@ def main(filter_ens, truth, filter_p,
 
 
 # ====================================================================================================
-def createEnsemble(true_p, forecast_p, filter_p, bias_p, folder="results"):
+def createEnsemble(true_p, forecast_p, filter_p, bias_p, folder="results", folderESN=None):
     filename = 'reference_Ensemble'
-    if not os.path.isfile(folder + filename):
+    if not os.path.isdir(folder + 'figs/'):
+        os.makedirs(folder + 'figs/')
+        print('created dir', folder + 'figs/')
 
-        if not os.path.isdir(folder + 'figs/'):
-            os.makedirs(folder + 'figs/')
-            print('created dir', folder + 'figs/')
-        # %% =====================================  CREATE OBSERVATIONS ===================================== #
-        y_true, t_true, name_truth = createObservations(true_p, t_max=5.)
+    if folderESN is None:
+        folderESN = folder.copy()
 
-        if 'manual_bias' in true_p.keys() and true_p['manual_bias']:
-            b_true = np.cos(y_true)
-            y_true += b_true
-            name_truth += '_+cosy'
-        else:
-            b_true = np.zeros(1)
-
-
-        t_start = filter_p['t_start']
-        t_stop = filter_p['t_stop']
-        dt_true = t_true[1] - t_true[0]
-
-        obs_idx = np.arange(round(t_start / dt_true), round(t_stop / dt_true) + 1, filter_p['kmeas'])
-        t_obs = t_true[obs_idx]
-        obs = y_true[obs_idx]
-
-        truth = dict(y=y_true, t=t_true, name=name_truth, t_obs=t_obs, p_obs=obs, b_true=b_true,
-                     true_params=true_p, model=true_p['model'])
-        # %% =====================================  DEFINE BIAS ======================================== #
-        forecast_model = forecast_p['model']
-        if filter_p['biasType'] is not None:
-            if filter_p['biasType'].name == 'ESN':
-                b_args = (filter_p, forecast_model, y_true, t_true, t_obs, name_truth, folder)
-                if 'L' in bias_p.keys():
-                    filter_p['Bdict'] = createESNbias(*b_args, L=bias_p['L'], bias_param=bias_p)
-                else:
-                    filter_p['Bdict'] = createESNbias(*b_args, bias_param=bias_p)
-            else:
-                raise ValueError('Bias model not defined')
-        else:
-            b_args = 'None'
-        # ===========================================  INITIALISE ENSEMBLE  ========================================== #
-        ensemble = forecast_model(forecast_p, filter_p)
-        with open(folder + filename, 'wb') as f:
-            pickle.dump(ensemble, f)
-            pickle.dump(truth, f)
-            pickle.dump(b_args, f)
-    else:
+    if os.path.isfile(folder + filename):
         with open(folder + filename, 'rb') as f:
             ensemble = pickle.load(f)
             truth = pickle.load(f)
             b_args = pickle.load(f)
 
-        t_start = filter_p['t_start']
-        t_stop = filter_p['t_stop']
-        if t_start != truth['t_obs'][0] or t_stop != truth['t_obs'][-1]:
-            dt_true = truth['t'][1] - truth['t'][0]
-            obs_idx = np.arange(round(t_start / dt_true), round(t_stop / dt_true) + 1, filter_p['kmeas'])
-            truth['t_obs'] = truth['t'][obs_idx]
-            truth['p_obs'] = truth['y'][obs_idx]
+        reinit = False
+        for key, val in filter_p.items():
+            if hasattr(ensemble, key):
+                if getattr(ensemble, key) != val:
+                    reinit = True
+                    print('Re-initialise ensemble as ensemble {}={} != {}'.format(key, getattr(ensemble, key), val))
+                    break
+
+        if not reinit:
+            if truth['t_obs'][0] != filter_p['t_start'] or truth['t_obs'][-1] != filter_p['t_stop']:
+                print('reset window')
+                # reset assimilation window
+                t_true, y_true = truth['t'], truth['y']
+                dt_t = t_true[1] - t_true[0]
+                obs_idx = np.arange(round(filter_p['t_start'] / dt_t),
+                                    round(filter_p['t_stop'] / dt_t) + 1, filter_p['kmeas'])
+                truth['t_obs'] = t_true[obs_idx]
+
+                q = np.shape(y_true)[1]
+                Cdd = np.eye(q) * true_p['std_obs'] ** 2
+
+                # add_noise
+                truth['p_obs'] = y_true[obs_idx] * (1. + rng.multivariate_normal(np.zeros(q), Cdd, len(obs_idx)))
+            return ensemble, truth, b_args
+
+    # %% =====================================  CREATE OBSERVATIONS ===================================== #
+    y_true, t_true, name_truth = createObservations(true_p)
+
+    if 'manual_bias' in true_p.keys() and true_p['manual_bias']:
+        b_true = np.cos(y_true)
+        y_true += b_true
+        name_truth += '_+cosy'
+    else:
+        b_true = np.zeros(1)
+
+    dt_t = t_true[1] - t_true[0]
+    obs_idx = np.arange(round(filter_p['t_start'] / dt_t), round(filter_p['t_stop'] / dt_t) + 1, filter_p['kmeas'])
+    t_obs = t_true[obs_idx]
+
+    q = np.shape(y_true)[1]
+    Cdd = np.eye(q) * true_p['std_obs']**2
+    # obs = rng.multivariate_normal(y_true[obs_idx], Cdd)
+
+    # add_noise = rng.normal(0, true_p['std_obs'])
+    print(Cdd)
+    print(np.max(rng.multivariate_normal(np.zeros(np.shape(y_true)[1]), Cdd)[0]) * np.max(y_true[obs_idx],0))
+    obs = y_true[obs_idx] * (1. + rng.multivariate_normal(np.zeros(q), Cdd, len(obs_idx)))
+
+    truth = dict(y=y_true, t=t_true, name=name_truth, t_obs=t_obs, p_obs=obs, b_true=b_true,
+                 true_params=true_p, model=true_p['model'])
+
+    # %% =====================================  DEFINE BIAS ======================================== #
+    forecast_model = forecast_p['model']
+    if filter_p['biasType'].name != 'None':
+        if filter_p['biasType'].name == 'ESN':
+            b_args = (filter_p, forecast_model, y_true, t_true, t_obs, name_truth, folderESN)
+            if 'L' in bias_p.keys():
+                filter_p['Bdict'] = createESNbias(*b_args, L=bias_p['L'], bias_param=bias_p)
+            else:
+                filter_p['Bdict'] = createESNbias(*b_args, bias_param=bias_p)
+        else:
+            raise ValueError('Bias model not defined')
+    else:
+        b_args = 'None'
+    # ===========================================  INITIALISE ENSEMBLE  ========================================== #
+    ensemble = forecast_model(forecast_p, filter_p)
+    with open(folder + filename, 'wb') as f:
+        pickle.dump(ensemble, f)
+        pickle.dump(truth, f)
+        pickle.dump(b_args, f)
+
+
+    if filter_p['t_start'] != truth['t_obs'][0] or filter_p['t_stop'] != truth['t_obs'][-1]:
+        dt_t = truth['t'][1] - truth['t'][0]
+        obs_idx = np.arange(round(filter_p['t_start'] / dt_t), round(filter_p['t_stop'] / dt_t) + 1, filter_p['kmeas'])
+        truth['t_obs'] = truth['t'][obs_idx]
+        truth['p_obs'] = truth['y'][obs_idx]
 
     return ensemble, truth, b_args
 
@@ -130,6 +162,7 @@ def createESNbias(filter_p, model, y_true, t_true, t_obs, name_truth, folder, bi
         name_train += '_{}{}'.format(k, v)
     name_train += '_std{:.2}_m{}_{}'.format(ref_ens.std_a, ref_ens.m, ref_ens.alpha_distr)
     # Load or create refeence ensemble (multi-parameter solution)
+    print(name_train)
     if os.path.isfile(name_train):
         print('Loading Reference solution(s)')
         with open(name_train, 'rb') as f:
@@ -143,12 +176,17 @@ def createESNbias(filter_p, model, y_true, t_true, t_obs, name_truth, folder, bi
             pickle.dump(ref_ens, f)
 
     y_ref, lbl = ref_ens.getObservableHist()
-    biasData = np.expand_dims(y_true, -1) - y_ref  # [Nt x Nmic x Ntrain]
-    biasData = np.append(biasData, ref_ens.hist[:, -len(ref_ens.est_p):], axis=1)
+    biasData = np.expand_dims(y_true, -1) - y_ref  # [Nt x Nmic x L]
+    # biasData = np.append(biasData, ref_ens.hist[:, -len(ref_ens.est_p):], axis=1)
+
     # provide data for washout before first observation
     i1 = int(np.where(t_true == t_obs[0])[0]) - filter_p['kmeas']
     dt_true = t_true[1] - t_true[0]
     i0 = i1 - int(0.1 / dt_true)
+
+    # plt.figure()
+    # plt.plot(ref_ens.hist_t, biasData[:,:,0])
+    # plt.show()
 
     # create bias dictionary
     bias_p['trainData'] = biasData[int(1. / dt_true):]  # remove transient - steady state solution
@@ -178,7 +216,7 @@ def createESNbias(filter_p, model, y_true, t_true, t_obs, name_truth, folder, bi
         x0, x1 = ax1.get_xlim()
         y0, y1 = ax1.get_ylim()
         ax1.set_aspect(l * (x1 - x0) / (y1 - y0))
-    plt.savefig(folder + 'figs/L{}_training_data.svg'.format(train_params['m']), dpi=350)
+    plt.savefig(folder + 'L{}_training_data.svg'.format(train_params['m']), dpi=350)
     # plt.show()
     plt.close()
 

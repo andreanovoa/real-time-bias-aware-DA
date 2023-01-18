@@ -18,7 +18,7 @@ plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 
 
 def one_dim_sweep(model, model_params: dict, sweep_p: str, range_p: list, plot=False):
-    data_folder = 'data/' + model.name + '/'
+    data_folder = 'data/' + model.name + '_avgproperties/'
     if not os.path.isdir(data_folder):
         os.makedirs(data_folder)
 
@@ -37,6 +37,7 @@ def one_dim_sweep(model, model_params: dict, sweep_p: str, range_p: list, plot=F
             case_p.updateHistory(psi_i, tt)
             with open(filename, 'wb') as f:
                 pickle.dump(case_p, f)
+
 
         # psi_i, tt = case_p.timeIntegrate(Nt=int(2. / case_p.dt))
         # case_p.updateHistory(psi_i, tt)
@@ -122,27 +123,25 @@ if __name__ == '__main__':
     # ----------------------------- Select working model ----------------------------- #
     TAmodel = TAModels.Rijke
     TAdict = dict(law='sqrt',
-                  beta=0.4,
+                  beta=3.6,
                   tau=2.E-3,
-                  C1=0.05,
+                  C1=0.06,
                   C2=0.01,
                   xf=0.2,
                   L=1.
                   )
     # ------------------------------- Plot 1D diagram ------------------------------- #
-    param = 'tau'  # desired parameter to sweep
-    # range_param = np.linspace(6, 26, 41) * 1E-4
-    range_param = np.linspace(69, 90, 43) * 1E-4
-    # range_param = [0.0044, 0.0048]
+    # param = 'tau'  # desired parameter to sweep
+    # range_param = np.linspace(0.1, 1., 11) * 1E-3
 
-    # param = 'beta'  # desired parameter to sweep
-    # # range_param = np.linspace(0, 10, 101)[1:] * 1E5
-    # # range_param = np.linspace(0, 60, 61)[1:] * 1E5
-    # range_param = np.linspace(0, .5, 21)
+    param = 'beta'  # desired parameter to sweep
+    # range_param = np.linspace(0, 10, 101)[1:] * 1E5
+    # range_param = np.linspace(0, 60, 61)[1:] * 1E5
+    range_param = np.linspace(0, 3.5, 15)
 
 
     # param = 'C1'  # desired parameter to sweep
-    # range_param = np.linspace(0.01, 1, 10)
+    # range_param = np.linspace(0.005, 0.1, 39)
 
     og_cases = one_dim_sweep(TAmodel, TAdict, param, range_param, plot=True)[0]
 
