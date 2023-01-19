@@ -58,14 +58,21 @@ class Model:
         self.hist_t = np.array([self.t])
         self.hist_J = []
 
-
     def copy(self):
         return deepcopy(self)
 
+    def getObservableHist(self, Nt=0):
+        return self.getObservables(Nt)
+
+    def printModelParameters(self):
+        print('\n ------------------ {} Model Parameters ------------------ '.format(self.name))
+        for k in self.attr_child.keys():
+            print('\t {} = {}'.format(k, getattr(self, k)))
+
+    # --------------------- DEFINE OBS-STATE MAP --------------------- ##
     @property
     def M(self):
         if not hasattr(self, '_M'):
-            # --------------------- DEFINE OBS-STATE MAP --------------------- ##
             obs = self.getObservables()
             Nq = np.shape(obs)[0]
             # if ensemble.est_b:
@@ -132,7 +139,6 @@ class Model:
                 self.N += self.Na
                 self.psi = np.append(self.psi, np.array([getattr(self, pp) for pp in self.est_p]))
 
-
         # ------------------------ INITIALISE BIAS ------------------------ ##
         if 'Bdict' not in DAdict.keys():
             DAdict['Bdict'] = {}
@@ -180,13 +186,11 @@ class Model:
         # SOLVE IVP ========================================
         out = solve_ivp(fun, t_span=(t[0], t[-1]), y0=y0, t_eval=t, method='RK45', args=(params, alpha))
         psi = out.y.T
-
         # ODEINT =========================================== THIS WORKS AS IF HARD CODED
         # psi = odeint(fun, y0, t_interp, (params,))
-
+        #
         # HARD CODED RUGGE KUTTA 4TH ========================
         # psi = RK4(t_interp, y0, fun, params)
-
         return psi
 
     def getAlpha(self, psi=None):
@@ -219,48 +223,93 @@ class Model:
 
         if not self.ensemble:
             psi = [Model.forecast(self.psi[:, 0], self.timeDerivative, t, params=self_dict, alpha=self.alpha0)]
-            psi = np.array(psi)
-            psi = psi.transpose(1, 2, 0)
+            psi = np.array(psi).transpose(1, 2, 0)
             return psi[1:], t[1:]
 
         if not averaged:
             alpha = self.getAlpha()
-            # # # OPTION 1b: Process and Queue ------------------------------------
-            # self.processes = []
-            # time1 = time.time()
-            # self.runProcesses(fun=self.timeDerivative, t=t, params=self_dict, alpha=alpha)
-            # # Get results. Ensure sorted queue and return values only
-            # results = [self.queueOUT.get() for _ in self.processes]
-            # results.sort(key=lambda x: x[0])
-            # psi = [r[-1] for r in results]
-            # # print('\n 1 Processes and Queues 2: ' + str(time.time() - time1) + ' s')
-
-            # # OPTION 2: with Pool as p ----------------------------------------------
-            # time1 = time.time()
             fun_part = partial(Model.forecast, fun=self.timeDerivative, t=t, params=self_dict)
             sol = [self.pool.apply_async(fun_part, kwds={'y0': self.psi[:, mi].T, 'alpha': alpha[mi]})
                    for mi in range(self.m)]
             psi = [s.get() for s in sol]
-            # # print('2 with pool: ' + str(time.time() - time1) + ' s')
         else:
             psi_mean = np.mean(self.psi, 1, keepdims=True)
             psi_std = (self.psi - psi_mean) / psi_mean
             if alpha is None:
                 alpha = self.getAlpha(psi_mean)[0]
             psi_mean = Model.forecast(y0=psi_mean[:, 0], fun=self.timeDerivative, t=t, params=self_dict, alpha=alpha)
-            psi = []
-            for ii in range(self.m):
-                psi.append(psi_mean * (1 + psi_std[:, ii]))
+            psi = [psi_mean * (1 + psi_std[:, ii]) for ii in range(self.m)]
 
         # Rearrange dimensions to be Nt x N x m and remove initial condition
-        psi = np.array(psi)
-        psi = psi.transpose(1, 2, 0)
+        psi = np.array(psi).transpose(1, 2, 0)
         return psi[1:], t[1:]
 
-    def printModelParameters(self):
-        print('\n ------------------ {} Model Parameters ------------------ '.format(self.name))
-        for k in self.attr_child.keys():
-            print('\t {} = {}'.format(k, getattr(self, k)))
+
+
+# %% =================================== VAN DER POL MODEL ============================================== %% #
+class VdP(Model):
+    """ Van der Pol Oscillator Class
+        - cubic heat release law
+        - atan heat release law
+            Note: gamma appears only in the higher order polynomial which is currently commented out
+    """
+
+    name: str = 'VdP'
+    attr_child: dict = dict(omega=2 * np.pi * 120., law='tan',
+                            zeta=60., beta=70., kappa=3.4, gamma=1.7)  # beta, zeta [rad/s]
+    params: list = ['omega', 'zeta', 'kappa', 'beta']  # ,'omega', 'gamma']
+
+    # __________________________ Init method ___________________________ #
+    def __init__(self, TAdict=None, DAdict=None):
+        if TAdict is None:
+            TAdict = {}
+
+        super().__init__(TAdict)
+
+        if 'psi0' not in TAdict.keys():
+            self.psi0 = [0.1, 0.1]  # initialise eta and mu
+            self.resetInitialConditions()
+
+        # initialise model history
+        if DAdict is not None:
+            self.initEnsemble(DAdict)
+
+        # set limits for the parameters
+        self.param_lims = dict(omega=(0, None), zeta=(20, 120), kappa=(0.1, 10.),
+                               gamma=(None, None), beta=(20, 120))
+
+    # _______________ VdP specific properties and methods ________________ #
+    @property
+    def obsLabels(self):
+        return "$\\eta$"
+
+    def getObservables(self, Nt=1):
+        if Nt == 1: # required to reduce from 3 to 2 dimensions
+            return self.hist[-1, [0], :]
+        else:
+            return self.hist[-Nt:, [0], :]
+
+    # _________________________ Governing equations ________________________ #
+    def govEqnDict(self):
+        d = dict(law=self.law,
+                 N=self.N,
+                 Na=self.Na
+                 )
+        if d['Na'] > 0:
+            d['est_p'] = self.est_p
+        return d
+
+    @staticmethod
+    def timeDerivative(t, psi, P, A):
+        eta, mu = psi[:2]
+        dmu_dt = - A['omega'] ** 2 * eta + mu * (A['beta'] - A['zeta'])
+        # Add nonlinear term
+        if P['law'] == 'cubic':  # Cubic law
+            dmu_dt -= mu * A['kappa'] * eta ** 2
+        elif P['law'] == 'tan':  # arc tan model
+            dmu_dt -= mu * (A['kappa'] * eta ** 2) / (1. + A['kappa'] / A['beta'] * eta ** 2)
+
+        return (mu, dmu_dt) + (0,) * P['Na']
 
 
 # %% ==================================== RIJKE TUBE MODEL ============================================== %% #
@@ -273,16 +322,16 @@ class Rijke(Model):
                 > Nc [50] - Number of Chebyshev modes
                 > beta [0.4] - Heat source strength [-]
                 > tau [2E-3] - Time delay [s]
-                > C1 [.1] - First damping constant [?]
-                > C2 [.06] - Second damping constant [?]
+                > C1 [.1] - First damping constant [-]
+                > C2 [.06] - Second damping constant [-]
                 > xf- Flame location [m]
                 > L - Tube length [m]
     """
 
     name: str = 'Rijke'
     attr_child: dict = dict(Nm=10, Nc=10, Nmic=6,
-                      beta=0.6, tau=2.E-3, C1=.05, C2=.01, kappa=1E5,
-                      xf=0.2, L=1., law='sqrt')
+                            beta=0.6, tau=2.E-3, C1=.05, C2=.01, kappa=1E5,
+                            xf=0.2, L=1., law='sqrt')
     params: list = ['beta', 'tau', 'C1', 'C2', 'kappa']
 
     def __init__(self, TAdict=None, DAdict=None):
@@ -304,18 +353,18 @@ class Rijke(Model):
 
         assert self.N == self.Nc + 2 * self.Nm
 
-        self.param_lims = dict(beta=(0, 3.5),
+        self.param_lims = dict(beta=(0.2, 5),
                                tau=(1E-6, self.tau_adv),
-                               C1=(1E-4, .5),
+                               C1=(1E-3, .5),
                                C2=(0.0, 0.5),
                                kappa=(1E3, 1E8)
                                )
         # ------------------------------------------------------------------------------------- #
         # Chebyshev modes
         self.Dc, self.gc = Cheb(self.Nc, getg=True)
+
         # Microphone locations
         self.x_mic = np.linspace(self.xf, self.L, self.Nmic + 1)[:-1]
-        print('mics = ', self.x_mic)
 
         # Define modes frequency of each mode and sin cos etc
         self.j = np.arange(1, self.Nm + 1)
@@ -336,8 +385,6 @@ class Rijke(Model):
         self.meanFlow['rho'] = self.meanFlow['p'] / (self.meanFlow['R'] * self.meanFlow['T'])
         self.meanFlow['c'] = np.sqrt(self.meanFlow['gamma'] * self.meanFlow['R'] * self.meanFlow['T'])
 
-        print(self.meanFlow)
-
         # Wave parameters ############################################################################################
         # c1: 347.2492    p1: 1.0131e+05      rho1: 1.1762    u1: 10          M1: 0.0288          T1: 300
         # c2: 423.6479    p2: 101300          rho2: 0.7902    u2: 11.1643     M2: 0.0264          T2: 446.5282
@@ -349,61 +396,40 @@ class Rijke(Model):
         if DAdict is not None:
             self.initEnsemble(DAdict)
 
-        self.printModelParameters()
-
     # _______________ Rijke specific properties and methods ________________ #
-    @property
-    def eta(self):
-        return self.hist[:, 0:self.Nm, :]
 
     @property
-    def mu(self):
-        return self.hist[:, self.Nm:2 * self.Nm, :]
-
-    @property
-    def v(self):
-        return self.hist[:, 2 * self.Nm:2 * self.Nm + self.Nc, :]
-
-    def getObservableHist(self, Nt=0, loc=None, velocity=False):
-
-        if np.shape(self.hist)[0] == 1:
-            raise Exception('Object has no history')
+    def obsLabels(self, loc=None, velocity=False):
+        if loc is None:
+            loc = np.expand_dims(self.x_mic, axis=1)
+        if not velocity:
+            return ["$p'(x = {:.2f})$".format(x) for x in loc[:, 0].tolist()]
         else:
-            if loc is None:
-                loc = np.expand_dims(self.x_mic, axis=1)
-            # Define the labels
-            labels_p = ["$p'(x = {:.2f})$".format(x) for x in loc[:, 0].tolist()]
-            labels_u = ["$u'(x = {:.2f})$".format(x) for x in loc[:, 0].tolist()]
-            # Compute acoustic pressure and velocity at locations
-            om = np.array([self.jpiL])
-            # p = -np.dot(np.sin(np.dot(loc, om) / self.meanFlow['c']), self.mu)
-            p = -np.dot(np.sin(np.dot(loc, om)), self.mu)
+            return [["$p'(x = {:.2f})$".format(x) for x in loc[:, 0].tolist()],
+                    ["$u'(x = {:.2f})$".format(x) for x in loc[:, 0].tolist()]]
 
-            p = p.transpose(1, 0, 2)
-            if velocity:
-                # u = np.dot(np.cos(np.dot(loc, om) / self.meanFlow['c']), self.eta)
-                u = np.dot(np.cos(np.dot(loc, om)), self.eta)
-
-                u = u.transpose(1, 0, 2)
-                return [p[-Nt:], u[-Nt:]], [labels_p, labels_u]
-            else:
-                return p[-Nt:], labels_p
-
-    def getObservables(self, velocity=False):
-        # Compute acoustic pressure and velocity at microphone locations
+    def getObservables(self, Nt=1, loc=None, velocity=False):
+        if loc is None:
+            loc = np.expand_dims(self.x_mic, axis=1)
         om = np.array([self.jpiL])
-        eta = self.psi[:self.Nm]
-        mu = self.psi[self.Nm:2 * self.Nm]
 
-        x_mic = np.expand_dims(self.x_mic, axis=1)
-        # p = -np.dot(np.sin(np.dot(x_mic, om) / self.meanFlow['c']), mu)
-        p = -np.dot(np.sin(np.dot(x_mic, om)), mu)
+        eta = self.hist[-Nt:, :self.Nm, :]
+        mu = self.hist[-Nt:, self.Nm:2 * self.Nm, :]
+
+        # Compute acoustic pressure and velocity at locations
+        p_mic = -np.dot(np.sin(np.dot(loc, om)), mu)
+        p_mic = p_mic.transpose(1, 0, 2)
+        if Nt == 1:
+            p_mic = p_mic[0]
+
         if velocity:
-            # u = np.dot(np.cos(np.dot(x_mic, om) / self.meanFlow['c']), eta)
-            u = np.dot(np.cos(np.dot(x_mic, om)), eta)
-            return np.concatenate((p, u))
+            u_mic = np.dot(np.cos(np.dot(loc, om)), eta)
+            u_mic = u_mic.transpose(1, 0, 2)
+            if Nt == 1:
+                u_mic = u_mic[0]
+            return [p_mic, u_mic]
         else:
-            return p
+            return p_mic
 
     # _________________________ Governing equations ________________________ #
     def govEqnDict(self):
@@ -439,19 +465,15 @@ class Rijke(Model):
                 concatenation of the state vector time derivative
         """
 
-        if len(psi.shape) == 0:
-            psi = t  # I  needed this when testing odeint or solve_ivp as they are defined in a different way
-
         eta = psi[:P['Nm']]
         mu = psi[P['Nm']:2 * P['Nm']]
-        v = psi[2*P['Nm']:P['N']-P['Na']]
+        v = psi[2 * P['Nm']:P['N'] - P['Na']]
 
         # Advection equation boundary conditions
         v2 = np.hstack((np.dot(eta, P['cosomjxf']), v))
 
         # Evaluate u(t_interp-tau) i.e. velocity at the flame at t_interp - tau
         x_tau = A['tau'] / P['tau_adv']
-
         if x_tau < 1:
             f = splrep(P['gc'], v2)
             u_tau = splev(x_tau, f)
@@ -464,101 +486,21 @@ class Rijke(Model):
         zeta = A['C1'] * P['j'] ** 2  # + A['C2'] * P['j'] ** .5
 
         MF = P['meanFlow']  # Physical properties
-
         if P['law'] == 'sqrt':
-            # qdot = alpha['beta'] * (np.sqrt(abs(MF['u'] / 3. + u_tau)) - np.sqrt(MF['u'] / 3.))  # [W/m2]=[m/s3]
             qdot = MF['p'] * MF['u'] * A['beta'] * (
                         np.sqrt(abs(1. / 3 + u_tau / MF['u'])) - np.sqrt(1. / 3))  # [W/m2]=[m/s3]
         elif P['law'] == 'tan':
             qdot = A['beta'] * np.sqrt(A['beta'] / A['kappa']) * np.arctan(
                 np.sqrt(A['beta'] / A['kappa']) * u_tau)  # [m / s3]
-        else:
-            raise ValueError('Undefined heat law')
 
         qdot *= -2. * (MF['gamma'] - 1.) / P['L'] * P['sinomjxf']  # [Pa/s]
 
         # governing equations
-
         deta_dt = P['jpiL'] / MF['rho'] * mu
         dmu_dt = - P['jpiL'] * MF['gamma'] * MF['p'] * eta - MF['c'] / P['L'] * zeta * mu + qdot
         dv_dt = - 2. / P['tau_adv'] * np.dot(P['Dc'], v2)
 
         return np.concatenate((deta_dt, dmu_dt, dv_dt[1:], np.zeros(P['Na'])))
-
-
-# %% =================================== VAN DER POL MODEL ============================================== %% #
-class VdP(Model):
-    """ Van der Pol Oscillator Class
-        - cubic heat release law
-        - atan heat release law
-            Note: gamma appears only in the higher order polynomial which is currently commented out
-    """
-
-    name: str = 'VdP'
-    attr_child: dict = dict(omega=2 * np.pi * 120., law='tan',
-                      zeta=60., beta=70., kappa=3.4, gamma=1.7)  # beta, zeta [rad/s]
-    params: list = ['omega', 'zeta', 'kappa', 'beta']  # ,'omega', 'gamma']
-
-    # __________________________ Init method ___________________________ #
-    def __init__(self, TAdict=None, DAdict=None):
-        if TAdict is None:
-            TAdict = {}
-
-        super().__init__(TAdict)
-
-        if 'psi0' not in TAdict.keys():
-            self.psi0 = [0.1, 0.1]  # initialise eta and mu
-            self.resetInitialConditions()
-
-        # initialise model history
-
-        if DAdict is not None:
-            self.initEnsemble(DAdict)
-
-        # set limits for the parameters
-        self.param_lims = dict(omega=(0, None), zeta=(20, 120), kappa=(0.1, 10.),
-                               gamma=(None, None), beta=(20, 120))
-
-
-    # _______________ VdP specific properties and methods ________________ #
-
-    def getObservableHist(self, Nt=0):
-        if np.shape(self.hist)[0] == 1:
-            return None, "$\\eta$"
-        else:
-            return self.hist[-Nt:, [0], :], "$\\eta$"
-
-    def getObservables(self):
-        return np.expand_dims(self.psi[0, :], axis=0)
-
-    @property
-    def growth_rate(self, zeta, beta):
-        return .5 * (beta - zeta)
-
-    # _________________________ Governing equations ________________________ #
-    def govEqnDict(self):
-        d = dict(law=self.law,
-                 N=self.N,
-                 Na=self.Na
-                 )
-        if d['Na'] > 0:
-            d['est_p'] = self.est_p
-        return d
-
-    @staticmethod
-    def timeDerivative(t, psi, params, alpha):
-        eta, mu = psi[:2]
-        dmu_dt = - alpha['omega'] ** 2 * eta + mu * (alpha['beta'] - alpha['zeta'])
-        # Add nonlinear term
-        if params['law'] == 'cubic':  # Cubic law
-            dmu_dt -= mu * alpha['kappa'] * eta ** 2
-        elif params['law'] == 'tan':  # arc tan model
-            dmu_dt -= mu * (alpha['kappa'] * eta ** 2) / (1. + alpha['kappa'] / alpha['beta'] * eta ** 2)
-        else:
-            raise TypeError("Undefined heat release law. Choose 'cubic' or 'tan'.")
-            # dmu_dt  +=  mu * (2.*P['nu'] + P['kappa'] * eta**2 - P['gamma'] * eta**4) # higher order polinomial
-
-        return (mu, dmu_dt) + (0,) * params['Na']
 
 
 # %% =================================== VAN DER POL MODEL ============================================== %% #
@@ -575,6 +517,7 @@ class Lorenz63(Model):
 
         if TAdict is None:
             TAdict = {}
+
         super().__init__(TAdict)
 
         if 'psi0' not in TAdict.keys():
@@ -588,15 +531,15 @@ class Lorenz63(Model):
         self.param_lims = dict(rho=(None, None), beta=(None, None), sigma=(None, None))
 
     # _______________ VdP specific properties and methods ________________ #
+    @property
+    def obsLabels(self):
+        return "x"
 
-    def getObservableHist(self, Nt=0):
-        if np.shape(self.hist)[0] == 1:
-            return None, "x"
+    def getObservables(self, Nt=1):
+        if Nt == 1:
+            return self.hist[-1, [0], :]
         else:
-            return self.hist[-Nt:, [0], :], "x"
-
-    def getObservables(self):
-        return np.expand_dims(self.psi[0, :], axis=0)
+            return self.hist[-Nt:, [0], :]
 
     # _________________________ Governing equations ________________________ #
     def govEqnDict(self):
@@ -615,14 +558,15 @@ class Lorenz63(Model):
         return (dx1, dx2, dx3) + (0,) * params['Na']
 
 
+
 if __name__ == '__main__':
-    MyModel = Lorenz63
-    paramsTA = dict(law='tan', dt=2E-2)
+    MyModel = Rijke
+    paramsTA = dict(law='tan', dt=2E-4)
 
     t1 = time.time()
     # Non-ensemble case =============================
     case = MyModel(paramsTA)
-    state, t_ = case.timeIntegrate(int(40 / case.dt))
+    state, t_ = case.timeIntegrate(int(1 / case.dt))
     case.updateHistory(state, t_)
 
     print('Elapsed time = ', str(time.time() - t1))
@@ -634,21 +578,22 @@ if __name__ == '__main__':
     t_zoom = min([len(t_h) - 1, int(0.05 / case.dt)])
 
     # State evolution
-    y, lbl = case.getObservableHist()
+    y, lbl = case.getObservableHist(), case.obsLabels
     lbl = lbl[0]
     ax[0].plot(t_h, y[:, 0], color='green', label=lbl)
     i, j = [0, 1]
     ax[1].plot(t_h[-t_zoom:], y[-t_zoom:, 0], color='green')
-    # plt.show()
-    #
 
     # Ensemble case =============================
     paramsDA = dict(m=10, est_p=['beta'])
     case = MyModel(paramsTA, paramsDA)
 
     t1 = time.time()
-    for _ in range(5):
+    for _ in range(1):
         state, t_ = case.timeIntegrate(int(1. / case.dt))
+        case.updateHistory(state, t_)
+    for _ in range(5):
+        state, t_ = case.timeIntegrate(int(.1 / case.dt), averaged=True)
         case.updateHistory(state, t_)
 
     print('Elapsed time = ', str(time.time() - t1))
@@ -659,7 +604,7 @@ if __name__ == '__main__':
     _, ax = plt.subplots(1, 3, figsize=[15, 5])
     plt.suptitle('Ensemble case')
     # State evolution
-    y, lbl = case.getObservableHist()
+    y, lbl = case.getObservableHist(), case.obsLabels
     lbl = lbl[0]
     ax[0].plot(t_h, y[:, 0], color='blue', label=lbl)
     i, j = [0, 1]

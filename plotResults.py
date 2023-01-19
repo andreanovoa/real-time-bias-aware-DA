@@ -181,7 +181,7 @@ def post_process_single(filter_ens, truth, parameters, filename=None):
 
     # %% ================================ PLOT time series, parameters and RMS ================================ #
 
-    y_filter, labels = filter_ens.getObservableHist()
+    y_filter, labels = filter_ens.getObservableHist(), filter_ens.obsLabels
     if len(np.shape(y_filter)) < 3:
         y_filter = np.expand_dims(y_filter, axis=1)
     if len(np.shape(y_true)) < 3:
@@ -380,7 +380,7 @@ def post_process_multiple(folder, filename=None):
             truth = pickle.load(f)
             filter_ens = pickle.load(f)
         # Observable bias
-        y_filter, t_filter = filter_ens.getObservableHist()[0], filter_ens.hist_t
+        y_filter, t_filter = filter_ens.getObservableHist(), filter_ens.hist_t
         y_truth = truth['y'][:len(y_filter)]
         b_obs = y_truth - np.mean(y_filter, -1)
         if flag:
@@ -566,7 +566,7 @@ def fig2(folder, Ls, stds, figs_folder):
                     truth = pickle.load(f)
                     filter_ens = pickle.load(f)
                 # Observable bias
-                y_filter, t_filter = filter_ens.getObservableHist()[0], filter_ens.hist_t
+                y_filter, t_filter = filter_ens.getObservableHist(), filter_ens.hist_t
                 y_truth = truth['y'][:len(y_filter)]
                 b_obs = y_truth - np.mean(y_filter, -1)
                 if flag:

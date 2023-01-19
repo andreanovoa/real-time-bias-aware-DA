@@ -42,7 +42,7 @@ def one_dim_sweep(model, model_params: dict, sweep_p: str, range_p: list,  t_max
             psi_i, tt = case_p.timeIntegrate(Nt=int(t_max / case_p.dt))
             case_p.updateHistory(psi_i, tt)
 
-        obs, lbl = case_p.getObservableHist(int(10. / case_p.dt))
+        obs, lbl = case_p.getObservableHist(int(10. / case_p.dt)), case.obsLabels
         if len(obs.shape) > 2:
             obs, lbl = obs[:, 0], lbl[0]
         # store

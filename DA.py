@@ -23,7 +23,7 @@ def dataAssimilation(ensemble,
     dt = ensemble.dt
     ti = 0  # iterator
 
-    # ensemble.printModelParams()
+    ensemble.printModelParameters()
     print('\n -------------------- ASSIMILATION PARAMETERS -------------------- \n',
           '\t Filter = {0}  \n\t bias = {1} \n'.format(method, ensemble.bias.name),
           '\t m = {} \n'.format(ensemble.m),
@@ -141,7 +141,7 @@ def forecastStep(case, Nt, averaged=False, alpha=None):
     case.updateHistory(psi, t)
     # Forecast ensemble bias and update its history
     if case.bias is not None:
-        y = case.getObservableHist(Nt + 1)[0]
+        y = case.getObservableHist(Nt + 1)
         b, t_b = case.bias.timeIntegrate(t=t, y=y)
         case.bias.updateHistory(b, t_b)
     return case

@@ -30,7 +30,7 @@ def main(filter_ens, truth, filter_p,
         psi, t = filter_ens.timeIntegrate(Nt_extra, averaged=True)
         filter_ens.updateHistory(psi, t)
         if filter_ens.bias is not None:
-            y = filter_ens.getObservableHist(Nt_extra)[0]
+            y = filter_ens.getObservableHist(Nt_extra)
             b, t_b = filter_ens.bias.timeIntegrate(t=t, y=y)
             print(y.shape, b.shape)
             filter_ens.bias.updateHistory(b, t_b)
@@ -181,7 +181,7 @@ def createESNbias(filter_p, model, y_true, t_true, t_obs, name_truth, folder, bi
         with open(name_train, 'wb') as f:
             pickle.dump(ref_ens, f)
 
-    y_ref, lbl = ref_ens.getObservableHist()
+    y_ref, lbl = ref_ens.getObservableHist(), ref_ens.obsLabels
     biasData = np.expand_dims(y_true, -1) - y_ref  # [Nt x Nmic x L]
     # biasData = np.append(biasData, ref_ens.hist[:, -len(ref_ens.est_p):], axis=1)
 

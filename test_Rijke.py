@@ -4,7 +4,7 @@ from run import main, createESNbias, createEnsemble
 from plotResults import *
 
 # %% ========================== SELECT LOOP PARAMETERS ================================= #
-folder = 'results/Rijke_mod_Model/'
+folder = 'results/Rijke_mod_Model_2/'
 
 
 # %% ============================= SELECT TRUE AND FORECAST MODELS ================================= #
@@ -21,17 +21,17 @@ forecast_params = {'model': TAModels.Rijke,
 
 # ==================================== SELECT FILTER PARAMETERS =================================== #
 filter_params = {'filt': 'EnKFbias',  # 'EnKFbias' 'EnKF' 'EnSRKF'
-                 'm': 10,
+                 'm': 500,
                  'est_p': ['beta', 'C1', 'tau'],
                  'biasType': Bias.NoBias,  # Bias.ESN  # None
                  'std_a': 0.1,
                  'std_psi': 0.1,
                  # Define the observation timewindow
                  't_start': 2.0,  # ensure SS
-                 't_stop': 3.5,
+                 't_stop': 2.5,
                  'kmeas': 25,
                  # Inflation
-                 'inflation': 1.002
+                 'inflation': 1.001
                  }
 
 if filter_params['biasType'].name == 'ESN':
@@ -59,6 +59,7 @@ else:
 results_folder = folder #+ 'L{}_m{}/'.format(bias_params['L'], filter_params['m'])
 figs_folder = results_folder + 'figs/'
 
+
 if __name__ == '__main__':
     ensemble, truth, b_args = createEnsemble(true_params, forecast_params,
                                              filter_params, bias_params,
@@ -68,7 +69,7 @@ if __name__ == '__main__':
     # ================================================================================== #
 
     blank_ens = ensemble.copy()
-    ks = np.linspace(0, 10, 11)
+    ks = [0]#np.linspace(0, 10, 11)
     for k in ks:  # Reset gamma value
         filter_ens = blank_ens.copy()
         filter_ens.bias.k = k
