@@ -164,8 +164,8 @@ def createESNbias(filter_p, model, y_true, t_true, t_obs, name_truth, folder, bi
     # Compute reference bias. Create an ensemble of training data
     ref_ens = model(train_params, train_params)
     name_train = folder + 'Truth_{}_{}'.format(ref_ens.name, ref_ens.law)
-    for k, v in ref_ens.getParameters().items():
-        name_train += '_{}{}'.format(k, v)
+    for k in ref_ens.params:
+        name_train += '_{}{}'.format(k, getattr(ref_ens, k))
     name_train += '_std{:.2}_m{}_{}'.format(ref_ens.std_a, ref_ens.m, ref_ens.alpha_distr)
     # Load or create refeence ensemble (multi-parameter solution)
     print(name_train)

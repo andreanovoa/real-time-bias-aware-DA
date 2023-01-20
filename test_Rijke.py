@@ -9,7 +9,7 @@ folder = 'results/Rijke_mod_Model_2/'
 
 # %% ============================= SELECT TRUE AND FORECAST MODELS ================================= #
 true_params = {'model': 'wave',
-               't_max': 4.,
+               't_max': 5.,
                'std_obs': 0.05
                }
 
@@ -23,15 +23,15 @@ forecast_params = {'model': TAModels.Rijke,
 filter_params = {'filt': 'EnKFbias',  # 'EnKFbias' 'EnKF' 'EnSRKF'
                  'm': 500,
                  'est_p': ['beta', 'C1', 'tau'],
-                 'biasType': Bias.NoBias,  # Bias.ESN  # None
-                 'std_a': 0.1,
+                 'biasType': Bias.ESN,  # Bias.ESN  # None
+                 'std_a': 0.2,
                  'std_psi': 0.1,
-                 # Define the observation timewindow
+                 # Define the observation time-window
                  't_start': 2.0,  # ensure SS
-                 't_stop': 2.5,
+                 't_stop': 4.5,
                  'kmeas': 25,
                  # Inflation
-                 'inflation': 1.001
+                 'inflation': 1.002
                  }
 
 if filter_params['biasType'].name == 'ESN':
@@ -69,7 +69,7 @@ if __name__ == '__main__':
     # ================================================================================== #
 
     blank_ens = ensemble.copy()
-    ks = [0]#np.linspace(0, 10, 11)
+    ks = [10]#np.linspace(0, 10, 11)
     for k in ks:  # Reset gamma value
         filter_ens = blank_ens.copy()
         filter_ens.bias.k = k
