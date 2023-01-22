@@ -41,7 +41,6 @@ def dataAssimilation(ensemble,
         t1 = t_obs[ti] - (t_obs[-1] - t_obs[-2])
         Nt = int(np.round((t1 - ensemble.t) / dt))
         ensemble = forecastStep(ensemble, Nt, averaged=True, alpha=ensemble.alpha0)
-        # ensemble = forecastStep(ensemble, Nt, averaged=True)
 
     Nt = int(np.round((t_obs[ti] - ensemble.t) / dt))
     ensemble = forecastStep(ensemble, Nt, averaged=False)

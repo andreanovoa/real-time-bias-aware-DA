@@ -25,16 +25,10 @@ import time
 # % LOAD REQUIRED FUNCTIONS AND ENVIRONMENTS 
 exec(open("fns_training.py").read())
 
-
 ##  SET TRAINING PARAMETERS (from input dict) __________________________________________________
 try:
     data = trainData
-
-
     # np.save('data/test_results_bias', data, allow_pickle=True)
-    # plt.figure()
-    # plt.plot(data[:, 0])
-    # plt.show()
 except:
     filename = 'data/test_results_bias.npy'
     data = np.load(filename)
@@ -84,7 +78,16 @@ try:
 except:
     augment_data = True  # neurones in the reservoir
     print('Set default value for augment_data =', augment_data)
+try:
+    connect = connect  # average neuron connections
+except:
+    connect = 5  # average neuron connections
+    print('Set default value for connect =', connect)
 
+try:
+    noise_level = noise_level  # try increasing if blowing up
+except:
+    noise_level = 0.03  # try increasing if blowing up
 
 ESN_filename = filename[:-len('bias')] + 'ESN{}_augment{}.mat'.format(N_units, augment_data)
 
@@ -116,6 +119,10 @@ if not parametrise:
 #  ____________________________ APPLY UPSAMPLE - CONVERT INTO ESN dt ______________________________________
 dt_ESN = dt * upsample  # ESN time step
 data = data[:, ::upsample]
+
+plt.figure()
+plt.plot(data[0])
+plt.show()
 
 #  _____________________________________ DATA AUGMENTATION ___________________________________________________
 if augment_data:
@@ -150,7 +157,6 @@ Y_tv = U[:, N_wash + 1:N_wtv]
 # Add noise to inputs and targets during training. Larger noise_level promotes stability in long term,
 # but hinders time accuracy
 noisy = True
-noise_level = 0.03  # try increasing if blowing up
 U_std = np.std(U, axis=1)
 
 seed = 0
@@ -164,21 +170,30 @@ if noisy:  # input noise (it is not optimized)
 # ________________________________________ INITIALISE ESN HYPERPARAMETRES _________________________________________
 bias_in = np.array([.1])  # input bias
 bias_out = np.array([1.0])  # output bias
-connect = 5  # average neuron connections
 sparse = 1 - connect / (N_units - 1)
 
 # Range for hyperparametera (spectral radius and input scaling)
-rho_ = [.7, 1.05]
-sigin_ = [np.log10(1e-4), np.log10(0.5)]
-tikh = np.array([1e-10, 1e-12, 1e-16])  # Tikhonov
+try:
+    rho_ = rho_
+except:
+    rho_ = [.7, 1.05]
+try:
+    sigin_ = sigin_
+except:
+    sigin_ = [np.log10(1e-4), np.log10(0.5)]
+try:
+    tikh = np.array(tikh)  # Tikhonov
+except:
+    tikh = np.array([1e-10, 1e-12, 1e-16])  # Tikhonov
+
+
 
 # _________________________________ GRID SEARCH AND BAYESIAN OPTIMISATION PARAMS ____________________________________
-# _________________________________ GRID SEARCH AND BAYESIAN OPTIMISATION PARAMS ____________________________________
-n_tot = 20  # Total Number of Function Evaluations
+n_tot = 40  # Total Number of Function Evaluations
 n_in = 0  # Number of Initial random points
 
 # The first n_grid^2 points are from grid search. If n_grid**2 < n_tot, perform Bayesian Optimization
-n_grid = 4
+n_grid = 6
 if n_grid > 0:
     x1 = [[None] * 2 for i in range(n_grid ** 2)]
     k = 0
@@ -225,7 +240,11 @@ def g(val):
 ti = time.time()  # check time
 
 val = RVC_Noise  # Which validation strategy
-N_fo = 4  # number of folds
+try:
+    N_fo = N_fo  # number of folds
+except:
+    N_fo = 4  # number of folds
+
 N_in = 0  # interval before the first fold
 N_fw = (N_train-N_val)//(N_fo-1)  # num steps forward the validation interval is shifted (evenly spaced)
 

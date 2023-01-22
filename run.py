@@ -119,8 +119,8 @@ def createEnsemble(true_p, forecast_p, filter_p, bias_p, folder="results", folde
     # obs = rng.multivariate_normal(y_true[obs_idx], Cdd)
 
     # add_noise = rng.normal(0, true_p['std_obs'])
-    print(Cdd)
-    print(np.max(rng.multivariate_normal(np.zeros(np.shape(y_true)[1]), Cdd)[0]) * np.max(y_true[obs_idx],0))
+    # print(Cdd)
+    # print(np.max(rng.multivariate_normal(np.zeros(np.shape(y_true)[1]), Cdd)[0]) * np.max(y_true[obs_idx],0))
     obs = y_true[obs_idx] * (1. + rng.multivariate_normal(np.zeros(q), Cdd, len(obs_idx)))
 
     truth = dict(y=y_true, t=t_true, name=name_truth, t_obs=t_obs, p_obs=obs, b_true=b_true,
@@ -163,7 +163,10 @@ def createESNbias(filter_p, model, y_true, t_true, t_obs, name_truth, folder, bi
     train_params['m'] = L
     # Compute reference bias. Create an ensemble of training data
     ref_ens = model(train_params, train_params)
-    name_train = folder + 'Truth_{}_{}'.format(ref_ens.name, ref_ens.law)
+    try:
+        name_train = folder + 'Truth_{}_{}'.format(ref_ens.name, ref_ens.law)
+    except:
+        name_train = folder + 'Truth_{}'.format(ref_ens.name)
     for k in ref_ens.params:
         name_train += '_{}{}'.format(k, getattr(ref_ens, k))
     name_train += '_std{:.2}_m{}_{}'.format(ref_ens.std_a, ref_ens.m, ref_ens.alpha_distr)
@@ -171,6 +174,7 @@ def createESNbias(filter_p, model, y_true, t_true, t_obs, name_truth, folder, bi
     print(name_train)
     if os.path.isfile(name_train):
         print('Loading Reference solution(s)')
+
         with open(name_train, 'rb') as f:
             ref_ens = pickle.load(f)
     else:
@@ -182,46 +186,49 @@ def createESNbias(filter_p, model, y_true, t_true, t_obs, name_truth, folder, bi
             pickle.dump(ref_ens, f)
 
     y_ref, lbl = ref_ens.getObservableHist(), ref_ens.obsLabels
-    biasData = np.expand_dims(y_true, -1) - y_ref  # [Nt x Nmic x L]
+    biasData = np.expand_dims(y_true, -1) - y_ref # [Nt x Nmic x L]
     # biasData = np.append(biasData, ref_ens.hist[:, -len(ref_ens.est_p):], axis=1)
 
     # provide data for washout before first observation
     i1 = int(np.where(t_true == t_obs[0])[0]) - filter_p['kmeas']
     dt_true = t_true[1] - t_true[0]
-    i0 = i1 - int(0.1 / dt_true)
+    i0 = i1 - int(ref_ens.t_CR / dt_true)
 
     # plt.figure()
     # plt.plot(ref_ens.hist_t, biasData[:,:,0])
     # plt.show()
 
     # create bias dictionary
-    bias_p['trainData'] = biasData[int(1. / dt_true):]  # remove transient - steady state solution
+    bias_p['trainData'] = biasData[int(ref_ens.t_transient/dt_true):]  # remove transient - steady state solution
     bias_p['washout_obs'] = y_true[i0:i1 + 1]
     bias_p['washout_t'] = t_true[i0:i1 + 1]
     bias_p['filename'] = folder + name_truth + '_' + name_train.split('Truth_')[-1] + '_bias'
     bias_p['L'] = L
     # Plot training data -------------------------------------
-    fig, ax = plt.subplots(1, 3, figsize=(15, 3.5))
+    fig, ax = plt.subplots(1, 3, figsize=(15, 3.5), layout='constrained')
     norm = mpl.colors.Normalize(vmin=-5, vmax=y_ref.shape[-1])
     cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.magma)
     fig.suptitle('Training data')
     ax[0].plot(t_true, y_true, color='silver', linewidth=6, alpha=.8)
-    Nt = int(.2 // dt_true)
+    Nt = int(t_true[-1]/4 // dt_true)
+    print(Nt, Nt*dt_true)
+    print(len(bias_p['washout_t'] ))
+    print(len(y_ref))
+
     for ii in range(y_ref.shape[-1]):
         C, R = CR(y_true[-Nt:], y_ref[-Nt:, :, ii])
         line = ax[0].plot(t_true, y_ref[:, :, ii], color=cmap.to_rgba(ii))
         ax[1].plot(ii, C, 'o', color=cmap.to_rgba(ii))
         ax[2].plot(ii, R, 'x', color=cmap.to_rgba(ii))
-    plt.tight_layout()
     ax[0].legend(['Truth'], bbox_to_anchor=(0., 1.25), loc="upper left")
-    ax[0].set(xlabel='$t$', ylabel=lbl, xlim=[t_true[-1] - 0.05, t_true[-1]])
+    ax[0].set(xlabel='$t$', ylabel=lbl, xlim=[t_true[i0], t_true[int(i1)]])
     ax[1].set(xlabel='$l$', ylabel='Correlation')
     ax[2].set(xlabel='$l$', ylabel='RMS error')
     ax[0].plot(t_true, y_true, color='silver', linewidth=6, alpha=.8)
-    for ax1, l in zip(ax[:], [.5, 1., 1.]):
-        x0, x1 = ax1.get_xlim()
-        y0, y1 = ax1.get_ylim()
-        ax1.set_aspect(l * (x1 - x0) / (y1 - y0))
+    # for ax1, l in zip(ax[:], [.5, 1., 1.]):
+    #     x0, x1 = ax1.get_xlim()
+    #     y0, y1 = ax1.get_ylim()
+    #     ax1.set_aspect(l * (x1 - x0) / (y1 - y0))
     plt.savefig(folder + 'L{}_training_data.svg'.format(train_params['m']), dpi=350)
     # plt.show()
     plt.close()

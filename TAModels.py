@@ -26,7 +26,9 @@ class Model:
     """ Parent Class with the general thermoacoustic model
         properties and methods definitions.
     """
-    attr_parent: dict = dict(dt=1E-4, t=0., psi0=np.empty(1), ensemble=False)
+    attr_parent: dict = dict(dt=1E-4, t=0.,
+                             t_transient=1., t_CR=0.2,
+                             psi0=np.empty(1), ensemble=False)
 
     attr_ens: dict = dict(m=10, est_p=[], est_s=True, est_b=False,
                           biasType=Bias.NoBias, inflation=1.01,
@@ -120,7 +122,8 @@ class Model:
 
         # ----------------------- DEFINE STATE MATRIX ----------------------- ##
         # Note: if est_p and est_b psi = [psi; alpha; biasWeights]
-        if self.m > 1:
+        # if self.m > 1:
+        if True:
             mean = np.array(self.psi0)  # * rng.uniform(0.9, 1.1, len(self.psi0))
             # self.psi = self.addUncertainty(mean, self.std_psi, self.m, method=self.alpha_distr)
             cov = np.diag((self.std_psi ** 2 * abs(mean)))
@@ -131,13 +134,13 @@ class Model:
                 mean = np.array([getattr(self, p) for p in self.est_p])  # * rng.uniform(0.9, 1.1, len(self.psi0))
                 ens_a = self.addUncertainty(mean, self.std_a, self.m, method=self.alpha_distr)
                 self.psi = np.vstack((self.psi, ens_a))
-        else:
-            self.psi = np.array(self.psi0)
-            self.psi = np.expand_dims(self.psi, 1)
-            if len(self.est_p) > 0:
-                self.Na = len(self.est_p)
-                self.N += self.Na
-                self.psi = np.append(self.psi, np.array([getattr(self, pp) for pp in self.est_p]))
+        # else:
+        #     self.psi = np.array(self.psi0)
+        #     self.psi = np.expand_dims(self.psi, 1)
+        #     if len(self.est_p) > 0:
+        #         self.Na = len(self.est_p)
+        #         self.N += self.Na
+        #         self.psi = np.append(self.psi, np.array([getattr(self, pp) for pp in self.est_p]))
 
         # ------------------------ INITIALISE BIAS ------------------------ ##
         if 'Bdict' not in DAdict.keys():
@@ -353,10 +356,10 @@ class Rijke(Model):
 
         assert self.N == self.Nc + 2 * self.Nm
 
-        self.param_lims = dict(beta=(0.2, 5),
+        self.param_lims = dict(beta=(0.01, 5),
                                tau=(1E-6, self.tau_adv),
-                               C1=(1E-3, .5),
-                               C2=(0.0, 0.5),
+                               C1=(0., 1.),
+                               C2=(0., 1.),
                                kappa=(1E3, 1E8)
                                )
         # ------------------------------------------------------------------------------------- #
@@ -483,7 +486,7 @@ class Rijke(Model):
             raise Exception("tau = {} can't_interp be larger than tau_adv = {}".format(A['tau'], P['tau_adv']))
 
         # Compute damping and heat release law
-        zeta = A['C1'] * P['j'] ** 2  # + A['C2'] * P['j'] ** .5
+        zeta = A['C1'] * P['j'] ** 2   + A['C2'] * P['j'] ** .5
 
         MF = P['meanFlow']  # Physical properties
         if P['law'] == 'sqrt':
@@ -520,6 +523,10 @@ class Lorenz63(Model):
 
         super().__init__(TAdict)
 
+        self.t_transient = 200.
+        self.dt = 0.005
+        self.t_CR = 5.
+
         if 'psi0' not in TAdict.keys():
             self.psi0 = [1.0, 1.0, 1.0]  # initialise x, y, z
             self.resetInitialConditions()
@@ -530,16 +537,16 @@ class Lorenz63(Model):
         # set limits for the parameters
         self.param_lims = dict(rho=(None, None), beta=(None, None), sigma=(None, None))
 
-    # _______________ VdP specific properties and methods ________________ #
+    # _______________ Lorenz63 specific properties and methods ________________ #
     @property
     def obsLabels(self):
-        return "x"
+        return ["x", 'y', 'z']
 
     def getObservables(self, Nt=1):
         if Nt == 1:
-            return self.hist[-1, [0], :]
+            return self.hist[-1, :, :]
         else:
-            return self.hist[-Nt:, [0], :]
+            return self.hist[-Nt:, :, :]
 
     # _________________________ Governing equations ________________________ #
     def govEqnDict(self):
@@ -560,13 +567,14 @@ class Lorenz63(Model):
 
 
 if __name__ == '__main__':
-    MyModel = Rijke
+    MyModel = Lorenz63
     paramsTA = dict(law='tan', dt=2E-4)
+    t_max = 10.
 
     t1 = time.time()
     # Non-ensemble case =============================
     case = MyModel(paramsTA)
-    state, t_ = case.timeIntegrate(int(1 / case.dt))
+    state, t_ = case.timeIntegrate(int(case.t_transient*2 / case.dt))
     case.updateHistory(state, t_)
 
     print('Elapsed time = ', str(time.time() - t1))

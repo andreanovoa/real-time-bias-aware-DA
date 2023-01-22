@@ -99,7 +99,7 @@ def createObservations(classParams=None):
         with open(name, 'wb') as f:
             pickle.dump(case, f)
     # Retrieve observables
-    p_obs = case.getObservableHist()[0]
+    p_obs = case.getObservableHist()
     if len(np.shape(p_obs)) > 2:
         p_obs = np.squeeze(p_obs, axis=2)
 
