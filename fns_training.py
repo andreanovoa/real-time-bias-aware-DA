@@ -11,11 +11,11 @@ def RVC_Noise(x):
     rho = x[0]
     sigma_in = 10 ** x[1]
 
-    len_tikn = tikh.size
+    len_tikn = tikh_.size
     Mean = np.zeros(len_tikn)
 
-    # Train using tv: training+val, Wout is passed with all the combinations of tikh and target noise
-    Xa_train, Wout, LHS0, RHS0 = train_n(U_wash, U_tv, Y_tv, tikh, sigma_in, rho)
+    # Train using tv: training+val, Wout is passed with all the combinations of tikh_ and target noise
+    Xa_train, Wout, LHS0, RHS0 = train_n(U_wash, U_tv, Y_tv, tikh_, sigma_in, rho)
 
     if k == 0:
         print('\t\t rho \t sigma_in \t tikhonov  \t MSE val ')
@@ -29,7 +29,7 @@ def RVC_Noise(x):
             Y_val = U[kk, N_wash + p: N_wash + p + N_val].copy()  # data to compare the cloop prediction with
 
             for j in range(len_tikn):
-                Yh_val = closed_loop(N_val - 1, Xa_train[kk, p], Wout[j], sigma_in, rho, alph)[0]  # cloop for each tikh-noise combinatio
+                Yh_val = closed_loop(N_val - 1, Xa_train[kk, p], Wout[j], sigma_in, rho, alph)[0]  # cloop for each tikh_-noise combinatio
                 Mean[j] += np.log10(np.mean((Y_val - Yh_val) ** 2) / np.mean(norm ** 2))
 
                 # prevent from diverging to infinity: put MSE equal to 10^10 (useful for hybrid and similar
@@ -39,10 +39,10 @@ def RVC_Noise(x):
 
     # select and save the optimal tikhonov and noise level in the targets
     a = Mean.argmin()
-    tikh_opt[k] = tikh[a]
+    tikh_opt[k] = tikh_[a]
     k += 1
     # if k % 2 == 0:
-    print(k, 'Par: {0:.3f} \t {1:.2e} \t {2:.1e}  \t {3:.4f} '.format(rho, sigma_in, tikh[a], Mean[a] / N_fo / N_alpha))
+    print(k, 'Par: {0:.3f} \t {1:.2e} \t {2:.1e}  \t {3:.4f} '.format(rho, sigma_in, tikh_[a], Mean[a] / N_fo / N_alpha))
 
     return Mean[a] / N_fo / N_alpha
 

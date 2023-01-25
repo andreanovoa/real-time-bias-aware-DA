@@ -88,16 +88,16 @@ def createObservations(classParams=None):
     name = '/data/Truth_{}_{}tmax-{:.2}'.format(classType.name, suffix, t_max)
     name = os.path.join(os.getcwd() + name)
     # Load or create and save file
-    if os.path.isfile(name):
-        print('Loading Truth')
-        with open(name, 'rb') as f:
-            case = pickle.load(f)
-    else:
-        case = classType(TA_params)
-        psi, t = case.timeIntegrate(Nt=int(t_max / case.dt))
-        case.updateHistory(psi, t)
-        with open(name, 'wb') as f:
-            pickle.dump(case, f)
+    # if os.path.isfile(name):
+    #     print('Loading Truth')
+    #     with open(name, 'rb') as f:
+    #         case = pickle.load(f)
+    # else:
+    case = classType(TA_params)
+    psi, t = case.timeIntegrate(Nt=int(t_max / case.dt))
+    case.updateHistory(psi, t)
+    with open(name, 'wb') as f:
+        pickle.dump(case, f)
     # Retrieve observables
     p_obs = case.getObservableHist()
     if len(np.shape(p_obs)) > 2:

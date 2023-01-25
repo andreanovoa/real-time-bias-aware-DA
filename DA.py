@@ -37,21 +37,24 @@ def dataAssimilation(ensemble,
 
     # ----------------------------- FORECAST UNTIL FIRST OBS ----------------------------- ##
     time1 = time.time()
+    # if t_obs[ti] - ensemble.t > 1.:
+    #     t1 = t_obs[ti] - (t_obs[-1] - t_obs[-2])*2
+    #     Nt = int(np.round((t1 - ensemble.t) / dt))
+    #     ensemble = forecastStep(ensemble, Nt, averaged=True, alpha=ensemble.alpha0)
+    #
+    # Nt = int(np.round((t_obs[ti] - ensemble.t) / dt))
+    # ensemble = forecastStep(ensemble, Nt, averaged=False)
+
     if t_obs[ti] - ensemble.t > 1.:
-        t1 = t_obs[ti] - (t_obs[-1] - t_obs[-2])
+        t1 = t_obs[ti] - 0.5
         Nt = int(np.round((t1 - ensemble.t) / dt))
         ensemble = forecastStep(ensemble, Nt, averaged=True, alpha=ensemble.alpha0)
 
     Nt = int(np.round((t_obs[ti] - ensemble.t) / dt))
     ensemble = forecastStep(ensemble, Nt, averaged=False)
 
-    # if t_obs[ti] - ensemble.t > 1.:
-    #     t1 = t_obs[ti] - 0.5
-    #     Nt = int(np.round((t1 - ensemble.t) / dt))
-    #     ensemble = forecastStep(ensemble, Nt, averaged=True, alpha=ensemble.alpha0)
-    #
-    # Nt = int(np.round((t_obs[ti] - ensemble.t) / dt))
-    # ensemble = forecastStep(ensemble, Nt, averaged=False)
+
+    print('dt', dt, 'dtESN', ensemble.bias.upsample * dt, 'dtA', t_obs[1]-t_obs[0])
 
     # if ensemble.bias.L == 100 and ensemble.std_psi == 0.25:
     # plt.figure()

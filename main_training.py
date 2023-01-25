@@ -36,7 +36,6 @@ except:
     # plt.figure()
     # plt.plot(data[:, 0])
     # plt.show()
-
 try:
     dt = dt  # original signal dt
 except:
@@ -47,7 +46,6 @@ try:
 except:
     upsample = 5
     print('Set default value for upsample =', upsample)
-
 try:
     N_wash = N_wash
 except:
@@ -83,7 +81,6 @@ try:
 except:
     connect = 5  # average neuron connections
     print('Set default value for connect =', connect)
-
 try:
     noise_level = noise_level  # try increasing if blowing up
 except:
@@ -102,8 +99,6 @@ else:
         data = data.transpose((2, 0, 1))
 
 is_param = data.min(axis=1)[0]-data.max(axis=1)[0] == 0
-
-
 if any(is_param):
     alpha = data[:, 0, is_param]
     data = data[:, :, ~is_param]
@@ -120,9 +115,6 @@ if not parametrise:
 dt_ESN = dt * upsample  # ESN time step
 data = data[:, ::upsample]
 
-plt.figure()
-plt.plot(data[0])
-plt.show()
 
 #  _____________________________________ DATA AUGMENTATION ___________________________________________________
 if augment_data:
@@ -131,9 +123,9 @@ if augment_data:
 else:
     U = data
 
-# print(data.shape)
-# U2 = np.vstack([data * 1., data[-l:] * -1e-2, data[:l] * 1e-1])
-# print(U2.shape)
+
+plt.plot(U[0])
+plt.show()
 
 #  _______________________________ SEPARATE INTO WASH/TRAIN/VAL SETS ________________________________________
 N_dim = U.shape[-1]  # dimension of inputs (and outputs)
@@ -146,7 +138,6 @@ N_wtv = N_wash + N_tv  # useful for compact code later
 U_data = U[:, :N_wtv]
 m = np.mean(U_data.min(axis=1), axis=0)
 M = np.mean(U_data.max(axis=1), axis=0)
-
 norm = M - m  # compute norm (normalize inputs by component range)
 
 U_wash = U[:, :N_wash]
@@ -156,16 +147,13 @@ Y_tv = U[:, N_wash + 1:N_wtv]
 # ___________________________________________ ADD NOISE ______________________________________________________
 # Add noise to inputs and targets during training. Larger noise_level promotes stability in long term,
 # but hinders time accuracy
-noisy = True
 U_std = np.std(U, axis=1)
-
 seed = 0
 rnd = np.random.RandomState(seed)
 
-if noisy:  # input noise (it is not optimized)
-    for j in range(N_dim):
-        for i in range(N_alpha):
-            U_tv[i, :, j] += rnd.normal(0, noise_level * U_std[i, j], N_tv - 1)
+for j in range(N_dim):
+    for i in range(N_alpha):
+        U_tv[i, :, j] += rnd.normal(0, noise_level * U_std[i, j], N_tv - 1)
 
 # ________________________________________ INITIALISE ESN HYPERPARAMETRES _________________________________________
 bias_in = np.array([.1])  # input bias
@@ -182,18 +170,16 @@ try:
 except:
     sigin_ = [np.log10(1e-4), np.log10(0.5)]
 try:
-    tikh = np.array(tikh)  # Tikhonov
+    tikh_ = tikh_  # Tikhonov
 except:
-    tikh = np.array([1e-10, 1e-12, 1e-16])  # Tikhonov
-
-
+    tikh_ = np.array([1e-10, 1e-12, 1e-16])  # Tikhonov
 
 # _________________________________ GRID SEARCH AND BAYESIAN OPTIMISATION PARAMS ____________________________________
-n_tot = 40  # Total Number of Function Evaluations
-n_in = 0  # Number of Initial random points
+n_tot = 30  # Total Number of Function Evaluations
+n_in = 4  # Number of Initial random points
 
 # The first n_grid^2 points are from grid search. If n_grid**2 < n_tot, perform Bayesian Optimization
-n_grid = 6
+n_grid = 5
 if n_grid > 0:
     x1 = [[None] * 2 for i in range(n_grid ** 2)]
     k = 0

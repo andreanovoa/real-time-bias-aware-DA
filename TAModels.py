@@ -128,12 +128,16 @@ class Model:
             # self.psi = self.addUncertainty(mean, self.std_psi, self.m, method=self.alpha_distr)
             cov = np.diag((self.std_psi ** 2 * abs(mean)))
             self.psi = rng.multivariate_normal(mean, cov, self.m).T
+
+            # print('psi', self.psi0, self.psi)
             if len(self.est_p) > 0:  # Augment ensemble with estimated parameters
                 self.Na = len(self.est_p)
                 self.N += self.Na
                 mean = np.array([getattr(self, p) for p in self.est_p])  # * rng.uniform(0.9, 1.1, len(self.psi0))
                 ens_a = self.addUncertainty(mean, self.std_a, self.m, method=self.alpha_distr)
                 self.psi = np.vstack((self.psi, ens_a))
+
+
         # else:
         #     self.psi = np.array(self.psi0)
         #     self.psi = np.expand_dims(self.psi, 1)
@@ -525,7 +529,7 @@ class Lorenz63(Model):
 
         self.t_transient = 200.
         self.dt = 0.005
-        self.t_CR = 5.
+        self.t_CR = 2.
 
         if 'psi0' not in TAdict.keys():
             self.psi0 = [1.0, 1.0, 1.0]  # initialise x, y, z
@@ -533,6 +537,7 @@ class Lorenz63(Model):
 
         if DAdict is not None:
             self.initEnsemble(DAdict)
+            print(DAdict)
 
         # set limits for the parameters
         self.param_lims = dict(rho=(None, None), beta=(None, None), sigma=(None, None))

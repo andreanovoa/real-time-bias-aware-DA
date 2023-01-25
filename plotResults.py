@@ -56,7 +56,7 @@ def post_process_single_SE_Zooms(filter_ens, truth, filename=None, figs_folder=N
 
     # %% ================================ PLOT time series, parameters and RMS ================================ #
 
-    y_filter, labels = filter_ens.getObservableHist()
+    y_filter, labels = filter_ens.getObservableHist(), filter_ens.obsLabels
     if len(np.shape(y_filter)) < 3:
         y_filter = np.expand_dims(y_filter, axis=1)
     if len(np.shape(y_true)) < 3:

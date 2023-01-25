@@ -157,13 +157,11 @@ class ESN(Bias):
         if os.path.isfile(ESN_filename + '.mat'):
             fileESN = loadmat(ESN_filename)
             for key, val in fileESN.items():
-                if key in Bdict.keys() and val != Bdict[key]:
-                    flag = True
-                    print('\n Retraining ESN...')
-                    print(key)
-                    print(val)
-                    print(Bdict[key])
-                    break
+                if key in Bdict.keys():
+                    if any(val != Bdict[key]):
+                        flag = True
+                        print('\n Retraining ESN as {} = {} != {}'.format(key, val, Bdict[key]))
+                        break
 
         if not os.path.isfile(ESN_filename + '.mat') or flag:
             # Load or create bias data
