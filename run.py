@@ -27,7 +27,7 @@ def main(filter_ens, truth, filter_p,
     # Integrate further without assimilation as ensemble mean (if truth very long, integrate only .2s more)
     Nt_extra = 0
     if filter_ens.hist_t[-1] < truth['t'][-1]:
-        Nt_extra = int(min((truth['t'][-1] - filter_ens.hist_t[-1]), 0.2) / filter_ens.dt) + 1
+        Nt_extra = int(min((truth['t'][-1] - filter_ens.hist_t[-1]), filter_ens.t_CR) / filter_ens.dt) + 1
         psi, t = filter_ens.timeIntegrate(Nt_extra, averaged=True)
         filter_ens.updateHistory(psi, t)
         if filter_ens.bias is not None:
@@ -78,9 +78,9 @@ def createEnsemble(true_p, forecast_p, filter_p, bias_p, folder="results", folde
                 print('Re-initialise ensemble as ensemble {}={} != {}'.format(key, getattr(ensemble, key), val))
                 break
             elif type(b_args) is not str and key in b_args[0].keys() and val != b_args[0][key]:
-                    reinit = True
-                    print('Re-initialise ensemble as filter_p {}={} != {}'.format(key, b_args[0][key], val))
-                    break
+                reinit = True
+                print('Re-initialise ensemble as filter_p {}={} != {}'.format(key, b_args[0][key], val))
+                break
 
             if truth['t_obs'][-1] < filter_p['t_stop']:
                 reinit = True
@@ -100,21 +100,6 @@ def createEnsemble(true_p, forecast_p, filter_p, bias_p, folder="results", folde
                                 reinit = True
                                 print('Re-init ensemble as {} = {} != {}'.format(key, b_args[0]['Bdict'][key], val))
                                 break
-
-        #
-        # if not reinit:
-        #     if truth['t_obs'][0] != filter_p['t_start'] or truth['t_obs'][-1] != filter_p['t_stop']:
-        #         print('reset window ????????')
-        #         # reset assimilation window
-        #         t_true, y_true = truth['t'], truth['y']
-        #         dt_t = t_true[1] - t_true[0]
-        #         obs_idx = np.arange(round(filter_p['t_start'] / dt_t),
-        #                             round(filter_p['t_stop'] / dt_t) + 1, filter_p['kmeas'])
-        #         truth['t_obs'] = t_true[obs_idx]
-        #         q = np.shape(y_true)[1]
-        #         Cdd = np.eye(q) * true_p['std_obs'] ** 2
-        #         # add_noise
-        #         truth['p_obs'] = y_true[obs_idx] * (1. + rng.multivariate_normal(np.zeros(q), Cdd, len(obs_idx)))
         if not reinit:
             return ensemble, truth, b_args
 
@@ -249,7 +234,7 @@ def createESNbias(filter_p, model, y_true, t_true, t_obs, name_truth, folder, bi
         ax[1].plot(ii, C, 'o', color=cmap.to_rgba(ii))
         ax[2].plot(ii, R, 'x', color=cmap.to_rgba(ii))
     ax[0].legend(['Truth'], bbox_to_anchor=(0., 1.25), loc="upper left")
-    ax[0].set(xlabel='$t$', ylabel=lbl, xlim=[t_true[i0], t_true[int(i1)]])
+    ax[0].set(xlabel='$t$', ylabel=lbl, xlim=[t_true[i0], t_true[i0] + ref_ens.t_CR*2])
     ax[1].set(xlabel='$l$', ylabel='Correlation')
     ax[2].set(xlabel='$l$', ylabel='RMS error')
     ax[0].plot(t_true, y_true, color='silver', linewidth=6, alpha=.8)

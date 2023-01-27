@@ -23,6 +23,8 @@ def dataAssimilation(ensemble,
     dt = ensemble.dt
     ti = 0  # iterator
 
+    print(obs[0])
+
     ensemble.printModelParameters()
     print('\n -------------------- ASSIMILATION PARAMETERS -------------------- \n',
           '\t Filter = {0}  \n\t bias = {1} \n'.format(method, ensemble.bias.name),
@@ -387,9 +389,11 @@ def EnKFbias(Af, d, Cdd, Cbb, k, M, b, dbdy):
 
     Iq = np.eye(q)
     # Mean and deviations of the ensemble
-    psi_f_m = np.mean(Af, 1, keepdims=True)
-    Psi_f = Af - psi_f_m
+    Psi_f = Af - np.mean(Af, 1, keepdims=True)
     S = np.dot(M, Psi_f)
+    Y = np.dot(M, Af)
+
+
 
     # Create an ensemble of observations
     D = rng.multivariate_normal(d, Cdd, m).transpose()
@@ -397,38 +401,31 @@ def EnKFbias(Af, d, Cdd, Cbb, k, M, b, dbdy):
     # D = np.repeat(np.expand_dims(d, 1), m, axis=1)
     B = np.repeat(np.expand_dims(b, 1), m, axis=1)
 
-    # Mapped forecast matrix
-    Y = np.dot(M, Af)
+
+    if np.array_equiv(Cdd, Cbb):
+        Cqq = np.dot(S, S.T)
+        Cinv = linalg.inv((m - 1) * Cdd + np.dot(np.dot(Iq + dbdy, Iq + dbdy)+k*np.dot(dbdy, dbdy), Cqq))
+        K = np.dot(np.dot(Psi_f, S.T), Cinv)
+        Aa = Af + np.dot(K, np.dot(Iq+dbdy, D-Y) - k*np.dot(dbdy, B))
+    else:
+
+
+        # Inverse of covariance
+        Wbb = k * linalg.pinv(Cbb)
+        Wdd = linalg.pinv(Cdd)
+        # Compute W and Q
+        W = np.dot((Iq + dbdy).T, np.dot(Wdd, (Iq + dbdy))) + np.dot(dbdy.T, np.dot(Wbb, dbdy))
+        Q = np.dot((Iq + dbdy).T, np.dot(Wdd, (D + np.dot(dbdy, Y) - B))) + np.dot(dbdy.T,
+                                                                                   np.dot(Wbb, (np.dot(dbdy, Y) - B)))
+        C = linalg.pinv(W)
+        K = np.dot(np.dot(Psi_f, S.T), linalg.inv((m - 1) * C + np.dot(S, S.T)))
+        Aa = Af + np.dot(K, np.dot(C, Q) - np.dot(M, Af))
+
+
 
     # Inverse of covariance
-    Wbb = k * linalg.inv(Cbb)
-    Wdd = linalg.inv(Cdd)
 
-    # Compute W and Q
-    W = np.dot((Iq + dbdy).T, np.dot(Wdd, (Iq + dbdy))) + np.dot(dbdy.T, np.dot(Wbb, dbdy))
-    Q = np.dot((Iq + dbdy).T, np.dot(Wdd, (D + np.dot(dbdy, Y) - B))) + np.dot(dbdy.T,
-                                                                               np.dot(Wbb, (np.dot(dbdy, Y) - B)))
 
-    C = linalg.inv(W)
-
-    K = np.dot(np.dot(Psi_f, S.T), linalg.inv((m - 1) * C + np.dot(S, S.T)))
-    Aa = Af + np.dot(K, np.dot(C, Q) - np.dot(M, Af))
-
-    # if sum(b) == 0:
-    #
-    #     # Mapped forecast matrix M(Af) and mapped deviations M(Af')
-    #     Y = np.dot(M, Af)
-    #     S = np.dot(M, Psi_f)
-    #
-    #     # Matrix to invert
-    #     C = (m - 1) * Cdd + np.dot(S, S.T)
-    #     Cinv = linalg.inv(C)
-    #
-    #     X = np.dot(S.T, np.dot(Cinv, (D - Y)))
-    #
-    #     Aa2 = Af + np.dot(Af, X)
-    #
-    #     print(np.linalg.norm(Aa-Aa2))
 
 
     J = np.array([None] * 4)

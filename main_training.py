@@ -118,14 +118,17 @@ data = data[:, ::upsample]
 
 #  _____________________________________ DATA AUGMENTATION ___________________________________________________
 if augment_data:
-    l = int(data.shape[0])
-    U = np.vstack([data * 1., data[-l:] * -1e-2, data[:l] * 1e-1])
+    l = int(data.shape[0] / 3)
+    U = np.vstack([data,
+                   data[-l:] * -1e-2,
+                   data[:l] * 1e-1,
+                   data[-l:] * 1e-3])
 else:
     U = data
 
 
-plt.plot(U[0])
-plt.show()
+# plt.plot(U[0])
+# plt.show()
 
 #  _______________________________ SEPARATE INTO WASH/TRAIN/VAL SETS ________________________________________
 N_dim = U.shape[-1]  # dimension of inputs (and outputs)

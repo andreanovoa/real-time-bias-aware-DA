@@ -275,14 +275,17 @@ def post_process_single(filter_ens, truth, parameters, filename=None):
     zoom_ax.plot(t_obs, obs[:, 0], '.', color='r', label='Observation data', markersize=10)
     zoomPre_ax.plot(t_obs, obs[:, 0], '.', color='r', label='Observation data', markersize=10)
 
-    y_lims = [min(min(y_true[:, 0]), min(y_mean[:, 0])) * 1.5, max(max(y_true[:, 0]), max(y_mean[:, 0])) * 1.5]
+    # y_lims = [-10, 0]
+    y_lims = [min(min(y_true[:, 0]), min(y_mean[:, 0])) * 1.05,
+              max(max(y_true[:, 0]), max(y_mean[:, 0])) * 1.05]
     p_ax.set(ylabel="$p'_\mathrm{mic_1}$ [Pa]", xlabel='$t$ [s]', xlim=x_lims, ylim=y_lims)
     p_ax.legend(bbox_to_anchor=(0., 1.), loc="lower left", ncol=2)
 
-    y_lims = [min(min(y_true[:, 0]), min(y_mean[:, 0])) * 1.2, max(max(y_true[:, 0]), max(y_mean[:, 0])) * 1.2]
+    # y_lims = [min(min(y_true[:, 0]), min(y_mean[:, 0])) * 1.02,
+    #           max(max(y_true[:, 0]), max(y_mean[:, 0])) * 1.02]
 
-    zoom_ax.set(ylabel="$\\eta$", xlabel='$t$ [s]', xlim=[t_obs[-1] - 0.03, t_obs[-1] + 0.02], ylim=y_lims)
-    zoomPre_ax.set(ylabel="$\\eta$", xlabel='$t$ [s]', xlim=[t_obs[0] - 0.03, t_obs[0] + 0.02], ylim=y_lims)
+    zoom_ax.set(ylabel="$\\eta$", xlabel='$t$ [s]', xlim=[t_obs[-1] - filter_ens.t_CR, t_obs[-1] + filter_ens.t_CR], ylim=y_lims)
+    zoomPre_ax.set(ylabel="$\\eta$", xlabel='$t$ [s]', xlim=[t_obs[0] - filter_ens.t_CR, t_obs[0] + filter_ens.t_CR], ylim=y_lims)
 
     # PLOT PARAMETER CONVERGENCE-------------------------------------------------------------
     ii = len(filter_ens.psi0)
@@ -320,7 +323,7 @@ def post_process_single(filter_ens, truth, parameters, filename=None):
             ii += 1
         params_ax.legend(bbox_to_anchor=(1., 1.), loc="upper left", ncol=1)
         params_ax.plot(t[1:], t[1:] / t[1:], '-', color='k', linewidth=.5)
-        params_ax.set(ylim=[min_p - 0.1, max_p + 0.1])
+        params_ax.set(ylim=[min_p - filter_ens.t_CR, max_p + filter_ens.t_CR])
 
     # PLOT RMS ERROR
     Psi = mean - hist
@@ -384,7 +387,7 @@ def post_process_multiple(folder, filename=None):
         y_truth = truth['y'][:len(y_filter)]
         b_obs = y_truth - np.mean(y_filter, -1)
         if flag:
-            N_CR = int(.1 / filter_ens.dt)  # Length of interval to compute correlation and RMS
+            N_CR = int(filter_ens.t_CR / filter_ens.dt)  # Length of interval to compute correlation and RMS
             N_mean = int(.1 / filter_ens.dt)  # Length of interval to average mean error
             istart = np.argmin(abs(t_filter - truth['t_obs'][0]))  # start of assimilation
             istop = np.argmin(abs(t_filter - truth['t_obs'][parameters['num_DA'] - 1]))  # end of assimilation
@@ -489,10 +492,12 @@ def post_process_multiple(folder, filename=None):
                 Ct, Rt = CR(y_truth[-N_CR:], y_truth_u[-N_CR:])
                 axCRP[0].plot((-10, 100), (Ct, Ct), '-', color='k', label='Truth', alpha=0.2, linewidth=5.)
                 axCRP[1].plot((-10, 100), (Rt, Rt), '-', color='k', label='Truth', alpha=0.2, linewidth=5.)
+
             # compute C and R before the assimilation (the initial ensemble has some initialisation error)
             Cpre, Rpre = CR(y_truth[istart - N_CR:istart + 1:], np.mean(y_filter, -1)[istart - N_CR:istart + 1:])
             axCRP[0].plot((-10, 100), (Cpre, Cpre), '-', color='k', label='Pre-DA')
             axCRP[1].plot((-10, 100), (Rpre, Rpre), '-', color='k', label='Pre-DA')
+            axCRP[1].set(ylim=[0., 2. * Rpre])
             for ax1 in axCRP[1:]:
                 ax1.legend(bbox_to_anchor=(1., 1.), loc="upper left", ncol=1)
             flag = False
@@ -501,7 +506,7 @@ def post_process_multiple(folder, filename=None):
     xlims = [min(ks) - .5, max(ks) + .5]
     axCRP[0].set(ylabel='Correlation', xlim=xlims, xlabel='$\\gamma$')
     axCRP[1].set(ylabel='RMS error', xlim=xlims, xlabel='$\\gamma$')
-    # axCRP[2].set(ylim=[0.2, 2.], xlim=xlims)
+
 
     for ax1 in axCRP[:]:
         x0, x1 = ax1.get_xlim()

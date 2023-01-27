@@ -516,7 +516,13 @@ class Lorenz63(Model):
     """
 
     name: str = 'Lorenz63'
-    attr_child: dict = dict(rho=28., sigma=10., beta=8. / 3.)
+    # attr_child: dict = dict(rho=28., sigma=10., beta=8. / 3.)
+    attr_child: dict = dict(rho=20., sigma=10., beta=1.8)
+    # ##
+    # 'rho': 20,
+    # 'sigma': 10,
+    # 'beta': 1.8,
+
     params: list = ['rho', 'sigma', 'beta']
 
     # __________________________ Init method ___________________________ #
@@ -527,8 +533,8 @@ class Lorenz63(Model):
 
         super().__init__(TAdict)
 
-        self.t_transient = 200.
-        self.dt = 0.005
+        self.t_transient = 0.#200.
+        self.dt = 0.01
         self.t_CR = 2.
 
         if 'psi0' not in TAdict.keys():
@@ -537,7 +543,6 @@ class Lorenz63(Model):
 
         if DAdict is not None:
             self.initEnsemble(DAdict)
-            print(DAdict)
 
         # set limits for the parameters
         self.param_lims = dict(rho=(None, None), beta=(None, None), sigma=(None, None))
