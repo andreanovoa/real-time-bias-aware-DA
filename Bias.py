@@ -305,8 +305,6 @@ class ESN(Bias):
 
             Nt_open = len(self.washout_t)
 
-            print('Nt_open', Nt_open)
-
             Nt_closed = round((t_b[-1] - self.washout_t[-1]) / self.dt_ESN)
             b_closed, r_closed = self.closedLoop(Nt_closed)
 

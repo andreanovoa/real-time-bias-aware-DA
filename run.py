@@ -199,6 +199,9 @@ def createESNbias(filter_p, model, y_true, t_true, t_obs, name_truth, folder, bi
 
     y_ref, lbl = ref_ens.getObservableHist(), ref_ens.obsLabels
     biasData = np.expand_dims(y_true, -1) - y_ref  # [Nt x Nmic x L]
+
+
+
     t = ref_ens.hist_t
     dt_true = t_true[1] - t_true[0]
 
@@ -206,7 +209,9 @@ def createESNbias(filter_p, model, y_true, t_true, t_obs, name_truth, folder, bi
     # shiftedData = np.append(np.zeros([phase_shift, y_true.shape[1]]), y_true[phase_shift:], axis=0)
     #
     # biasData2 = np.expand_dims(y_true - shiftedData, -1)
-    # biasData = np.append(biasData, biasData2, axis=-1)
+
+    biasData2 = 1. + .1 * y_ref
+    biasData = np.append(biasData, biasData2, axis=-1)
 
     # plt.plot(y_true[:,0])
     # plt.plot(y_true[:,0] - y_true[:,0] *.8 )

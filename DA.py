@@ -23,8 +23,6 @@ def dataAssimilation(ensemble,
     dt = ensemble.dt
     ti = 0  # iterator
 
-    print(obs[0])
-
     ensemble.printModelParameters()
     if ensemble.bias.name == 'ESN':
         ensemble.bias.printESNparameters()
