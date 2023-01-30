@@ -108,9 +108,22 @@ def createEnsemble(true_p, forecast_p, filter_p, bias_p, folder="results", folde
 
     b_true = np.zeros(1)
     if 'manual_bias' in true_p.keys() and true_p['manual_bias']:
-        b_true = np.cos(y_true)
+        # Time dependent bias ------------------
+        # b_true = .5 * y_true * np.cos(np.expand_dims(t_true, -1)*np.pi/2)
+        # name_truth += '_timefuncBias'
+        # Nonlinear bias ------------------
+        # b_true = np.cos(y_true)
+        # name_truth += '_cosBias'
+        # Linear bias ------------------
+        b_true = 1. + .1 * y_true
+        name_truth += '_linearBias'
+
+        # plt.plot(y_true[:, 0] + b_true[:, 0])
+        # plt.plot(y_true[:, 0])
+        # plt.show()
+
         y_true += b_true
-        name_truth += '_+cosy'
+
 
     dt_t = t_true[1] - t_true[0]
     obs_idx = np.arange(round(filter_p['t_start'] / dt_t), round(filter_p['t_stop'] / dt_t) + 1, filter_p['kmeas'])
@@ -187,8 +200,12 @@ def createESNbias(filter_p, model, y_true, t_true, t_obs, name_truth, folder, bi
     y_ref, lbl = ref_ens.getObservableHist(), ref_ens.obsLabels
     biasData = np.expand_dims(y_true, -1) - y_ref  # [Nt x Nmic x L]
     t = ref_ens.hist_t
+    dt_true = t_true[1] - t_true[0]
 
-    # biasData2 = np.expand_dims(y_true, -1)* .2
+    # phase_shift = 100
+    # shiftedData = np.append(np.zeros([phase_shift, y_true.shape[1]]), y_true[phase_shift:], axis=0)
+    #
+    # biasData2 = np.expand_dims(y_true - shiftedData, -1)
     # biasData = np.append(biasData, biasData2, axis=-1)
 
     # plt.plot(y_true[:,0])
@@ -201,10 +218,12 @@ def createESNbias(filter_p, model, y_true, t_true, t_obs, name_truth, folder, bi
     # biasData = np.append(biasData, ref_ens.hist[:, -len(ref_ens.est_p):], axis=1)
 
     # provide data for washout before first observation
-    i1 = int(np.where(t_true == t_obs[0])[0]) - filter_p['kmeas'] * 2
-    dt_true = t_true[1] - t_true[0]
 
-    i0 = i1 - int(1. / dt_true) #bias_p['N_wash'] * bias_p['upsample']
+    if type(filter_p['start_ensemble_forecast']) == int:
+        filter_p['start_ensemble_forecast'] = (t_obs[-1] - t_obs[-2]) * filter_p['start_ensemble_forecast']
+
+    i1 = int(np.where(t_true == t_obs[0] - filter_p['start_ensemble_forecast'])[0])
+    i0 = i1 - bias_p['N_wash'] * bias_p['upsample']
 
     if i0 < 0:
         min_t = (bias_p['N_wash'] * bias_p['upsample'] + filter_p['kmeas']) * (t[1] - t[0])

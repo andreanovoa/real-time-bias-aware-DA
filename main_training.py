@@ -127,8 +127,6 @@ else:
     U = data
 
 
-# plt.plot(U[0])
-# plt.show()
 
 #  _______________________________ SEPARATE INTO WASH/TRAIN/VAL SETS ________________________________________
 N_dim = U.shape[-1]  # dimension of inputs (and outputs)
@@ -156,7 +154,8 @@ rnd = np.random.RandomState(seed)
 
 for j in range(N_dim):
     for i in range(N_alpha):
-        U_tv[i, :, j] += rnd.normal(0, noise_level * U_std[i, j], N_tv - 1)
+        noise = rnd.normal(0, noise_level * U_std[i, j], N_tv - 1)
+        U_tv[i, :, j] += noise
 
 # ________________________________________ INITIALISE ESN HYPERPARAMETRES _________________________________________
 bias_in = np.array([.1])  # input bias
@@ -202,7 +201,6 @@ kernell = ConstantKernel(constant_value=1.0, constant_value_bounds=(1e-1, 3e0)) 
 
 print('\n -------------------- HYPERPARAMETER SEARCH ---------------------\n', str(n_grid) + 'x' + str(n_grid) +
       ' grid points and ' + str(n_tot - n_grid ** 2) + ' points with Bayesian Optimization')
-
 
 # _____________________________________ HYPERPARAMS OPTIMISATION FUN _____________________________________
 def g(val):
@@ -273,7 +271,6 @@ params_gp = np.array([params[key[2]], params[key[5]][0], params[key[5]][1], gp.n
 Wout = train_save_n(U_wash, U_tv, U[:, N_wash + 1:N_wtv], minimum[2], 10**minimum[1], minimum[0])
 if len(Wout.shape) == 1:
     Wout = np.expand_dims(Wout, axis=1)
-    print(Wout.shape)
 
 
 print('\n Time per hyperparameter eval.:', (time.time() - ti) / n_tot,
@@ -319,6 +316,18 @@ plt.plot(x_iters[n_grid ** 2:, 0], x_iters[n_grid ** 2:, 1], 's', c='w',
 pdf.savefig(fig)
 plt.close(fig)
 
+
+print(data.shape)
+fig, ax = plt.subplots(min(3, int(data.shape[0]/2)), 2, layout="constrained")
+ax = ax.flatten()
+for ii, ax_ in enumerate(ax):
+    ax_.plot(U[ii, N_wash:N_wtv - 1], label='Data')
+    # ax_.plot(U_tv[ii], 'k', label='Noisy data')
+    ax_.set(title='l = {}/{}'.format(ii, data.shape[0]))
+
+pdf.savefig(fig)
+# plt.show()
+plt.close(fig)
 # ______________________________________________ RUN TEST _____________________________________________________
 if test_run:
     # Select number of tests

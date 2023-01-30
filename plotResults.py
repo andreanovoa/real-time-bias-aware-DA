@@ -235,6 +235,8 @@ def post_process_single(filter_ens, truth, parameters, filename=None):
 
             t_wash = filter_ens.bias.washout_t
             wash = filter_ens.bias.washout_obs
+
+            print(wash.shape)
             wash /= norm
 
             p_ax.plot(t_wash, wash[:, 0], '.', color='r')

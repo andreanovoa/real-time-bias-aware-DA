@@ -26,6 +26,8 @@ def dataAssimilation(ensemble,
     print(obs[0])
 
     ensemble.printModelParameters()
+    if ensemble.bias.name == 'ESN':
+        ensemble.bias.printESNparameters()
     print('\n -------------------- ASSIMILATION PARAMETERS -------------------- \n',
           '\t Filter = {0}  \n\t bias = {1} \n'.format(method, ensemble.bias.name),
           '\t m = {} \n'.format(ensemble.m),
@@ -47,8 +49,8 @@ def dataAssimilation(ensemble,
     # Nt = int(np.round((t_obs[ti] - ensemble.t) / dt))
     # ensemble = forecastStep(ensemble, Nt, averaged=False)
 
-    if t_obs[ti] - ensemble.t > 1.:
-        t1 = t_obs[ti] - 0.5
+    if ensemble.start_ensemble_forecast > 0:
+        t1 = t_obs[ti] - ensemble.start_ensemble_forecast
         Nt = int(np.round((t1 - ensemble.t) / dt))
         ensemble = forecastStep(ensemble, Nt, averaged=True, alpha=ensemble.alpha0)
 
@@ -56,7 +58,7 @@ def dataAssimilation(ensemble,
     ensemble = forecastStep(ensemble, Nt, averaged=False)
 
 
-    print('dt', dt, 'dtESN', ensemble.bias.upsample * dt, 'dtA', t_obs[1]-t_obs[0])
+    # print('dt', dt, 'dtESN', ensemble.bias.upsample * dt, 'dtA', t_obs[1]-t_obs[0])
 
     # if ensemble.bias.L == 100 and ensemble.std_psi == 0.25:
     # plt.figure()

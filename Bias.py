@@ -180,8 +180,6 @@ class ESN(Bias):
                 Bdict['trainData'] = np.load(Bdict['filename'] + '.npz')['bias']
             # Run training main script
             exec(open("main_training.py").read(), Bdict)
-        else:
-            title = 'LOADED ESN PARAMETERS'
 
         # --------------------------- Load trained ESN --------------------------- #
         fileESN = loadmat(ESN_filename)
@@ -201,20 +199,22 @@ class ESN(Bias):
                     setattr(self, key, val)
 
         # --------------------- Create washout observed data ---------------------- #
-        # self.N_wash = 1
         self.washout_obs = np.flip(Bdict['washout_obs'][:-self.N_wash * self.upsample:-self.upsample], axis=0)
         if len(self.washout_obs.shape) > 2:
             self.washout_obs = self.washout_obs.squeeze()
         self.washout_t = np.flip(Bdict['washout_t'][:-self.N_wash * self.upsample:-self.upsample])
 
         assert self.washout_t[-1] == Bdict['washout_t'][-1]
+        assert len(self.washout_t) == self.N_wash
+
         if len(self.Wout.shape) == 1:
             self.Wout = np.expand_dims(self.Wout, axis=1)
 
         # self.parametrise = Bdict['trainData'].shape[-1] == self.N_augment
 
-        ff = self.N_augment / Bdict['trainData'].shape[-1]
-        print('\n -------------------- ', title, ' -------------------- ',
+
+    def printESNparameters(self):
+        print('\n --------------------  ESN Parameters -------------------- ',
               '\n Data filename: {}'.format(self.filename),
               '\n Training time: {} s, \t Validation time: {} s'.format(self.t_train, self.t_val),
               '\n Washout steps: {}, \t Upsample'.format(self.N_wash, self.upsample),
@@ -305,6 +305,8 @@ class ESN(Bias):
 
             Nt_open = len(self.washout_t)
 
+            print('Nt_open', Nt_open)
+
             Nt_closed = round((t_b[-1] - self.washout_t[-1]) / self.dt_ESN)
             b_closed, r_closed = self.closedLoop(Nt_closed)
 
@@ -313,7 +315,7 @@ class ESN(Bias):
 
             self.initialised = True
 
-            print('initialised bias')
+            # print('initialised bias')
 
             # # ESN PLOT DEBUG
             # plt.figure()

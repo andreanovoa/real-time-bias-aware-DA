@@ -33,7 +33,8 @@ class Model:
     attr_ens: dict = dict(m=10, est_p=[], est_s=True, est_b=False,
                           biasType=Bias.NoBias, inflation=1.01,
                           std_psi=0.1, std_a=0.001, alpha_distr='normal',
-                          num_DA_blind=0, num_SE_only=0)
+                          num_DA_blind=0, num_SE_only=0,
+                          start_ensemble_forecast=0.)
 
     def __init__(self, TAdict):
         model_dict = TAdict.copy()
@@ -516,12 +517,9 @@ class Lorenz63(Model):
     """
 
     name: str = 'Lorenz63'
-    # attr_child: dict = dict(rho=28., sigma=10., beta=8. / 3.)
-    attr_child: dict = dict(rho=20., sigma=10., beta=1.8)
-    # ##
-    # 'rho': 20,
-    # 'sigma': 10,
-    # 'beta': 1.8,
+    attr_child: dict = dict(rho=28., sigma=10., beta=8. / 3.)
+    # attr_child: dict = dict(rho=20., sigma=10., beta=1.8)
+
 
     params: list = ['rho', 'sigma', 'beta']
 
