@@ -270,7 +270,7 @@ class ESN(Bias):
 
         return -J
 
-    def timeIntegrate(self, t, y=None, t_end=0):
+    def timeIntegrate(self, t, y=None):
 
         # t_y = np.linspace(self.t_interp, self.t_interp + Nt * self.dt_ESN/self.upsample, Nt + 1)
         Nt = int(round(len(t) / self.upsample))

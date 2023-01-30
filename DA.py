@@ -19,9 +19,9 @@ def dataAssimilation(ensemble,
                      obs, t_obs,
                      std_obs=0.05,
                      method='EnSRKF'):
+
     ensemble.filt = method
-    dt = ensemble.dt
-    ti = 0  # iterator
+    dt, ti = ensemble.dt, 0
 
     ensemble.printModelParameters()
     if ensemble.bias.name == 'ESN':
@@ -39,14 +39,6 @@ def dataAssimilation(ensemble,
 
     # ----------------------------- FORECAST UNTIL FIRST OBS ----------------------------- ##
     time1 = time.time()
-    # if t_obs[ti] - ensemble.t > 1.:
-    #     t1 = t_obs[ti] - (t_obs[-1] - t_obs[-2])*2
-    #     Nt = int(np.round((t1 - ensemble.t) / dt))
-    #     ensemble = forecastStep(ensemble, Nt, averaged=True, alpha=ensemble.alpha0)
-    #
-    # Nt = int(np.round((t_obs[ti] - ensemble.t) / dt))
-    # ensemble = forecastStep(ensemble, Nt, averaged=False)
-
     if ensemble.start_ensemble_forecast > 0:
         t1 = t_obs[ti] - ensemble.start_ensemble_forecast
         Nt = int(np.round((t1 - ensemble.t) / dt))
@@ -54,15 +46,6 @@ def dataAssimilation(ensemble,
 
     Nt = int(np.round((t_obs[ti] - ensemble.t) / dt))
     ensemble = forecastStep(ensemble, Nt, averaged=False)
-
-
-    # print('dt', dt, 'dtESN', ensemble.bias.upsample * dt, 'dtA', t_obs[1]-t_obs[0])
-
-    # if ensemble.bias.L == 100 and ensemble.std_psi == 0.25:
-    # plt.figure()
-    # plt.plot(ensemble.hist_t, np.mean(ensemble.getObservableHist()[0], -1))
-    # plt.xlim([ensemble.t-0.05, ensemble.t])
-    # plt.show()
 
     print('Elapsed time to first observation: ' + str(time.time() - time1) + ' s')
 
@@ -86,7 +69,6 @@ def dataAssimilation(ensemble,
         # ------------------------------  PERFORM ASSIMILATION ------------------------------ #
         # Analysis step
         Cdd = Cdd_norm * abs(obs[ti])
-        # print(Cdd)
         Aa, J = analysisStep(ensemble, obs[ti], Cdd, method)
 
         # Store cost function
@@ -99,7 +81,8 @@ def dataAssimilation(ensemble,
         # Update bias as d - y^a
         y = ensemble.getObservables()  # TODO: investigate changes using y=y^a and not y=M psi^a
         b = obs[ti] - np.mean(y, -1)
-        ensemble.bias.b = b
+        if ti > 30:
+            ensemble.bias.b = b
         # ensemble.bias.hist[-1] = b
 
         if len(ensemble.hist_t) != len(ensemble.hist):
