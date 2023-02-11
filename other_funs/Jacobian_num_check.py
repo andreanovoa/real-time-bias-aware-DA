@@ -1,8 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import pickle
-from scipy.interpolate import splev, splrep
-from Ensemble import createEnsemble
 import scipy.linalg as la
 
 name = 'results/2022-09-06_Rijke_Wave_Rijke_sqrt'
