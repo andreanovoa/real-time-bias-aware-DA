@@ -198,7 +198,6 @@ def createESNbias(filter_p, model, y_true, t_true, t_obs, name_truth, folder, bi
             pickle.dump(ref_ens, f)
 
     y_ref, lbl = ref_ens.getObservableHist(), ref_ens.obsLabels
-    biasData = np.expand_dims(y_true, -1) - y_ref  # [Nt x Nmic x L]
     t = ref_ens.hist_t
     dt_true = t_true[1] - t_true[0]
 
@@ -206,6 +205,9 @@ def createESNbias(filter_p, model, y_true, t_true, t_obs, name_truth, folder, bi
     # shiftedData = np.append(np.zeros([phase_shift, y_true.shape[1]]), y_true[phase_shift:], axis=0)
     #
     # biasData2 = np.expand_dims(y_true - shiftedData, -1)
+
+    # biasData = np.expand_dims(y_true, -1) - y_ref  # [Nt x Nmic x L]
+    biasData = 1. + .1 * y_ref
     # biasData = np.append(biasData, biasData2, axis=-1)
 
     # plt.plot(y_true[:,0])
@@ -221,8 +223,8 @@ def createESNbias(filter_p, model, y_true, t_true, t_obs, name_truth, folder, bi
 
     if type(filter_p['start_ensemble_forecast']) == int:
         filter_p['start_ensemble_forecast'] = (t_obs[-1] - t_obs[-2]) * filter_p['start_ensemble_forecast']
-
-    i1 = int(np.where(t_true == t_obs[0] - filter_p['start_ensemble_forecast'])[0])
+    tol = 1e-5
+    i1 = int(np.where(abs(t_true - (t_obs[0] - filter_p['start_ensemble_forecast'])) < tol)[0])
     i0 = i1 - bias_p['N_wash'] * bias_p['upsample']
 
     if i0 < 0:

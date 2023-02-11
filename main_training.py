@@ -118,9 +118,8 @@ data = data[:, ::upsample]
 
 #  _____________________________________ DATA AUGMENTATION ___________________________________________________
 if augment_data:
-    l = int(data.shape[0] / 3)
+    l = int(data.shape[0])
     U = np.vstack([data,
-                   data[-l:] * -1e-2,
                    data[:l] * 1e-1,
                    data[-l:] * 1e-3])
 else:

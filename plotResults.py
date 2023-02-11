@@ -213,8 +213,8 @@ def post_process_single(filter_ens, truth, parameters, filename=None):
 
     c = 'lightgray'
     p_ax.plot(t_true, y_true[:, 0], color=c, label='Truth', linewidth=4)
-    zoom_ax.plot(t_true, y_true[:, 0], color=c, label='Truth', linewidth=8)
-    zoomPre_ax.plot(t_true, y_true[:, 0], color=c, label='Truth', linewidth=8)
+    zoom_ax.plot(t_true, y_true[:, 0], color=c, linewidth=8)
+    zoomPre_ax.plot(t_true, y_true[:, 0], color=c,  linewidth=8)
     p_ax.plot((t_obs[0], t_obs[0]), (-1E6, 1E6), '--', color='black', linewidth=.8)
     p_ax.plot((t_obs[-1], t_obs[-1]), (-1E6, 1E6), '--', color='black', linewidth=.8)
     zoomPre_ax.plot((t_obs[0], t_obs[0]), (-1E6, 1E6), '--', color='black', linewidth=.8)
@@ -247,8 +247,8 @@ def post_process_single(filter_ens, truth, parameters, filename=None):
             y_mean_u = np.mean(y_unbiased, -1)
             washidx = int(t_obs[0] / filter_ens.dt)
 
-        p_ax.plot(t, y_mean_u[:, 0], '-', color=c, label='Unbiased filtered signal', linewidth=1.2)
-        zoom_ax.plot(t, y_mean_u[:, 0], '-', color=c, label='Unbiased filtered signal', linewidth=1.5)
+        p_ax.plot(t, y_mean_u[:, 0], '-', color=c, linewidth=1.2)
+        zoom_ax.plot(t, y_mean_u[:, 0], '-', color=c,  linewidth=1.5)
         zoomPre_ax.plot(t[washidx:], y_mean_u[washidx:, 0], '-', color=c, label='Unbiased filtered signal',
                         linewidth=1.5)
 
@@ -257,31 +257,32 @@ def post_process_single(filter_ens, truth, parameters, filename=None):
         b_obs = y_true[:len(y_filter)] - y_filter
 
         b_mean = np.mean(b_obs, -1)
-        bias_ax.plot(t, b_mean[:, 0], '--', color='darkorchid', label='Observable bias')
+        bias_ax.plot(t, b_mean[:, 0], '--', color='darkorchid', label='Bias')
         # std = np.std(b[:, 0, :], axis=1)
         bias_ax.fill_between(t, b_mean[:, 0] + std, b_mean[:, 0] - std, alpha=0.5, color='darkorchid')
 
         # y_lims = [min(b_mean[:, 0]) - np.mean(std), (max(b_mean[:, 0]) + max(std))]
-        bias_ax.legend()
+        bias_ax.legend(bbox_to_anchor=(0., 1.), loc="lower left", ncol=2)
         bias_ax.set(ylabel='Bias', xlabel='$t$')
 
     c = 'lightseagreen'  # '#021bf9'
-    p_ax.plot(t, y_mean[:, 0], '--', color=c, label='Biased filtered signal', linewidth=1.)
-    zoom_ax.plot(t, y_mean[:, 0], '--', color=c, label='Filtered signal', linewidth=1.5, alpha=0.9)
-    zoomPre_ax.plot(t, y_mean[:, 0], '--', color=c, label='Filtered signal', linewidth=1.5, alpha=0.9)
+    p_ax.plot(t, y_mean[:, 0], '--', color=c, linewidth=1.)
+    zoom_ax.plot(t, y_mean[:, 0], '--', color=c,linewidth=1.5, alpha=0.9)
+    zoomPre_ax.plot(t, y_mean[:, 0], '--', color=c, label='Biased filtered signal', linewidth=1.5, alpha=0.9)
     p_ax.fill_between(t, y_mean[:, 0] + std, y_mean[:, 0] - std, alpha=0.2, color=c)
     zoom_ax.fill_between(t, y_mean[:, 0] + std, y_mean[:, 0] - std, alpha=0.2, color=c)
     zoomPre_ax.fill_between(t, y_mean[:, 0] + std, y_mean[:, 0] - std, alpha=0.2, color=c)
 
     p_ax.plot(t_obs, obs[:, 0], '.', color='r', label='Observation data')
-    zoom_ax.plot(t_obs, obs[:, 0], '.', color='r', label='Observation data', markersize=10)
-    zoomPre_ax.plot(t_obs, obs[:, 0], '.', color='r', label='Observation data', markersize=10)
+    zoom_ax.plot(t_obs, obs[:, 0], '.', color='r', markersize=10)
+    zoomPre_ax.plot(t_obs, obs[:, 0], '.', color='r', markersize=10)
 
     # y_lims = [-10, 0]
     y_lims = [min(min(y_true[:, 0]), min(y_mean[:, 0])) * 1.05,
               max(max(y_true[:, 0]), max(y_mean[:, 0])) * 1.05]
     p_ax.set(ylabel="$p'_\mathrm{mic_1}$ [Pa]", xlabel='$t$ [s]', xlim=x_lims, ylim=y_lims)
-    p_ax.legend(bbox_to_anchor=(0., 1.), loc="lower left", ncol=2)
+    p_ax.legend(bbox_to_anchor=(0., 1.), loc="lower left", ncol=1)
+    zoomPre_ax.legend(bbox_to_anchor=(0., 1.), loc="lower left", ncol=1)
 
     # y_lims = [min(min(y_true[:, 0]), min(y_mean[:, 0])) * 1.02,
     #           max(max(y_true[:, 0]), max(y_mean[:, 0])) * 1.02]
