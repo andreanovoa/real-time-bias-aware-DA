@@ -27,15 +27,12 @@ class Bias:
         self.b = b
         self.t = t
 
-
 # =================================================================================================================== #
 
 class NoBias(Bias):
     name = 'None'
     def __init__(self, y, t, Bdict=None):
-        # Initialise bias parent
-        b = np.zeros(len(y))
-        super().__init__(b, t)
+        super().__init__(np.zeros(len(y)), t)
 
     def getBias(self, *args):
         return self.b
@@ -46,67 +43,8 @@ class NoBias(Bias):
     def timeIntegrate(self, t, y=None, t_end=0):
         return np.zeros([len(t), len(self.b)]), t
 
-class LinearBias(Bias):
-    name = 'LinearBias'
-    attrs = dict(b1=[0.2],
-                 b2=[0.5],
-                 k=1.,
-                 dt=1E-4)
-
-    def __init__(self, y, t, Bdict=None):
-        if Bdict is None:
-            Bdict = {}
-
-        for key, val in self.attrs.items():
-            setattr(self, key, val)
-
-        for key, val in Bdict.items():
-            setattr(self, key, val)
-
-        self.q = np.size(y, 0)
-        self.m = np.size(y, 1)
-
-        if len(np.shape(self.b1)) < 2:
-            self.b1 = self.b1 * np.ones(self.m)
-            self.b2 = self.b2 * np.ones(self.m)
-            # self.b1 = self.b1 * np.ones((self.q, self.m))
-            # self.b2 = self.b2 * np.ones((self.q, self.m))
-
-        self.Nw = 2 * self.q
-        # Initialise bias parent
-        b = self.getBias(y)
-
-        super().__init__(b, t)
-
-    def getBias(self, *args):
-        y = args[0]
-        B = self.b1 * y + self.b2
-        return B
-
-    def updateWeights(self, weights):
-        self.b1 = weights[0]
-        self.b2 = weights[1]
-
-    # @property
-    def getWeights(self):
-        return [self.b1, self.b2], ['b1', 'b2']
-
-    def stateDerivative(self, y):
-        dbdy = [self.b1[i] * np.eye(self.q) for i in range(np.size(y, -1))]
-        return np.array(dbdy)
-
-    def timeIntegrate(self, Nt=100, y=None):
-
-        t_b = np.linspace(self.t, self.t + Nt * self.dt, Nt + 1)
-
-        # b = np.zeros((len(t_b), np.size(self.b, 0), np.size(self.b, 1)))
-        b = self.getBias(y)
-
-        return b, t_b[1:]
-
 
 # =================================================================================================================== #
-
 
 class ESN(Bias):
     name = 'ESN'
@@ -123,9 +61,7 @@ class ESN(Bias):
 
     def __init__(self, y, t, Bdict=None):
         if Bdict is None:
-            Bdict = {
-                'folder': 'data/'
-            }
+            Bdict = {'folder': 'data/'}
         else:
             for key, val in self.training_params.items():
                 if key not in Bdict.keys():
@@ -135,18 +71,15 @@ class ESN(Bias):
                     setattr(self, key, Bdict[key])
         # ------------------------ Define bias data filename ------------------------ #
         self.trainESN(Bdict)
-
         # -----------  Initialise reservoir state and its history to zeros ------------ #
         self.r = np.zeros(self.N_units)
         self.hist_r = np.array([self.r])
         self.initialised = False
-
         # --------------------------  Initialise parent Bias  ------------------------- #
         b = np.zeros(self.N_dim)
 
         super().__init__(b, t)
 
-    # @staticmethod
     def trainESN(self, Bdict):
         # --------------------- Train a new ESN if not in folder --------------------- #
         ESN_filename = Bdict['filename'][:-len('bias')] +  \
@@ -175,7 +108,6 @@ class ESN(Bias):
                 if N_wtv > len(bias):
                     N_wtv = len(bias)
                 np.savez(Bdict['filename'], bias[-N_wtv:])
-                title = 'TRAINED ESN PARAMETERS'
             else:
                 Bdict['trainData'] = np.load(Bdict['filename'] + '.npz')['bias']
             # Run training main script
@@ -199,6 +131,7 @@ class ESN(Bias):
                     setattr(self, key, val)
 
         # --------------------- Create washout observed data ---------------------- #
+        # self.N_wash = 1
         self.washout_obs = np.flip(Bdict['washout_obs'][:-self.N_wash * self.upsample:-self.upsample], axis=0)
         if len(self.washout_obs.shape) > 2:
             self.washout_obs = self.washout_obs.squeeze()

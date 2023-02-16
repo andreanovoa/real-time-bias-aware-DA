@@ -22,122 +22,83 @@ from scipy.sparse.linalg import eigs as sparse_eigs
 from scipy.io import savemat
 import time
 
-# % LOAD REQUIRED FUNCTIONS AND ENVIRONMENTS 
+default_params = dict(trainData=None, filename='',
+                      dt=1E-4, upsample=5,
+                      N_wash=50, t_train=1.0, t_val=0.1,
+                      N_units=100, connect=5, noise_level=0.03,
+                      test_run=True, augment_aata=True,
+                      tikh_=np.array([1e-10, 1e-12, 1e-16]),
+                      sigin_=[np.log10(1e-4), np.log10(0.5)],
+                      rho_=[.7, 1.05]
+                      )
+
+inputs = locals().copy()
+
+for key, val in inputs.items():
+    if key in default_params.keys():
+        default_params[key] = val
+
+locals().update(default_params)
+
+
+# % LOAD REQUIRED FUNCTIONS AND ENVIRONMENTS
 exec(open("fns_training.py").read())
 
-##  SET TRAINING PARAMETERS (from input dict) __________________________________________________
-try:
-    data = trainData
-    # np.save('data/test_results_bias', data, allow_pickle=True)
-except:
+# __________________________________________________
+
+if trainData is None:
     filename = 'data/test_results_bias.npy'
-    data = np.load(filename)
-    # data = data['data']
-    # plt.figure()
-    # plt.plot(data[:, 0])
-    # plt.show()
-try:
-    dt = dt  # original signal dt
-except:
-    dt = 1E-4
-    print('Set default value for dt =', dt)
-try:
-    upsample = upsample
-except:
-    upsample = 5
-    print('Set default value for upsample =', upsample)
-try:
-    N_wash = N_wash
-except:
-    N_wash = 50
-    print('Set default value for N_wash =', N_wash)
-try:
-    t_train = t_train
-except:
-    t_train = 1.
-    print('Set default value for t_train =', t_train)
-try:
-    t_val = t_val
-except:
-    t_val = 0.1
-    print('Set default value for t_val =', t_val)
-try:
-    test_run = test_run
-except:
-    test_run = True
-    print('Set default value for test_run =', test_run)
-try:
-    N_units = N_units  # neurones in the reservoir
-except:
-    N_units = 500  # neurones in the reservoir
-    print('Set default value for N_units =', N_units)
-try:
-    augment_data = augment_data  # neurones in the reservoir
-except:
-    augment_data = True  # neurones in the reservoir
-    print('Set default value for augment_data =', augment_data)
-try:
-    connect = connect  # average neuron connections
-except:
-    connect = 5  # average neuron connections
-    print('Set default value for connect =', connect)
-try:
-    noise_level = noise_level  # try increasing if blowing up
-except:
-    noise_level = 0.03  # try increasing if blowing up
+    trainData = np.load(filename)
 
 ESN_filename = filename[:-len('bias')] + 'ESN{}_augment{}.mat'.format(N_units, augment_data)
 
-# Force data to be (Nalpha, Nt, Nmic)
-if len(np.shape(data)) == 1:  # (Nt,)
-    data = np.expand_dims(data, 1)
-    data = np.expand_dims(data, 0)
-elif len(np.shape(data)) == 2:  # (Nt, Nmic)
-    data = np.expand_dims(data, 0)
+# Force trainData to be (Nalpha, Nt, Nmic)
+if len(np.shape(trainData)) == 1:  # (Nt,)
+    trainData = np.expand_dims(trainData, 1)
+    trainData = np.expand_dims(trainData, 0)
+elif len(np.shape(trainData)) == 2:  # (Nt, Nmic)
+    trainData = np.expand_dims(trainData, 0)
 else:
-    if np.argmax(np.shape(data)) == 0:
-        data = data.transpose((2, 0, 1))
+    if np.argmax(np.shape(trainData)) == 0:
+        trainData = trainData.transpose((2, 0, 1))
 
-is_param = data.min(axis=1)[0]-data.max(axis=1)[0] == 0
+is_param = trainData.min(axis=1)[0] - trainData.max(axis=1)[0] == 0
 if any(is_param):
-    alpha = data[:, 0, is_param]
-    data = data[:, :, ~is_param]
+    alpha = trainData[:, 0, is_param]
+    trainData = trainData[:, :, ~is_param]
     norm_alpha = np.mean(0.1 / alpha, axis=0)
 else:
     alpha = []
 
-parametrise = False  # THIS WAS DEFINED BEFORE DATA AUGMENTATION, MAY JUST DELETE THE IMPLEMENTAITON
+parametrise = False  # THIS WAS DEFINED BEFORE trainData AUGMENTATION, MAY JUST DELETE THE IMPLEMENTAITON
 if not parametrise:
     norm_alpha = None
 
-
 #  ____________________________ APPLY UPSAMPLE - CONVERT INTO ESN dt ______________________________________
 dt_ESN = dt * upsample  # ESN time step
-data = data[:, ::upsample]
+trainData = trainData[:, ::upsample]
 
-
-#  _____________________________________ DATA AUGMENTATION ___________________________________________________
+#  _____________________________________ trainData AUGMENTATION ___________________________________________________
 if augment_data:
-    l = int(data.shape[0])
-    U = np.vstack([data,
-                   data[:l] * 1e-1,
-                   data[-l:] * 1e-3])
+    l = int(trainData.shape[0])
+    U = np.vstack([trainData,
+                   trainData[:l] * 1e-1,
+                   trainData[-l:] * -1e-2
+                   ])
 else:
-    U = data
-
-
+    U = trainData
 
 #  _______________________________ SEPARATE INTO WASH/TRAIN/VAL SETS ________________________________________
 N_dim = U.shape[-1]  # dimension of inputs (and outputs)
 N_alpha = U.shape[0]  # number of training timeseries
 N_train = int(t_train / dt_ESN)
-N_val = int(t_val / dt_ESN)  # length of the data used is train+val
+N_val = int(t_val / dt_ESN)  # length of the trainData used is train+val
 N_tv = N_train + N_val
 N_wtv = N_wash + N_tv  # useful for compact code later
 
-U_data = U[:, :N_wtv]
-m = np.mean(U_data.min(axis=1), axis=0)
-M = np.mean(U_data.max(axis=1), axis=0)
+U_trainData = U[:, :N_wtv]
+m = np.mean(U_trainData.min(axis=1), axis=0)
+M = np.mean(U_trainData.max(axis=1), axis=0)
 norm = M - m  # compute norm (normalize inputs by component range)
 
 U_wash = U[:, :N_wash]
@@ -161,26 +122,12 @@ bias_in = np.array([.1])  # input bias
 bias_out = np.array([1.0])  # output bias
 sparse = 1 - connect / (N_units - 1)
 
-# Range for hyperparametera (spectral radius and input scaling)
-try:
-    rho_ = rho_
-except:
-    rho_ = [.7, 1.05]
-try:
-    sigin_ = sigin_
-except:
-    sigin_ = [np.log10(1e-4), np.log10(0.5)]
-try:
-    tikh_ = tikh_  # Tikhonov
-except:
-    tikh_ = np.array([1e-10, 1e-12, 1e-16])  # Tikhonov
-
 # _________________________________ GRID SEARCH AND BAYESIAN OPTIMISATION PARAMS ____________________________________
-n_tot = 30  # Total Number of Function Evaluations
-n_in = 4  # Number of Initial random points
+n_tot = 20  # Total Number of Function Evaluations
+n_in = 0  # Number of Initial random points
 
 # The first n_grid^2 points are from grid search. If n_grid**2 < n_tot, perform Bayesian Optimization
-n_grid = 5
+n_grid = 4
 if n_grid > 0:
     x1 = [[None] * 2 for i in range(n_grid ** 2)]
     k = 0
@@ -200,6 +147,7 @@ kernell = ConstantKernel(constant_value=1.0, constant_value_bounds=(1e-1, 3e0)) 
 
 print('\n -------------------- HYPERPARAMETER SEARCH ---------------------\n', str(n_grid) + 'x' + str(n_grid) +
       ' grid points and ' + str(n_tot - n_grid ** 2) + ' points with Bayesian Optimization')
+
 
 # _____________________________________ HYPERPARAMS OPTIMISATION FUN _____________________________________
 def g(val):
@@ -232,15 +180,14 @@ except:
     N_fo = 4  # number of folds
 
 N_in = 0  # interval before the first fold
-N_fw = (N_train-N_val)//(N_fo-1)  # num steps forward the validation interval is shifted (evenly spaced)
+N_fw = (N_train - N_val) // (N_fo - 1)  # num steps forward the validation interval is shifted (evenly spaced)
 
 # Quantities to be saved
 tikh_opt = np.zeros(n_tot)  # optimal tikhonov
 
 gps = [None]  # save the gp reconstruction for each network
 
-k = 0
-seed = 1
+k, seed = 0, 1
 rnd = np.random.RandomState(seed)
 
 # ======================================= Win & W generation ======================================= ##
@@ -252,7 +199,7 @@ for j in range(N_units):
     Win[j, rnd.randint(0, N_dim + 1)] = rnd.uniform(-1, 1)
 Win = Win.tocsr()
 
-W = csr_matrix( rnd.uniform(-1, 1, (N_units, N_units)) * (rnd.rand(N_units, N_units) < (1 - sparse)))
+W = csr_matrix(rnd.uniform(-1, 1, (N_units, N_units)) * (rnd.rand(N_units, N_units) < (1 - sparse)))
 spectral_radius = np.abs(sparse_eigs(W, k=1, which='LM', return_eigenvectors=False))[0]
 W = (1 / spectral_radius) * W  # scaled to have unitary spec radius
 
@@ -267,16 +214,14 @@ key = sorted(params)
 params_gp = np.array([params[key[2]], params[key[5]][0], params[key[5]][1], gp.noise_])
 
 # =========================================  Train Wout =========================================== ##
-Wout = train_save_n(U_wash, U_tv, U[:, N_wash + 1:N_wtv], minimum[2], 10**minimum[1], minimum[0])
+Wout = train_save_n(U_wash, U_tv, U[:, N_wash + 1:N_wtv], minimum[2], 10 ** minimum[1], minimum[0])
 if len(Wout.shape) == 1:
     Wout = np.expand_dims(Wout, axis=1)
-
 
 print('\n Time per hyperparameter eval.:', (time.time() - ti) / n_tot,
       '\n Best Results: x', minimum[0], 10 ** minimum[1], minimum[2], ', f', -minimum[-1])
 
-
-pdf = plt_pdf.PdfPages(ESN_filename[:-len('.mat')] +'_Training.pdf')
+pdf = plt_pdf.PdfPages(ESN_filename[:-len('.mat')] + '_Training.pdf')
 
 fig = plt.figure()
 plot_convergence(res)
@@ -284,7 +229,7 @@ pdf.savefig(fig)
 plt.close(fig)
 
 # %%
-# ____________________________________ OUTPUTS: PLOT SEARCH AND SAVE DATA ____________________________________
+# ____________________________________ OUTPUTS: PLOT SEARCH AND SAVE trainData ____________________________________
 # Plot Gaussian Process reconstruction for each network in the ensemble after n_tot evaluations.
 # The GP reconstruction is based on the n_tot function evaluations decided in the search
 n_len = 100  # points to evaluate the GP at
@@ -315,34 +260,41 @@ plt.plot(x_iters[n_grid ** 2:, 0], x_iters[n_grid ** 2:, 1], 's', c='w',
 pdf.savefig(fig)
 plt.close(fig)
 
-
-print(data.shape)
-fig, ax = plt.subplots(min(3, int(data.shape[0]/2)), 2, layout="constrained")
-ax = ax.flatten()
-for ii, ax_ in enumerate(ax):
-    ax_.plot(U[ii, N_wash:N_wtv - 1], label='Data')
-    # ax_.plot(U_tv[ii], 'k', label='Noisy data')
-    ax_.set(title='l = {}/{}'.format(ii, data.shape[0]))
+if trainData.shape[0] > 1:
+    rows, cols = min(3, int(trainData.shape[0] / 2)), 2
+else:
+    rows, cols = 1, 1
+fig, ax = plt.subplots(3, 2, layout="constrained", figsize=[10, 5])
+try:
+    ax = ax.flatten()
+except:
+    ax = [ax]
+finally:
+    for ii, ax_ in enumerate(ax):
+        try:
+            ax_.plot(U[ii, N_wash:N_wtv - 1], label='trainData')
+            ax_.set(title='l = {}/{}'.format(ii, trainData.shape[0]))
+        except:
+            break
 
 pdf.savefig(fig)
-# plt.show()
 plt.close(fig)
 # ______________________________________________ RUN TEST _____________________________________________________
 if test_run:
     # Select number of tests
-    N_t0 = N_wtv + 10  # start test after washout, training and validation data
+    N_t0 = N_wtv + 10  # start test after washout, training and validation trainData
     max_test_time = np.shape(U[:, N_t0:])[1] * dt_ESN
     N_test = 50
     if N_test * t_val > max_test_time:
         N_test = int(np.floor(max_test_time / t_val))
-    # Break if not enough data for testing
+    # Break if not enough trainData for testing
     if N_test < 1:
-        print('Test not performed. Not enough data')
+        print('Test not performed. Not enough trainData')
     else:
         medians_alpha = []
         maxs_alpha = []
         alph = None
-        sub_loop = 5  # number of closed loop re-initialisations with true data
+        sub_loop = 5  # number of closed loop re-initialisations with true trainData
         N_reinit = N_val // sub_loop  # time between closed loop re-initialisations
 
         # load matrices and hyperparameters
@@ -352,20 +304,17 @@ if test_run:
             if norm_alpha is not None:
                 alph = alpha[kk]
             subplots = min(10, N_test)  # number of plotted intervals
-            plt.rcParams["figure.figsize"] = (10, subplots * 2)
-            plt.subplots(subplots, 1)
-
+            # plt.figure(figsize=[5, 10], tight_layout=True)
+            plt.subplots(subplots, 1, figsize=[10, 20])
             errors = np.zeros(N_test)
             # Different intervals in the test set
-            i = -1
-            ii = -1
-            # for i in range(N_test):
+            i, ii = -1, -1
             while True:
                 i += 1
                 ii += 1
                 if i >= N_test:
                     break
-                # data for washout and target in each interval
+                # trainData for washout and target in each interval
                 U_wash = U[kk, N_t0 - N_wash + i * N_val: N_t0 + i * N_val]
                 Y_t = U[kk, N_t0 + i * N_val: N_t0 + i * N_val + N_reinit * sub_loop]
                 # washout for each interval
@@ -426,15 +375,10 @@ save_dict = dict(t_train=t_train,
 if norm_alpha is not None:
     save_dict['norm_alpha'] = norm_alpha
 
-
-
 savemat(ESN_filename, save_dict, oned_as='column')
 
-
 pdf.close()
-
 
 print('\n --------------------------------------------------------------- \n')
 
 # %% ====================================================================== %%#
-

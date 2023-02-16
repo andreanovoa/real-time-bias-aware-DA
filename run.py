@@ -22,7 +22,8 @@ def main(filter_ens, truth, filter_p,
         print('created dir', figs_folder)
 
     # ===============================  PERFORM DATA ASSIMILATION =============================== #
-    filter_ens = dataAssimilation(filter_ens, truth['p_obs'], truth['t_obs'], method=filter_p['filt'])
+    filter_ens = dataAssimilation(filter_ens, truth['p_obs'], truth['t_obs'],
+                                  std_obs=truth['std_obs'], method=filter_p['filt'])
 
     # Integrate further without assimilation as ensemble mean (if truth very long, integrate only .2s more)
     Nt_extra = 0
@@ -62,7 +63,7 @@ def createEnsemble(true_p, forecast_p, filter_p, bias_p, folder="results", folde
         print('created dir', folder + 'figs/')
 
     if folderESN is None:
-        folderESN = folder.copy()
+        folderESN = folder
 
     if os.path.isfile(folder + filename):
         with open(folder + filename, 'rb') as f:
@@ -107,23 +108,21 @@ def createEnsemble(true_p, forecast_p, filter_p, bias_p, folder="results", folde
     y_true, t_true, name_truth = createObservations(true_p)
 
     b_true = np.zeros(1)
-    if 'manual_bias' in true_p.keys() and true_p['manual_bias']:
-        # Time dependent bias ------------------
-        # b_true = .5 * y_true * np.cos(np.expand_dims(t_true, -1)*np.pi/2)
-        # name_truth += '_timefuncBias'
-        # Nonlinear bias ------------------
-        # b_true = np.cos(y_true)
-        # name_truth += '_cosBias'
-        # Linear bias ------------------
-        b_true = 1. + .1 * y_true
-        name_truth += '_linearBias'
-
-        # plt.plot(y_true[:, 0] + b_true[:, 0])
-        # plt.plot(y_true[:, 0])
-        # plt.show()
+    if 'manual_bias' in true_p.keys():
+        if true_p['manual_bias'] == 'time_func':
+            # Time dependent bias ------------------
+            b_true = .5 * y_true * np.cos(np.expand_dims(t_true, -1)*np.pi/2)
+            name_truth += '_timefuncBias'
+        elif true_p['manual_bias'] == 'cosine':
+            # Nonlinear bias ------------------
+            b_true = np.cos(y_true)
+            name_truth += '_cosBias'
+        elif true_p['manual_bias'] == 'linear':
+            # Linear bias ------------------
+            b_true = 2. + .3 * y_true
+            name_truth += '_linearBias'
 
         y_true += b_true
-
 
     dt_t = t_true[1] - t_true[0]
     obs_idx = np.arange(round(filter_p['t_start'] / dt_t), round(filter_p['t_stop'] / dt_t) + 1, filter_p['kmeas'])
@@ -131,15 +130,14 @@ def createEnsemble(true_p, forecast_p, filter_p, bias_p, folder="results", folde
     t_obs = t_true[obs_idx]
 
     q = np.shape(y_true)[1]
-    if 'std_obs' in true_p.keys():
-        Cdd = np.eye(q) * true_p['std_obs'] ** 2
-    else:
-        Cdd = np.eye(q) * 0.01 ** 2
+    if 'std_obs' not in true_p.keys():
+        true_p['std_obs'] = 0.01
+    Cdd = np.eye(q) * true_p['std_obs'] ** 2
 
     obs = y_true[obs_idx] * (1. + rng.multivariate_normal(np.zeros(q), Cdd, len(obs_idx)))
 
     truth = dict(y=y_true, t=t_true, name=name_truth, t_obs=t_obs, p_obs=obs, b_true=b_true,
-                 true_params=true_p, model=true_p['model'])
+                 true_params=true_p, model=true_p['model'], std_obs=true_p['std_obs'])
 
     # %% =====================================  DEFINE BIAS ======================================== #
     forecast_model = forecast_p['model']
@@ -147,10 +145,7 @@ def createEnsemble(true_p, forecast_p, filter_p, bias_p, folder="results", folde
         if filter_p['biasType'].name == 'ESN':
             b_args = (filter_p, forecast_model, truth['y'],
                       truth['t'], truth['t_obs'], truth['name'], folderESN)
-            if 'L' in bias_p.keys():
-                filter_p['Bdict'] = createESNbias(*b_args, L=bias_p['L'], bias_param=bias_p)
-            else:
-                filter_p['Bdict'] = createESNbias(*b_args, bias_param=bias_p)
+            filter_p['Bdict'] = createESNbias(*b_args, bias_param=bias_p)
         else:
             raise ValueError('Bias model not defined')
     else:
@@ -161,17 +156,23 @@ def createEnsemble(true_p, forecast_p, filter_p, bias_p, folder="results", folde
         pickle.dump(ensemble, f)
         pickle.dump(truth, f)
         pickle.dump(b_args, f)
-
     return ensemble, truth, b_args
 
 
 # ====================================================================================================
-def createESNbias(filter_p, model, y_true, t_true, t_obs, name_truth, folder, bias_param=None, L=10):
+def createESNbias(filter_p, model, y_true, t_true, t_obs, name_truth, folder, bias_param=None):
+    if bias_param is None:
+        raise ValueError('Provide bias parameters dictionary')
+
+    if 'L' not in bias_param.keys():
+        bias_param['L'] = 10
+
     bias_p = bias_param.copy()
     train_params = bias_p['train_params'].copy()
-    train_params['m'] = L
+    train_params['m'] = bias_p['L']
     # Compute reference bias. Create an ensemble of training data
     ref_ens = model(train_params, train_params)
+
     try:
         name_train = folder + 'Truth_{}_{}'.format(ref_ens.name, ref_ens.law)
     except:
@@ -180,7 +181,6 @@ def createESNbias(filter_p, model, y_true, t_true, t_obs, name_truth, folder, bi
         name_train += '_{}{}'.format(k, getattr(ref_ens, k))
     name_train += '_std{:.2}_m{}_{}'.format(ref_ens.std_a, ref_ens.m, ref_ens.alpha_distr)
     # Load or create refeence ensemble (multi-parameter solution)
-    # print(name_train)
     rerun = True
     if os.path.isfile(name_train):
         with open(name_train, 'rb') as f:
@@ -201,30 +201,28 @@ def createESNbias(filter_p, model, y_true, t_true, t_obs, name_truth, folder, bi
     t = ref_ens.hist_t
     dt_true = t_true[1] - t_true[0]
 
+    biasData = np.expand_dims(y_true, -1) - y_ref   # [Nt x Nmic x L]
+
     # phase_shift = 100
     # shiftedData = np.append(np.zeros([phase_shift, y_true.shape[1]]), y_true[phase_shift:], axis=0)
-    #
     # biasData2 = np.expand_dims(y_true - shiftedData, -1)
-
-    # biasData = np.expand_dims(y_true, -1) - y_ref  # [Nt x Nmic x L]
-    biasData = 1. + .1 * y_ref
+    # biasData2 = 2 * np.sin(y_ref/2.)   # [Nt x Nmic x L]
+    # biasData2 = 1. + .1 * y_ref
     # biasData = np.append(biasData, biasData2, axis=-1)
-
-    # plt.plot(y_true[:,0])
-    # plt.plot(y_true[:,0] - y_true[:,0] *.8 )
-    # plt.plot(y_true[:,0]*.2)
-    # plt.show()
-
     # biasData3 = np.expand_dims(np.expand_dims(np.sin(2*np.pi*t), -1) * 0.2*np.max(y_true, axis=0, keepdims=True), -1)
     # biasData = np.concatenate([biasData, biasData2, biasData3], axis=-1)
     # biasData = np.append(biasData, ref_ens.hist[:, -len(ref_ens.est_p):], axis=1)
 
     # provide data for washout before first observation
+    if 'start_ensemble_forecast' not in filter_p.keys():
+        filter_p['start_ensemble_forecast'] = 2
 
-    if type(filter_p['start_ensemble_forecast']) == int:
-        filter_p['start_ensemble_forecast'] = (t_obs[-1] - t_obs[-2]) * filter_p['start_ensemble_forecast']
     tol = 1e-5
-    i1 = int(np.where(abs(t_true - (t_obs[0] - filter_p['start_ensemble_forecast'])) < tol)[0])
+    if type(filter_p['start_ensemble_forecast']) == int:
+        i1 = int(np.where(abs(t_true - (t_obs[0] - (t_obs[-1] - t_obs[-2]) * filter_p['start_ensemble_forecast'])) < tol)[0])
+    else:
+        i1 = int(np.where(abs(t_true - (t_obs[0] - filter_p['start_ensemble_forecast'])) < tol)[0])
+
     i0 = i1 - bias_p['N_wash'] * bias_p['upsample']
 
     if i0 < 0:
@@ -240,14 +238,14 @@ def createESNbias(filter_p, model, y_true, t_true, t_obs, name_truth, folder, bi
     bias_p['washout_obs'] = y_true[i0:i1 + 1]
     bias_p['washout_t'] = t_true[i0:i1 + 1]
     bias_p['filename'] = folder + name_truth + '_' + name_train.split('Truth_')[-1] + '_bias'
-    bias_p['L'] = L
+
     # Plot training data -------------------------------------
     fig, ax = plt.subplots(1, 3, figsize=(15, 3.5), layout='constrained')
     norm = mpl.colors.Normalize(vmin=-5, vmax=y_ref.shape[-1])
     cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.magma)
     fig.suptitle('Training data')
     ax[0].plot(t_true, y_true, color='silver', linewidth=6, alpha=.8)
-    Nt = int(t_true[-1] / 4 // dt_true)
+    Nt = int(ref_ens.t_CR/ dt_true)
 
     for ii in range(y_ref.shape[-1]):
         C, R = CR(y_true[-Nt:], y_ref[-Nt:, :, ii])
@@ -255,7 +253,7 @@ def createESNbias(filter_p, model, y_true, t_true, t_obs, name_truth, folder, bi
         ax[1].plot(ii, C, 'o', color=cmap.to_rgba(ii))
         ax[2].plot(ii, R, 'x', color=cmap.to_rgba(ii))
     ax[0].legend(['Truth'], bbox_to_anchor=(0., 1.25), loc="upper left")
-    ax[0].set(xlabel='$t$', ylabel=lbl, xlim=[t_true[i0], t_true[i0] + ref_ens.t_CR*2])
+    ax[0].set(xlabel='$t$', ylabel=lbl, xlim=[t_true[i0], t_true[i0] + ref_ens.t_CR/5])
     ax[1].set(xlabel='$l$', ylabel='Correlation')
     ax[2].set(xlabel='$l$', ylabel='RMS error')
     ax[0].plot(t_true, y_true, color='silver', linewidth=6, alpha=.8)

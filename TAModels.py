@@ -27,12 +27,12 @@ class Model:
         properties and methods definitions.
     """
     attr_parent: dict = dict(dt=1E-4, t=0.,
-                             t_transient=1., t_CR=0.2,
+                             t_transient=2., t_CR=0.2,
                              psi0=np.empty(1), ensemble=False)
 
     attr_ens: dict = dict(m=10, est_p=[], est_s=True, est_b=False,
                           biasType=Bias.NoBias, inflation=1.01,
-                          std_psi=0.1, std_a=0.001, alpha_distr='normal',
+                          std_psi=0.001, std_a=0.001, alpha_distr='normal',
                           num_DA_blind=0, num_SE_only=0,
                           start_ensemble_forecast=0.)
 
@@ -98,10 +98,7 @@ class Model:
         elif method == 'uniform':
             ens_aug = np.zeros((len(y_mean), m))
             for ii, pp in enumerate(y_mean):
-                if pp > 0:
-                    ens_aug[ii, :] = rng.uniform(pp * (1. - y_std), pp * (1. + y_std), m)
-                else:
-                    ens_aug[ii, :] = rng.uniform(pp * (1. + y_std), pp * (1. - y_std), m)
+                ens_aug[ii, :] = pp * (1. + rng.uniform(-y_std, y_std, m))
             return ens_aug
         else:
             raise 'Parameter distribution not recognised'
@@ -113,7 +110,6 @@ class Model:
 
     def initEnsemble(self, DAdict):
         DAdict = DAdict.copy()
-
         self.ensemble = True
         for key, val in Model.attr_ens.items():
             if key in DAdict.keys():
@@ -124,28 +120,27 @@ class Model:
         # ----------------------- DEFINE STATE MATRIX ----------------------- ##
         # Note: if est_p and est_b psi = [psi; alpha; biasWeights]
         # if self.m > 1:
-        if True:
-            mean = np.array(self.psi0)  # * rng.uniform(0.9, 1.1, len(self.psi0))
-            # self.psi = self.addUncertainty(mean, self.std_psi, self.m, method=self.alpha_distr)
-            cov = np.diag((self.std_psi ** 2 * abs(mean)))
-            self.psi = rng.multivariate_normal(mean, cov, self.m).T
+            # if True:
+        mean_psi = np.array(self.psi0)  # * rng.uniform(0.9, 1.1, len(self.psi0))
+        # self.psi = self.addUncertainty(mean, self.std_psi, self.m, method=self.alpha_distr)
+        cov = np.diag((self.std_psi ** 2 * abs(mean_psi)))
+        self.psi = rng.multivariate_normal(mean_psi, cov, self.m).T
+        if 'ensure_mean' in DAdict.keys() and DAdict['ensure_mean']:
+            print(self.psi.shape)
+            print('chiky')
+            self.psi[:, 0] = np.array(self.psi0)
+            print(self.psi.shape)
 
-            # print('psi', self.psi0, self.psi)
-            if len(self.est_p) > 0:  # Augment ensemble with estimated parameters
-                self.Na = len(self.est_p)
-                self.N += self.Na
-                mean = np.array([getattr(self, p) for p in self.est_p])  # * rng.uniform(0.9, 1.1, len(self.psi0))
-                ens_a = self.addUncertainty(mean, self.std_a, self.m, method=self.alpha_distr)
-                self.psi = np.vstack((self.psi, ens_a))
+        if len(self.est_p) > 0:  # Augment ensemble with estimated parameters
+            self.Na = len(self.est_p)
+            self.N += self.Na
+            mean_a = np.array([getattr(self, pp) for pp in self.est_p])  # * rng.uniform(0.9, 1.1, len(self.psi0))
+            ens_a = self.addUncertainty(mean_a, self.std_a, self.m, method=self.alpha_distr)
 
+            if 'ensure_mean' in DAdict.keys() and DAdict['ensure_mean']:
+                ens_a[:, 0] = mean_a
 
-        # else:
-        #     self.psi = np.array(self.psi0)
-        #     self.psi = np.expand_dims(self.psi, 1)
-        #     if len(self.est_p) > 0:
-        #         self.Na = len(self.est_p)
-        #         self.N += self.Na
-        #         self.psi = np.append(self.psi, np.array([getattr(self, pp) for pp in self.est_p]))
+            self.psi = np.vstack((self.psi, ens_a))
 
         # ------------------------ INITIALISE BIAS ------------------------ ##
         if 'Bdict' not in DAdict.keys():
@@ -264,8 +259,8 @@ class VdP(Model):
 
     name: str = 'VdP'
     attr_child: dict = dict(omega=2 * np.pi * 120., law='tan',
-                            zeta=60., beta=70., kappa=3.4, gamma=1.7)  # beta, zeta [rad/s]
-    params: list = ['omega', 'zeta', 'kappa', 'beta']  # ,'omega', 'gamma']
+                            zeta=60., beta=70., kappa=4.0, gamma=1.7)  # beta, zeta [rad/s]
+    params: list = ['zeta', 'kappa', 'beta']  # ,'omega', 'gamma']
 
     # __________________________ Init method ___________________________ #
     def __init__(self, TAdict=None, DAdict=None):
@@ -283,7 +278,7 @@ class VdP(Model):
             self.initEnsemble(DAdict)
 
         # set limits for the parameters
-        self.param_lims = dict(omega=(0, None), zeta=(20, 120), kappa=(0.1, 10.),
+        self.param_lims = dict(zeta=(20, 120), kappa=(0.1, 10.),
                                gamma=(None, None), beta=(20, 120))
 
     # _______________ VdP specific properties and methods ________________ #
@@ -301,7 +296,8 @@ class VdP(Model):
     def govEqnDict(self):
         d = dict(law=self.law,
                  N=self.N,
-                 Na=self.Na
+                 Na=self.Na,
+                 omega=self.omega
                  )
         if d['Na'] > 0:
             d['est_p'] = self.est_p
@@ -310,7 +306,7 @@ class VdP(Model):
     @staticmethod
     def timeDerivative(t, psi, P, A):
         eta, mu = psi[:2]
-        dmu_dt = - A['omega'] ** 2 * eta + mu * (A['beta'] - A['zeta'])
+        dmu_dt = - P['omega'] ** 2 * eta + mu * (A['beta'] - A['zeta'])
         # Add nonlinear term
         if P['law'] == 'cubic':  # Cubic law
             dmu_dt -= mu * A['kappa'] * eta ** 2
@@ -520,7 +516,6 @@ class Lorenz63(Model):
     attr_child: dict = dict(rho=28., sigma=10., beta=8. / 3.)
     # attr_child: dict = dict(rho=20., sigma=10., beta=1.8)
 
-
     params: list = ['rho', 'sigma', 'beta']
 
     # __________________________ Init method ___________________________ #
@@ -531,9 +526,9 @@ class Lorenz63(Model):
 
         super().__init__(TAdict)
 
-        self.t_transient = 0.#200.
+        self.t_transient = 0.
         self.dt = 0.01
-        self.t_CR = 2.
+        self.t_CR = 5.
 
         if 'psi0' not in TAdict.keys():
             self.psi0 = [1.0, 1.0, 1.0]  # initialise x, y, z
@@ -571,7 +566,6 @@ class Lorenz63(Model):
         dx2 = x1 * (alpha['rho'] - x3) - x2
         dx3 = x1 * x2 - alpha['beta'] * x3
         return (dx1, dx2, dx3) + (0,) * params['Na']
-
 
 
 if __name__ == '__main__':

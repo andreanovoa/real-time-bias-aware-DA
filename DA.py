@@ -79,11 +79,11 @@ def dataAssimilation(ensemble,
         ensemble.hist[-1] = Aa
 
         # Update bias as d - y^a
-        y = ensemble.getObservables()  # TODO: investigate changes using y=y^a and not y=M psi^a
-        b = obs[ti] - np.mean(y, -1)
-        if ti > 30:
-            ensemble.bias.b = b
-        # ensemble.bias.hist[-1] = b
+        # if ti > -20:
+        y = ensemble.getObservables()
+        ba = obs[ti] - np.mean(y, -1)
+        ensemble.bias.b = ba
+        # ensemble.bias.hist[-1] = ba
 
         if len(ensemble.hist_t) != len(ensemble.hist):
             raise Exception('something went wrong')
@@ -176,7 +176,6 @@ def analysisStep(case, d, Cdd, filt='EnSRKF'):
 
         if case.activate_bias_aware:
             Aa, J = EnKFbias(Af, d, Cdd, Cbb, k, M, b, db)
-            # print('Activated bias-aware')
         else:
             Aa, J = EnKF(Af, d, Cdd, M)
 
@@ -209,7 +208,7 @@ def analysisStep(case, d, Cdd, filt='EnSRKF'):
             if not isphysical:
                 Aa = inflateEnsemble(Af, 1.05)
                 if not checkParams(Aa, case):
-                    print('booooo')
+                    print('bo', end="")
                     Aa = Af.copy()
                 J = np.array([None] * 4)
                 return Aa[:-np.size(y, 0), :], J
@@ -374,9 +373,7 @@ def EnKFbias(Af, d, Cdd, Cbb, k, M, b, dbdy):
     # Mean and deviations of the ensemble
     Psi_f = Af - np.mean(Af, 1, keepdims=True)
     S = np.dot(M, Psi_f)
-    Y = np.dot(M, Af)
-
-
+    Q = np.dot(M, Af)
 
     # Create an ensemble of observations
     D = rng.multivariate_normal(d, Cdd, m).transpose()
@@ -384,6 +381,7 @@ def EnKFbias(Af, d, Cdd, Cbb, k, M, b, dbdy):
     # D = np.repeat(np.expand_dims(d, 1), m, axis=1)
     B = np.repeat(np.expand_dims(b, 1), m, axis=1)
 
+    Y = Q + B
 
     if np.array_equiv(Cdd, Cbb):
         Cqq = np.dot(S, S.T)
@@ -391,8 +389,6 @@ def EnKFbias(Af, d, Cdd, Cbb, k, M, b, dbdy):
         K = np.dot(np.dot(Psi_f, S.T), Cinv)
         Aa = Af + np.dot(K, np.dot(Iq+dbdy, D-Y) - k*np.dot(dbdy, B))
     else:
-
-
         # Inverse of covariance
         Wbb = k * linalg.pinv(Cbb)
         Wdd = linalg.pinv(Cdd)
@@ -405,31 +401,23 @@ def EnKFbias(Af, d, Cdd, Cbb, k, M, b, dbdy):
         Aa = Af + np.dot(K, np.dot(C, Q) - np.dot(M, Af))
 
 
-
-    # Inverse of covariance
-
-
-
-
     J = np.array([None] * 4)
     if np.isreal(Aa).all():
-        Ya = Aa[-len(d):]
+        ba = b + np.dot(dbdy, np.dot(M, np.mean(Aa, -1)) - np.mean(Q, -1))
+        Ya = np.dot(M, Aa) + ba
         Wdd = linalg.inv(Cdd)
-        Cpp = np.dot(Psi_f, Psi_f.T)
-        Wpp = linalg.pinv(Cpp)
-        Wbb = linalg.pinv(Cbb)
+        Wpp = linalg.pinv(np.dot(Psi_f, Psi_f.T))
+        Wbb = k * linalg.pinv(Cbb)
 
         J[0] = np.dot(np.mean(Af - Aa, -1).T, np.dot(Wpp, np.mean(Af - Aa, -1)))
         J[1] = np.dot(np.mean(np.expand_dims(d, -1) - Ya, -1).T, np.dot(Wdd, np.mean(np.expand_dims(d, -1) - Ya, -1)))
-
-        # J[2] = k * np.dot(np.mean(b, -1).T, np.dot(Wbb, np.mean(b, -1)))
-        J[2] = k * np.dot(b.T, np.dot(Wbb, b))
+        J[2] = np.dot(ba.T, np.dot(Wbb, ba))
 
         dbdpsi = np.dot(M.T, dbdy.T)
         dydpsi = dbdpsi + M.T
-        ba = np.expand_dims(b, 1) + np.dot(dbdy, Ya - Y)
 
-        dJdpsi = np.dot(Wpp, Af - Aa) + np.dot(dydpsi, np.dot(Wdd, Ya + ba - D)) + np.dot(dbdpsi, np.dot(Wbb, ba))
+        Ba = np.repeat(np.expand_dims(ba, 1), m, axis=1)
+        dJdpsi = np.dot(Wpp, Af - Aa) + np.dot(dydpsi, np.dot(Wdd, Ya - D)) + np.dot(dbdpsi, np.dot(Wbb, Ba))
         J[3] = abs(np.mean(dJdpsi) / 2.)
 
         return Aa, J

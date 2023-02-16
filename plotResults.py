@@ -115,8 +115,8 @@ def post_process_single_SE_Zooms(filter_ens, truth, filename=None, figs_folder=N
 
     zoomPre_ax.legend(bbox_to_anchor=(0., 1.), loc="lower left", ncol=2)
     zoom_ax.legend(bbox_to_anchor=(0., 1.), loc="lower left", ncol=2)
-    y_lims = [min(y_mean[:, 0]) * 1.2,
-              max(y_mean[:, 0]) * 1.2]
+    y_lims = [min(min(y_mean[:, 0]), min(y_true[:, 0])) * 1.2,
+              max(max(y_mean[:, 0]), max(y_true[:, 0])) * 1.2]
     # y_lims = [-7.5, 9.5]
     zoom_ax.set(ylabel="$\\eta$", xlabel='$t$ [s]', xlim=[t_obs[-1] - 0.03, t_obs[-1] + 0.02], ylim=y_lims)
     zoomPre_ax.set(ylabel="$\\eta$", xlabel='$t$ [s]', xlim=[t_obs[0] - 0.03, t_obs[0] + 0.02], ylim=y_lims)
@@ -158,12 +158,9 @@ def post_process_single_SE_Zooms(filter_ens, truth, filename=None, figs_folder=N
         params_ax.plot(t[1:], t[1:] / t[1:], '-', color='k', linewidth=.5)
         params_ax.set(ylim=[min_p - 0.1, max_p + 0.1])
 
-    # plt.show()
     if filename is not None:
         plt.savefig(filename + '.svg', dpi=350)
         plt.savefig(filename + '.pdf', dpi=350)
-    else:
-        plt.show()
 
 
 def post_process_single(filter_ens, truth, parameters, filename=None):
@@ -379,8 +376,8 @@ def post_process_multiple(folder, filename=None):
         if file.find('_k') == -1:
             continue
         k = float(file.split('_k')[-1])
-        if k > 10: # uncomment these lines to avoid ploting values over 20
-            continue
+        # if k > 10: # uncomment these lines to avoid ploting values over 20
+        #     continue
         with open(folder + file, 'rb') as f:
             parameters = pickle.load(f)
             truth = pickle.load(f)
@@ -649,20 +646,24 @@ def fig2(folder, Ls, stds, figs_folder):
     plt.savefig(figs_folder + 'Fig2_results_all_small.svg', dpi=350)
 
 
-def barPlot(k0_U, k0_B, k10_U, k10_B, Ct, Rt, Cpre, Rpre, figs_folder):
+# def barPlot(k0_U, k0_B, k10_U, k10_B, Ct, Rt, Cpre, Rpre, ks, figs_folder):
+def barPlot(dataCR, Ct, Rt, Cpre, Rpre, ks, figs_folder):
     # =========================================================================================================
     barWidth = 0.1
-    br1 = np.arange(len(k0_U))
-    br2 = [x + barWidth for x in br1]
-    br3 = [x + barWidth for x in br2]
-    br4 = [x + barWidth for x in br3]
+
+    bars = [np.arange(len(dataCR[0]))]
+    for _ in range(len(dataCR[0])):
+        bars.append([x + barWidth for x in bars[-1]])
 
     cols = ['b', 'c', 'r', 'coral']
-    labels = ['$\\gamma = 0$, Unbiased', '$\\gamma = 0$, Biased',
-              '$\\gamma = 10$, Unbiased', '$\\gamma = 10$, Biased']
+    labels = []
+    for kk in ks:
+        labels.append('$\\gamma = {}$, Unbiased'.format(kk))
+        labels.append('$\\gamma = {}$, Biased'.format(kk))
+
 
     fig, ax = plt.subplots(1, 2, figsize=(15, 4), layout="constrained")
-    for data, br, c, lb in zip([k0_U, k0_B, k10_U, k10_B], [br1, br2, br3, br4], cols, labels):
+    for data, br, c, lb in zip(dataCR, bars, cols, labels):
         C = np.array([x[0] for x in data]).squeeze()
         R = np.array([x[1] for x in data]).squeeze()
         ax[0].bar(br, C, color=c, width=barWidth, edgecolor='k', label=lb)
@@ -671,8 +672,9 @@ def barPlot(k0_U, k0_B, k10_U, k10_B, Ct, Rt, Cpre, Rpre, figs_folder):
     for axi, cr in zip(ax, [(Ct, Cpre), (Rt, Rpre)]):
         axi.axhline(y=cr[0], color='lightgray', linewidth=4, label='Truth')
         axi.axhline(y=cr[1], color='k', linewidth=2, label='Pre-DA')
-        axi.set_xticks([r + barWidth for r in range(len(k0_U))],
+        axi.set_xticks([r + barWidth for r in range(len(data))],
                        ['$L=1$', '$L=1$ + data augmentation', '$L=10$ + data augmentation'])
+
     ax[0].set(ylabel='Correlation', ylim=[.85, 1.02])
     ax[1].set(ylabel='RMS error', ylim=[0, 1])
     axi.legend(bbox_to_anchor=(1., 1.), loc="upper left")
@@ -684,11 +686,32 @@ def barPlot(k0_U, k0_B, k10_U, k10_B, Ct, Rt, Cpre, Rpre, figs_folder):
 
 
 if __name__ == '__main__':
-    # folder = 'results/VdP_12.07_newArch_3PE_25kmeas/'
-    # Ls = [1, 10, 50, 100]
-    # stds = [0.01, 0.1, 0.25]
-    # ks = np.linspace(0., 50., 51)
-    # plotResults(folder, stds, Ls, k_plot=(0.1,))
-    # fig2(folder, Ls, stds)
-    myfolder = 'results/VdP_12.12_augment/results/'
+    myfolder = 'results/VdP_final_.3/'
+    figs_folder = myfolder + 'figs/'
+
+    loop_folder = myfolder + 'results_loopParams/'
+    for std_item in os.listdir(loop_folder):
+        if not os.path.isdir(loop_folder + std_item):
+            print('c1')
+            continue
+        std_folder = loop_folder + std_item
+        for L_item in os.listdir(std_folder):
+            if not os.path.isdir(std_folder + '/' + L_item):
+                continue
+            L_folder = std_folder + '/' + L_item + '/'
+            filename = '{}CR_L{}_std{}_results'.format(figs_folder, L_item.split('L')[-1], std_item.split('std')[-1])
+            post_process_multiple(L_folder, filename)
+            for results_item in os.listdir(L_folder):
+                k = results_item.split('_k')[-1]
+                if int(float(k)) in (0., 10., 50.):
+                    with open(L_folder + results_item, 'rb') as f:
+                        parameters = pickle.load(f)
+                        truth = pickle.load(f)
+                        filter_ens = pickle.load(f)
+                    filename = '{}L{}_std{}_k{}_time'.format(figs_folder,
+                                                             L_item.split('L')[-1],
+                                                             std_item.split('std')[-1], k)
+                    post_process_single_SE_Zooms(filter_ens, truth, filename=filename)
+                    plt.close()
+
 
