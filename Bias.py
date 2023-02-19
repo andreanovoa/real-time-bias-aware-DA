@@ -224,8 +224,8 @@ class ESN(Bias):
             wash_model = spline(self.washout_t)
 
             # bias washout, the input data to open loop
-            washout = wash_obs - wash_model
 
+            washout = wash_obs - wash_model
             # open loop initialisation of the ESN
             b_open, r_open = self.openLoop(washout)
 
@@ -233,8 +233,7 @@ class ESN(Bias):
             b = np.zeros((Nt + 1, self.N_dim))
             r = np.zeros((Nt + 1, self.N_units))
 
-            self.b = b_open[-1]
-            self.r = r_open[-1]
+            self.b, self.r = b_open[-1], r_open[-1]
 
             Nt_open = len(self.washout_t)
 
@@ -255,7 +254,6 @@ class ESN(Bias):
             # plt.xlim([self.washout_t[0], t_b[-1]])
             # plt.ylim([min(washout[:, 0])*1.2, max(washout[:, 0])*1.2])
             # plt.show()
-
 
         # update bias and reservoir history
         self.updateReservoir(r[1:])

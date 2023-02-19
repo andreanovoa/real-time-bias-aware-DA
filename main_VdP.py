@@ -1,6 +1,6 @@
 import TAModels
 import Bias
-from run import main, createESNbias, createEnsemble
+from run import main, createESNbias, createEnsemble, get_CR_values
 from plotResults import *
 
 # %% ========================== SELECT LOOP PARAMETERS ================================= #
@@ -66,8 +66,7 @@ ensemble, truth, args = createEnsemble(true_params, forecast_params,
 if __name__ == '__main__':
     if run_whyAugment:
         results_folder: str = folder + 'results_whyAugment/'
-        flag: bool = True
-        k0_U, k0_B, k1_U, k1_B = [], [], [], []
+        flag = True
 
         # Add standard deviation to the state
         blank_ens = ensemble.copy()
@@ -94,50 +93,40 @@ if __name__ == '__main__':
                 filter_ens.bias.k = k
                 # ======================= RUN DATA ASSIMILATION  =================================
                 filter_ens, truth, parameters = main(filter_ens, truth, filter_params,
-                                                     results_folder=results_folder, figs_folder=figs_folder, save_=True)
+                                                     results_dir=results_folder, figs_dir=figs_folder, save_=True)
 
                 # GET CORRELATION AND RMS FOR SOLUTION ================================================
                 # Observable bias
-                y_filter, t_filter = filter_ens.getObservableHist(), filter_ens.hist_t
-                y_truth, b_truth = truth['y'][:len(y_filter)], truth['b_true'][:len(y_filter)]
+                y, t = filter_ens.getObservableHist(), filter_ens.hist_t
+                y_t, b_t = truth['y'][:len(y)], truth['b_true'][:len(y)]
 
                 # ESN estimated bias
                 b, t_b = filter_ens.bias.hist, filter_ens.bias.hist_t
 
-                # Ubiased signal recovered through interpolation
-                y_unbiased = y_filter[::filter_ens.bias.upsample] + np.expand_dims(b, -1)
-                y_unbiased = interpolate(t_b, y_unbiased, t_filter)
+                # Unbiased signal recovered through interpolation
+                y_unbiased = y[::filter_ens.bias.upsample] + np.expand_dims(b, -1)
+                y_unbiased = interpolate(t_b, y_unbiased, t)
 
                 if flag:
                     N_CR = int(filter_ens.t_CR / filter_ens.dt)  # Length of interval to compute correlation and RMS
-                    istop = np.argmin(abs(t_filter - truth['t_obs'][parameters['num_DA'] - 1]))  # end of assimilation
-                    istart = np.argmin(abs(t_filter - truth['t_obs'][0]))  # start of assimilation
+                    istop = np.argmin(abs(t - truth['t_obs'][parameters['num_DA'] - 1]))  # end of assimilation
+                    istart = np.argmin(abs(t - truth['t_obs'][0]))  # start of assimilation
                     flag = False
 
                 # GET CORRELATION AND RMS ERROR =====================================================================
-                CB, RB = CR(y_truth[istop - N_CR:istop], np.mean(y_filter, -1)[istop - N_CR:istop])  # biased
-                CU, RU = CR(y_truth[istop - N_CR:istop], np.mean(y_unbiased, -1)[istop - N_CR:istop])  # unbiased
+                CB, RB = CR(y_t[istop - N_CR:istop], np.mean(y, -1)[istop - N_CR:istop])  # biased
+                CU, RU = CR(y_t[istop - N_CR:istop], np.mean(y_unbiased, -1)[istop - N_CR:istop])  # unbiased
 
                 barData[2*ii].append((CU, RU))
                 barData[2*ii + 1].append((CB, RB))
 
-                # if k == ks[0]:
-                #     k0_U.append((CU, RU))
-                #     k0_B.append((CB, RB))
-                # elif k == ks[1]:
-                #     k1_U.append((CU, RU))
-                #     k1_B.append((CB, RB))
-
-
                 filename = '{}WhyAugment_L{}_augment{}_k{}'.format(figs_folder, L, augment, k)
                 post_process_single_SE_Zooms(filter_ens, truth, filename=filename)
 
-        # barData = [k0_U, k0_B, k1_U, k1_B]
-
         # Plot results -------------------------------------------------------------------------
-        y_truth_u = y_truth - b_truth
-        Ct, Rt = CR(y_truth[-N_CR:], y_truth_u[-N_CR:])
-        Cpre, Rpre = CR(y_truth[istart - N_CR:istart + 1:], np.mean(y_filter, -1)[istart - N_CR:istart + 1:])
+        y_t_u = y_t - b_t
+        Ct, Rt = CR(y_t[-N_CR:], y_t_u[-N_CR:])
+        Cpre, Rpre = CR(y_t[istart - N_CR:istart + 1:], np.mean(y, -1)[istart - N_CR:istart + 1:])
 
         barPlot(barData, Ct, Rt, Cpre, Rpre, ks, figs_folder)
 
@@ -166,7 +155,7 @@ if __name__ == '__main__':
                     filter_ens.bias.k = k
 
                     out = main(filter_ens, truth, filter_params,
-                               results_folder=results_folder, figs_folder=figs_folder, save_=True)
+                               results_dir=results_folder, figs_dir=figs_folder, save_=True)
 
                     if k in (0, 10, 50):
                         filename = '{}L{}_std{}_k{}_time'.format(figs_folder, L, std, k)
@@ -176,4 +165,5 @@ if __name__ == '__main__':
                 post_process_multiple(results_folder, filename)
                 plt.close('all')
 
+        get_CR_values(results_folder)
         fig2(folder + 'results_loopParams/', Ls, stds, figs_folder)
