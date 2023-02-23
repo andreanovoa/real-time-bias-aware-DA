@@ -22,6 +22,7 @@ def dataAssimilation(ensemble,
 
     ensemble.filt = method
     dt, ti = ensemble.dt, 0
+    dt_obs = t_obs[-1] - t_obs[-2]
 
     ensemble.printModelParameters()
     if ensemble.bias.name == 'ESN':
@@ -29,7 +30,7 @@ def dataAssimilation(ensemble,
     print('\n -------------------- ASSIMILATION PARAMETERS -------------------- \n',
           '\t Filter = {0}  \n\t bias = {1} \n'.format(method, ensemble.bias.name),
           '\t m = {} \n'.format(ensemble.m),
-          '\t Time between analysis = {0:.2} s \n'.format(t_obs[-1] - t_obs[-2]),
+          '\t Time between analysis = {0:.2} s \n'.format(dt_obs),
           '\t Inferred params = {0} \n'.format(ensemble.est_p),
           '\t Ensemble standard deviation = {0}'.format(ensemble.std_psi)
           )
@@ -40,7 +41,7 @@ def dataAssimilation(ensemble,
     # ----------------------------- FORECAST UNTIL FIRST OBS ----------------------------- ##
     time1 = time.time()
     if ensemble.start_ensemble_forecast > 0:
-        t1 = t_obs[ti] - ensemble.start_ensemble_forecast
+        t1 = t_obs[ti] - dt_obs * ensemble.start_ensemble_forecast
         Nt = int(np.round((t1 - ensemble.t) / dt))
         ensemble = forecastStep(ensemble, Nt, averaged=True, alpha=ensemble.alpha0)
 
@@ -404,7 +405,7 @@ def EnKFbias(Af, d, Cdd, Cbb, k, M, b, dbdy):
     J = np.array([None] * 4)
     if np.isreal(Aa).all():
         ba = b + np.dot(dbdy, np.dot(M, np.mean(Aa, -1)) - np.mean(Q, -1))
-        Ya = np.dot(M, Aa) + ba
+        Ya = np.dot(M, Aa) + np.expand_dims(ba, -1)
         Wdd = linalg.inv(Cdd)
         Wpp = linalg.pinv(np.dot(Psi_f, Psi_f.T))
         Wbb = k * linalg.pinv(Cbb)

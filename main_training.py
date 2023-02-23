@@ -11,6 +11,7 @@ import h5py
 import os as os
 
 os.environ["OMP_NUM_THREADS"] = '1'  # imposes only one core
+
 import skopt
 from skopt.space import Real
 from skopt.learning import GaussianProcessRegressor as GPR

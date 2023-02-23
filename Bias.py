@@ -91,6 +91,8 @@ class ESN(Bias):
             fileESN = loadmat(ESN_filename)
             for key, val in fileESN.items():
                 if key in Bdict.keys():
+                    if key == 'filename':
+                        continue
                     if any(val != Bdict[key]):
                         flag = True
                         print('\n Retraining ESN as {} = {} != {}'.format(key, val, Bdict[key]))
@@ -106,7 +108,7 @@ class ESN(Bias):
                 if self.test_run:
                     N_wtv += self.N_wash * 10
                 if N_wtv > len(bias):
-                    N_wtv = len(bias)
+                    raise ValueError('Not enough data for training. Increase t_max')
                 np.savez(Bdict['filename'], bias[-N_wtv:])
             else:
                 Bdict['trainData'] = np.load(Bdict['filename'] + '.npz')['bias']
@@ -268,6 +270,8 @@ class ESN(Bias):
         # Normalise input data and augment with input bias (ESN symmetry parameter)
         b_aug = np.concatenate((b / self.norm, self.bias_in))
         # Forecast the reservoir state
+
+
         r_out = np.tanh(self.Win.T.dot(b_aug * self.sigma_in) + self.W.dot(self.rho * r))
         # output bias added
         r_aug = np.concatenate((r_out, self.bias_out))

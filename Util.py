@@ -19,10 +19,6 @@ from scipy.signal import find_peaks
 rng = np.random.default_rng(6)
 
 
-#
-# data_folder = os.getcwd() + '\\data\\'
-
-
 @lru_cache(maxsize=10)
 def Cheb(Nc, lims=[0, 1], getg=False):  # __________________________________________________
     """ Compute the Chebyshev collocation derivative matrix (D)
@@ -52,6 +48,7 @@ def createObservations(classParams=None):
             t_max = TA_params['t_max']
         else:
             t_max = 8.
+            print('t_max=8.')
     else:
         raise ValueError('classParams must be dict')
 
@@ -88,20 +85,17 @@ def createObservations(classParams=None):
     name = '/data/Truth_{}_{}tmax-{:.2}'.format(classType.name, suffix, t_max)
     name = os.path.join(os.getcwd() + name)
     # Load or create and save file
-    # if os.path.isfile(name):
-    #     print('Loading Truth')
-    #     with open(name, 'rb') as f:
-    #         case = pickle.load(f)
-    # else:
     case = classType(TA_params)
     psi, t = case.timeIntegrate(Nt=int(t_max / case.dt))
     case.updateHistory(psi, t)
+    case.close()
     with open(name, 'wb') as f:
         pickle.dump(case, f)
     # Retrieve observables
     p_obs = case.getObservableHist()
     if len(np.shape(p_obs)) > 2:
-        p_obs = np.squeeze(p_obs, axis=2)
+        print(p_obs.shape)
+        p_obs = np.squeeze(p_obs, axis=-1)
 
     return p_obs, case.hist_t, name.split('Truth_')[-1]
 
@@ -176,12 +170,7 @@ def interpolate(t_y, y, t_eval, method='cubic', ax=0, bound=False):
 
 def getEnvelope(timeseries_x, timeseries_y, rejectCloserThan=0):
     peaks, peak_properties = find_peaks(timeseries_y, distance=200)
-
-    # plt.figure()
-    # plt.plot(timeseries_y)
-    # plt.show()
     u_p = interp1d(timeseries_x[peaks], timeseries_y[peaks], bounds_error=False)
-
     return u_p
 
 
@@ -189,34 +178,79 @@ def CR(y_true, y_est):
     # time average of both quantities
     y_tm = np.mean(y_true, 0, keepdims=True)
     y_em = np.mean(y_est, 0, keepdims=True)
+
     # correlation
     C = np.sum((y_est - y_em) * (y_true - y_tm)) / np.sqrt(np.sum((y_est - y_em) ** 2) * np.sum((y_true - y_tm) ** 2))
     # root-mean square error
     R = np.sqrt(np.sum((y_true - y_est) ** 2) / np.sum(y_true ** 2))
-    # print(R,C)
-    # plt.figure()
-    # plt.plot(y_t)
-    # plt.plot(y_e)
-    # print(y_tm)
-    # print(y_em)
-    # plt.show()
     return C, R
-## Uncomment the lines below to create the bias signal for training ESN
-# if __name__ == '__main__':
-#     import VdP as TAmodel
-#     from datetime import date
-#
-#     HOM = createObservations(TAmodel, LOM=False, name='HOM_bias', t_max=15.)
-#     LOM = createObservations(TAmodel, LOM=True, name='LOM_bias', t_max=15.)
-#
-#     bias = HOM[0].hist[:, 0, :] - LOM[0].hist[:, 0, :]
-#
-#     np.savez('bias_VdP' + str(date.today()), bias=bias)
-#
-#     fig, ax = plt.subplots(2, 1, figsize=[15, 10], tight_layout=True)
-#     ax[0].plot(HOM[0].hist_t, HOM[0].hist[:, 0], label='HOM')
-#     ax[0].plot(LOM[0].hist_t, LOM[0].hist[:, 0], 'y', label='LOM')
-#     ax[0].set(ylabel='$\eta$', xlabel='$t_interp$', xlim=[14., 14.1])
-#     ax[0].legend(loc='best')
-#     ax[1].plot(LOM[0].hist_t, bias, 'mediumpurple')
-#     ax[1].set(ylabel='bias', xlabel='$t_interp$', xlim=[14., 14.1])
+
+
+def get_CR_values(results_folder):
+
+    Ls, RBs, RUs, CBs, CUs = [],[],[],[],[]
+    # ==================================================================================================================
+    ii= -1
+    for Ldir in os.listdir(results_folder):
+        Ldir = results_folder + Ldir + '/'
+        if not os.path.isdir(Ldir):
+            continue
+        ii += 1
+        Ls.append(Ldir.split('L')[-1])
+        flag = True
+        ks = []
+
+        L_RB, L_RU, L_CB, L_CU = [], [], [], []
+        for ff in os.listdir(Ldir):
+            if ff.find('_k') == -1:
+                continue
+            k = float(ff.split('_k')[-1])
+            ks.append(k)
+            with open(Ldir + ff, 'rb') as f:
+                params = pickle.load(f)
+                truth = pickle.load(f)
+                filter_ens = pickle.load(f)
+
+            y, t = filter_ens.getObservableHist(), filter_ens.hist_t
+            b, t_b = filter_ens.bias.hist, filter_ens.bias.hist_t
+            y_truth = truth['y'][:len(y)]
+            y = np.mean(y, -1)
+
+            # Unbiased signal error
+            if filter_ens.bias.name == 'ESN':
+                y_unbiased = y[::filter_ens.bias.upsample] + b
+                y_unbiased = interpolate(t_b, y_unbiased, t)
+            else:
+                y_unbiased = y + np.expand_dims(b, -1)
+
+            if flag:
+                N_CR = int(filter_ens.t_CR / filter_ens.dt)  # Length of interval to compute correlation and RMS
+                i0 = np.argmin(abs(t - truth['t_obs'][0]))  # start of assimilation
+                i1 = np.argmin(abs(t - truth['t_obs'][params['num_DA']-1]))  # end of assimilation
+
+            C, R = CR(y_truth[i1-N_CR:i1], y[i1-N_CR:i1])
+            L_RB.append([R])
+            L_CB.append([C])
+            C, R = CR(y_truth[i1-N_CR:i1], y_unbiased[i1-N_CR:i1])
+            L_RU.append([R])
+            L_CU.append([C])
+
+            flag = False
+        RBs.append(L_RB)
+        RUs.append(L_RU)
+        CBs.append(L_CB)
+        CUs.append(L_CU)
+
+    # true and pre-DA R
+    y_truth_u = y_truth - truth['b_true'][:len(y)]
+    Ct, Rt = CR(y_truth[-N_CR:], y_truth_u[-N_CR:])
+    Cpre, Rpre = CR(y_truth[i0 - N_CR:i0 + 1:], y[i0 - N_CR:i0 + 1:])
+
+    results = dict(Ls=Ls, ks=ks,
+                   RBs=RBs, RUs=RUs,
+                   Rt=Rt, Rpre=Rpre,
+                   CBs=CBs, CUs=CUs,
+                   Ct=Ct, Cpre=Cpre)
+
+    with open(results_folder + 'CR_data', 'wb') as f:
+        pickle.dump(results, f)

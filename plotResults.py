@@ -5,15 +5,19 @@ import matplotlib.pyplot as plt
 from Util import interpolate, CR, getEnvelope
 from scipy.interpolate import CubicSpline, interp1d
 import numpy as np
+import matplotlib as mpl
+
+plt.rc('text', usetex=True)
+plt.rc('font', family='serif', size=12)
+plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 
 
-def plotResults(folder, stds, Ls, k_plot=(None,)):
-    plt.rc('text', usetex=True)
-    plt.rc('font', family='serif', size=18)
-    plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
-
+def post_process_loopParams(folder, stds, Ls, k_plot=(None,)):
     if folder[-1] != '/':
         folder += '/'
+    if not os.path.isdir(folder+'figs/'):
+        os.makedirs(folder+'figs/')
+
     for std in stds:
         for L in Ls:
             results_folder = folder + 'std{}/L{}/'.format(std, L)
@@ -34,12 +38,104 @@ def plotResults(folder, stds, Ls, k_plot=(None,)):
             post_process_multiple(results_folder, filename)
     fig2(folder, Ls, stds)
 
+def post_process_WhyAugment(results_dir, figs_dir):
+
+    flag = True
+    # barData = np.empty(4, len(os.listdir(results_dir)))
+    barData = [[], [], [], []]
+    ks = []
+    xtags = []
+    for Ldir in os.listdir(results_dir):
+        if not os.path.isdir(results_dir + Ldir + '/'):
+            continue
+
+        L, augment = Ldir.split('_Augment')
+        augment = bool(augment)
+        L = int(L.split('L')[-1])
+
+        xtags.append('$L={}$'.format(L))
+        if augment:
+            xtags[-1] += '+ data augmentation'
+
+        ii = 2
+        for ff in os.listdir( results_dir + Ldir + '/'):
+            ii -= 1
+            with open( results_dir + Ldir + '/' + ff, 'rb') as f:
+                params = pickle.load(f)
+                truth = pickle.load(f)
+                filter_ens = pickle.load(f)
+
+            y, t = filter_ens.getObservableHist(), filter_ens.hist_t
+            y_t, b_t = truth['y'][:len(y)], truth['b'][:len(y)]
+
+            # ESN estimated bias
+            b, t_b = filter_ens.bias.hist, filter_ens.bias.hist_t
+
+            # Unbiased signal recovered through interpolation
+            y_unbiased = y[::filter_ens.bias.upsample] + np.expand_dims(b, -1)
+            y_unbiased = interpolate(t_b, y_unbiased, t)
+
+            if flag:
+                N_CR = int(filter_ens.t_CR / filter_ens.dt)  # Length of interval to compute correlation and RMS
+                istop = np.argmin(abs(t - truth['t_obs'][params['num_DA'] - 1]))  # end of assimilation
+                istart = np.argmin(abs(t - truth['t_obs'][0]))  # start of assimilation
+
+                y_t_u = y_t - b_t
+                Ct, Rt = CR(y_t[-N_CR:], y_t_u[-N_CR:])
+                Cpre, Rpre = CR(y_t[istart - N_CR:istart + 1:], np.mean(y, -1)[istart - N_CR:istart + 1:])
+
+                ks.append(filter_ens.bias.k)
+
+            # GET CORRELATION AND RMS ERROR =====================================================================
+            CB, RB = CR(y_t[istop - N_CR:istop], np.mean(y, -1)[istop - N_CR:istop])  # biased
+            CU, RU = CR(y_t[istop - N_CR:istop], np.mean(y_unbiased, -1)[istop - N_CR:istop])  # unbiased
+
+            barData[2 * ii].append((CU, RU))
+            barData[2 * ii + 1].append((CB, RB))
+
+            filename = '{}WhyAugment_L{}_augment{}_k{}'.format(figs_dir, L, augment, filter_ens.bias.k)
+            post_process_single_SE_Zooms(filter_ens, truth, filename=filename)
+
+        flag = False
+
+    # =========================================================================================================
+    bar_width = 0.1
+    bars = [np.arange(len(barData[0]))]
+    for _ in range(len(barData[0])):
+        bars.append([x + bar_width for x in bars[-1]])
+
+    cols = ['b', 'c', 'r', 'coral']
+    labels = []
+    for kk in ks:
+        labels.append('$\\gamma = {}$, Unbiased'.format(kk))
+        labels.append('$\\gamma = {}$, Biased'.format(kk))
+
+    fig, ax = plt.subplots(1, 2, figsize=(15, 4), layout="constrained")
+
+    for data, br, c, lb in zip(barData, bars, cols, labels):
+        C = np.array([x[0] for x in data]).T.squeeze()
+        R = np.array([x[1] for x in data]).T.squeeze()
+        ax[0].bar(br, C, color=c, width=bar_width, edgecolor='k', label=lb)
+        ax[1].bar(br, R, color=c, width=bar_width, edgecolor='k', label=lb)
+
+    for axi, cr in zip(ax, [(Ct, Cpre), (Rt, Rpre)]):
+        axi.axhline(y=cr[0], color='lightgray', linewidth=4, label='Truth')
+        axi.axhline(y=cr[1], color='k', linewidth=2, label='Pre-DA')
+        axi.set_xticks([r + bar_width for r in range(len(data))], xtags)
+
+    ax[0].set(ylabel='Correlation', ylim=[.85, 1.02])
+    ax[1].set(ylabel='RMS error', ylim=[0, 1])
+    axi.legend(bbox_to_anchor=(1., 1.), loc="upper left")
+
+    # plt.savefig(figs_dir + 'WhyAugment.svg', dpi=350)
+    plt.savefig(figs_dir + 'WhyAugment.pdf', dpi=350)
+    plt.show()
+
 
 # ==================================================================================================================
-def post_process_single_SE_Zooms(filter_ens, truth, filename=None):
-    plt.rc('text', usetex=True)
-    plt.rc('font', family='serif', size=18)
-    plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
+def post_process_single_SE_Zooms(ensemble, true_data, filename=None):
+    truth = true_data.copy()
+    filter_ens = ensemble.copy()
 
     t_obs, obs = truth['t_obs'], truth['p_obs']
 
@@ -55,9 +151,6 @@ def post_process_single_SE_Zooms(filter_ens, truth, filename=None):
         truth['y'] = np.expand_dims(truth['y'], axis=-1)
 
     # normalise results
-    norm = 1.  # np.max(abs(truth['y'][:, 0]))
-    y_filter /= norm
-    truth['y'] /= norm
 
     hist = filter_ens.hist
     t = filter_ens.hist_t
@@ -150,9 +243,9 @@ def post_process_single_SE_Zooms(filter_ens, truth, filename=None):
         params_ax.set(ylim=[min_p - 0.1, max_p + 0.1])
 
     if filename is not None:
-        plt.savefig(filename + '.svg', dpi=350)
+        # plt.savefig(filename + '.svg', dpi=350)
         plt.savefig(filename + '.pdf', dpi=350)
-
+        plt.close()
 
 def post_process_single(filter_ens, truth, params, filename=None):
     filt = filter_ens.filt
@@ -326,175 +419,137 @@ def post_process_single(filter_ens, truth, params, filename=None):
                 loc="upper left", ncol=1)
 
     if filename is not None:
-        plt.savefig(filename + '.svg', dpi=350)
+        # plt.savefig(filename + '.svg', dpi=350)
         plt.savefig(filename + '.pdf', dpi=350)
         plt.close()
 
 
 # ==================================================================================================================
 def post_process_multiple(folder, filename=None):
-    plt.rc('text', usetex=True)
-    plt.rc('font', family='serif', size=18)
-    plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 
-    files = os.listdir(folder)
-    flag = True
-    biases, esn_errors, biases_ESN = [], [], []
-    ks, CBs, RBs, CUs, RUs, Cpres, Rpres = [], [], [], [], [], [], []
     # ==================================================================================================================
-    fig = plt.figure(figsize=(12, 6), layout="constrained")
-    fig.suptitle(folder)
-    subfigs = fig.subfigures(2, 1)
-    axCRP = subfigs[0].subplots(1, 3)
-    mean_ax = subfigs[1].subplots(1, 2)
-    for file in files:
-        # if file[-3:] == '.py' or file[-4] == '.':
-        #     continue
-        if file.find('_k') == -1:
-            continue
-        k = float(file.split('_k')[-1])
-        # if k > 10: # uncomment these lines to avoid ploting values over 20
-        #     continue
-        with open(folder + file, 'rb') as f:
-            parameters = pickle.load(f)
-            truth = pickle.load(f)
-            filter_ens = pickle.load(f)
-        # Observable bias
-        y_filter, t_filter = filter_ens.getObservableHist(), filter_ens.hist_t
-        y_truth = truth['y'][:len(y_filter)]
-        b_obs = y_truth - np.mean(y_filter, -1)
-        if flag:
-            N_CR = int(filter_ens.t_CR / filter_ens.dt)  # Length of interval to compute correlation and RMS
-            N_mean = int(.1 / filter_ens.dt)  # Length of interval to average mean error
-            istart = np.argmin(abs(t_filter - truth['t_obs'][0]))  # start of assimilation
-            istop = np.argmin(abs(t_filter - truth['t_obs'][parameters['num_DA'] - 1]))  # end of assimilation
-            t_interp = t_filter[N_mean::N_mean]
+    with open(folder + 'CR_data', 'rb') as f:
+        out = pickle.load(f)
 
-        # ESN bias
-        b, t_b = filter_ens.bias.hist, filter_ens.bias.hist_t
-        b_ESN = interpolate(t_b, b, t_filter)
-
-        # Ubiased signal error
-
-        if filter_ens.bias.name == 'ESN':
-            y_unbiased = y_filter[::filter_ens.bias.upsample] + np.expand_dims(b, -1)
-            y_unbiased = interpolate(t_b, y_unbiased, t_filter)
-        else:
-            y_unbiased = y_filter + np.expand_dims(b, -1)
-
-        b_obs_u = y_truth - np.mean(y_unbiased, -1)
-
-        # compute mean error, time averaged over a kinterval
-        bias, bias_esn, esn_err = [], [], []
-        for j in range(int(len(b_obs) // N_mean)):
-            i = j * N_mean
-            mean_bias_obs = np.mean(abs(b_obs[i:i + N_mean]), 0)
-            mean_bias_esn = np.mean(abs(b_ESN[i:i + N_mean]), 0)
-            # mean_unbiased_error = np.mean(abs(b_obs[i:i + kinterval] - b_ESN[i:i + kinterval]), 0)
-            mean_unbiased_error = np.mean(abs(b_obs_u[i:i + N_mean]), 0)
-
-            bias.append(mean_bias_obs)
-            bias_esn.append(mean_bias_esn)
-            esn_err.append(mean_unbiased_error)
-
-        biases.append(np.array(bias))
-        biases_ESN.append(np.array(bias_esn))
-        esn_errors.append(np.array(esn_err))
-        ks.append(k)
+    for Li in range(len(out['Ls'])):
+        fig = plt.figure(figsize=(12, 6), layout="constrained")
+        fig.suptitle(folder)
+        subfigs = fig.subfigures(2, 1)
+        axCRP = subfigs[0].subplots(1, 3)
+        mean_ax = subfigs[1].subplots(1, 2)
 
         # PLOT CORRELATION AND RMS ERROR =====================================================================
-        t_obs = truth['t_obs'][:parameters['num_DA']]
-        y_obs = interpolate(t_filter, y_truth, t_obs)
-        y_obs_b = interpolate(t_filter, np.mean(y_filter, -1), t_obs)
-        y_obs_u = interpolate(t_filter, np.mean(y_unbiased, -1), t_obs)
-
-        CB, RB = CR(y_truth[istop - N_CR:istop], np.mean(y_filter, -1)[istop - N_CR:istop])  # biased
-        CU, RU = CR(y_truth[istop - N_CR:istop], np.mean(y_unbiased, -1)[istop - N_CR:istop])  # unbiased
-        # Correlation
-        bias_c = 'tab:red'
-        unbias_c = 'tab:blue'
         ms = 4
+        for lbl, col, fill, alph in zip(['biased', 'unbiased'], ['tab:red', 'tab:blue'], ['full', 'none'], [.6, 1.]):
+            for ax_i, key in enumerate(['C', 'R']):
+                for suf, mk in zip(['_DA', '_post'], ['o', 'x']):
+                    val = out[key + '_' + lbl + suf][Li]
+                    axCRP[ax_i].plot(out['ks'], val, linestyle='none', marker=mk,
+                                     color=col, label=lbl+suf, markersize=ms, alpha=alph, fillstyle=fill)
 
-        axCRP[0].plot(k, CB, 'o', color=bias_c, label='Biased', markersize=ms, alpha=0.6)
-        axCRP[0].plot(k, CU, 'o', markeredgecolor=unbias_c, label='Unbiased', markersize=ms, fillstyle='none')
-        # RMS error
-        axCRP[1].plot(k, RB, 'o', color=bias_c, label='Biased ', markersize=ms, alpha=0.6)
-        axCRP[1].plot(k, RU, 'o', markeredgecolor=unbias_c, label='Unbiased', markersize=ms, fillstyle='none')
+        # Plor true and pre-DA RMS and correlation---------------------------------
+        for suffix, alph, lw in zip(['true', 'pre'], [.2, 1.], [5., 1.]):
+            for ii, key in enumerate(['C_', 'R_']):
+                val = out[key + suffix]
+                axCRP[ii].plot((-10, 100), (val, val), '-', color='k', label=suffix, alpha=alph, linewidth=lw)
 
-        CB, RB = CR(y_obs, y_obs_b)  # biased
-        CU, RU = CR(y_obs, y_obs_u)  # unbiased
-        # Correlation
-        bias_c = 'tab:red'
-        unbias_c = 'tab:blue'
-        axCRP[0].plot(k, CB, '+', color=bias_c, label='Biased at $t^a$', markersize=ms)
-        # RMS error
-        axCRP[1].plot(k, RB, '+', color=bias_c, label='Biased at $t^a$', markersize=ms)
+        axCRP[1].set(ylim=[0., 2. * out['R_pre']])
 
-        # Parameters ========================================================================================
-        if filter_ens.est_p:
-            if flag:
-                N_psi = len(filter_ens.psi0)
-                # c = ['tab:orange', 'navy', 'darkcyan', 'cyan']
-                c = ['g', 'mediumpurple', 'sandybrown', 'r']
-                # c = ['navy', 'chocolate', 'mediumturquoise', 'lightseagreen', 'cyan']
-                marker = ['x', '+']
-                time = ['$(t_\mathrm{end})$', '$(t_\mathrm{start})$']
-                alphas = [1., .2]
-                superscript = '^\mathrm{init}$'
-                reference_p = filter_ens.alpha0
-            for jj, p in enumerate(filter_ens.est_p):
-                for kk, idx in enumerate([istop, istart]):
-                    hist_p = filter_ens.hist[idx - 1, N_psi + jj] / reference_p[p]
-                    if p in ['C1', 'C2']:
-                        axCRP[2].errorbar(k, np.mean(hist_p).squeeze(), yerr=np.std(hist_p), alpha=alphas[kk],
-                                          fmt=marker[kk], color=c[jj], label='$' + p + '/' + p + superscript + time[kk],
-                                          capsize=ms, markersize=ms)
-                    else:
-                        axCRP[2].errorbar(k, np.mean(hist_p).squeeze(), yerr=np.std(hist_p), alpha=alphas[kk],
-                                          fmt=marker[kk], color=c[jj],
-                                          label='$\\' + p + '/\\' + p + superscript + time[kk],
-                                          capsize=ms, markersize=ms)
-        if flag:
-            # compute and plot the baseline correlation and MSE
-            if len(truth['b_true']) > 1:
-                b_truth = truth['b_true'][:len(y_filter)]
-                y_truth_u = y_truth - b_truth
-                Ct, Rt = CR(y_truth[-N_CR:], y_truth_u[-N_CR:])
-                axCRP[0].plot((-10, 100), (Ct, Ct), '-', color='k', label='Truth', alpha=0.2, linewidth=5.)
-                axCRP[1].plot((-10, 100), (Rt, Rt), '-', color='k', label='Truth', alpha=0.2, linewidth=5.)
+        xlims = [min(out['ks']) - .5, max(out['ks']) + .5]
+        axCRP[0].set(ylabel='Correlation', xlim=xlims, xlabel='$\\gamma$')
+        axCRP[1].set(ylabel='RMS error', xlim=xlims, xlabel='$\\gamma$')
 
-            # compute C and R before the assimilation (the initial ensemble has some initialisation error)
-            Cpre, Rpre = CR(y_truth[istart - N_CR:istart + 1:], np.mean(y_filter, -1)[istart - N_CR:istart + 1:])
-            axCRP[0].plot((-10, 100), (Cpre, Cpre), '-', color='k', label='Pre-DA')
-            axCRP[1].plot((-10, 100), (Rpre, Rpre), '-', color='k', label='Pre-DA')
-            axCRP[1].set(ylim=[0., 2. * Rpre])
-            for ax1 in axCRP[1:]:
-                ax1.legend(bbox_to_anchor=(1., 1.), loc="upper left", ncol=1)
-            flag = False
 
-    # =========================================================================================================
-    xlims = [min(ks) - .5, max(ks) + .5]
-    axCRP[0].set(ylabel='Correlation', xlim=xlims, xlabel='$\\gamma$')
-    axCRP[1].set(ylabel='RMS error', xlim=xlims, xlabel='$\\gamma$')
+        # PLOT PARAMETERS AND MEAN EVOLUTION ==========================================================================
+        flag = True
+        biases, esn_errors, biases_ESN = [], [], []
 
-    for ax1 in axCRP[:]:
-        x0, x1 = ax1.get_xlim()
-        y0, y1 = ax1.get_ylim()
-        ax1.set_aspect((x1 - x0) / (y1 - y0))
+        for file_k in os.listdir(out['L_dirs'][Li]):
+            with open(out['L_dirs'][Li] + file_k, 'rb') as f:
+                _ = pickle.load(f)
+                truth = pickle.load(f)
+                filter_ens = pickle.load(f)
+            k = filter_ens.bias.k
+            if filter_ens.est_p:
+                if flag:
+                    N_psi = len(filter_ens.psi0)
+                    c = ['g', 'mediumpurple', 'sandybrown', 'r']
+                    marker = ['x', '+']
+                    time = ['$(t_\mathrm{end})$', '$(t_\mathrm{start})$']
+                    alphas = [1., .2]
+                    superscript = '^\mathrm{init}$'
+                    reference_p = filter_ens.alpha0
+                for pj, p in enumerate(filter_ens.est_p):
+                    for kk, idx in enumerate([out['i1'], out['i0']]):
+                        hist_p = filter_ens.hist[idx - 1, N_psi + pj] / reference_p[p]
+                        if p in ['C1', 'C2']:
+                            axCRP[2].errorbar(k, np.mean(hist_p).squeeze(), yerr=np.std(hist_p), alpha=alphas[kk],
+                                              fmt=marker[kk], color=c[pj], label='$'+p+'/'+ p + superscript + time[kk],
+                                              capsize=ms, markersize=ms)
+                        else:
+                            axCRP[2].errorbar(k, np.mean(hist_p).squeeze(), yerr=np.std(hist_p), alpha=alphas[kk],
+                                              fmt=marker[kk], color=c[pj], label='$\\'+p+'/\\' + p + superscript + time[kk],
+                                              capsize=ms, markersize=ms)
+                if flag:
+                    axCRP[2].legend()
+                    for ax1 in axCRP[1:]:
+                        ax1.legend(bbox_to_anchor=(1., 1.), loc="upper left", ncol=1)
+                    flag = False
+            # PLOT MEAN ERROR EVOLUTION ================================================================================
+                # compute mean error, time averaged over a kinterval# Observable bias
+                y_filter, t_filter = filter_ens.getObservableHist(), filter_ens.hist_t
+                y_truth = truth['y'][:len(y_filter)]
+                b_obs = y_truth - np.mean(y_filter, -1)
+                # ESN bias
+                b, t_b = filter_ens.bias.hist, filter_ens.bias.hist_t
+                b_ESN = interpolate(t_b, b, t_filter)
+                N_mean = int(filter_ens.t_CR / filter_ens.dt)
+                # Ubiased signal error
 
-    # PLOT MEAN ERROR EVOLUTION ================================================================================
-    for mic in [0]:
-        scale = np.max(truth['y'][:, mic])
-        norm = colors.Normalize(vmin=0, vmax=max(ks))
-        cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.viridis)
-        for i, metric in enumerate([biases, esn_errors]):  # , biases_ESN]):
-            errors = [b[:, mic] / scale for b in metric]
-            for err, k in zip(errors, ks):
-                mean_ax[i].plot(t_interp, err * 100, color=cmap.to_rgba(k))
-            mean_ax[i].set(xlim=[t_filter[istart] - 0.02, t_filter[istop] + 0.05], xlabel='$t$ [s]')
+                if filter_ens.bias.name == 'ESN':
+                    y_unbiased = y_filter[::filter_ens.bias.upsample] + np.expand_dims(b, -1)
+                    y_unbiased = interpolate(t_b, y_unbiased, t_filter)
+                else:
+                    y_unbiased = y_filter + np.expand_dims(b, -1)
+                b_obs_u = y_truth - np.mean(y_unbiased, -1)
+                bias, bias_esn, esn_err = [], [], []
+                for j in range(int(len(b_obs) // N_mean)):
+                    i = j * N_mean
+                    mean_bias_obs = np.mean(abs(b_obs[i:i + N_mean]), 0)
+                    mean_bias_esn = np.mean(abs(b_ESN[i:i + N_mean]), 0)
+                    mean_unbiased_error = np.mean(abs(b_obs_u[i:i + N_mean]), 0)
 
-        mean_ax[0].set(ylim=[0, 60], ylabel='Biased signal error [\%]')
-        mean_ax[1].set(ylim=[0, 10], ylabel='Unbiased signal error [\%]')
+                    bias.append(mean_bias_obs)
+                    bias_esn.append(mean_bias_esn)
+                    esn_err.append(mean_unbiased_error)
+
+                biases.append(np.array(bias))
+                biases_ESN.append(np.array(bias_esn))
+                esn_errors.append(np.array(esn_err))
+
+
+        for ax1 in axCRP[:]:
+            x0, x1 = ax1.get_xlim()
+            y0, y1 = ax1.get_ylim()
+            ax1.set_aspect((x1 - x0) / (y1 - y0))
+
+        for mic in [0]:
+            scale = np.max(truth['y'][:, mic])
+            norm = colors.Normalize(vmin=0, vmax=max(out['ks']))
+            cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.viridis)
+            for i, metric in enumerate([biases, esn_errors]):  # , biases_ESN]):
+                errors = [b[:, mic] / scale for b in metric]
+                t_interp = t_filter[N_mean::N_mean]
+                for err, k in zip(errors, out['ks']):
+                    mean_ax[i].plot(t_interp, err * 100, color=cmap.to_rgba(k))
+                mean_ax[i].set(xlim=[t_filter[out['i0']] - filter_ens.t_CR, t_filter[out['i1']] +- filter_ens.t_CR], xlabel='$t$ [s]')
+
+            mean_ax[0].set(ylim=[0, 60], ylabel='Biased signal error [\%]')
+            mean_ax[1].set(ylim=[0, 10], ylabel='Unbiased signal error [\%]')
+
+            clb = fig.colorbar(cmap, ax=mean_ax[1], orientation='vertical', fraction=0.1)
+            clb.ax.set_title('$\\gamma$')
+
 
         for i in range(2):
             x0, x1 = mean_ax[i].get_xlim()
@@ -502,18 +557,33 @@ def post_process_multiple(folder, filename=None):
             # print( (x1 - x0) / (y1 - y0))
             mean_ax[i].set_aspect(0.5 * (x1 - x0) / (y1 - y0))
 
-    clb = fig.colorbar(cmap, ax=mean_ax[1], orientation='vertical', fraction=0.1)
-    clb.ax.set_title('$\\gamma$')
+        # # PLOT MEAN ERRORS ===============================================================================
+        # for mic in [0]:
+        #     norm = colors.Normalize(vmin=0, vmax=max(out['ks']))
+        #     cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.viridis)
+        #     for ax, lbl in zip(mean_ax, ['biased', 'unbiased']):
+        #         # plt.figure()
+        #         # plt.plot(out['t_interp'], out['error_'+lbl][Li, :, :, mic].T)
+        #         # plt.show()
+        #         for ki, kval in enumerate(out['ks']):
+        #             ax.plot(out['error_'+lbl][Li, ki, :, mic]/out['error_'+lbl][Li, ki, 0, mic], color=cmap.to_rgba(kval))
+        #         ax.set(xlabel='$t$ [s]')
+        #
+        #     # mean_ax[0].set(ylim=[0, 60], ylabel='Biased signal error [\%]')
+        #     # mean_ax[1].set(ylim=[0, 10], ylabel='Unbiased signal error [\%]')
+        #
+        # clb = fig.colorbar(cmap, ax=mean_ax[1], orientation='vertical', fraction=0.1)
+        # clb.ax.set_title('$\\gamma$')
 
-    if filename is not None:
-        plt.savefig(filename + '.svg', dpi=350)
-        plt.savefig(filename + '.pdf', dpi=350)
-        plt.close()
+        # SAVE PLOT ========================================================================================
+        # if filename is not None:
+        # plt.savefig(filename + '.svg', dpi=350)
+        # plt.savefig('figs/{}.pdf'.format(Li), dpi=350)
+        plt.show()
 
 
 # ==================================================================================================================
 def fig2(folder, Ls, stds, figs_dir):
-    plt.rc('font', family='serif', size=12)
     fig = plt.figure(figsize=(15, 10), layout="constrained")
     fig.suptitle(folder)
     subfigs = fig.subfigures(max(len(Ls), 2), max(len(stds), 2), wspace=0.07)
@@ -540,7 +610,7 @@ def fig2(folder, Ls, stds, figs_dir):
                 y_filter, t_filter = filter_ens.getObservableHist(), filter_ens.hist_t
                 y_truth = truth['y'][:len(y_filter)]
                 if flag:
-                    N_CR = int(.1 / filter_ens.dt)  # Length of interval to compute correlation and RMS
+                    N_CR = int(filter_ens.t_CR/ filter_ens.dt)  # Length of interval to compute correlation and RMS
                     istart = np.argmin(abs(t_filter - truth['t_obs'][0]))  # start of assimilation
                     istop = np.argmin(abs(t_filter - truth['t_obs'][params['num_DA'] - 1]))  # end of assimilation
 
@@ -554,7 +624,7 @@ def fig2(folder, Ls, stds, figs_dir):
                 ks.append(k)
 
                 # PLOT CORRELATION AND RMS ERROR =====================================================================
-                t_obs = truth['t_obs'][:parameters['num_DA']]
+                t_obs = truth['t_obs'][:params['num_DA']]
                 y_obs = interpolate(t_filter, y_truth, t_obs)
                 y_obs_b = interpolate(t_filter, np.mean(y_filter, -1), t_obs)
 
@@ -598,164 +668,224 @@ def fig2(folder, Ls, stds, figs_dir):
                 y0, y1 = ax1.get_ylim()
                 ax1.set_aspect((x1 - x0) / (y1 - y0))
 
-    plt.savefig(figs_dir + 'Fig2_results_all_small.svg', dpi=350)
-    plt.close()
-
-
-def barPlot(dataCR, Ct, Rt, Cpre, Rpre, ks, figs_dir):
-    # =========================================================================================================
-    bar_width = 0.1
-    bars = [np.arange(len(dataCR[0]))]
-    for _ in range(len(dataCR[0])):
-        bars.append([x + bar_width for x in bars[-1]])
-
-    cols = ['b', 'c', 'r', 'coral']
-    labels = []
-    for kk in ks:
-        labels.append('$\\gamma = {}$, Unbiased'.format(kk))
-        labels.append('$\\gamma = {}$, Biased'.format(kk))
-
-    fig, ax = plt.subplots(1, 2, figsize=(15, 4), layout="constrained")
-    for data, br, c, lb in zip(dataCR, bars, cols, labels):
-        C = np.array([x[0] for x in data]).squeeze()
-        R = np.array([x[1] for x in data]).squeeze()
-        ax[0].bar(br, C, color=c, width=bar_width, edgecolor='k', label=lb)
-        ax[1].bar(br, R, color=c, width=bar_width, edgecolor='k', label=lb)
-
-    for axi, cr in zip(ax, [(Ct, Cpre), (Rt, Rpre)]):
-        axi.axhline(y=cr[0], color='lightgray', linewidth=4, label='Truth')
-        axi.axhline(y=cr[1], color='k', linewidth=2, label='Pre-DA')
-        axi.set_xticks([r + bar_width for r in range(len(data))],
-                       ['$L=1$', '$L=1$ + data augmentation', '$L=10$ + data augmentation'])
-
-    ax[0].set(ylabel='Correlation', ylim=[.85, 1.02])
-    ax[1].set(ylabel='RMS error', ylim=[0, 1])
-    axi.legend(bbox_to_anchor=(1., 1.), loc="upper left")
-
-    plt.savefig(figs_dir + 'WhyAugment.svg', dpi=350)
-    plt.savefig(figs_dir + 'WhyAugment.pdf', dpi=350)
+    # plt.savefig(figs_dir + 'Fig2_results_all_small.svg', dpi=350)
+    plt.savefig(figs_dir + 'Fig2_results_all_small.pdf', dpi=350)
     plt.close()
 
 
 def get_CR_values(results_folder):
 
-    Ls, RBs, RUs, CBs, CUs = [],[],[],[],[]
-    # ==================================================================================================================
-    ii= -1
-    for Ldir in os.listdir(results_folder):
-        Ldir = results_folder + Ldir + '/'
-        if not os.path.isdir(Ldir):
-            continue
-        ii += 1
-        Ls.append(float(Ldir[:-1].split('L')[-1]))
-        flag = True
-        ks = []
+    out = dict(Ls=[], ks=[])
+    keys = ['R_biased_DA', 'R_biased_post',
+            'C_biased_DA', 'C_biased_post',
+            'R_unbiased_DA', 'R_unbiased_post',
+            'C_unbiased_DA', 'C_unbiased_post']
 
-        L_RB, L_RU, L_CB, L_CU = [], [], [], []
-        for ff in os.listdir(Ldir):
-            if ff.find('_k') == -1:
-                continue
-            k = float(ff.split('_k')[-1])
-            ks.append(k)
+    L_dirs = []
+    LLL = os.listdir(results_folder)
+    LLL.sort()
+    for Ldir in LLL:
+        if os.path.isdir(results_folder + Ldir + '/') and Ldir[0] == 'L':
+            L_dirs.append(results_folder + Ldir + '/')
+            out['Ls'].append(float(Ldir.split('L')[-1]))
+
+    out['L_dirs'] = L_dirs
+    for ff in os.listdir(L_dirs[0]):
+        k = float(ff.split('_k')[-1])
+        out['ks'].append(k)
+    out['ks'].sort()
+
+    print(out['ks'])
+    print('Number of L folders = ', len(out['Ls']))
+    print('Number of k files = ', len(out['ks']))
+
+    for key in keys:
+        out[key] = np.empty([len(out['Ls']), len(out['ks'])])
+
+
+    # ==================================================================================================================
+    ii = -1
+    for Ldir in L_dirs:
+        ii += 1
+        print('L = ', out['Ls'][ii])
+        k_files = os.listdir(Ldir)
+        k_files.sort()
+        for ff in k_files:
+            # Read file
             with open(Ldir + ff, 'rb') as f:
-                params = pickle.load(f)
+                _ = pickle.load(f)
                 truth = pickle.load(f)
                 filter_ens = pickle.load(f)
+            jj = np.argmin(abs(out['ks'] - filter_ens.bias.k))
 
+            print('\t k = ', out['ks'][jj])
+            # Compute biased and unbiased signals
             y, t = filter_ens.getObservableHist(), filter_ens.hist_t
             b, t_b = filter_ens.bias.hist, filter_ens.bias.hist_t
-            y_truth = truth['y'][:len(y)]
-            y = np.mean(y, -1)
+            y_mean = np.mean(y, -1)
 
             # Unbiased signal error
-            if filter_ens.bias.name == 'ESN':
-                y_unbiased = y[::filter_ens.bias.upsample] + b
+            if hasattr(filter_ens.bias, 'upsample'):
+                y_unbiased = y_mean[::filter_ens.bias.upsample] + b
                 y_unbiased = interpolate(t_b, y_unbiased, t)
             else:
-                y_unbiased = y + np.expand_dims(b, -1)
+                y_unbiased = y_mean + b
 
-            if flag:
+            if ii == 0:
                 N_CR = int(filter_ens.t_CR / filter_ens.dt)  # Length of interval to compute correlation and RMS
                 i0 = np.argmin(abs(t - truth['t_obs'][0]))  # start of assimilation
-                i1 = np.argmin(abs(t - truth['t_obs'][params['num_DA']-1]))  # end of assimilation
+                i1 = np.argmin(abs(t - truth['t_obs'][-1]))  # end of assimilation
+                for key, val in zip(['i0', 'i1', 'N_CR'], [i0, i1, N_CR]):
+                    out[key] = val
+                # true and pre-DA R
+                y_truth_u = truth['y'] - truth['b']
+                out['C_true'], out['R_true'] = CR(truth['y'][-N_CR:], y_truth_u[-N_CR:])
+                out['C_pre'], out['R_pre'] = CR(truth['y'][i0 - N_CR:i0 + 1:], y_mean[i0 - N_CR:i0 + 1:])
+                out['t_interp'] = truth['t'][i0-N_CR:len(y_mean):N_CR]
+                scale = np.max(truth['y'], axis=0)
 
-            C, R = CR(y_truth[i1-N_CR:i1], y[i1-N_CR:i1])
-            L_RB.append([R])
-            L_CB.append([C])
-            C, R = CR(y_truth[i1-N_CR:i1], y_unbiased[i1-N_CR:i1])
-            L_RU.append([R])
-            L_CU.append([C])
+                for key in ['error_biased', 'error_unbiased']:
+                    out[key] = np.empty([len(out['Ls']), len(out['ks']), len(out['t_interp']), y_mean.shape[-1]])
 
-            flag = False
-        RBs.append(L_RB)
-        RUs.append(L_RU)
-        CBs.append(L_CB)
-        CUs.append(L_CU)
+            # End of assimilation
+            for yy, key in zip([y_mean, y_unbiased], ['_biased_DA', '_unbiased_DA']):
+                C, R = CR(truth['y'][i1 - N_CR:i1], yy[i1-N_CR:i1])
+                out['C'+key][ii, jj] = C
+                out['R'+key][ii, jj] = R
 
-    # true and pre-DA R
-    y_truth_u = y_truth - truth['b_true'][:len(y)]
-    Ct, Rt = CR(y_truth[-N_CR:], y_truth_u[-N_CR:])
-    Cpre, Rpre = CR(y_truth[i0 - N_CR:i0 + 1:], y[i0 - N_CR:i0 + 1:])
+            # After Assimilaiton
+            for yy, key in zip([y_mean, y_unbiased], ['_biased_post', '_unbiased_post']):
+                C, R = CR(truth['y'][i1:i1+N_CR], yy[i1:i1+N_CR])
+                out['C'+key][ii, jj] = C
+                out['R'+key][ii, jj] = R
 
-    results = dict(Ls=Ls, ks=ks,
-                   RBs=np.array(RBs).squeeze(), RUs=np.array(RUs).squeeze(),
-                   Rt=Rt, Rpre=Rpre,
-                   CBs=np.array(CBs).squeeze(), CUs=np.array(CUs).squeeze(),
-                   Ct=Ct, Cpre=Cpre)
+            # Compute mean errors
+            b_obs = truth['y'][i0-N_CR:len(y_mean)] - y_mean[i0-N_CR:]
+            b_obs_u = truth['y'][i0-N_CR:len(y_mean)] - y_unbiased[i0-N_CR:]
+            error_biased, error_unbiased, = [], []
+
+            ei = -N_CR
+            while ei < len(b_obs) - N_CR:
+                ei += N_CR
+                error_biased.append(abs(np.mean(b_obs[ei:ei + N_CR], axis=0)))
+                error_unbiased.append(abs(np.mean(b_obs_u[ei:ei + N_CR], axis=0)))
+
+            # plt.plot(out['t_interp'], np.array(error_biased))
+            # plt.show()
+
+            out['error_biased'][ii, jj, :, :] = np.array(error_biased)
+            out['error_unbiased'][ii, jj, :, :] = np.array(error_unbiased)
+
+    plt.figure()
+    plt.plot(out['error_unbiased'][ii, :, :, 0].T)
+    plt.show()
+
 
     with open(results_folder + 'CR_data', 'wb') as f:
-        pickle.dump(results, f)
+        pickle.dump(out, f)
 
 
-
-def plot_Lk_contours(folder):
+def plot_Lk_contours(folder, filename='contour'):
 
     with open(folder + 'CR_data', 'rb') as f:
         data = pickle.load(f)
     plt.figure()
-    plt.contourf(data['ks'], data['Ls'], data['RBs'])
+    plt.contourf(data['ks'], data['Ls'], np.log(data['R_biased_post']+data['R_unbiased_post']))
+    plt.colorbar(label='-log(RMS_b + RMS_u)')
+    plt.savefig(filename+'.pdf', dpi=350)
     plt.show()
 
 
+def plot_train_data(truth, y_ref, t_CR, folder):
+    # Plot training data -------------------------------------
+    fig, ax = plt.subplots(1, 3, figsize=(15, 3.5), layout='constrained')
+    norm = mpl.colors.Normalize(vmin=-5, vmax=y_ref.shape[-1])
+    cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.magma)
+    fig.suptitle('Training data')
+    ax[0].plot(truth['t'], truth['y'][:, 0], color='silver', linewidth=6, alpha=.8)
+    Nt = int(t_CR / truth['dt'])
 
+    L = y_ref.shape[-1]
+    for ii in range(y_ref.shape[-1]):
+        C, R = CR(truth['y'][-Nt:], y_ref[-Nt:, :, ii])
+        line = ax[0].plot(truth['t'], y_ref[:, 0, ii], color=cmap.to_rgba(ii))
+        ax[1].plot(ii, C, 'o', color=cmap.to_rgba(ii))
+        ax[2].plot(ii, R, 'x', color=cmap.to_rgba(ii))
+    ax[0].legend(['Truth'], bbox_to_anchor=(0., 1.25), loc="upper left")
+    ax[0].set(xlabel='$t$', ylabel='y', xlim=[truth['t'][-1] - t_CR, truth['t'][-1]])
+    ax[1].set(xlabel='$l$', ylabel='Correlation')
+    ax[2].set(xlabel='$l$', ylabel='RMS error')
+    ax[0].plot(truth['t'], truth['y'][:, 0], color='silver', linewidth=6, alpha=.8)
+    plt.savefig(folder + 'L{}_training_data.svg'.format(L), dpi=350)
+    # plt.show()
+    plt.close()
+
+
+
+XDG_RUNTIME_DIR = 'tmp/'
 if __name__ == '__main__':
-    myfolder = 'C:/Users/an553/OneDrive - University of Cambridge/PhD/My_papers/2022.11 - Model-error inference/results/VdP_final_.3/'
-    figs_folder = myfolder + 'figs/'
+    # autumcrisp = 'C:/Users/an553/OneDrive - University of Cambridge/PhD/My_papers/2022.11 - Model-error inference/'
+    # myfolder = 'results/VdP_final_.3/'
+    # figs_folder = myfolder + 'figs/'
+
+    # fff = '/home/an553/Documents/PycharmProjects/Bias-EnKF/results/Rijke_test/m50_ESN200_L10/'
+    #
+    # filename = '{}results_CR'.format(fff+'figs/')
+    # post_process_multiple(fff, filename)
+
+    myfolder = 'results/Rijke_test_m10/'
+
+    # Ls = [10, 30, 50, 70, 90]
+    # stds = [.1, .25]
+    # ks = np.linspace(0., 20., 21)
+
+    # post_process_loopParams(folder, stds, Ls, k_plot=(0, 2, 10, 30))
 
     loop_folder = myfolder + 'results_loopParams/'
+    figs_folder = myfolder + 'figs/'
+
     for std_item in os.listdir(loop_folder):
-        if not os.path.isdir(loop_folder + std_item):
+        if not os.path.isdir(loop_folder + std_item) or std_item[:3] != 'std':
             print('c1')
             continue
         std_folder = loop_folder + std_item + '/'
 
-        file = '{}Contour_std{}_results'.format(figs_folder, std_item.split('std')[-1])
-        if not os.path.isfile(std_folder+'CR_data'):
-            print('create_data')
-            get_CR_values(std_folder)
-        plot_Lk_contours(std_folder)
+        file = '{}Contour_std{}_results'.format(loop_folder, std_item.split('std')[-1])
+        # if not os.path.isfile(std_folder+'CR_data'):
+        #     print('create_data')
+        #     get_CR_values(std_folder)
+        #     print('done!')
 
         # for L_item in os.listdir(std_folder):
         #     if not os.path.isdir(std_folder + L_item):
         #         continue
-        #     L_folder = std_folder + '/' + L_item + '/'
+        #     L_folder = std_folder + L_item + '/'
         #     file = '{}CR_L{}_std{}_results'.format(figs_folder,
         #                                            L_item.split('L')[-1],
         #                                            std_item.split('std')[-1])
-        #
         #     # CR and covergence plot
         #     post_process_multiple(L_folder, file)
         #
-        #     # time parameters and observables
-        #     for results_item in os.listdir(L_folder):
-        #         k_val = results_item.split('_k')[-1]
-        #         if int(float(k_val)) in (0., 10., 50.):
-        #             with open(L_folder + results_item, 'rb') as f:
-        #                 parameters = pickle.load(f)
-        #                 truth_data = pickle.load(f)
-        #                 ensemble = pickle.load(f)
-        #             file = '{}L{}_std{}_k{}_time'.format(figs_folder,
-        #                                                  L_item.split('L')[-1],
-        #                                                  std_item.split('std')[-1], k_val)
-        #             post_process_single_SE_Zooms(ensemble, truth_data, filename=file)
-        #             plt.close()
+        #     # # time parameters and observables
+        #     # for results_item in os.listdir(L_folder):
+        #     #     k_val = results_item.split('_k')[-1]
+        #     #     if int(float(k_val)) in (0, 2, 5, 10):
+        #     #         with open(L_folder + results_item, 'rb') as f:
+        #     #             parameters = pickle.load(f)
+        #     #             truth_data = pickle.load(f)
+        #     #             ensemble = pickle.load(f)
+        #     #         file = '{}L{}_std{}_k{}_time'.format(figs_folder,
+        #     #                                              L_item.split('L')[-1],
+        #     #                                              std_item.split('std')[-1], k_val)
+        #     #         post_process_single_SE_Zooms(ensemble, truth_data, filename=file)
+        #     plt.close()
+        #     print(file)
+        # get_CR_values(std_folder)
+        # plot_Lk_contours(std_folder, file)
+
+        # file = '{}CR_L{}_std{}_results'.format(figs_folder,
+        #                                        L_item.split('L')[-1],
+        #                                        std_item.split('std')[-1])
+        post_process_multiple(std_folder)
+
+

@@ -27,7 +27,7 @@ class Model:
         properties and methods definitions.
     """
     attr_parent: dict = dict(dt=1E-4, t=0.,
-                             t_transient=2., t_CR=0.2,
+                             t_transient=2., t_CR=0.02,
                              psi0=np.empty(1), ensemble=False)
 
     attr_ens: dict = dict(m=10, est_p=[], est_s=True, est_b=False,
@@ -126,10 +126,7 @@ class Model:
         cov = np.diag((self.std_psi ** 2 * abs(mean_psi)))
         self.psi = rng.multivariate_normal(mean_psi, cov, self.m).T
         if 'ensure_mean' in DAdict.keys() and DAdict['ensure_mean']:
-            print(self.psi.shape)
-            print('chiky')
             self.psi[:, 0] = np.array(self.psi0)
-            print(self.psi.shape)
 
         if len(self.est_p) > 0:  # Augment ensemble with estimated parameters
             self.Na = len(self.est_p)
@@ -180,9 +177,12 @@ class Model:
         return self._pool
 
     def close(self):
-        self.pool.close()
-        self.pool.join()
-        delattr(self, "_pool")
+        if hasattr(self, '_pool'):
+            self.pool.close()
+            self.pool.join()
+            delattr(self, "_pool")
+        else:
+            pass
 
     @staticmethod
     def forecast(y0, fun, t, params, alpha=None):
@@ -288,9 +288,9 @@ class VdP(Model):
 
     def getObservables(self, Nt=1):
         if Nt == 1: # required to reduce from 3 to 2 dimensions
-            return self.hist[-1, [0], :]
+            return self.hist[-1, 0:1, :]
         else:
-            return self.hist[-Nt:, [0], :]
+            return self.hist[-Nt:, 0:1, :]
 
     # _________________________ Governing equations ________________________ #
     def govEqnDict(self):
@@ -322,19 +322,19 @@ class Rijke(Model):
         Rijke tube model with Galerkin discretisation and gain-delay sqrt heat release law.
         Args:
             TAdict: dictionary with the model parameters. If not defined, the default value is used.
-                > Nm [10] - Number of Galerkin modes
-                > Nc [50] - Number of Chebyshev modes
-                > beta [0.4] - Heat source strength [-]
-                > tau [2E-3] - Time delay [s]
-                > C1 [.1] - First damping constant [-]
-                > C2 [.06] - Second damping constant [-]
-                > xf- Flame location [m]
+                > Nm - Number of Galerkin modes
+                > Nc - Number of Chebyshev modes
+                > beta - Heat source strength [-]
+                > tau - Time delay [s]
+                > C1 - First damping constant [-]
+                > C2 - Second damping constant [-]
+                > xf - Flame location [m]
                 > L - Tube length [m]
     """
 
     name: str = 'Rijke'
     attr_child: dict = dict(Nm=10, Nc=10, Nmic=6,
-                            beta=0.6, tau=2.E-3, C1=.05, C2=.01, kappa=1E5,
+                            beta=4.0, tau=1.5E-3, C1=.05, C2=.01, kappa=1E5,
                             xf=0.2, L=1., law='sqrt')
     params: list = ['beta', 'tau', 'C1', 'C2', 'kappa']
 
@@ -343,10 +343,11 @@ class Rijke(Model):
             TAdict = {}
         super().__init__(TAdict)
 
-        if DAdict is None:
-            DAdict = {}
+        self.t_transient = 1.
+        self.t_CR = 0.01
 
-        if 'est_p' in DAdict.keys() and 'tau' in DAdict['est_p']:
+
+        if DAdict is not None and 'est_p' in DAdict.keys() and 'tau' in DAdict['est_p']:
             self.tau_adv, self.Nc = 1E-2, 50
         else:
             self.tau_adv = self.tau
@@ -396,7 +397,6 @@ class Rijke(Model):
         # Qbar: 5000      R_gas: 287.1000     gamma: 1.4000
         ##############################################################################################################
 
-        # ------------------------------------------------------------------------------------- #
         if DAdict is not None:
             self.initEnsemble(DAdict)
 
@@ -487,7 +487,7 @@ class Rijke(Model):
             raise Exception("tau = {} can't_interp be larger than tau_adv = {}".format(A['tau'], P['tau_adv']))
 
         # Compute damping and heat release law
-        zeta = A['C1'] * P['j'] ** 2   + A['C2'] * P['j'] ** .5
+        zeta = A['C1'] * P['j'] ** 2 + A['C2'] * P['j'] ** .5
 
         MF = P['meanFlow']  # Physical properties
         if P['law'] == 'sqrt':
