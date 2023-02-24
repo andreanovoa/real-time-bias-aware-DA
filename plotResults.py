@@ -453,17 +453,28 @@ def post_process_multiple(folder, filename=None):
                 val = out[key + suffix]
                 axCRP[ii].plot((-10, 100), (val, val), '-', color='k', label=suffix, alpha=alph, linewidth=lw)
 
-        axCRP[1].set(ylim=[0., 2. * out['R_pre']])
-
         xlims = [min(out['ks']) - .5, max(out['ks']) + .5]
         axCRP[0].set(ylabel='Correlation', xlim=xlims, xlabel='$\\gamma$')
-        axCRP[1].set(ylabel='RMS error', xlim=xlims, xlabel='$\\gamma$')
+        axCRP[1].set(ylim=[0., 2. * out['R_pre']], ylabel='RMS error', xlim=xlims, xlabel='$\\gamma$')
 
+        # PLOT MEAN ERRORS ===============================================================================
+        for mic in [0]:
+            norm = colors.Normalize(vmin=0, vmax=max(out['ks']))
+            cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.viridis)
+            for ax, lbl in zip(mean_ax, ['biased', 'unbiased']):
+                for ki, kval in enumerate(out['ks']):
+                    ax.plot(out['t_interp'], out['error_'+lbl][Li, ki, :, mic]*100,
+                            color=cmap.to_rgba(kval))
+                ax.set(xlabel='$t$ [s]', xlim=[out['t_interp'][0], out['t_interp'][-1]])
+
+            mean_ax[0].set(ylim=[0, 60], ylabel='Biased signal error [\%]')
+            mean_ax[1].set(ylim=[0, 10], ylabel='Unbiased signal error [\%]')
+
+        clb = fig.colorbar(cmap, ax=mean_ax[1], orientation='vertical', fraction=0.1)
+        clb.ax.set_title('$\\gamma$')
 
         # PLOT PARAMETERS AND MEAN EVOLUTION ==========================================================================
         flag = True
-        biases, esn_errors, biases_ESN = [], [], []
-
         for file_k in os.listdir(out['L_dirs'][Li]):
             with open(out['L_dirs'][Li] + file_k, 'rb') as f:
                 _ = pickle.load(f)
@@ -495,91 +506,16 @@ def post_process_multiple(folder, filename=None):
                     for ax1 in axCRP[1:]:
                         ax1.legend(bbox_to_anchor=(1., 1.), loc="upper left", ncol=1)
                     flag = False
-            # PLOT MEAN ERROR EVOLUTION ================================================================================
-                # compute mean error, time averaged over a kinterval# Observable bias
-                y_filter, t_filter = filter_ens.getObservableHist(), filter_ens.hist_t
-                y_truth = truth['y'][:len(y_filter)]
-                b_obs = y_truth - np.mean(y_filter, -1)
-                # ESN bias
-                b, t_b = filter_ens.bias.hist, filter_ens.bias.hist_t
-                b_ESN = interpolate(t_b, b, t_filter)
-                N_mean = int(filter_ens.t_CR / filter_ens.dt)
-                # Ubiased signal error
-
-                if filter_ens.bias.name == 'ESN':
-                    y_unbiased = y_filter[::filter_ens.bias.upsample] + np.expand_dims(b, -1)
-                    y_unbiased = interpolate(t_b, y_unbiased, t_filter)
-                else:
-                    y_unbiased = y_filter + np.expand_dims(b, -1)
-                b_obs_u = y_truth - np.mean(y_unbiased, -1)
-                bias, bias_esn, esn_err = [], [], []
-                for j in range(int(len(b_obs) // N_mean)):
-                    i = j * N_mean
-                    mean_bias_obs = np.mean(abs(b_obs[i:i + N_mean]), 0)
-                    mean_bias_esn = np.mean(abs(b_ESN[i:i + N_mean]), 0)
-                    mean_unbiased_error = np.mean(abs(b_obs_u[i:i + N_mean]), 0)
-
-                    bias.append(mean_bias_obs)
-                    bias_esn.append(mean_bias_esn)
-                    esn_err.append(mean_unbiased_error)
-
-                biases.append(np.array(bias))
-                biases_ESN.append(np.array(bias_esn))
-                esn_errors.append(np.array(esn_err))
-
 
         for ax1 in axCRP[:]:
             x0, x1 = ax1.get_xlim()
             y0, y1 = ax1.get_ylim()
             ax1.set_aspect((x1 - x0) / (y1 - y0))
 
-        for mic in [0]:
-            scale = np.max(truth['y'][:, mic])
-            norm = colors.Normalize(vmin=0, vmax=max(out['ks']))
-            cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.viridis)
-            for i, metric in enumerate([biases, esn_errors]):  # , biases_ESN]):
-                errors = [b[:, mic] / scale for b in metric]
-                t_interp = t_filter[N_mean::N_mean]
-                for err, k in zip(errors, out['ks']):
-                    mean_ax[i].plot(t_interp, err * 100, color=cmap.to_rgba(k))
-                mean_ax[i].set(xlim=[t_filter[out['i0']] - filter_ens.t_CR, t_filter[out['i1']] +- filter_ens.t_CR], xlabel='$t$ [s]')
-
-            mean_ax[0].set(ylim=[0, 60], ylabel='Biased signal error [\%]')
-            mean_ax[1].set(ylim=[0, 10], ylabel='Unbiased signal error [\%]')
-
-            clb = fig.colorbar(cmap, ax=mean_ax[1], orientation='vertical', fraction=0.1)
-            clb.ax.set_title('$\\gamma$')
-
-
-        for i in range(2):
-            x0, x1 = mean_ax[i].get_xlim()
-            y0, y1 = mean_ax[i].get_ylim()
-            # print( (x1 - x0) / (y1 - y0))
-            mean_ax[i].set_aspect(0.5 * (x1 - x0) / (y1 - y0))
-
-        # # PLOT MEAN ERRORS ===============================================================================
-        # for mic in [0]:
-        #     norm = colors.Normalize(vmin=0, vmax=max(out['ks']))
-        #     cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.viridis)
-        #     for ax, lbl in zip(mean_ax, ['biased', 'unbiased']):
-        #         # plt.figure()
-        #         # plt.plot(out['t_interp'], out['error_'+lbl][Li, :, :, mic].T)
-        #         # plt.show()
-        #         for ki, kval in enumerate(out['ks']):
-        #             ax.plot(out['error_'+lbl][Li, ki, :, mic]/out['error_'+lbl][Li, ki, 0, mic], color=cmap.to_rgba(kval))
-        #         ax.set(xlabel='$t$ [s]')
-        #
-        #     # mean_ax[0].set(ylim=[0, 60], ylabel='Biased signal error [\%]')
-        #     # mean_ax[1].set(ylim=[0, 10], ylabel='Unbiased signal error [\%]')
-        #
-        # clb = fig.colorbar(cmap, ax=mean_ax[1], orientation='vertical', fraction=0.1)
-        # clb.ax.set_title('$\\gamma$')
-
         # SAVE PLOT ========================================================================================
-        # if filename is not None:
-        # plt.savefig(filename + '.svg', dpi=350)
-        # plt.savefig('figs/{}.pdf'.format(Li), dpi=350)
-        plt.show()
+        if filename is not None:
+            plt.savefig(filename + '.svg', dpi=350)
+            plt.savefig('figs/{}.pdf'.format(Li), dpi=350)
 
 
 # ==================================================================================================================
@@ -673,116 +609,6 @@ def fig2(folder, Ls, stds, figs_dir):
     plt.close()
 
 
-def get_CR_values(results_folder):
-
-    out = dict(Ls=[], ks=[])
-    keys = ['R_biased_DA', 'R_biased_post',
-            'C_biased_DA', 'C_biased_post',
-            'R_unbiased_DA', 'R_unbiased_post',
-            'C_unbiased_DA', 'C_unbiased_post']
-
-    L_dirs = []
-    LLL = os.listdir(results_folder)
-    LLL.sort()
-    for Ldir in LLL:
-        if os.path.isdir(results_folder + Ldir + '/') and Ldir[0] == 'L':
-            L_dirs.append(results_folder + Ldir + '/')
-            out['Ls'].append(float(Ldir.split('L')[-1]))
-
-    out['L_dirs'] = L_dirs
-    for ff in os.listdir(L_dirs[0]):
-        k = float(ff.split('_k')[-1])
-        out['ks'].append(k)
-    out['ks'].sort()
-
-    print(out['ks'])
-    print('Number of L folders = ', len(out['Ls']))
-    print('Number of k files = ', len(out['ks']))
-
-    for key in keys:
-        out[key] = np.empty([len(out['Ls']), len(out['ks'])])
-
-
-    # ==================================================================================================================
-    ii = -1
-    for Ldir in L_dirs:
-        ii += 1
-        print('L = ', out['Ls'][ii])
-        k_files = os.listdir(Ldir)
-        k_files.sort()
-        for ff in k_files:
-            # Read file
-            with open(Ldir + ff, 'rb') as f:
-                _ = pickle.load(f)
-                truth = pickle.load(f)
-                filter_ens = pickle.load(f)
-            jj = np.argmin(abs(out['ks'] - filter_ens.bias.k))
-
-            print('\t k = ', out['ks'][jj])
-            # Compute biased and unbiased signals
-            y, t = filter_ens.getObservableHist(), filter_ens.hist_t
-            b, t_b = filter_ens.bias.hist, filter_ens.bias.hist_t
-            y_mean = np.mean(y, -1)
-
-            # Unbiased signal error
-            if hasattr(filter_ens.bias, 'upsample'):
-                y_unbiased = y_mean[::filter_ens.bias.upsample] + b
-                y_unbiased = interpolate(t_b, y_unbiased, t)
-            else:
-                y_unbiased = y_mean + b
-
-            if ii == 0:
-                N_CR = int(filter_ens.t_CR / filter_ens.dt)  # Length of interval to compute correlation and RMS
-                i0 = np.argmin(abs(t - truth['t_obs'][0]))  # start of assimilation
-                i1 = np.argmin(abs(t - truth['t_obs'][-1]))  # end of assimilation
-                for key, val in zip(['i0', 'i1', 'N_CR'], [i0, i1, N_CR]):
-                    out[key] = val
-                # true and pre-DA R
-                y_truth_u = truth['y'] - truth['b']
-                out['C_true'], out['R_true'] = CR(truth['y'][-N_CR:], y_truth_u[-N_CR:])
-                out['C_pre'], out['R_pre'] = CR(truth['y'][i0 - N_CR:i0 + 1:], y_mean[i0 - N_CR:i0 + 1:])
-                out['t_interp'] = truth['t'][i0-N_CR:len(y_mean):N_CR]
-                scale = np.max(truth['y'], axis=0)
-
-                for key in ['error_biased', 'error_unbiased']:
-                    out[key] = np.empty([len(out['Ls']), len(out['ks']), len(out['t_interp']), y_mean.shape[-1]])
-
-            # End of assimilation
-            for yy, key in zip([y_mean, y_unbiased], ['_biased_DA', '_unbiased_DA']):
-                C, R = CR(truth['y'][i1 - N_CR:i1], yy[i1-N_CR:i1])
-                out['C'+key][ii, jj] = C
-                out['R'+key][ii, jj] = R
-
-            # After Assimilaiton
-            for yy, key in zip([y_mean, y_unbiased], ['_biased_post', '_unbiased_post']):
-                C, R = CR(truth['y'][i1:i1+N_CR], yy[i1:i1+N_CR])
-                out['C'+key][ii, jj] = C
-                out['R'+key][ii, jj] = R
-
-            # Compute mean errors
-            b_obs = truth['y'][i0-N_CR:len(y_mean)] - y_mean[i0-N_CR:]
-            b_obs_u = truth['y'][i0-N_CR:len(y_mean)] - y_unbiased[i0-N_CR:]
-            error_biased, error_unbiased, = [], []
-
-            ei = -N_CR
-            while ei < len(b_obs) - N_CR:
-                ei += N_CR
-                error_biased.append(abs(np.mean(b_obs[ei:ei + N_CR], axis=0)))
-                error_unbiased.append(abs(np.mean(b_obs_u[ei:ei + N_CR], axis=0)))
-
-            # plt.plot(out['t_interp'], np.array(error_biased))
-            # plt.show()
-
-            out['error_biased'][ii, jj, :, :] = np.array(error_biased)
-            out['error_unbiased'][ii, jj, :, :] = np.array(error_unbiased)
-
-    plt.figure()
-    plt.plot(out['error_unbiased'][ii, :, :, 0].T)
-    plt.show()
-
-
-    with open(results_folder + 'CR_data', 'wb') as f:
-        pickle.dump(out, f)
 
 
 def plot_Lk_contours(folder, filename='contour'):
@@ -833,7 +659,7 @@ if __name__ == '__main__':
     # filename = '{}results_CR'.format(fff+'figs/')
     # post_process_multiple(fff, filename)
 
-    myfolder = 'results/Rijke_test_m10/'
+    myfolder = 'results/Rijke_test_m100/'
 
     # Ls = [10, 30, 50, 70, 90]
     # stds = [.1, .25]

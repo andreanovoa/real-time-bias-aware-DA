@@ -244,3 +244,104 @@ def createESNbias(filter_p, model, truth, folder, bias_param=None):
 
     
     return bias_p
+
+
+def get_error_metrics(results_folder):
+
+    out = dict(Ls=[], ks=[])
+    keys = ['R_biased_DA', 'R_biased_post',
+            'C_biased_DA', 'C_biased_post',
+            'R_unbiased_DA', 'R_unbiased_post',
+            'C_unbiased_DA', 'C_unbiased_post']
+
+    L_dirs = []
+    LLL = os.listdir(results_folder)
+    LLL.sort()
+    for Ldir in LLL:
+        if os.path.isdir(results_folder + Ldir + '/') and Ldir[0] == 'L':
+            L_dirs.append(results_folder + Ldir + '/')
+            out['Ls'].append(float(Ldir.split('L')[-1]))
+
+    out['L_dirs'] = L_dirs
+    for ff in os.listdir(L_dirs[0]):
+        k = float(ff.split('_k')[-1])
+        out['ks'].append(k)
+    out['ks'].sort()
+
+    print(out['ks'])
+    print('Number of L folders = ', len(out['Ls']))
+    print('Number of k files = ', len(out['ks']))
+
+    for key in keys:
+        out[key] = np.empty([len(out['Ls']), len(out['ks'])])
+
+
+    # ==================================================================================================================
+    ii = -1
+    for Ldir in L_dirs:
+        ii += 1
+        print('L = ', out['Ls'][ii])
+        k_files = os.listdir(Ldir)
+        k_files.sort()
+        for ff in k_files:
+            # Read file
+            with open(Ldir + ff, 'rb') as f:
+                _ = pickle.load(f)
+                truth = pickle.load(f)
+                filter_ens = pickle.load(f)
+            jj = np.argmin(abs(out['ks'] - filter_ens.bias.k))
+
+            print('\t k = ', out['ks'][jj])
+            # Compute biased and unbiased signals
+            y, t = filter_ens.getObservableHist(), filter_ens.hist_t
+            b, t_b = filter_ens.bias.hist, filter_ens.bias.hist_t
+            y_mean = np.mean(y, -1)
+
+            # Unbiased signal error
+            if hasattr(filter_ens.bias, 'upsample'):
+                y_unbiased = y_mean[::filter_ens.bias.upsample] + b
+                y_unbiased = interpolate(t_b, y_unbiased, t)
+            else:
+                y_unbiased = y_mean + b
+
+            if ii == 0 and ff == k_files[0]:
+                N_CR = int(filter_ens.t_CR / filter_ens.dt)  # Length of interval to compute correlation and RMS
+                i0 = np.argmin(abs(t - truth['t_obs'][0]))  # start of assimilation
+                i1 = np.argmin(abs(t - truth['t_obs'][-1]))  # end of assimilation
+                for key, val in zip(['i0', 'i1', 'N_CR'], [i0, i1, N_CR]):
+                    out[key] = val
+                # true and pre-DA R
+                y_truth_u = truth['y'] - truth['b']
+                out['C_true'], out['R_true'] = CR(truth['y'][-N_CR:], y_truth_u[-N_CR:])
+                out['C_pre'], out['R_pre'] = CR(truth['y'][i0 - N_CR:i0 + 1:], y_mean[i0 - N_CR:i0 + 1:])
+                out['t_interp'] = truth['t'][i0-N_CR:len(y_mean):N_CR]
+                scale = np.max(truth['y'], axis=0)
+
+                for key in ['error_biased', 'error_unbiased']:
+                    out[key] = np.empty([len(out['Ls']), len(out['ks']), len(out['t_interp']), y_mean.shape[-1]])
+
+            # End of assimilation
+            for yy, key in zip([y_mean, y_unbiased], ['_biased_DA', '_unbiased_DA']):
+                C, R = CR(truth['y'][i1 - N_CR:i1], yy[i1-N_CR:i1])
+                out['C'+key][ii, jj] = C
+                out['R'+key][ii, jj] = R
+
+            # After Assimilaiton
+            for yy, key in zip([y_mean, y_unbiased], ['_biased_post', '_unbiased_post']):
+                C, R = CR(truth['y'][i1:i1+N_CR], yy[i1:i1+N_CR])
+                out['C'+key][ii, jj] = C
+                out['R'+key][ii, jj] = R
+
+            # Compute mean errors
+            b_obs = truth['y'][i0-N_CR:len(y_mean)] - y_mean[i0-N_CR:]
+            b_obs_u = truth['y'][i0-N_CR:len(y_mean)] - y_unbiased[i0-N_CR:]
+
+            ei, a = -N_CR, -1
+            while ei < len(b_obs) - N_CR:
+                a += 1
+                ei += N_CR
+                out['error_biased'][ii, jj, a, :] = np.mean(abs(b_obs[ei:ei + N_CR]), axis=0) / scale
+                out['error_unbiased'][ii, jj, a, :] = np.mean(abs(b_obs_u[ei:ei + N_CR]), axis=0) / scale
+
+    with open(results_folder + 'CR_data', 'wb') as f:
+        pickle.dump(out, f)
