@@ -2,7 +2,7 @@ import os
 import numpy as np
 import pylab as plt
 import pickle
-from Util import createObservations, CR
+from Util import createObservations, CR, interpolate
 from DA import dataAssimilation
 from plotResults import plot_train_data
 
@@ -12,11 +12,11 @@ plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 rng = np.random.default_rng(6)
 
 
-def main(filter_ens, truth, filter_p, results_dir="results/", figs_dir='results/figs/', save_=False):
+# ======================================================================================================================
+# ======================================================================================================================
+def main(filter_ens, truth, filter_p, results_dir="results/", save_=False):
     if not os.path.isdir(results_dir):
         os.makedirs(results_dir)
-    if not os.path.isdir(figs_dir):
-        os.makedirs(figs_dir)
 
     # =========================  PERFORM DATA ASSIMILATION ========================== #
     filter_ens = dataAssimilation(filter_ens, truth['p_obs'], truth['t_obs'],
@@ -46,7 +46,8 @@ def main(filter_ens, truth, filter_p, results_dir="results/", figs_dir='results/
     return filter_ens, truth, parameters
 
 
-# ====================================================================================================
+# ======================================================================================================================
+# ======================================================================================================================
 def createEnsemble(true_p, forecast_p, filter_p, bias_p,
                    working_dir="results", filename='reference_Ensemble', results_dir=None):
     if results_dir is None:
@@ -97,11 +98,11 @@ def createEnsemble(true_p, forecast_p, filter_p, bias_p,
     if 'manual_bias' in true_p.keys():
         if true_p['manual_bias'] == 'time_func':
             # Time dependent bias ------------------
-            b_true = .5 * y_true * np.cos(np.expand_dims(t_true, -1)*np.pi/2)
+            b_true = .5 * y_true * np.cos(np.expand_dims(t_true, -1) * np.pi / 2)
             name_truth += '_timefuncBias'
         elif true_p['manual_bias'] == 'cosine':
             # Nonlinear bias ------------------
-            b_true = 0.2 * np.max(y_true, 0) * np.cos(2*y_true/np.max(y_true, 0))
+            b_true = 0.2 * np.max(y_true, 0) * np.cos(2 * y_true / np.max(y_true, 0))
             name_truth += '_cosBias'
         elif true_p['manual_bias'] == 'linear':
             # Linear bias ------------------
@@ -110,19 +111,10 @@ def createEnsemble(true_p, forecast_p, filter_p, bias_p,
     else:
         b_true = np.zeros(1)
 
-    # plt.figure()
-    # plt.plot(b_true[:, 0])
-    #
-    # plt.figure()
-    # plt.plot(y_true[:, 0])
-    # plt.plot(y_true[:, 0] + b_true[:, 0])
-    # plt.show()
-
-
     y_true += b_true
 
     dt_t = t_true[1] - t_true[0]
-    obs_idx = np.arange(round(filter_p['t_start'] / dt_t), 
+    obs_idx = np.arange(round(filter_p['t_start'] / dt_t),
                         round(filter_p['t_stop'] / dt_t) + 1, filter_p['kmeas'])
     t_obs = t_true[obs_idx]
 
@@ -135,7 +127,7 @@ def createEnsemble(true_p, forecast_p, filter_p, bias_p,
     obs = y_true[obs_idx] * (1. + noise)
 
     truth = dict(y=y_true, t=t_true, b=b_true, dt=dt_t,
-                 t_obs=t_obs, p_obs=obs, dt_obs=t_obs[1]-t_obs[0],
+                 t_obs=t_obs, p_obs=obs, dt_obs=t_obs[1] - t_obs[0],
                  true_params=true_p, name=name_truth,
                  model=true_p['model'], std_obs=true_p['std_obs'])
 
@@ -155,6 +147,8 @@ def createEnsemble(true_p, forecast_p, filter_p, bias_p,
     return ensemble, truth, args
 
 
+# ======================================================================================================================
+# ======================================================================================================================
 def createESNbias(filter_p, model, truth, folder, bias_param=None):
     if bias_param is None:
         raise ValueError('Provide bias parameters dictionary')
@@ -165,21 +159,19 @@ def createESNbias(filter_p, model, truth, folder, bias_param=None):
     bias_p = bias_param.copy()
     train_params = bias_p['train_params'].copy()
     train_params['m'] = bias_p['L']
-    
+
     # Compute reference bias. Create an ensemble of training data
     ref_ens = model(train_params, train_params)
     try:
         name_train = folder + 'Truth_{}_{}'.format(ref_ens.name, ref_ens.law)
     except:
         name_train = folder + 'Truth_{}'.format(ref_ens.name)
-        
+
     for k in ref_ens.params:
         name_train += '_{}{}'.format(k, getattr(ref_ens, k))
     name_train += '_std{:.2}_m{}_{}'.format(ref_ens.std_a, ref_ens.m, ref_ens.alpha_distr)
     # Load or create reference ensemble (multi-parameter solution)
     rerun = True
-
-    print(name_train)
 
     if os.path.isfile(name_train):
         with open(name_train, 'rb') as f:
@@ -200,14 +192,9 @@ def createESNbias(filter_p, model, truth, folder, bias_param=None):
     t = ref_ens.hist_t[:len(truth['t'])]
 
     if len(truth['y'].shape) < len(y_ref.shape):
-        biasData = np.expand_dims(truth['y'], -1) - y_ref   # [Nt x Nmic x L]
+        biasData = np.expand_dims(truth['y'], -1) - y_ref  # [Nt x Nmic x L]
     else:
-        biasData = truth['y'] - y_ref   # [Nt x Nmic x L]
-
-    #
-    # print('reashefd point')
-    # print(truth['y'].shape, y_ref.shape)
-
+        biasData = truth['y'] - y_ref  # [Nt x Nmic x L]
 
     # phase_shift = 100
     # shiftedData = np.append(np.zeros([phase_shift, y_true.shape[1]]), y_true[phase_shift:], axis=0)
@@ -239,15 +226,15 @@ def createESNbias(filter_p, model, truth, folder, bias_param=None):
     bias_p['washout_t'] = truth['t'][i0:i1 + 1]
     bias_p['filename'] = folder + truth['name'] + '_' + name_train.split('Truth_')[-1] + '_bias'
 
-
     plot_train_data(truth, y_ref, ref_ens.t_CR, folder)
 
-    
     return bias_p
 
 
+# ======================================================================================================================
+# ======================================================================================================================
 def get_error_metrics(results_folder):
-
+    print('computing error metrics...')
     out = dict(Ls=[], ks=[])
     keys = ['R_biased_DA', 'R_biased_post',
             'C_biased_DA', 'C_biased_post',
@@ -268,15 +255,9 @@ def get_error_metrics(results_folder):
         out['ks'].append(k)
     out['ks'].sort()
 
-    print(out['ks'])
-    print('Number of L folders = ', len(out['Ls']))
-    print('Number of k files = ', len(out['ks']))
-
     for key in keys:
         out[key] = np.empty([len(out['Ls']), len(out['ks'])])
 
-
-    # ==================================================================================================================
     ii = -1
     for Ldir in L_dirs:
         ii += 1
@@ -314,7 +295,7 @@ def get_error_metrics(results_folder):
                 y_truth_u = truth['y'] - truth['b']
                 out['C_true'], out['R_true'] = CR(truth['y'][-N_CR:], y_truth_u[-N_CR:])
                 out['C_pre'], out['R_pre'] = CR(truth['y'][i0 - N_CR:i0 + 1:], y_mean[i0 - N_CR:i0 + 1:])
-                out['t_interp'] = truth['t'][i0-N_CR:len(y_mean):N_CR]
+                out['t_interp'] = truth['t'][i0 - N_CR:len(y_mean):N_CR]
                 scale = np.max(truth['y'], axis=0)
 
                 for key in ['error_biased', 'error_unbiased']:
@@ -322,19 +303,19 @@ def get_error_metrics(results_folder):
 
             # End of assimilation
             for yy, key in zip([y_mean, y_unbiased], ['_biased_DA', '_unbiased_DA']):
-                C, R = CR(truth['y'][i1 - N_CR:i1], yy[i1-N_CR:i1])
-                out['C'+key][ii, jj] = C
-                out['R'+key][ii, jj] = R
+                C, R = CR(truth['y'][i1 - N_CR:i1], yy[i1 - N_CR:i1])
+                out['C' + key][ii, jj] = C
+                out['R' + key][ii, jj] = R
 
             # After Assimilaiton
             for yy, key in zip([y_mean, y_unbiased], ['_biased_post', '_unbiased_post']):
-                C, R = CR(truth['y'][i1:i1+N_CR], yy[i1:i1+N_CR])
-                out['C'+key][ii, jj] = C
-                out['R'+key][ii, jj] = R
+                C, R = CR(truth['y'][i1:i1 + N_CR], yy[i1:i1 + N_CR])
+                out['C' + key][ii, jj] = C
+                out['R' + key][ii, jj] = R
 
             # Compute mean errors
-            b_obs = truth['y'][i0-N_CR:len(y_mean)] - y_mean[i0-N_CR:]
-            b_obs_u = truth['y'][i0-N_CR:len(y_mean)] - y_unbiased[i0-N_CR:]
+            b_obs = truth['y'][i0 - N_CR:len(y_mean)] - y_mean[i0 - N_CR:]
+            b_obs_u = truth['y'][i0 - N_CR:len(y_mean)] - y_unbiased[i0 - N_CR:]
 
             ei, a = -N_CR, -1
             while ei < len(b_obs) - N_CR:
