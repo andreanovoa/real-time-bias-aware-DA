@@ -10,7 +10,7 @@ import numpy as np
 import pylab as plt
 import pickle
 import scipy.io as sio
-
+from compress_pickle import load, dump
 from functools import lru_cache
 
 from scipy.interpolate import interp1d
@@ -89,12 +89,11 @@ def createObservations(classParams=None):
     psi, t = case.timeIntegrate(Nt=int(t_max / case.dt))
     case.updateHistory(psi, t)
     case.close()
-    with open(name, 'wb') as f:
-        pickle.dump(case, f)
+    with open(name + '.lzma', 'wb') as f:
+        dump(case, f)
     # Retrieve observables
     p_obs = case.getObservableHist()
     if len(np.shape(p_obs)) > 2:
-        print(p_obs.shape)
         p_obs = np.squeeze(p_obs, axis=-1)
 
     return p_obs, case.hist_t, name.split('Truth_')[-1]
@@ -185,72 +184,72 @@ def CR(y_true, y_est):
     R = np.sqrt(np.sum((y_true - y_est) ** 2) / np.sum(y_true ** 2))
     return C, R
 
-
-def get_CR_values(results_folder):
-
-    Ls, RBs, RUs, CBs, CUs = [],[],[],[],[]
-    # ==================================================================================================================
-    ii= -1
-    for Ldir in os.listdir(results_folder):
-        Ldir = results_folder + Ldir + '/'
-        if not os.path.isdir(Ldir):
-            continue
-        ii += 1
-        Ls.append(Ldir.split('L')[-1])
-        flag = True
-        ks = []
-
-        L_RB, L_RU, L_CB, L_CU = [], [], [], []
-        for ff in os.listdir(Ldir):
-            if ff.find('_k') == -1:
-                continue
-            k = float(ff.split('_k')[-1])
-            ks.append(k)
-            with open(Ldir + ff, 'rb') as f:
-                params = pickle.load(f)
-                truth = pickle.load(f)
-                filter_ens = pickle.load(f)
-
-            y, t = filter_ens.getObservableHist(), filter_ens.hist_t
-            b, t_b = filter_ens.bias.hist, filter_ens.bias.hist_t
-            y_truth = truth['y'][:len(y)]
-            y = np.mean(y, -1)
-
-            # Unbiased signal error
-            if filter_ens.bias.name == 'ESN':
-                y_unbiased = y[::filter_ens.bias.upsample] + b
-                y_unbiased = interpolate(t_b, y_unbiased, t)
-            else:
-                y_unbiased = y + np.expand_dims(b, -1)
-
-            if flag:
-                N_CR = int(filter_ens.t_CR / filter_ens.dt)  # Length of interval to compute correlation and RMS
-                i0 = np.argmin(abs(t - truth['t_obs'][0]))  # start of assimilation
-                i1 = np.argmin(abs(t - truth['t_obs'][params['num_DA']-1]))  # end of assimilation
-
-            C, R = CR(y_truth[i1-N_CR:i1], y[i1-N_CR:i1])
-            L_RB.append([R])
-            L_CB.append([C])
-            C, R = CR(y_truth[i1-N_CR:i1], y_unbiased[i1-N_CR:i1])
-            L_RU.append([R])
-            L_CU.append([C])
-
-            flag = False
-        RBs.append(L_RB)
-        RUs.append(L_RU)
-        CBs.append(L_CB)
-        CUs.append(L_CU)
-
-    # true and pre-DA R
-    y_truth_u = y_truth - truth['b_true'][:len(y)]
-    Ct, Rt = CR(y_truth[-N_CR:], y_truth_u[-N_CR:])
-    Cpre, Rpre = CR(y_truth[i0 - N_CR:i0 + 1:], y[i0 - N_CR:i0 + 1:])
-
-    results = dict(Ls=Ls, ks=ks,
-                   RBs=RBs, RUs=RUs,
-                   Rt=Rt, Rpre=Rpre,
-                   CBs=CBs, CUs=CUs,
-                   Ct=Ct, Cpre=Cpre)
-
-    with open(results_folder + 'CR_data', 'wb') as f:
-        pickle.dump(results, f)
+#
+# def get_CR_values(results_folder):
+#
+#     Ls, RBs, RUs, CBs, CUs = [],[],[],[],[]
+#     # ==================================================================================================================
+#     ii= -1
+#     for Ldir in os.listdir(results_folder):
+#         Ldir = results_folder + Ldir + '/'
+#         if not os.path.isdir(Ldir):
+#             continue
+#         ii += 1
+#         Ls.append(Ldir.split('L')[-1])
+#         flag = True
+#         ks = []
+#
+#         L_RB, L_RU, L_CB, L_CU = [], [], [], []
+#         for ff in os.listdir(Ldir):
+#             if ff.find('_k') == -1:
+#                 continue
+#             k = float(ff.split('_k')[-1])
+#             ks.append(k)
+#             with open(Ldir + ff + '.gz', 'rb') as f:
+#                 params = load(f)
+#                 truth = load(f)
+#                 filter_ens = load(f)
+#
+#             y, t = filter_ens.getObservableHist(), filter_ens.hist_t
+#             b, t_b = filter_ens.bias.hist, filter_ens.bias.hist_t
+#             y_truth = truth['y'][:len(y)]
+#             y = np.mean(y, -1)
+#
+#             # Unbiased signal error
+#             if filter_ens.bias.name == 'ESN':
+#                 y_unbiased = y[::filter_ens.bias.upsample] + b
+#                 y_unbiased = interpolate(t_b, y_unbiased, t)
+#             else:
+#                 y_unbiased = y + np.expand_dims(b, -1)
+#
+#             if flag:
+#                 N_CR = int(filter_ens.t_CR / filter_ens.dt)  # Length of interval to compute correlation and RMS
+#                 i0 = np.argmin(abs(t - truth['t_obs'][0]))  # start of assimilation
+#                 i1 = np.argmin(abs(t - truth['t_obs'][params['num_DA']-1]))  # end of assimilation
+#
+#             C, R = CR(y_truth[i1-N_CR:i1], y[i1-N_CR:i1])
+#             L_RB.append([R])
+#             L_CB.append([C])
+#             C, R = CR(y_truth[i1-N_CR:i1], y_unbiased[i1-N_CR:i1])
+#             L_RU.append([R])
+#             L_CU.append([C])
+#
+#             flag = False
+#         RBs.append(L_RB)
+#         RUs.append(L_RU)
+#         CBs.append(L_CB)
+#         CUs.append(L_CU)
+#
+#     # true and pre-DA R
+#     y_truth_u = y_truth - truth['b_true'][:len(y)]
+#     Ct, Rt = CR(y_truth[-N_CR:], y_truth_u[-N_CR:])
+#     Cpre, Rpre = CR(y_truth[i0 - N_CR:i0 + 1:], y[i0 - N_CR:i0 + 1:])
+#
+#     results = dict(Ls=Ls, ks=ks,
+#                    RBs=RBs, RUs=RUs,
+#                    Rt=Rt, Rpre=Rpre,
+#                    CBs=CBs, CUs=CUs,
+#                    Ct=Ct, Cpre=Cpre)
+#
+#     with open(results_folder + 'CR_data.gz', 'wb') as f:
+#         dump(results, f)

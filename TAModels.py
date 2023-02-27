@@ -108,6 +108,18 @@ class Model:
         self.hist = np.array([self.psi])
         self.N = len(self.psi0)
 
+    def getOutputs(self):
+        return dict(name=self.name,
+                    attrs_ens=self.attr_ens,
+                    attrs_child=self.attr_child,
+                    y=self.getObservableHist(),
+                    y_lbls=self.obsLabels,
+                    bias=self.bias.getOutputs(),
+                    t=self.hist_t,
+                    hist=self.hist,
+                    hist_J=self.hist_J
+                    )
+
     def initEnsemble(self, DAdict):
         DAdict = DAdict.copy()
         self.ensemble = True
@@ -120,7 +132,7 @@ class Model:
         # ----------------------- DEFINE STATE MATRIX ----------------------- ##
         # Note: if est_p and est_b psi = [psi; alpha; biasWeights]
         # if self.m > 1:
-            # if True:
+        # if True:
         mean_psi = np.array(self.psi0)  # * rng.uniform(0.9, 1.1, len(self.psi0))
         # self.psi = self.addUncertainty(mean, self.std_psi, self.m, method=self.alpha_distr)
         cov = np.diag((self.std_psi ** 2 * abs(mean_psi)))
@@ -248,7 +260,6 @@ class Model:
         return psi[1:], t[1:]
 
 
-
 # %% =================================== VAN DER POL MODEL ============================================== %% #
 class VdP(Model):
     """ Van der Pol Oscillator Class
@@ -287,7 +298,7 @@ class VdP(Model):
         return "$\\eta$"
 
     def getObservables(self, Nt=1):
-        if Nt == 1: # required to reduce from 3 to 2 dimensions
+        if Nt == 1:  # required to reduce from 3 to 2 dimensions
             return self.hist[-1, 0:1, :]
         else:
             return self.hist[-Nt:, 0:1, :]
@@ -345,7 +356,6 @@ class Rijke(Model):
 
         self.t_transient = 1.
         self.t_CR = 0.01
-
 
         if DAdict is not None and 'est_p' in DAdict.keys() and 'tau' in DAdict['est_p']:
             self.tau_adv, self.Nc = 1E-2, 50
@@ -492,7 +502,7 @@ class Rijke(Model):
         MF = P['meanFlow']  # Physical properties
         if P['law'] == 'sqrt':
             qdot = MF['p'] * MF['u'] * A['beta'] * (
-                        np.sqrt(abs(1. / 3 + u_tau / MF['u'])) - np.sqrt(1. / 3))  # [W/m2]=[m/s3]
+                    np.sqrt(abs(1. / 3 + u_tau / MF['u'])) - np.sqrt(1. / 3))  # [W/m2]=[m/s3]
         elif P['law'] == 'tan':
             qdot = A['beta'] * np.sqrt(A['beta'] / A['kappa']) * np.arctan(
                 np.sqrt(A['beta'] / A['kappa']) * u_tau)  # [m / s3]
@@ -576,7 +586,7 @@ if __name__ == '__main__':
     t1 = time.time()
     # Non-ensemble case =============================
     case = MyModel(paramsTA)
-    state, t_ = case.timeIntegrate(int(case.t_transient*2 / case.dt))
+    state, t_ = case.timeIntegrate(int(case.t_transient * 2 / case.dt))
     case.updateHistory(state, t_)
 
     print('Elapsed time = ', str(time.time() - t1))

@@ -23,6 +23,11 @@ class Bias:
         self.b = self.hist[-1]
         self.t = self.hist_t[-1]
 
+    def getOutputs(self):
+        return dict(name=self.name,
+                    attrs=self.attrs,
+                    b=self.hist,
+                    t=self.hist_t)
     def updateCurrentState(self, b, t):
         self.b = b
         self.t = t
@@ -31,6 +36,7 @@ class Bias:
 
 class NoBias(Bias):
     name = 'None'
+    attrs = {}
     def __init__(self, y, t, Bdict=None):
         super().__init__(np.zeros(len(y)), t)
 
@@ -48,22 +54,22 @@ class NoBias(Bias):
 
 class ESN(Bias):
     name = 'ESN'
-    training_params = {'t_train': 1.0,
-                       't_val': 0.1,
-                       'N_wash': 50,
-                       'N_units': 100,
-                       'upsample': 5,
-                       'test_run': True,
-                       'L': 1,
-                       'k': 0.,
-                       'augment_data': True
-                       }
+    attrs = {'t_train': 1.0,
+             't_val': 0.1,
+             'N_wash': 50,
+             'N_units': 100,
+             'upsample': 5,
+             'test_run': True,
+             'L': 1,
+             'k': 0.,
+             'augment_data': True
+             }
 
     def __init__(self, y, t, Bdict=None):
         if Bdict is None:
             Bdict = {'folder': 'data/'}
         else:
-            for key, val in self.training_params.items():
+            for key, val in self.attrs.items():
                 if key not in Bdict.keys():
                     setattr(self, key, val)
                     Bdict[key] = val

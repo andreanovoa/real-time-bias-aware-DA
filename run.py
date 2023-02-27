@@ -6,6 +6,7 @@ from Util import createObservations, CR, interpolate
 from DA import dataAssimilation
 from plotResults import plot_train_data
 
+
 plt.rc('text', usetex=True)
 plt.rc('font', family='serif', size=12)
 plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
@@ -39,10 +40,22 @@ def main(filter_ens, truth, filter_p, results_dir="results/", save_=False):
     if save_:
         filename = '{}{}-{}_F-{}_B-{}_k{}'.format(results_dir, filter_p['filt'], truth['name'],
                                                   filter_ens.name, filter_p['biasType'].name, filter_ens.bias.k)
+
+        # TODO: remove all unnecessary fields from filter_ens and keep only essential stuff in a dictionary
+        # import time
+        # t1 = time.time()
+        # with open(filename + '.bz', 'wb') as f:
+        #     pickle.dump(parameters, f)
+        #     pickle.dump(truth, f)
+        #     pickle.dump(filter_ens, f)
+        # print('.gz time = ', time.
+
+        filter_fields = filter_ens.getOutputs()
         with open(filename, 'wb') as f:
             pickle.dump(parameters, f)
             pickle.dump(truth, f)
             pickle.dump(filter_ens, f)
+
     return filter_ens, truth, parameters
 
 
@@ -139,7 +152,7 @@ def createEnsemble(true_p, forecast_p, filter_p, bias_p,
         args = (None,)
     # ===============================  INITIALISE ENSEMBLE  =============================== #
     ensemble = forecast_p['model'](forecast_p, filter_p)
-    with open(results_dir + filename, 'wb') as f:
+    with open(results_dir + filename , 'wb') as f:
         pickle.dump(ensemble, f)
         pickle.dump(truth, f)
         pickle.dump(args, f)
@@ -170,14 +183,14 @@ def createESNbias(filter_p, model, truth, folder, bias_param=None):
     for k in ref_ens.params:
         name_train += '_{}{}'.format(k, getattr(ref_ens, k))
     name_train += '_std{:.2}_m{}_{}'.format(ref_ens.std_a, ref_ens.m, ref_ens.alpha_distr)
-    # Load or create reference ensemble (multi-parameter solution)
+    # pickle.load or create reference ensemble (multi-parameter solution)
     rerun = True
 
-    if os.path.isfile(name_train):
-        with open(name_train, 'rb') as f:
-            load_ens = pickle.load(f)
-        if len(truth['t']) <= len(load_ens.hist_t):
-            ref_ens = load_ens.copy()
+    if os.path.isfile(name_train ):
+        with open(name_train , 'rb') as f:
+            pickle.load_ens = pickle.load(f)
+        if len(truth['t']) <= len(pickle.load_ens.hist_t):
+            ref_ens = pickle.load_ens.copy()
             rerun = False
 
     if rerun:
@@ -185,7 +198,7 @@ def createESNbias(filter_p, model, truth, folder, bias_param=None):
         psi, t = ref_ens.timeIntegrate(Nt=len(truth['t']) - 1)
         ref_ens.updateHistory(psi, t)
         ref_ens.close()
-        with open(name_train, 'wb') as f:
+        with open(name_train , 'wb') as f:
             pickle.dump(ref_ens, f)
 
     y_ref, lbl = ref_ens.getObservableHist(Nt=len(truth['t'])), ref_ens.obsLabels
@@ -266,7 +279,7 @@ def get_error_metrics(results_folder):
         k_files.sort()
         for ff in k_files:
             # Read file
-            with open(Ldir + ff, 'rb') as f:
+            with open(Ldir + ff , 'rb') as f:
                 _ = pickle.load(f)
                 truth = pickle.load(f)
                 filter_ens = pickle.load(f)
@@ -324,5 +337,5 @@ def get_error_metrics(results_folder):
                 out['error_biased'][ii, jj, a, :] = np.mean(abs(b_obs[ei:ei + N_CR]), axis=0) / scale
                 out['error_unbiased'][ii, jj, a, :] = np.mean(abs(b_obs_u[ei:ei + N_CR]), axis=0) / scale
 
-    with open(results_folder + 'CR_data', 'wb') as f:
+    with open(results_folder + 'CR_data' , 'wb') as f:
         pickle.dump(out, f)

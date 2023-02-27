@@ -5,3 +5,4 @@ matplotlib
 h5py~=3.7.0
 scikit-optimize
 nolds~=0.5.2
+compress_pickle

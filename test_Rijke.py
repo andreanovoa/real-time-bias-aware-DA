@@ -4,7 +4,7 @@ from run import main, createESNbias, createEnsemble, get_error_metrics
 from plotResults import *
 
 # %% ========================== SELECT LOOP PARAMETERS ================================= #
-folder = 'results/Rijke_test/'
+folder = 'results/Rijke_test_compress_lzma/'
 figs_folder = folder + 'figs/'
 run_loopParams = True
 
@@ -13,8 +13,6 @@ true_params = {'model': TAModels.Rijke,
                't_max': 2.0,
                'beta': 4.2,
                'tau': 1.4E-3,
-               # 'C1': 0.06,
-               # 'C2': 0.008,
                'manual_bias': 'cosine'
                }
 forecast_params = {'model': TAModels.Rijke,
@@ -23,7 +21,7 @@ forecast_params = {'model': TAModels.Rijke,
 
 # ==================================== SELECT FILTER PARAMETERS =================================== #
 filter_params = {'filt': 'EnKFbias',  # 'EnKFbias' 'EnKF' 'EnSRKF'
-                 'm': 70,
+                 'm': 10,
                  'est_p': ['beta', 'tau'], #, 'C1', 'C2'],
                  'biasType': Bias.ESN,
                  # Define the observation timewindow
@@ -69,9 +67,9 @@ ensemble, truth, args = createEnsemble(true_params, forecast_params,
 if __name__ == '__main__':
 
     if run_loopParams:
-        Ls = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
-        # Ls = [10, 30, 50, 70, 90]
-        stds = [.25]
+        # Ls = [20, 40, 60, 80, 100]
+        Ls = [10, 30, 50, 70, 90]
+        stds = [.10]
         ks = np.linspace(0., 5., 21)
 
         for std in stds:
