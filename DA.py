@@ -47,8 +47,19 @@ def dataAssimilation(ensemble,
 
     Nt = int(np.round((t_obs[ti] - ensemble.t) / dt))
     ensemble = forecastStep(ensemble, Nt, averaged=False)
-
     print('Elapsed time to first observation: ' + str(time.time() - time1) + ' s')
+
+    # ---------------------------------- REMOVE TRANSIENT -------------------------------- ##
+
+    assert ensemble.t > ensemble.t_transient
+    assert ensemble.bias.washout_t[0] > ensemble.t_transient
+
+    i_transient = np.argmin(abs(ensemble.hist_t - ensemble.t_transient))
+    for key in ['hist', 'hist_t']:
+        setattr(ensemble, key, getattr(ensemble, key)[i_transient:])
+    i_transient = np.argmin(abs(ensemble.bias.hist_t - ensemble.t_transient))
+    for key in ['hist', 'hist_t']:
+        setattr(ensemble.bias, key, getattr(ensemble.bias, key)[i_transient:])
 
     # --------------------------------- ASSIMILATION LOOP -------------------------------- ##
     num_obs = len(t_obs)

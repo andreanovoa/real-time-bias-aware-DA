@@ -6,9 +6,9 @@ from Util import interpolate, CR, getEnvelope
 from scipy.interpolate import CubicSpline, interp1d
 import numpy as np
 import matplotlib as mpl
-
+#
 # plt.rc('text', usetex=True)
-# plt.rc('font', family='serif', size=12)
+# plt.rc('font', family='times', size=12)
 # plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 
 
@@ -60,23 +60,23 @@ def post_process_WhyAugment(results_dir, figs_dir):
         ii = 2
         for ff in os.listdir( results_dir + Ldir + '/'):
             ii -= 1
-            with open( results_dir + Ldir + '/' + ff, 'rb') as f:
+            with open(results_dir + Ldir + '/' + ff, 'rb') as f:
                 params = pickle.load(f)
                 truth = pickle.load(f)
                 filter_ens = pickle.load(f)
 
-            y, t = filter_ens.getObservableHist(), filter_ens.hist_t
+            y, t = filter_ens['y'], filter_ens['t']
             y_t, b_t = truth['y'][:len(y)], truth['b'][:len(y)]
 
             # ESN estimated bias
-            b, t_b = filter_ens.bias.hist, filter_ens.bias.hist_t
+            b, t_b = filter_ens['bias']['hist'], filter_ens['bias']['t']
 
             # Unbiased signal recovered through interpolation
-            y_unbiased = y[::filter_ens.bias.upsample] + np.expand_dims(b, -1)
+            y_unbiased = y[::filter_ens['bias']['upsample']] + np.expand_dims(b, -1)
             y_unbiased = interpolate(t_b, y_unbiased, t)
 
             if flag:
-                N_CR = int(filter_ens.t_CR / filter_ens.dt)  # Length of interval to compute correlation and RMS
+                N_CR = int(filter_ens['t_CR'] / filter_ens['dt'])  # Length of interval to compute correlation and RMS
                 istop = np.argmin(abs(t - truth['t_obs'][params['num_DA'] - 1]))  # end of assimilation
                 istart = np.argmin(abs(t - truth['t_obs'][0]))  # start of assimilation
 
@@ -139,12 +139,12 @@ def post_process_single_SE_Zooms(ensemble, true_data, filename=None):
 
     t_obs, obs = truth['t_obs'], truth['p_obs']
 
-    num_DA_blind = filter_ens.num_DA_blind
-    num_SE_only = filter_ens.num_SE_only
+    num_DA_blind = filter_ens['num_DA_blind']
+    num_SE_only = filter_ens['num_SE_only']
 
     # %% ================================ PLOT time series, parameters and RMS ================================ #
 
-    y_filter, labels = filter_ens.getObservableHist(), filter_ens.obsLabels
+    y_filter, labels = filter_ens['hist_y'], filter_ens['y_lbls']
     if len(np.shape(y_filter)) < 3:
         y_filter = np.expand_dims(y_filter, axis=1)
     if len(np.shape(truth['y'])) < 3:
@@ -152,8 +152,8 @@ def post_process_single_SE_Zooms(ensemble, true_data, filename=None):
 
     # normalise results
 
-    hist = filter_ens.hist
-    t = filter_ens.hist_t
+    hist = filter_ens['hist']
+    t = filter_ens['hist_t']
 
     mean = np.mean(hist, -1, keepdims=True)
     y_mean = np.mean(y_filter, -1)
@@ -171,22 +171,25 @@ def post_process_single_SE_Zooms(ensemble, true_data, filename=None):
 
     zoom_ax.plot(t_obs, obs[:, 0], '.', color='r', markersize=10)
     zoomPre_ax.plot(t_obs, obs[:, 0], '.', color='r', label='Observations', markersize=10)
-    if filter_ens.bias is not None:
+    if filter_ens['bias'] is not None:
         c = 'navy'
-        b = filter_ens.bias.hist
-        t_b = filter_ens.bias.hist_t
-        y_unbiased = y_filter[::filter_ens.bias.upsample] + np.expand_dims(b, -1)
+        b = filter_ens['bias']['hist']
+
+        print(b.shape)
+        t_b = filter_ens['bias']['hist_t']
+        y_unbiased = y_filter[::filter_ens['bias']['upsample']] + np.expand_dims(b, -1)
 
         spline = interp1d(t_b, y_unbiased, kind='cubic', axis=0, copy=True, bounds_error=False, fill_value=0)
         y_unbiased = spline(t)
 
-        y_mean_u = np.mean(y_unbiased, -1)
+        print(y_unbiased.shape)
+        y_mean_u =np.mean(y_unbiased, -1, keepdims=True)
 
-        t_wash = filter_ens.bias.washout_t
-        wash = filter_ens.bias.washout_obs
+        t_wash = filter_ens['bias']['washout_t']
+        wash = filter_ens['bias']['washout_obs']
 
         zoomPre_ax.plot(t_wash, wash[:, 0], '.', color='r', markersize=10)
-        washidx = int(t_obs[0] / filter_ens.dt) - filter_ens.bias.N_wash * filter_ens.bias.upsample
+        washidx = int(t_obs[0] / filter_ens['dt']) - filter_ens['bias']['N_wash'] * filter_ens['bias']['upsample']
         zoom_ax.plot(t, y_mean_u[:, 0], '-', color=c, label='Unbiased estimate', linewidth=1.5)
         zoomPre_ax.plot(t[washidx:], y_mean_u[washidx:, 0], '-', color=c, linewidth=1.5)
 
@@ -204,7 +207,7 @@ def post_process_single_SE_Zooms(ensemble, true_data, filename=None):
     zoomPre_ax.set(ylabel="$\\eta$", xlabel='$t$ [s]', xlim=[t_obs[0] - 0.03, t_obs[0] + 0.02], ylim=y_lims)
 
     # PLOT PARAMETER CONVERGENCE-------------------------------------------------------------
-    ii = len(filter_ens.psi0)
+    ii = len(filter_ens['psi0'])
     c = ['g', 'mediumpurple', 'sandybrown', 'cyan']
     params_ax.plot((t_obs[0], t_obs[0]), (-1E6, 1E6), '--', color='dimgray')
     params_ax.plot((t_obs[-1], t_obs[-1]), (-1E6, 1E6), '--', color='dimgray')
@@ -216,11 +219,11 @@ def post_process_single_SE_Zooms(ensemble, true_data, filename=None):
         params_ax.plot((t_obs[num_SE_only], t_obs[num_SE_only]), (-1E6, 1E6), '-.', color='darkviolet',
                        label='Start PE')
 
-    if filter_ens.est_p:
+    if filter_ens['est_p']:
         max_p, min_p = -np.infty, np.infty
-        for p in filter_ens.est_p:
+        for p in filter_ens['est_p']:
             superscript = '^\mathrm{init}$'
-            reference_p = filter_ens.alpha0
+            reference_p = filter_ens['alpha0']
 
             mean_p = mean[:, ii].squeeze() / reference_p[p]
             std = np.std(hist[:, ii] / reference_p[p], axis=1)
@@ -229,19 +232,18 @@ def post_process_single_SE_Zooms(ensemble, true_data, filename=None):
             min_p = min(min_p, min(mean_p))
 
             if p in ['C1', 'C2']:
-                params_ax.plot(t, mean_p, color=c[ii - len(filter_ens.psi0)], label='$' + p + '/' + p + superscript)
+                params_ax.plot(t, mean_p, color=c[ii - len(filter_ens['psi0'])], label='$' + p + '/' + p + superscript)
             else:
-                params_ax.plot(t, mean_p, color=c[ii - len(filter_ens.psi0)], label='$\\' + p + '/\\' + p + superscript)
+                params_ax.plot(t, mean_p, color=c[ii - len(filter_ens['psi0'])], label='$\\' + p + '/\\' + p + superscript)
 
             params_ax.set(xlabel='$t$ [s]', xlim=x_lims)
-            params_ax.fill_between(t, mean_p + std, mean_p - std, alpha=0.2, color=c[ii - len(filter_ens.psi0)])
+            params_ax.fill_between(t, mean_p + std, mean_p - std, alpha=0.2, color=c[ii - len(filter_ens['psi0'])])
             ii += 1
         params_ax.legend(bbox_to_anchor=(0., 1.), loc="lower left", ncol=3)
         params_ax.plot(t[1:], t[1:] / t[1:], '-', color='k', linewidth=.5)
         params_ax.set(ylim=[min_p - 0.1, max_p + 0.1])
 
     if filename is not None:
-        # plt.savefig(filename + '.svg', dpi=350)
         plt.savefig(filename + '.pdf', dpi=350)
         plt.close()
     else:
@@ -249,13 +251,13 @@ def post_process_single_SE_Zooms(ensemble, true_data, filename=None):
 
 def post_process_single(filter_ens, truth, params, filename=None):
     filt = filter_ens.filt
-    biasType = filter_ens.biasType
+    biasType = filter_ens['biasType']
     Nt_extra = params['Nt_extra']
 
     t_obs, obs = truth['t_obs'], truth['p_obs']
 
-    num_DA_blind = filter_ens.num_DA_blind
-    num_SE_only = filter_ens.num_SE_only
+    num_DA_blind = filter_ens['num_DA_blind']
+    num_SE_only = filter_ens['num_SE_only']
 
     # %% ================================ PLOT time series, parameters and RMS ================================ #
 
@@ -287,7 +289,7 @@ def post_process_single(filter_ens, truth, params, filename=None):
     else:
         fig.suptitle(filter_ens.name + ' DA with ' + filt + ' and ' + biasType.name + ' bias')
 
-    x_lims = [t_obs[0] - filter_ens.t_CR, t_obs[-1] + filter_ens.t_CR]
+    x_lims = [t_obs[0] - .05, t_obs[-1] + .05]
 
     c = 'lightgray'
     p_ax.plot(truth['t'], truth['y'][:, 0], color=c, label='Truth', linewidth=4)
@@ -314,26 +316,27 @@ def post_process_single(filter_ens, truth, params, filename=None):
 
             p_ax.plot(t_wash, wash[:, 0], '.', color='r')
             zoomPre_ax.plot(t_wash, wash[:, 0], '.', color='r', markersize=10)
-            washidx = np.argmin(abs(t - filter_ens.bias.washout_t[0]))
+            washidx = int(t_obs[0] / filter_ens.dt) - filter_ens.bias.N_wash * filter_ens.bias.upsample
         else:
             y_unbiased = y_filter + np.expand_dims(b, -1)
-            washidx = np.argmin(abs(t - filter_ens.bias.hist_t[0]))
+            washidx = int(t_obs[0] / filter_ens.dt)
 
         y_mean_u = np.mean(y_unbiased, -1)
         p_ax.plot(t, y_mean_u[:, 0], '-', color=c, linewidth=1.2)
         zoom_ax.plot(t, y_mean_u[:, 0], '-', color=c, linewidth=1.5)
-        zoomPre_ax.plot(t[washidx:], y_mean_u[washidx:, 0], '-',
-                        color=c, label='Unbiased filtered signal', linewidth=1.5)
+        zoomPre_ax.plot(t[washidx:], y_mean_u[washidx:, 0], '-', color=c, label='Unbiased filtered signal',
+                        linewidth=1.5)
+
         # BIAS PLOT
         bias_ax.plot(t_b, b[:, 0], alpha=0.75, label='ESN estimation')
         b_obs = truth['y'][:len(y_filter)] - y_filter
 
         b_mean = np.mean(b_obs, -1)
-        b_lims = [np.min(b_obs), np.max(b_obs)]
-
         bias_ax.plot(t, b_mean[:, 0], '--', color='darkorchid', label='Bias')
+        # std = np.std(b[:, 0, :], axis=1)
         bias_ax.fill_between(t, b_mean[:, 0] + std, b_mean[:, 0] - std, alpha=0.5, color='darkorchid')
 
+        # y_lims = [min(b_mean[:, 0]) - np.mean(std), (max(b_mean[:, 0]) + max(std))]
         bias_ax.legend(bbox_to_anchor=(0., 1.), loc="lower left", ncol=2)
         bias_ax.set(ylabel='Bias', xlabel='$t$')
 
@@ -359,8 +362,6 @@ def post_process_single(filter_ens, truth, params, filename=None):
                 ylim=y_lims)
     zoomPre_ax.set(ylabel="$\\eta$", xlabel='$t$ [s]', xlim=[t_obs[0] - filter_ens.t_CR, t_obs[0] + filter_ens.t_CR],
                    ylim=y_lims)
-    bias_ax.set(xlabel='$t$ [s]', xlim=[t_obs[0] - filter_ens.t_CR, t_obs[-1] + filter_ens.t_CR],
-                   ylim=b_lims)
 
     # PLOT PARAMETER CONVERGENCE-------------------------------------------------------------
     ii = len(filter_ens.psi0)
@@ -423,8 +424,6 @@ def post_process_single(filter_ens, truth, params, filename=None):
         # plt.savefig(filename + '.svg', dpi=350)
         plt.savefig(filename + '.pdf', dpi=350)
         plt.close()
-    else:
-        plt.show()
 
 
 # ==================================================================================================================
@@ -651,70 +650,5 @@ def plot_train_data(truth, y_ref, t_CR, folder):
 
 
 
-XDG_RUNTIME_DIR = 'tmp/'
-if __name__ == '__main__':
-    # autumcrisp = 'C:/Users/an553/OneDrive - University of Cambridge/PhD/My_papers/2022.11 - Model-error inference/'
-    # myfolder = 'results/VdP_final_.3/'
-    # figs_folder = myfolder + 'figs/'
-
-    # fff = '/home/an553/Documents/PycharmProjects/Bias-EnKF/results/Rijke_test/m50_ESN200_L10/'
-    #
-    # filename = '{}results_CR'.format(fff+'figs/')
-    # post_process_multiple(fff, filename)
-
-    myfolder = 'results/Rijke_test_m100/'
-
-    # Ls = [10, 30, 50, 70, 90]
-    # stds = [.1, .25]
-    # ks = np.linspace(0., 20., 21)
-
-    # post_process_loopParams(folder, stds, Ls, k_plot=(0, 2, 10, 30))
-
-    loop_folder = myfolder + 'results_loopParams/'
-    figs_folder = myfolder + 'figs/'
-
-    for std_item in os.listdir(loop_folder):
-        if not os.path.isdir(loop_folder + std_item) or std_item[:3] != 'std':
-            print('c1')
-            continue
-        std_folder = loop_folder + std_item + '/'
-
-        file = '{}Contour_std{}_results'.format(loop_folder, std_item.split('std')[-1])
-        # if not os.path.isfile(std_folder+'CR_data'):
-        #     print('create_data')
-        #     get_CR_values(std_folder)
-        #     print('done!')
-
-        # for L_item in os.listdir(std_folder):
-        #     if not os.path.isdir(std_folder + L_item):
-        #         continue
-        #     L_folder = std_folder + L_item + '/'
-        #     file = '{}CR_L{}_std{}_results'.format(figs_folder,
-        #                                            L_item.split('L')[-1],
-        #                                            std_item.split('std')[-1])
-        #     # CR and covergence plot
-        #     post_process_multiple(L_folder, file)
-        #
-        #     # # time parameters and observables
-        #     # for results_item in os.listdir(L_folder):
-        #     #     k_val = results_item.split('_k')[-1]
-        #     #     if int(float(k_val)) in (0, 2, 5, 10):
-        #     #         with open(L_folder + results_item, 'rb') as f:
-        #     #             parameters = pickle.load(f)
-        #     #             truth_data = pickle.load(f)
-        #     #             ensemble = pickle.load(f)
-        #     #         file = '{}L{}_std{}_k{}_time'.format(figs_folder,
-        #     #                                              L_item.split('L')[-1],
-        #     #                                              std_item.split('std')[-1], k_val)
-        #     #         post_process_single_SE_Zooms(ensemble, truth_data, filename=file)
-        #     plt.close()
-        #     print(file)
-        # get_CR_values(std_folder)
-        # plot_Lk_contours(std_folder, file)
-
-        # file = '{}CR_L{}_std{}_results'.format(figs_folder,
-        #                                        L_item.split('L')[-1],
-        #                                        std_item.split('std')[-1])
-        post_process_multiple(std_folder)
 
 

@@ -24,19 +24,24 @@ class Bias:
         self.t = self.hist_t[-1]
 
     def getOutputs(self):
-        return dict(name=self.name,
-                    attrs=self.attrs,
-                    b=self.hist,
-                    t=self.hist_t)
+        out = dict(name=self.name,
+                   hist=self.hist,
+                   hist_t=self.hist_t)
+        for key in self.attrs.keys():
+            out[key] = getattr(self, key)
+        return out
+
     def updateCurrentState(self, b, t):
         self.b = b
         self.t = t
+
 
 # =================================================================================================================== #
 
 class NoBias(Bias):
     name = 'None'
     attrs = {}
+
     def __init__(self, y, t, Bdict=None):
         super().__init__(np.zeros(len(y)), t)
 
@@ -62,7 +67,9 @@ class ESN(Bias):
              'test_run': True,
              'L': 1,
              'k': 0.,
-             'augment_data': True
+             'augment_data': True,
+             'washout_obs': None,
+             'washout_t': None,
              }
 
     def __init__(self, y, t, Bdict=None):
@@ -88,7 +95,7 @@ class ESN(Bias):
 
     def trainESN(self, Bdict):
         # --------------------- Train a new ESN if not in folder --------------------- #
-        ESN_filename = Bdict['filename'][:-len('bias')] +  \
+        ESN_filename = Bdict['filename'][:-len('bias')] + \
                        'ESN{}_augment{}'.format(self.N_units, self.augment_data)
 
         # Check that the saved ESN has the same parameters as the wanted one
@@ -111,6 +118,9 @@ class ESN(Bias):
                 bias = Bdict['trainData']
                 # Delete unnecessary data. Keep only wash + training + val (+ test)
                 N_wtv = int((self.t_train + self.t_val) / Bdict['dt']) + self.N_wash
+
+                print(N_wtv *Bdict['dt'] )
+
                 if self.test_run:
                     N_wtv += self.N_wash * 10
                 if N_wtv > len(bias):
@@ -153,7 +163,6 @@ class ESN(Bias):
 
         # self.parametrise = Bdict['trainData'].shape[-1] == self.N_augment
 
-
     def printESNparameters(self):
         print('\n --------------------  ESN Parameters -------------------- ',
               '\n Data filename: {}'.format(self.filename),
@@ -164,7 +173,6 @@ class ESN(Bias):
               '\n Connectvity: {}, \t Tikhonov parameter: {}'.format(self.connect, self.tikh),
               '\n Spectral radius: {}, \t Input scaling: {}'.format(self.rho, self.sigma_in)
               )
-
 
     def getWeights(self):  # TODO maybe
         pass
@@ -276,7 +284,6 @@ class ESN(Bias):
         # Normalise input data and augment with input bias (ESN symmetry parameter)
         b_aug = np.concatenate((b / self.norm, self.bias_in))
         # Forecast the reservoir state
-
 
         r_out = np.tanh(self.Win.T.dot(b_aug * self.sigma_in) + self.W.dot(self.rho * r))
         # output bias added

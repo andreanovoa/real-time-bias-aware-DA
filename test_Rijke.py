@@ -1,10 +1,13 @@
+import os
+import pickle
 import TAModels
 import Bias
+import numpy as np
 from run import main, createESNbias, createEnsemble, get_error_metrics
 from plotResults import *
 
 # %% ========================== SELECT LOOP PARAMETERS ================================= #
-folder = 'results/Rijke_test_compress_lzma/'
+folder = 'results/Rijke_test_linear/'
 figs_folder = folder + 'figs/'
 run_loopParams = True
 
@@ -13,7 +16,7 @@ true_params = {'model': TAModels.Rijke,
                't_max': 2.0,
                'beta': 4.2,
                'tau': 1.4E-3,
-               'manual_bias': 'cosine'
+               'manual_bias': 'linear'
                }
 forecast_params = {'model': TAModels.Rijke,
                    't_max': 2.0
@@ -21,7 +24,7 @@ forecast_params = {'model': TAModels.Rijke,
 
 # ==================================== SELECT FILTER PARAMETERS =================================== #
 filter_params = {'filt': 'EnKFbias',  # 'EnKFbias' 'EnKF' 'EnSRKF'
-                 'm': 10,
+                 'm': 100,
                  'est_p': ['beta', 'tau'], #, 'C1', 'C2'],
                  'biasType': Bias.ESN,
                  # Define the observation timewindow
@@ -59,19 +62,17 @@ else:
 
 name = 'reference_Ensemble_m{}_kmeas{}'.format(filter_params['m'], filter_params['kmeas'])
 
-ensemble, truth, args = createEnsemble(true_params, forecast_params,
-                                       filter_params, bias_params,
-                                       working_dir=folder, filename=name)
-
-
 if __name__ == '__main__':
-
+    ensemble, truth, args = createEnsemble(true_params, forecast_params,
+                                           filter_params, bias_params,
+                                           working_dir=folder, filename=name)
     if run_loopParams:
-        # Ls = [20, 40, 60, 80, 100]
-        Ls = [10, 30, 50, 70, 90]
+        Ls = [20, 40, 60, 80]
+        # Ls = [10, 30, 50, 70, 90]
+        # ks = np.linspace(0., 5., 21)
+        # Ls = [10]
         stds = [.10]
-        ks = np.linspace(0., 5., 21)
-
+        ks = [1.]
         for std in stds:
             blank_ens = ensemble.copy()
             # Reset std
@@ -96,5 +97,13 @@ if __name__ == '__main__':
 
             # Compute the error metrics for all the L-k pairs
             # get_error_metrics(results_folder)
+        for ff in os.listdir(results_folder):
+            with open(results_folder+ff, 'rb') as f:
+                print(f)
+                params = pickle.load(f)
+                truth = pickle.load(f)
+                filter_dict = pickle.load(f)
 
+            # post_process_single_SE_Zooms(filter_dict, truth)
+            post_process_single(filter_dict, truth, params)
 

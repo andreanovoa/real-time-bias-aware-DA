@@ -28,7 +28,7 @@ class Model:
     """
     attr_parent: dict = dict(dt=1E-4, t=0.,
                              t_transient=2., t_CR=0.02,
-                             psi0=np.empty(1), ensemble=False)
+                             psi0=np.empty(1), alpha0=np.empty(1), ensemble=False)
 
     attr_ens: dict = dict(m=10, est_p=[], est_s=True, est_b=False,
                           biasType=Bias.NoBias, inflation=1.01,
@@ -109,16 +109,22 @@ class Model:
         self.N = len(self.psi0)
 
     def getOutputs(self):
-        return dict(name=self.name,
-                    attrs_ens=self.attr_ens,
-                    attrs_child=self.attr_child,
-                    y=self.getObservableHist(),
-                    y_lbls=self.obsLabels,
-                    bias=self.bias.getOutputs(),
-                    t=self.hist_t,
-                    hist=self.hist,
-                    hist_J=self.hist_J
-                    )
+        out = dict(name=self.name,
+                   hist_y=self.getObservableHist(),
+                   y_lbls=self.obsLabels,
+                   bias=self.bias.getOutputs(),
+                   hist_t=self.hist_t,
+                   hist=self.hist,
+                   hist_J=self.hist_J,
+                   alpha0=self.alpha0
+                   )
+        if self.ensemble:
+            for key in self.attr_ens.keys():
+                out[key] = getattr(self, key)
+        for attrs in [self.attr_child, self.attr_parent]:
+            for key in attrs.keys():
+                out[key] = getattr(self, key)
+        return out
 
     def initEnsemble(self, DAdict):
         DAdict = DAdict.copy()
