@@ -12,8 +12,6 @@ import numpy as np
 from scipy import linalg
 # os.environ["OMP_NUM_THREADS"]= '1'
 rng = np.random.default_rng(6)
-data_folder = os.getcwd() + '\\data\\'
-
 
 def dataAssimilation(ensemble,
                      obs, t_obs,
@@ -24,6 +22,7 @@ def dataAssimilation(ensemble,
     dt, ti = ensemble.dt, 0
     dt_obs = t_obs[-1] - t_obs[-2]
 
+    # Print simulation parameters
     ensemble.printModelParameters()
     if ensemble.bias.name == 'ESN':
         ensemble.bias.printESNparameters()
@@ -366,7 +365,7 @@ def EnKF(Af, d, Cdd, M):
 # =================================================================================================================== #
 
 
-def EnKFbias(Af, d, Cdd, Cbb, k, M, b, dbdy):
+def EnKFbias(Af, d, Cdd, Cbb, k, M, b, J):
     """ Bias-aware Ensemble Kalman Filter.
         Inputs:
             Af: forecast ensemble at time t (augmented with Y) [N x m]
@@ -392,50 +391,42 @@ def EnKFbias(Af, d, Cdd, Cbb, k, M, b, dbdy):
     # B = rng.multivariate_normal(b, Cbb, m).transpose()
     # D = np.repeat(np.expand_dims(d, 1), m, axis=1)
     B = np.repeat(np.expand_dims(b, 1), m, axis=1)
-
     Y = Q + B
 
+    Cqq = np.dot(S, S.T)
     if np.array_equiv(Cdd, Cbb):
-        Cqq = np.dot(S, S.T)
-        Cinv = linalg.inv((m - 1) * Cdd + np.dot(np.dot(Iq + dbdy, Iq + dbdy)+k*np.dot(dbdy, dbdy), Cqq))
-        K = np.dot(np.dot(Psi_f, S.T), Cinv)
-        Aa = Af + np.dot(K, np.dot(Iq+dbdy, D-Y) - k*np.dot(dbdy, B))
+        CdWb = Iq
     else:
-        # Inverse of covariance
-        Wbb = k * linalg.pinv(Cbb)
-        Wdd = linalg.pinv(Cdd)
-        # Compute W and Q
-        W = np.dot((Iq + dbdy).T, np.dot(Wdd, (Iq + dbdy))) + np.dot(dbdy.T, np.dot(Wbb, dbdy))
-        Q = np.dot((Iq + dbdy).T, np.dot(Wdd, (D + np.dot(dbdy, Y) - B))) + np.dot(dbdy.T,
-                                                                                   np.dot(Wbb, (np.dot(dbdy, Y) - B)))
-        C = linalg.pinv(W)
-        K = np.dot(np.dot(Psi_f, S.T), linalg.inv((m - 1) * C + np.dot(S, S.T)))
-        Aa = Af + np.dot(K, np.dot(C, Q) - np.dot(M, Af))
+        CdWb = np.dot(Cdd, linalg.inv(Cbb))
+
+    Cinv = (m - 1) * Cdd + np.dot(np.dot(Iq + J, Cqq), (Iq + J).T) + k * np.dot(np.dot(J, CdWb), J.T)
+    K = np.dot(np.dot(Psi_f, S.T), linalg.inv(Cinv))
+    Aa = Af + np.dot(K, np.dot(Iq + J, D - Y) - k * np.dot(CdWb, np.dot(J, B)))
 
 
-    J = np.array([None] * 4)
+    cost = np.array([None] * 4)
     if np.isreal(Aa).all():
-        ba = b + np.dot(dbdy, np.dot(M, np.mean(Aa, -1)) - np.mean(Q, -1))
+        ba = b + np.dot(J, np.mean(np.dot(M, Aa) - Q, -1))
         Ya = np.dot(M, Aa) + np.expand_dims(ba, -1)
         Wdd = linalg.inv(Cdd)
         Wpp = linalg.pinv(np.dot(Psi_f, Psi_f.T))
         Wbb = k * linalg.pinv(Cbb)
 
-        J[0] = np.dot(np.mean(Af - Aa, -1).T, np.dot(Wpp, np.mean(Af - Aa, -1)))
-        J[1] = np.dot(np.mean(np.expand_dims(d, -1) - Ya, -1).T, np.dot(Wdd, np.mean(np.expand_dims(d, -1) - Ya, -1)))
-        J[2] = np.dot(ba.T, np.dot(Wbb, ba))
+        cost[0] = np.dot(np.mean(Af - Aa, -1).T, np.dot(Wpp, np.mean(Af - Aa, -1)))
+        cost[1] = np.dot(np.mean(np.expand_dims(d, -1) - Ya, -1).T, np.dot(Wdd, np.mean(np.expand_dims(d, -1) - Ya, -1)))
+        cost[2] = np.dot(ba.T, np.dot(Wbb, ba))
 
-        dbdpsi = np.dot(M.T, dbdy.T)
+        dbdpsi = np.dot(M.T, J.T)
         dydpsi = dbdpsi + M.T
 
         Ba = np.repeat(np.expand_dims(ba, 1), m, axis=1)
         dJdpsi = np.dot(Wpp, Af - Aa) + np.dot(dydpsi, np.dot(Wdd, Ya - D)) + np.dot(dbdpsi, np.dot(Wbb, Ba))
-        J[3] = abs(np.mean(dJdpsi) / 2.)
+        cost[3] = abs(np.mean(dJdpsi) / 2.)
 
-        return Aa, J
+        return Aa, cost
     else:
         print('Aa not real')
-        return Af, J
+        return Af, cost
 
     # #  Ensemble bias implementation
     # Aa = np.zeros(np.shape(Af))

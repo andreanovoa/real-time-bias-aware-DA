@@ -27,7 +27,7 @@ default_params = dict(trainData=None, filename='',
                       dt=1E-4, upsample=5,
                       N_wash=50, t_train=1.0, t_val=0.1,
                       N_units=100, connect=5, noise_level=0.03,
-                      test_run=True, augment_aata=True,
+                      test_run=True, augment_data=True,
                       tikh_=np.array([1e-10, 1e-12, 1e-16]),
                       sigin_=[np.log10(1e-4), np.log10(0.5)],
                       rho_=[.7, 1.05]

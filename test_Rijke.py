@@ -67,9 +67,9 @@ if __name__ == '__main__':
                                            filter_params, bias_params,
                                            working_dir=folder, filename=name)
     if run_loopParams:
-        Ls = [10, 20,  30,  40, 50, 60, 70, 80, 90, 100]
-        ks = np.linspace(0., 5., 21)
-        stds = [.10, .25]
+        Ls = [10, 20,  30] # ,  40, 50, 60, 70, 80, 90, 100
+        ks = np.linspace(0., 5., 11)
+        stds = [.10]#, .25]
         for std in stds:
             blank_ens = ensemble.copy()
             # Reset std

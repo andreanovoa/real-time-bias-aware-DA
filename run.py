@@ -104,14 +104,14 @@ def createEnsemble(true_p, forecast_p, filter_p, bias_p,
             # Time dependent bias ------------------
             b_true = .5 * y_true * np.cos(np.expand_dims(t_true, -1) * np.pi / 2)
             name_truth += '_timefuncBias'
-        elif true_p['manual_bias'] == 'cosine':
+        elif true_p['manual_bias'] == 'periodic':
             # Nonlinear bias ------------------
             b_true = 0.2 * np.max(y_true, 0) * np.cos(2 * y_true / np.max(y_true, 0))
-            name_truth += '_cosBias'
-        elif true_p['manual_bias'] == 'cos_state':
+            name_truth += '_periodicBias'
+        elif true_p['manual_bias'] == 'cosine':
             # Nonlinear bias ------------------
             b_true = np.cos(y_true) #* 0.5 * np.max(y_true, 0)
-            name_truth += '_cosStateBias'
+            name_truth += '_cosBias'
         elif true_p['manual_bias'] == 'linear':
             # Linear bias ------------------
             b_true = .1 * np.max(y_true, 0) + .3 * y_true
@@ -158,10 +158,10 @@ def createEnsemble(true_p, forecast_p, filter_p, bias_p,
     # ===============================  INITIALISE ENSEMBLE  =============================== #
     ensemble = forecast_p['model'](forecast_p, filter_p)
 
-    # Remove transient to save up space
-    i_transient = np.argmin(abs(truth['t'] - ensemble.t_transient))
-    for key in ['y', 't', 'b']:
-        truth[key] = truth[key][i_transient:]
+    # # Remove transient to save up space
+    # i_transient = np.argmin(abs(truth['t'] - ensemble.t_transient))
+    # for key in ['y', 't', 'b']:
+    #     truth[key] = truth[key][i_transient:]
 
     with open(results_dir + filename, 'wb') as f:
         pickle.dump(ensemble, f)
@@ -260,7 +260,27 @@ def createESNbias(filter_p, model, truth, folder, bias_param=None):
     bias_p['washout_t'] = truth['t'][i0:i1 + 1]
     bias_p['filename'] = folder + truth['name'] + '_' + name_train.split('Truth_')[-1] + '_bias'
 
-    plot_train_data(truth, y_ref, ref_ens.t_CR, folder)
+    # Plot training data -------------------------------------
+    fig, ax = plt.subplots(1, 3, figsize=(15, 3.5), layout='constrained')
+    norm = mpl.colors.Normalize(vmin=-5, vmax=y_ref.shape[-1])
+    cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.magma)
+    fig.suptitle('Training data')
+    ax[0].plot(truth['t'], truth['y'][:, 0], color='silver', linewidth=6, alpha=.8)
+    Nt = int(ref_ens.t_CR / truth['dt'])
+    L = y_ref.shape[-1]
+
+    for ii in range(y_ref.shape[-1]):
+        C, R = CR(truth['y'][-Nt:], y_ref[-Nt:, :, ii])
+        ax[0].plot(t, y_ref[:, 0, ii], color=cmap.to_rgba(ii))
+        ax[1].plot(ii, C, 'o', color=cmap.to_rgba(ii))
+        ax[2].plot(ii, R, 'x', color=cmap.to_rgba(ii))
+    ax[0].legend(['Truth'], bbox_to_anchor=(0., 1.25), loc="upper left")
+    ax[0].set(xlabel='$t$', ylabel='y', xlim=[truth['t_obs'][0] - ref_ens.t_CR, truth['t_obs'][0]])
+    ax[1].set(xlabel='$l$', ylabel='Correlation')
+    ax[2].set(xlabel='$l$', ylabel='RMS error')
+    ax[0].plot(truth['t'], truth['y'][:, 0], color='silver', linewidth=6, alpha=.8)
+    plt.savefig(folder + 'L{}_training_data.svg'.format(L), dpi=350)
+    plt.close()
 
     return bias_p
 
@@ -333,6 +353,12 @@ def get_error_metrics(results_folder):
                 N_CR = int(filter_ens.t_CR / filter_ens.dt)  # Length of interval to compute correlation and RMS
                 i0 = np.argmin(abs(t - truth['t_obs'][0]))  # start of assimilation
                 i1 = np.argmin(abs(t - truth['t_obs'][-1]))  # end of assimilation
+
+                i0_t = np.argmin(abs(truth['t'] - truth['t_obs'][0]))  # start of assimilation
+                i1_t = np.argmin(abs(truth['t'] - truth['t_obs'][-1]))  # start of assimilation
+                assert i0 == i0_t
+                assert i1 == i1_t
+
                 for key, val in zip(['i0', 'i1', 'N_CR'], [i0, i1, N_CR]):
                     out[key] = val
                 # true and pre-DA R
@@ -372,25 +398,25 @@ def get_error_metrics(results_folder):
         pickle.dump(out, f)
 
 
-def plot_train_data(truth, y_ref, t_CR, folder):
-    # Plot training data -------------------------------------
-    fig, ax = plt.subplots(1, 3, figsize=(15, 3.5), layout='constrained')
-    norm = mpl.colors.Normalize(vmin=-5, vmax=y_ref.shape[-1])
-    cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.magma)
-    fig.suptitle('Training data')
-    ax[0].plot(truth['t'], truth['y'][:, 0], color='silver', linewidth=6, alpha=.8)
-    Nt = int(t_CR / truth['dt'])
-
-    L = y_ref.shape[-1]
-    for ii in range(y_ref.shape[-1]):
-        C, R = CR(truth['y'][-Nt:], y_ref[-Nt:, :, ii])
-        line = ax[0].plot(truth['t'], y_ref[:, 0, ii], color=cmap.to_rgba(ii))
-        ax[1].plot(ii, C, 'o', color=cmap.to_rgba(ii))
-        ax[2].plot(ii, R, 'x', color=cmap.to_rgba(ii))
-    ax[0].legend(['Truth'], bbox_to_anchor=(0., 1.25), loc="upper left")
-    ax[0].set(xlabel='$t$', ylabel='y', xlim=[truth['t'][-1] - t_CR, truth['t'][-1]])
-    ax[1].set(xlabel='$l$', ylabel='Correlation')
-    ax[2].set(xlabel='$l$', ylabel='RMS error')
-    ax[0].plot(truth['t'], truth['y'][:, 0], color='silver', linewidth=6, alpha=.8)
-    plt.savefig(folder + 'L{}_training_data.svg'.format(L), dpi=350)
-    plt.close()
+# def plot_train_data(truth, y_ref, t_CR, folder):
+#     # Plot training data -------------------------------------
+#     fig, ax = plt.subplots(1, 3, figsize=(15, 3.5), layout='constrained')
+#     norm = mpl.colors.Normalize(vmin=-5, vmax=y_ref.shape[-1])
+#     cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.magma)
+#     fig.suptitle('Training data')
+#     ax[0].plot(truth['t'], truth['y'][:, 0], color='silver', linewidth=6, alpha=.8)
+#     Nt = int(t_CR / truth['dt'])
+#
+#     L = y_ref.shape[-1]
+#     for ii in range(y_ref.shape[-1]):
+#         C, R = CR(truth['y'][-Nt:], y_ref[-Nt:, :, ii])
+#         line = ax[0].plot(truth['t'], y_ref[:, 0, ii], color=cmap.to_rgba(ii))
+#         ax[1].plot(ii, C, 'o', color=cmap.to_rgba(ii))
+#         ax[2].plot(ii, R, 'x', color=cmap.to_rgba(ii))
+#     ax[0].legend(['Truth'], bbox_to_anchor=(0., 1.25), loc="upper left")
+#     ax[0].set(xlabel='$t$', ylabel='y', xlim=[truth['t'][-1] - t_CR, truth['t'][-1]])
+#     ax[1].set(xlabel='$l$', ylabel='Correlation')
+#     ax[2].set(xlabel='$l$', ylabel='RMS error')
+#     ax[0].plot(truth['t'], truth['y'][:, 0], color='silver', linewidth=6, alpha=.8)
+#     plt.savefig(folder + 'L{}_training_data.svg'.format(L), dpi=350)
+#     plt.close()

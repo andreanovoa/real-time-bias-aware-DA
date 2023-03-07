@@ -9,9 +9,9 @@ import matplotlib as mpl
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from run import get_error_metrics
 
-# plt.rc('text', usetex=True)
-# plt.rc('font', family='serif', size=12)
-# plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
+plt.rc('text', usetex=True)
+plt.rc('font', family='times', size=12)
+plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 
 
 def post_process_loopParams(folder, k_plot=(None,)):
@@ -26,7 +26,6 @@ def post_process_loopParams(folder, k_plot=(None,)):
         if not os.path.isdir(folder + item) or item[:3] != 'std':
             continue
         print(folder + item)
-
         std_folder = folder + item + '/'
         std = item.split('std')[-1]
 
@@ -42,17 +41,21 @@ def post_process_loopParams(folder, k_plot=(None,)):
         if k_plot is not None:
             L_dirs = os.listdir(std_folder)
             for L_item in L_dirs:
-                if not os.path.isdir(std_folder + L_item) or item[0] != 'L':
+                L_folder = std_folder + L_item + '/'
+                if not os.path.isdir(L_folder) or L_item[0] != 'L':
+                    print(L_folder)
                     continue
                 L = L_item.split('L')[-1]
-                for k_item in os.listdir(std_folder + L_item):
-                    kval = k_item.split('_k')[-1]
+                for k_item in os.listdir(L_folder):
+                    kval = float(k_item.split('_k')[-1])
+                    print(kval)
                     if kval in k_plot:
-                        with open(std_folder + L_item + '/' + k_item, 'rb') as f:
+                        with open(L_folder + k_item, 'rb') as f:
                             params = pickle.load(f)
                             truth = pickle.load(f)
                             filter_ens = pickle.load(f)
                         filename = '{}L{}_std{}_k{}_time'.format(figs_folder, L, std, kval)
+                        print(filename)
                         post_process_single_SE_Zooms(filter_ens, truth, filename=filename)
                         filename = '{}L{}_std{}_k{}_J'.format(figs_folder, L, std, kval)
                         post_process_single(filter_ens, truth, params, filename=filename)
@@ -73,7 +76,6 @@ def post_process_WhyAugment(results_dir, figs_dir=None):
         mydirs.append(Ldir)
 
     barData = [[] for _ in range(len(os.listdir(results_dir + mydirs[0] + '/')) * 2)]
-    print(len(barData))
 
     for Ldir in mydirs:
         values = Ldir.split('_L')[-1]
@@ -101,7 +103,7 @@ def post_process_WhyAugment(results_dir, figs_dir=None):
 
 
             y, t = filter_ens.getObservableHist(), filter_ens.hist_t
-            y_t, b_t = truth['y'][:len(y)], truth['b'][:len(y)]
+            y_t, b_t = truth['y'], truth['b']
 
             # ESN estimated bias
             b, t_b = filter_ens.bias.hist, filter_ens.bias.hist_t
@@ -115,30 +117,28 @@ def post_process_WhyAugment(results_dir, figs_dir=None):
                 istop = np.argmin(abs(t - truth['t_obs'][params['num_DA'] - 1]))  # end of assimilation
                 istart = np.argmin(abs(t - truth['t_obs'][0]))  # start of assimilation
 
+                istop_t = np.argmin(abs(truth['t'] - truth['t_obs'][-1]))  # end of assimilation
+                istart_t = np.argmin(abs(truth['t'] - truth['t_obs'][0]))  # start of assimilation
+
+                # plt.figure()
+                # plt.plot(y_t[istop_t:istop_t + N_CR])
+                # plt.plot(y[istop:istop + N_CR, :, 0])
+                # plt.show()
+
                 y_t_u = y_t - b_t
-                Ct, Rt = CR(y_t[-N_CR:], y_t_u[-N_CR:])
-                Cpre, Rpre = CR(y_t[istart - N_CR:istart + 1:], np.mean(y, -1)[istart - N_CR:istart + 1:])
+                Ct, Rt = CR(y_t[istart_t - N_CR:istart_t + 1:], y_t_u[istart_t - N_CR:istart_t + 1:])
+                Cpre, Rpre = CR(y_t[istart_t - N_CR:istart_t + 1:], np.mean(y, -1)[istart - N_CR:istart + 1:])
 
                 ks.append(filter_ens.bias.k)
 
             # GET CORRELATION AND RMS ERROR =====================================================================
-
-            # CB, RB = CR(y_t[istop - N_CR:istop], np.mean(y, -1)[istop - N_CR:istop])  # biased
-            # CU, RU = CR(y_t[istop - N_CR:istop], np.mean(y_unbiased, -1)[istop - N_CR:istop])  # unbiased
-
             CB, RB, CU, RU = [np.zeros(y.shape[-1]) for _ in range(4)]
             for mi in range(y.shape[-1]):
-                # CB[mi], RB[mi] = CR(y_t[istop - N_CR:istop], y[istop - N_CR:istop, :, mi])  # biased
-                # CU[mi], RU[mi] = CR(y_t[istop - N_CR:istop], y_unbiased[istop - N_CR:istop, :, mi])  # unbiased
-                CB[mi], RB[mi] = CR(y_t[istop:istop+N_CR], y[istop:istop+N_CR, :, mi])  # biased
-                CU[mi], RU[mi] = CR(y_t[istop:istop+N_CR], y_unbiased[istop:istop+N_CR, :, mi])  # unbiased
-
+                CB[mi], RB[mi] = CR(y_t[istop_t:istop_t + N_CR], y[istop:istop + N_CR, :, mi])  # biased
+                CU[mi], RU[mi] = CR(y_t[istop_t:istop_t + N_CR], y_unbiased[istop:istop + N_CR, :, mi])  # unbiased
 
             barData[ii].append((np.mean(CU), np.mean(RU), np.std(CU), np.std(RU)))
             barData[ii + 1].append((np.mean(CB), np.mean(RB), np.std(CB), np.std(RB)))
-            #
-            # barData[ii].append((CU, RU))
-            # barData[ii + 1].append((CB, RB))
 
 
             filename = '{}WhyAugment_L{}_augment{}_k{}'.format(figs_dir, L, augment, filter_ens.bias.k)
@@ -146,9 +146,7 @@ def post_process_WhyAugment(results_dir, figs_dir=None):
 
         flag = False
 
-    # =========================================================================================================
-
-
+    # --------------------------------------------------------- #
     cols = ['b', 'c', 'r', 'coral', 'g', '#c1fd95', 'k', 'gray', '#a87900', '#fbdd7e']
     labels = []
     for kk in ks:
@@ -183,7 +181,7 @@ def post_process_WhyAugment(results_dir, figs_dir=None):
 
     # plt.savefig(figs_dir + 'WhyAugment.svg', dpi=350)
     plt.savefig(figs_dir + 'WhyAugment.pdf', dpi=350)
-    # plt.show()
+    plt.show()
 
 
 # ==================================================================================================================
@@ -247,7 +245,6 @@ def post_process_single_SE_Zooms(ensemble, true_data, filename=None):
         y_mean_u = np.mean(y_unbiased, -1)
         zoom_ax.plot(t, y_mean_u[:, 0], '-', label='Unbiased filtered signal', color=c, linewidth=1.5)
         zoomPre_ax.plot(t[washidx:], y_mean_u[washidx:, 0], '-', color=c,  linewidth=1.5)
-
 
     c = 'lightseagreen'
     zoom_ax.plot(t, y_mean[:, 0], '--', color=c, label='Biased estimate', linewidth=1.5, alpha=0.9)
@@ -469,7 +466,7 @@ def post_process_single(filter_ens, truth, params, filename=None):
     RMS_ax.set(ylabel='RMS error', xlabel='$t$', xlim=x_lims, yscale='log')
 
     # PLOT COST FUNCTION
-    J = np.array(filter_ens.hist_J)
+    J = np.array(filter_ens.hist_J).squeeze()
     J_ax.plot(t_obs, J[:, :-1])
     dJ_ax.plot(t_obs, J[:, -1], color='tab:red')
 
@@ -502,7 +499,7 @@ def post_process_multiple(folder, filename=None):
 
         # PLOT CORRELATION AND RMS ERROR =====================================================================
         ms = 4
-        for lbl, col, fill, alph in zip(['biased', 'unbiased'], ['tab:red', 'tab:blue'], ['full', 'none'], [.6, 1.]):
+        for lbl, col, fill, alph in zip(['biased', 'unbiased'], ['#20b2aae5', '#000080ff'], ['none', 'none'], [.6, .6]):
             for ax_i, key in enumerate(['C', 'R']):
                 for suf, mk in zip(['_DA', '_post'], ['o', 'x']):
                     val = out[key + '_' + lbl + suf][Li]
@@ -516,17 +513,17 @@ def post_process_multiple(folder, filename=None):
                 axCRP[ii].plot((-10, 100), (val, val), '-', color='k', label=suffix, alpha=alph, linewidth=lw)
 
         xlims = [min(out['ks']) - .5, max(out['ks']) + .5]
-        axCRP[0].set(ylabel='Correlation', xlim=xlims, xlabel='$\\gamma$')
-        axCRP[1].set(ylim=[0., 2. * out['R_pre']], ylabel='RMS error', xlim=xlims, xlabel='$\\gamma$')
+        axCRP[0].set(ylabel='Correlation', xlim=xlims, xlabel='$\\gamma$', ylim=[.95 * out['C_pre'], 1.005])
+        axCRP[1].set(ylim=[0., 1.2 * out['R_pre']], ylabel='RMS error', xlim=xlims, xlabel='$\\gamma$')
 
         # PLOT MEAN ERRORS ===============================================================================
         for mic in [0]:
-            norm = colors.Normalize(vmin=0, vmax=max(out['ks']))
-            cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.viridis)
+            norm = colors.Normalize(vmin=0, vmax=max(out['ks'])+20)
+            cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.YlGn_r)
             for ax, lbl in zip(mean_ax, ['biased', 'unbiased']):
                 for ki, kval in enumerate(out['ks']):
-                    ax.plot(out['t_interp'], out['error_' + lbl][Li, ki, :, mic] * 100,
-                            color=cmap.to_rgba(kval))
+                    im = ax.plot(out['t_interp'], out['error_' + lbl][Li, ki, :, mic] * 100,
+                            color=cmap.to_rgba(kval), lw=.9)
                 ax.set(xlabel='$t$ [s]', xlim=[out['t_interp'][0], out['t_interp'][-1]])
 
             mean_ax[0].set(ylim=[0, 60], ylabel='Biased signal error [\%]')
@@ -559,12 +556,12 @@ def post_process_multiple(folder, filename=None):
                             axCRP[2].errorbar(k, np.mean(hist_p).squeeze(), yerr=np.std(hist_p), alpha=alphas[kk],
                                               fmt=marker[kk], color=c[pj],
                                               label='$' + p + '/' + p + superscript + time[kk],
-                                              capsize=ms, markersize=ms)
+                                              capsize=2, markersize=ms, linewidth=.5)
                         else:
                             axCRP[2].errorbar(k, np.mean(hist_p).squeeze(), yerr=np.std(hist_p), alpha=alphas[kk],
                                               fmt=marker[kk], color=c[pj],
                                               label='$\\' + p + '/\\' + p + superscript + time[kk],
-                                              capsize=ms, markersize=ms)
+                                              capsize=4, markersize=4, linewidth=.8, mew=.8)
                 if flag:
                     axCRP[2].legend()
                     for ax1 in axCRP[1:]:
@@ -687,9 +684,6 @@ def plot_Lk_contours(folder, filename='contour'):
             with open(data_file, 'rb') as f:
                 data = pickle.load(f)
 
-    plt.rc('text', usetex=True)
-    plt.rc('font', family='times', size=18)
-    plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 
     R_metrics = [np.log((data['R_biased_DA'] + data['R_unbiased_DA'])),
                  np.log((data['R_biased_post'] + data['R_unbiased_post']))]

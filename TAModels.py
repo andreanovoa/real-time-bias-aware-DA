@@ -27,12 +27,12 @@ class Model:
         properties and methods definitions.
     """
     attr_parent: dict = dict(dt=1E-4, t=0.,
-                             t_transient=2., t_CR=0.02,
+                             t_transient=1.5, t_CR=0.04,
                              psi0=np.empty(1), alpha0=np.empty(1), ensemble=False)
 
     attr_ens: dict = dict(m=10, est_p=[], est_s=True, est_b=False,
                           biasType=Bias.NoBias, inflation=1.01,
-                          std_psi=0.01, std_a=0.01, alpha_distr='normal',
+                          std_psi=0.001, std_a=0.001, alpha_distr='normal',
                           num_DA_blind=0, num_SE_only=0,
                           start_ensemble_forecast=0.)
 
@@ -442,14 +442,14 @@ class Rijke(Model):
         if Nt == 1:
             p_mic = p_mic[0]
 
-        if velocity:
-            u_mic = np.dot(np.cos(np.dot(loc, om)), eta)
-            u_mic = u_mic.transpose(1, 0, 2)
-            if Nt == 1:
-                u_mic = u_mic[0]
-            return [p_mic, u_mic]
-        else:
-            return p_mic
+        # if velocity:
+        #     u_mic = np.dot(np.cos(np.dot(loc, om)), eta)
+        #     u_mic = u_mic.transpose(1, 0, 2)
+        #     if Nt == 1:
+        #         u_mic = u_mic[0]
+        #     return [p_mic, u_mic]
+        # else:
+        return p_mic
 
     # _________________________ Governing equations ________________________ #
     def govEqnDict(self):
