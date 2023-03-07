@@ -6,64 +6,99 @@ from Util import interpolate, CR, getEnvelope
 from scipy.interpolate import CubicSpline, interp1d
 import numpy as np
 import matplotlib as mpl
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+from run import get_error_metrics
 
 # plt.rc('text', usetex=True)
 # plt.rc('font', family='serif', size=12)
 # plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 
 
-def post_process_loopParams(folder, stds, Ls, k_plot=(None,)):
+def post_process_loopParams(folder, k_plot=(None,)):
     if folder[-1] != '/':
         folder += '/'
-    if not os.path.isdir(folder+'figs/'):
-        os.makedirs(folder+'figs/')
+    figs_folder = folder + 'figs/'
+    if not os.path.isdir(figs_folder):
+        os.makedirs(figs_folder)
 
-    for std in stds:
-        for L in Ls:
-            results_folder = folder + 'std{}/L{}/'.format(std, L)
-            if k_plot[0] is not None:
-                for ff in os.listdir(results_folder):
-                    if ff[-3:] == '.py' or ff[-4] == '.':
-                        continue
-                    k = float(ff.split('_k')[-1])
-                    if k in k_plot:
-                        with open(results_folder + ff, 'rb') as f:
+    std_dirs = os.listdir(folder)
+    for item in std_dirs:
+        if not os.path.isdir(folder + item) or item[:3] != 'std':
+            continue
+        print(folder + item)
+
+        std_folder = folder + item + '/'
+        std = item.split('std')[-1]
+
+        # Plot contours
+        filename = '{}Contour_std{}_results'.format(folder, std)
+        plot_Lk_contours(std_folder, filename)
+
+        # Plot CR and means
+        filename = '{}CR_std{}_results'.format(folder, std)
+        post_process_multiple(std_folder, filename)
+
+        # Plot timeseries
+        if k_plot is not None:
+            L_dirs = os.listdir(std_folder)
+            for L_item in L_dirs:
+                if not os.path.isdir(std_folder + L_item) or item[0] != 'L':
+                    continue
+                L = L_item.split('L')[-1]
+                for k_item in os.listdir(std_folder + L_item):
+                    kval = k_item.split('_k')[-1]
+                    if kval in k_plot:
+                        with open(std_folder + L_item + '/' + k_item, 'rb') as f:
                             params = pickle.load(f)
                             truth = pickle.load(f)
                             filter_ens = pickle.load(f)
-                        filename = '{}figs/L{}_std{}_k{}'.format(folder, L, std, k)
-                        post_process_single(filter_ens, truth, params, filename + '_J')
-                        post_process_single_SE_Zooms(filter_ens, truth, filename + '_time')
-            filename = '{}figs/CR_L{}_std{}_results'.format(folder, L, std)
-            post_process_multiple(results_folder, filename)
-    fig2(folder, Ls, stds)
+                        filename = '{}L{}_std{}_k{}_time'.format(figs_folder, L, std, kval)
+                        post_process_single_SE_Zooms(filter_ens, truth, filename=filename)
+                        filename = '{}L{}_std{}_k{}_J'.format(figs_folder, L, std, kval)
+                        post_process_single(filter_ens, truth, params, filename=filename)
 
-def post_process_WhyAugment(results_dir, figs_dir):
+
+def post_process_WhyAugment(results_dir, figs_dir=None):
+    if figs_dir is None:
+        figs_dir = results_dir + 'figs/'
+    if not os.path.isdir(figs_dir):
+        os.makedirs(figs_dir)
 
     flag = True
-    # barData = np.empty(4, len(os.listdir(results_dir)))
-    barData = [[], [], [], []]
-    ks = []
-    xtags = []
-    for Ldir in os.listdir(results_dir):
-        if not os.path.isdir(results_dir + Ldir + '/'):
+    ks, xtags = [], []
+    mydirs = []
+    for Ldir in sorted(os.listdir(results_dir), key=str.lower):
+        if not os.path.isdir(results_dir + Ldir + '/') or len(Ldir.split('_Augment'))== 1:
             continue
+        mydirs.append(Ldir)
 
-        L, augment = Ldir.split('_Augment')
-        augment = bool(augment)
+    barData = [[] for _ in range(len(os.listdir(results_dir + mydirs[0] + '/')) * 2)]
+    print(len(barData))
+
+    for Ldir in mydirs:
+        values = Ldir.split('_L')[-1]
+        print(Ldir.split('_Augment'))
+        L, augment = values.split('_Augment')
+        if augment == 'True':
+            augment = True
+        else:
+            augment = False
         L = int(L.split('L')[-1])
 
         xtags.append('$L={}$'.format(L))
         if augment:
             xtags[-1] += '+ data augmentation'
 
-        ii = 2
-        for ff in os.listdir( results_dir + Ldir + '/'):
-            ii -= 1
-            with open( results_dir + Ldir + '/' + ff, 'rb') as f:
+        ii = -2
+
+        k_files = sorted(os.listdir(results_dir + Ldir + '/'))
+        for ff in k_files:
+            ii += 2
+            with open(results_dir + Ldir + '/' + ff, 'rb') as f:
                 params = pickle.load(f)
                 truth = pickle.load(f)
                 filter_ens = pickle.load(f)
+
 
             y, t = filter_ens.getObservableHist(), filter_ens.hist_t
             y_t, b_t = truth['y'][:len(y)], truth['b'][:len(y)]
@@ -87,11 +122,24 @@ def post_process_WhyAugment(results_dir, figs_dir):
                 ks.append(filter_ens.bias.k)
 
             # GET CORRELATION AND RMS ERROR =====================================================================
-            CB, RB = CR(y_t[istop - N_CR:istop], np.mean(y, -1)[istop - N_CR:istop])  # biased
-            CU, RU = CR(y_t[istop - N_CR:istop], np.mean(y_unbiased, -1)[istop - N_CR:istop])  # unbiased
 
-            barData[2 * ii].append((CU, RU))
-            barData[2 * ii + 1].append((CB, RB))
+            # CB, RB = CR(y_t[istop - N_CR:istop], np.mean(y, -1)[istop - N_CR:istop])  # biased
+            # CU, RU = CR(y_t[istop - N_CR:istop], np.mean(y_unbiased, -1)[istop - N_CR:istop])  # unbiased
+
+            CB, RB, CU, RU = [np.zeros(y.shape[-1]) for _ in range(4)]
+            for mi in range(y.shape[-1]):
+                # CB[mi], RB[mi] = CR(y_t[istop - N_CR:istop], y[istop - N_CR:istop, :, mi])  # biased
+                # CU[mi], RU[mi] = CR(y_t[istop - N_CR:istop], y_unbiased[istop - N_CR:istop, :, mi])  # unbiased
+                CB[mi], RB[mi] = CR(y_t[istop:istop+N_CR], y[istop:istop+N_CR, :, mi])  # biased
+                CU[mi], RU[mi] = CR(y_t[istop:istop+N_CR], y_unbiased[istop:istop+N_CR, :, mi])  # unbiased
+
+
+            barData[ii].append((np.mean(CU), np.mean(RU), np.std(CU), np.std(RU)))
+            barData[ii + 1].append((np.mean(CB), np.mean(RB), np.std(CB), np.std(RB)))
+            #
+            # barData[ii].append((CU, RU))
+            # barData[ii + 1].append((CB, RB))
+
 
             filename = '{}WhyAugment_L{}_augment{}_k{}'.format(figs_dir, L, augment, filter_ens.bias.k)
             post_process_single_SE_Zooms(filter_ens, truth, filename=filename)
@@ -99,24 +147,30 @@ def post_process_WhyAugment(results_dir, figs_dir):
         flag = False
 
     # =========================================================================================================
-    bar_width = 0.1
-    bars = [np.arange(len(barData[0]))]
-    for _ in range(len(barData[0])):
-        bars.append([x + bar_width for x in bars[-1]])
 
-    cols = ['b', 'c', 'r', 'coral']
+
+    cols = ['b', 'c', 'r', 'coral', 'g', '#c1fd95', 'k', 'gray', '#a87900', '#fbdd7e']
     labels = []
     for kk in ks:
         labels.append('$\\gamma = {}$, Unbiased'.format(kk))
         labels.append('$\\gamma = {}$, Biased'.format(kk))
+
+    bar_width = 0.1
+    bars = [np.arange(len(barData[0]))]
+    for _ in range(len(ks)*2):
+        bars.append([x + bar_width for x in bars[-1]])
 
     fig, ax = plt.subplots(1, 2, figsize=(15, 4), layout="constrained")
 
     for data, br, c, lb in zip(barData, bars, cols, labels):
         C = np.array([x[0] for x in data]).T.squeeze()
         R = np.array([x[1] for x in data]).T.squeeze()
+        Cstd = np.array([x[2] for x in data]).T.squeeze()
+        Rstd = np.array([x[3] for x in data]).T.squeeze()
         ax[0].bar(br, C, color=c, width=bar_width, edgecolor='k', label=lb)
+        ax[0].errorbar(br, C, yerr=Cstd, fmt='o', capsize=2., color='k', markersize=2)
         ax[1].bar(br, R, color=c, width=bar_width, edgecolor='k', label=lb)
+        ax[1].errorbar(br, R, yerr=Rstd, fmt='o', capsize=2., color='k', markersize=2)
 
     for axi, cr in zip(ax, [(Ct, Cpre), (Rt, Rpre)]):
         axi.axhline(y=cr[0], color='lightgray', linewidth=4, label='Truth')
@@ -124,12 +178,12 @@ def post_process_WhyAugment(results_dir, figs_dir):
         axi.set_xticks([r + bar_width for r in range(len(data))], xtags)
 
     ax[0].set(ylabel='Correlation', ylim=[.85, 1.02])
-    ax[1].set(ylabel='RMS error', ylim=[0, 1])
+    ax[1].set(ylabel='RMS error', ylim=[0, Rpre*1.5])
     axi.legend(bbox_to_anchor=(1., 1.), loc="upper left")
 
     # plt.savefig(figs_dir + 'WhyAugment.svg', dpi=350)
     plt.savefig(figs_dir + 'WhyAugment.pdf', dpi=350)
-    plt.show()
+    # plt.show()
 
 
 # ==================================================================================================================
@@ -175,20 +229,25 @@ def post_process_single_SE_Zooms(ensemble, true_data, filename=None):
         c = 'navy'
         b = filter_ens.bias.hist
         t_b = filter_ens.bias.hist_t
-        y_unbiased = y_filter[::filter_ens.bias.upsample] + np.expand_dims(b, -1)
 
-        spline = interp1d(t_b, y_unbiased, kind='cubic', axis=0, copy=True, bounds_error=False, fill_value=0)
-        y_unbiased = spline(t)
+        if filter_ens.bias.name == 'ESN':
+            y_unbiased = y_filter[::filter_ens.bias.upsample] + np.expand_dims(b, -1)
+            spline = interp1d(t_b, y_unbiased, kind='cubic', axis=0, copy=True, bounds_error=False, fill_value=0)
+            y_unbiased = spline(t)
+
+            t_wash = filter_ens.bias.washout_t
+            wash = filter_ens.bias.washout_obs
+
+            zoomPre_ax.plot(t_wash, wash[:, 0], '.', color='r', markersize=10)
+            washidx = np.argmin(abs(t - filter_ens.bias.washout_t[0]))
+        else:
+            y_unbiased = y_filter + np.expand_dims(b, -1)
+            washidx = np.argmin(abs(t - filter_ens.bias.hist_t[0]))
 
         y_mean_u = np.mean(y_unbiased, -1)
+        zoom_ax.plot(t, y_mean_u[:, 0], '-', label='Unbiased filtered signal', color=c, linewidth=1.5)
+        zoomPre_ax.plot(t[washidx:], y_mean_u[washidx:, 0], '-', color=c,  linewidth=1.5)
 
-        t_wash = filter_ens.bias.washout_t
-        wash = filter_ens.bias.washout_obs
-
-        zoomPre_ax.plot(t_wash, wash[:, 0], '.', color='r', markersize=10)
-        washidx = int(t_obs[0] / filter_ens.dt) - filter_ens.bias.N_wash * filter_ens.bias.upsample
-        zoom_ax.plot(t, y_mean_u[:, 0], '-', color=c, label='Unbiased estimate', linewidth=1.5)
-        zoomPre_ax.plot(t[washidx:], y_mean_u[washidx:, 0], '-', color=c, linewidth=1.5)
 
     c = 'lightseagreen'
     zoom_ax.plot(t, y_mean[:, 0], '--', color=c, label='Biased estimate', linewidth=1.5, alpha=0.9)
@@ -246,6 +305,7 @@ def post_process_single_SE_Zooms(ensemble, true_data, filename=None):
         plt.close()
     else:
         plt.show()
+
 
 def post_process_single(filter_ens, truth, params, filename=None):
     filt = filter_ens.filt
@@ -360,7 +420,7 @@ def post_process_single(filter_ens, truth, params, filename=None):
     zoomPre_ax.set(ylabel="$\\eta$", xlabel='$t$ [s]', xlim=[t_obs[0] - filter_ens.t_CR, t_obs[0] + filter_ens.t_CR],
                    ylim=y_lims)
     bias_ax.set(xlabel='$t$ [s]', xlim=[t_obs[0] - filter_ens.t_CR, t_obs[-1] + filter_ens.t_CR],
-                   ylim=b_lims)
+                ylim=b_lims)
 
     # PLOT PARAMETER CONVERGENCE-------------------------------------------------------------
     ii = len(filter_ens.psi0)
@@ -429,7 +489,6 @@ def post_process_single(filter_ens, truth, params, filename=None):
 
 # ==================================================================================================================
 def post_process_multiple(folder, filename=None):
-
     # ==================================================================================================================
     with open(folder + 'CR_data', 'rb') as f:
         out = pickle.load(f)
@@ -448,7 +507,7 @@ def post_process_multiple(folder, filename=None):
                 for suf, mk in zip(['_DA', '_post'], ['o', 'x']):
                     val = out[key + '_' + lbl + suf][Li]
                     axCRP[ax_i].plot(out['ks'], val, linestyle='none', marker=mk,
-                                     color=col, label=lbl+suf, markersize=ms, alpha=alph, fillstyle=fill)
+                                     color=col, label=lbl + suf, markersize=ms, alpha=alph, fillstyle=fill)
 
         # Plor true and pre-DA RMS and correlation---------------------------------
         for suffix, alph, lw in zip(['true', 'pre'], [.2, 1.], [5., 1.]):
@@ -466,7 +525,7 @@ def post_process_multiple(folder, filename=None):
             cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.viridis)
             for ax, lbl in zip(mean_ax, ['biased', 'unbiased']):
                 for ki, kval in enumerate(out['ks']):
-                    ax.plot(out['t_interp'], out['error_'+lbl][Li, ki, :, mic]*100,
+                    ax.plot(out['t_interp'], out['error_' + lbl][Li, ki, :, mic] * 100,
                             color=cmap.to_rgba(kval))
                 ax.set(xlabel='$t$ [s]', xlim=[out['t_interp'][0], out['t_interp'][-1]])
 
@@ -481,7 +540,7 @@ def post_process_multiple(folder, filename=None):
         for file_k in os.listdir(out['L_dirs'][Li]):
             with open(out['L_dirs'][Li] + file_k, 'rb') as f:
                 _ = pickle.load(f)
-                truth = pickle.load(f)
+                _ = pickle.load(f)
                 filter_ens = pickle.load(f)
             k = filter_ens.bias.k
             if filter_ens.est_p:
@@ -498,11 +557,13 @@ def post_process_multiple(folder, filename=None):
                         hist_p = filter_ens.hist[idx - 1, N_psi + pj] / reference_p[p]
                         if p in ['C1', 'C2']:
                             axCRP[2].errorbar(k, np.mean(hist_p).squeeze(), yerr=np.std(hist_p), alpha=alphas[kk],
-                                              fmt=marker[kk], color=c[pj], label='$'+p+'/'+ p + superscript + time[kk],
+                                              fmt=marker[kk], color=c[pj],
+                                              label='$' + p + '/' + p + superscript + time[kk],
                                               capsize=ms, markersize=ms)
                         else:
                             axCRP[2].errorbar(k, np.mean(hist_p).squeeze(), yerr=np.std(hist_p), alpha=alphas[kk],
-                                              fmt=marker[kk], color=c[pj], label='$\\'+p+'/\\' + p + superscript + time[kk],
+                                              fmt=marker[kk], color=c[pj],
+                                              label='$\\' + p + '/\\' + p + superscript + time[kk],
                                               capsize=ms, markersize=ms)
                 if flag:
                     axCRP[2].legend()
@@ -517,8 +578,9 @@ def post_process_multiple(folder, filename=None):
 
         # SAVE PLOT ========================================================================================
         if filename is not None:
-            plt.savefig(filename + '.svg', dpi=350)
-            plt.savefig('figs/{}.pdf'.format(Li), dpi=350)
+            # plt.savefig(filename + '.svg', dpi=350)
+            plt.savefig(filename + '_L{}.pdf'.format(out['Ls'][Li]), dpi=350)
+            plt.close()
 
 
 # ==================================================================================================================
@@ -549,7 +611,7 @@ def fig2(folder, Ls, stds, figs_dir):
                 y_filter, t_filter = filter_ens.getObservableHist(), filter_ens.hist_t
                 y_truth = truth['y'][:len(y_filter)]
                 if flag:
-                    N_CR = int(filter_ens.t_CR/ filter_ens.dt)  # Length of interval to compute correlation and RMS
+                    N_CR = int(filter_ens.t_CR / filter_ens.dt)  # Length of interval to compute correlation and RMS
                     istart = np.argmin(abs(t_filter - truth['t_obs'][0]))  # start of assimilation
                     istop = np.argmin(abs(t_filter - truth['t_obs'][params['num_DA'] - 1]))  # end of assimilation
 
@@ -612,41 +674,57 @@ def fig2(folder, Ls, stds, figs_dir):
     plt.close()
 
 
-
-
 def plot_Lk_contours(folder, filename='contour'):
-
-    with open(folder + 'CR_data', 'rb') as f:
+    data_file = folder + 'CR_data'
+    if not os.path.isfile(data_file):
+        get_error_metrics(folder)
+    with open(data_file, 'rb') as f:
         data = pickle.load(f)
-    plt.figure()
-    plt.contourf(data['ks'], data['Ls'], np.log(data['R_biased_post']+data['R_unbiased_post']))
-    plt.colorbar(label='-log(RMS_b + RMS_u)')
-    plt.savefig(filename+'.pdf', dpi=350)
-    plt.show()
+
+    for item in ['Ls', 'ks']:
+        if not np.all(np.array(data[item])[:-1] <= np.array(data[item])[1:]):
+            get_error_metrics(folder)
+            with open(data_file, 'rb') as f:
+                data = pickle.load(f)
+
+    plt.rc('text', usetex=True)
+    plt.rc('font', family='times', size=18)
+    plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
+
+    R_metrics = [np.log((data['R_biased_DA'] + data['R_unbiased_DA'])),
+                 np.log((data['R_biased_post'] + data['R_unbiased_post']))]
+
+    # C_metrics = [(data['C_biased_DA']+data['C_unbiased_DA']),
+    #              (data['C_biased_post']+data['C_unbiased_post'])]
+
+    metrics = R_metrics
+    lbl = 'log(RMS_b + RMS_u)'  # , 'C_b + C_u']
+    cmap = mpl.cm.Purples.copy()
+
+    max_v = min(np.log(2.), max([np.max(metric) for metric in metrics]))
+    min_v = min([np.min(metric) for metric in metrics])
+
+    norm = mpl.colors.Normalize(vmin=min_v, vmax=max_v)
+    mylevs = np.linspace(min_v, max_v, 20)
+    cmap.set_over('k')
+
+    fig, axs = plt.subplots(1, 2, figsize=(15, 5), layout='tight')
+    for ax, metric, title in zip(axs.flatten(), metrics, ['during DA', 'post-DA']):
+        if max_v == np.log(2.):
+            im = ax.contourf(data['ks'], data['Ls'], metric, cmap=cmap, norm=norm, levels=mylevs, extend='max')
+        else:
+            im = ax.contourf(data['ks'], data['Ls'], metric, cmap=cmap, norm=norm, levels=mylevs)
+
+        fig.colorbar(im, ax=ax, label=lbl)
+        ax.set(title=title, xlabel='$\\gamma$', ylabel='$L$')
+
+        idx = np.argmin(metric)
+        idx_i = idx // int(len(data['ks']))
+        idx_j = idx % int(len(data['ks']))
+        ax.plot(data['ks'][idx_j], data['Ls'][idx_i], 'ro')
 
 
-def plot_train_data(truth, y_ref, t_CR, folder):
-    # Plot training data -------------------------------------
-    fig, ax = plt.subplots(1, 3, figsize=(15, 3.5), layout='constrained')
-    norm = mpl.colors.Normalize(vmin=-5, vmax=y_ref.shape[-1])
-    cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.magma)
-    fig.suptitle('Training data')
-    ax[0].plot(truth['t'], truth['y'][:, 0], color='silver', linewidth=6, alpha=.8)
-    Nt = int(t_CR / truth['dt'])
-
-    L = y_ref.shape[-1]
-    for ii in range(y_ref.shape[-1]):
-        C, R = CR(truth['y'][-Nt:], y_ref[-Nt:, :, ii])
-        line = ax[0].plot(truth['t'], y_ref[:, 0, ii], color=cmap.to_rgba(ii))
-        ax[1].plot(ii, C, 'o', color=cmap.to_rgba(ii))
-        ax[2].plot(ii, R, 'x', color=cmap.to_rgba(ii))
-    ax[0].legend(['Truth'], bbox_to_anchor=(0., 1.25), loc="upper left")
-    ax[0].set(xlabel='$t$', ylabel='y', xlim=[truth['t'][-1] - t_CR, truth['t'][-1]])
-    ax[1].set(xlabel='$l$', ylabel='Correlation')
-    ax[2].set(xlabel='$l$', ylabel='RMS error')
-    ax[0].plot(truth['t'], truth['y'][:, 0], color='silver', linewidth=6, alpha=.8)
-    plt.savefig(folder + 'L{}_training_data.svg'.format(L), dpi=350)
-    # plt.show()
+    plt.savefig(filename + '.pdf', dpi=350)
     plt.close()
 
 
@@ -661,60 +739,25 @@ if __name__ == '__main__':
     #
     # filename = '{}results_CR'.format(fff+'figs/')
     # post_process_multiple(fff, filename)
+    #
+    # for m in [10, 30, 50, 70, 100]:
+    #     myfolder = 'results/Rijke_test/m{}/'.format(m)
 
-    myfolder = 'results/Rijke_test_m100/'
-
-    # Ls = [10, 30, 50, 70, 90]
-    # stds = [.1, .25]
-    # ks = np.linspace(0., 20., 21)
-
-    # post_process_loopParams(folder, stds, Ls, k_plot=(0, 2, 10, 30))
-
+    myfolder = 'results/VdP_final_.3/'
     loop_folder = myfolder + 'results_loopParams/'
-    figs_folder = myfolder + 'figs/'
 
-    for std_item in os.listdir(loop_folder):
+    # if not os.path.isdir(loop_folder):
+    #     continue
+
+    my_dirs = os.listdir(loop_folder)
+    for std_item in my_dirs:
         if not os.path.isdir(loop_folder + std_item) or std_item[:3] != 'std':
-            print('c1')
             continue
+        print(loop_folder + std_item)
         std_folder = loop_folder + std_item + '/'
 
         file = '{}Contour_std{}_results'.format(loop_folder, std_item.split('std')[-1])
-        # if not os.path.isfile(std_folder+'CR_data'):
-        #     print('create_data')
-        #     get_CR_values(std_folder)
-        #     print('done!')
+        plot_Lk_contours(std_folder, file)
 
-        # for L_item in os.listdir(std_folder):
-        #     if not os.path.isdir(std_folder + L_item):
-        #         continue
-        #     L_folder = std_folder + L_item + '/'
-        #     file = '{}CR_L{}_std{}_results'.format(figs_folder,
-        #                                            L_item.split('L')[-1],
-        #                                            std_item.split('std')[-1])
-        #     # CR and covergence plot
-        #     post_process_multiple(L_folder, file)
-        #
-        #     # # time parameters and observables
-        #     # for results_item in os.listdir(L_folder):
-        #     #     k_val = results_item.split('_k')[-1]
-        #     #     if int(float(k_val)) in (0, 2, 5, 10):
-        #     #         with open(L_folder + results_item, 'rb') as f:
-        #     #             parameters = pickle.load(f)
-        #     #             truth_data = pickle.load(f)
-        #     #             ensemble = pickle.load(f)
-        #     #         file = '{}L{}_std{}_k{}_time'.format(figs_folder,
-        #     #                                              L_item.split('L')[-1],
-        #     #                                              std_item.split('std')[-1], k_val)
-        #     #         post_process_single_SE_Zooms(ensemble, truth_data, filename=file)
-        #     plt.close()
-        #     print(file)
-        # get_CR_values(std_folder)
-        # plot_Lk_contours(std_folder, file)
-
-        # file = '{}CR_L{}_std{}_results'.format(figs_folder,
-        #                                        L_item.split('L')[-1],
-        #                                        std_item.split('std')[-1])
-        post_process_multiple(std_folder)
-
-
+        file = '{}CR_std{}_results'.format(loop_folder, std_item.split('std')[-1])
+        post_process_multiple(std_folder, file)

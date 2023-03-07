@@ -116,18 +116,19 @@ class ESN(Bias):
             if 'trainData' in Bdict.keys():
                 # print('\t_interp saving bias data')
                 bias = Bdict['trainData']
-                # Delete unnecessary data. Keep only wash + training + val (+ test)
-                N_wtv = int((self.t_train + self.t_val) / Bdict['dt']) + self.N_wash
-
-                print(N_wtv *Bdict['dt'] )
-
-                if self.test_run:
-                    N_wtv += self.N_wash * 10
-                if N_wtv > len(bias):
-                    raise ValueError('Not enough data for training. Increase t_max')
-                np.savez(Bdict['filename'], bias[-N_wtv:])
+                np.savez(Bdict['filename'], bias)
             else:
                 Bdict['trainData'] = np.load(Bdict['filename'] + '.npz')['bias']
+
+            # Delete unnecessary data. Keep only wash + training + val (+ test)
+            N_wtv = int((self.t_train + self.t_val) / Bdict['dt']) + self.N_wash * self.upsample
+            N_wtv += int(self.t_val * 10 / Bdict['dt'])
+
+            print(N_wtv)
+            if N_wtv > len(bias):
+                raise ValueError('Not enough data for training. Increase t_max')
+
+            Bdict['trainData'] = Bdict['trainData'][-N_wtv:]
             # Run training main script
             exec(open("main_training.py").read(), Bdict)
 

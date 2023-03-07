@@ -67,12 +67,9 @@ if __name__ == '__main__':
                                            filter_params, bias_params,
                                            working_dir=folder, filename=name)
     if run_loopParams:
-        Ls = [20, 40, 60, 80]
-        # Ls = [10, 30, 50, 70, 90]
-        # ks = np.linspace(0., 5., 21)
-        # Ls = [10]
-        stds = [.10]
-        ks = [1.]
+        Ls = [10, 20,  30,  40, 50, 60, 70, 80, 90, 100]
+        ks = np.linspace(0., 5., 21)
+        stds = [.10, .25]
         for std in stds:
             blank_ens = ensemble.copy()
             # Reset std
@@ -80,7 +77,6 @@ if __name__ == '__main__':
                                                      std, blank_ens.m, method='normal')
             blank_ens.hist[-1] = blank_ens.psi
             blank_ens.std_psi, blank_ens.std_a = std, std
-
             std_folder = folder + 'm{}/results_loopParams/std{}/'.format(blank_ens.m, std)
             for L in Ls:
                 # Reset ESN
@@ -94,16 +90,16 @@ if __name__ == '__main__':
                     filter_ens.bias.k = k
                     # Run simulation
                     main(filter_ens, truth, filter_params, results_dir=results_folder, save_=True)
-
             # Compute the error metrics for all the L-k pairs
-            # get_error_metrics(results_folder)
-        for ff in os.listdir(results_folder):
-            with open(results_folder+ff, 'rb') as f:
-                print(f)
-                params = pickle.load(f)
-                truth = pickle.load(f)
-                filter_dict = pickle.load(f)
+            get_error_metrics(std_folder)
 
-            # post_process_single_SE_Zooms(filter_dict, truth)
-            post_process_single(filter_dict, truth, params)
+        # for ff in os.listdir(results_folder):
+        #     with open(results_folder+ff, 'rb') as f:
+        #         print(f)
+        #         params = pickle.load(f)
+        #         truth = pickle.load(f)
+        #         filter_dict = pickle.load(f)
+        #
+        #     # post_process_single_SE_Zooms(filter_dict, truth)
+        #     post_process_single(filter_dict, truth, params)
 

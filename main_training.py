@@ -286,8 +286,10 @@ if test_run:
     N_t0 = N_wtv + 10  # start test after washout, training and validation trainData
     max_test_time = np.shape(U[:, N_t0:])[1] * dt_ESN
     N_test = 50
+
     if N_test * t_val > max_test_time:
         N_test = int(np.floor(max_test_time / t_val))
+
     # Break if not enough trainData for testing
     if N_test < 1:
         print('Test not performed. Not enough trainData')

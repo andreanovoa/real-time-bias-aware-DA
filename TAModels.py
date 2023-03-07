@@ -32,7 +32,7 @@ class Model:
 
     attr_ens: dict = dict(m=10, est_p=[], est_s=True, est_b=False,
                           biasType=Bias.NoBias, inflation=1.01,
-                          std_psi=0.001, std_a=0.001, alpha_distr='normal',
+                          std_psi=0.01, std_a=0.01, alpha_distr='normal',
                           num_DA_blind=0, num_SE_only=0,
                           start_ensemble_forecast=0.)
 
