@@ -98,7 +98,7 @@ def createObservations(classParams=None):
     if len(np.shape(p_obs)) > 2:
         p_obs = np.squeeze(p_obs, axis=-1)
 
-    return p_obs, case.hist_t, name.split('Truth_')[-1], case
+    return p_obs, case.hist_t, name.split('Truth_')[-1]
 
 
 def RK4(t, q0, func, *kwargs):

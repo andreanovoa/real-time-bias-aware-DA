@@ -39,7 +39,7 @@ if __name__ == '__main__':
                            't_max': 2.5
                            }
         # ==================================== SELECT FILTER PARAMETERS =================================== #
-        filter_params = {'filt': 'EnKFbias',  # 'EnKFbias' 'EnKF' 'EnSRKF'
+        filter_params = {'filt': 'rBA_EnKF',  # 'rBA_EnKF' 'EnKF' 'EnSRKF'
                          'm': mm,
                          'est_p': ['beta', 'tau'],
                          'biasType': Bias.ESN,
@@ -134,7 +134,7 @@ if __name__ == '__main__':
                 Bdict = createESNbias(*args, bias_param=bias_params)
                 filter_ens.initBias(Bdict)
             filter_ens.bias.k = k
-            main(filter_ens, truth, 'EnKFbias', results_dir=optimal_folder, save_=True)
+            main(filter_ens, truth, 'rBA_EnKF', results_dir=optimal_folder, save_=True)
 
             # run reference solution with bias-blind EnKF -----------------------------
             filter_ens = blank_ens.copy()
@@ -161,7 +161,7 @@ if __name__ == '__main__':
                 if filter_ens.filt == 'EnKF':
                     filter_ens_BB = filter_ens.copy()
                     print('ok1')
-                elif filter_ens.filt == 'EnKFbias':
+                elif filter_ens.filt == 'rBA_EnKF':
                     filter_ens_BA = filter_ens.copy()
                     print('ok2')
 
