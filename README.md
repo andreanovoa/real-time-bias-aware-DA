@@ -8,7 +8,7 @@ Available filters:
 - Regularised bias-aware EnKF
 
 Available models:
-- Rijke tube dimensional (dimensional with Galerkin discretisation)
+- Rijke tube model (dimensional with Galerkin discretization)
 - Van der Pol
  
 Available bias estimator:
