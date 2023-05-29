@@ -52,56 +52,62 @@ def main(filter_ens, truth, method, results_dir="results/", save_=False):
 
 # ======================================================================================================================
 # ======================================================================================================================
-def createEnsemble(true_p, forecast_p, filter_p, bias_p,
+def createEnsemble(true_p, forecast_p, filter_p,
+                   bias_p=None,
                    working_dir="results", filename='reference_Ensemble', results_dir=None):
     if results_dir is None:
         results_dir = working_dir
 
     if os.path.isfile(results_dir + filename):
-        with open(results_dir + filename, 'rb') as f:
-            ensemble = pickle.load(f)
-            truth = pickle.load(f)
-            b_args = pickle.load(f)
         reinit = False
+        if bias_p is not None:
+            with open(results_dir + filename, 'rb') as f:
+                ensemble = pickle.load(f)
+                truth = pickle.load(f)
+                b_args = pickle.load(f)
+            return_args = (ensemble, truth, b_args)
+            # check that bias parameters are the same
+            for key, val in bias_p.items():
+                if key in b_args[0]['Bdict'].keys():
+                    if len(b_args[0]['Bdict'][key]) == 1:
+                        if val != b_args[0]['Bdict'][key]:
+                            reinit, break_key, break_val, actual_val = True, key, b_args[0]['Bdict'][key], val
+                            break
+                    else:
+                        for v1, v2 in zip(val, b_args[0]['Bdict'][key]):
+                            if v1 != v2:
+                                reinit, break_key, break_val, actual_val = True, key, b_args[0]['Bdict'][key], val
+                                break
+        else:
+            with open(results_dir + filename, 'rb') as f:
+                ensemble = pickle.load(f)
+                truth = pickle.load(f)
+            return_args = (ensemble, truth)
         # check that true and forecast model parameters
         for key, val in filter_p.items():
             if hasattr(ensemble, key) and getattr(ensemble, key) != val:
-                reinit = True
-                print('Re-initialise ensemble as ensemble {}={} != {}'.format(key, getattr(ensemble, key), val))
+                reinit, break_key, break_val, actual_val = True, key, getattr(ensemble, key), val
                 break
-            elif b_args is not None and type(b_args) is dict and key in b_args[0].keys() and val != b_args[0][key]:
-                reinit = True
-                print('Re-initialise ensemble as filter_p {}={} != {}'.format(key, b_args[0][key], val))
+        for key, val in true_p.items():
+            if key in truth.keys() and truth[key] != val:
+                reinit, break_key, break_val, actual_val = True, key, truth[key], val
                 break
-        if truth['t_obs'][-1] < filter_p['t_stop']:
-            reinit = True
 
-        if not reinit and bias_p is not None:
-            # check that bias and assimilation parameters are the same
-            for key, val in bias_p.items():
-                if key in b_args[0]['Bdict'].keys():
-                    try:
-                        if val != b_args[0]['Bdict'][key]:
-                            reinit = True
-                            print('Re-init ensemble as {} = {} != {}'.format(key, b_args[0]['Bdict'][key], val))
-                            break
-                    except:
-                        for v1, v2 in zip(val, b_args[0]['Bdict'][key]):
-                            if v1 != v2:
-                                reinit = True
-                                print('Re-init ensemble as {} = {} != {}'.format(key, b_args[0]['Bdict'][key], val))
-                                break
+        # check that the data is sufficiently long for assimilation
+        if abs(truth['t_obs'][-1] - filter_p['t_stop']) > truth['dt_obs']:
+            reinit, break_key, break_val, actual_val = True, 't_obs', truth['t_obs'][-1], filter_p['t_stop']
+        if truth['dt_obs']//truth['dt'] != filter_p['kmeas']:
+            reinit, break_key, break_val, actual_val = True, 't_obs', truth['dt_obs']//truth['dt'], filter_p['kmeas']
+
         if not reinit:
-            # Remove transient to save up space
-            i_transient = np.argmin(abs(truth['t'] - ensemble.t_transient))
-            for key in ['y', 't', 'b']:
-                truth[key] = truth[key][i_transient:]
-            return ensemble, truth, b_args
+            return return_args
+        else:
+            print('Re-init ensemble as {} = {} != {}'.format(break_key, break_val, actual_val))
 
     # =============================  CREATE OBSERVATIONS ============================== #
     y_true, t_true, name_truth = createObservations(true_p)
 
-    if 'manual_bias' in true_p.keys():
+    if 'manual_bias' in true_p.keys() and true_p['manual_bias'] is not None:
         if true_p['manual_bias'] == 'time':
             b_true = .4 * y_true * np.sin((np.expand_dims(t_true, -1) * np.pi * 2) ** 2)
         elif true_p['manual_bias'] == 'periodic':
@@ -131,6 +137,10 @@ def createEnsemble(true_p, forecast_p, filter_p, bias_p,
                  t_obs=t_obs, p_obs=obs, dt_obs=t_obs[1] - t_obs[0],
                  true_params=true_p, name=name_truth,
                  model=true_p['model'], std_obs=true_p['std_obs'])
+    # Remove transient to save up space
+    i_transient = np.argmin(abs(truth['t'] - ensemble.t_transient))
+    for key in ['y', 't', 'b']:
+        truth[key] = truth[key][i_transient:]
 
     # %% =============================  DEFINE BIAS ======================================== #
     if filter_p['biasType'].name == 'ESN':
@@ -141,12 +151,20 @@ def createEnsemble(true_p, forecast_p, filter_p, bias_p,
 
     # ===============================  INITIALISE ENSEMBLE  =============================== #
     ensemble = forecast_p['model'](forecast_p, filter_p)
-    with open(results_dir + filename, 'wb') as f:
-        pickle.dump(ensemble, f)
-        pickle.dump(truth, f)
-        pickle.dump(args, f)
+    os.makedirs(results_dir, exist_ok=True)
 
-    return ensemble, truth, args
+    if bias_p is None:
+
+        with open(results_dir + filename, 'wb') as f:
+            pickle.dump(ensemble, f)
+            pickle.dump(truth, f)
+        return ensemble, truth
+    else:
+        with open(results_dir + filename, 'wb') as f:
+            pickle.dump(ensemble, f)
+            pickle.dump(truth, f)
+            pickle.dump(args, f)
+        return ensemble, truth, args
 
 
 # ======================================================================================================================
@@ -339,7 +357,6 @@ def get_error_metrics(results_folder):
         pickle.dump(out, f)
 
 
-
 def plot_train_data(truth, train_ens, folder):
 
     y_ref = train_ens.getObservableHist(Nt=len(truth['t']))
@@ -359,7 +376,6 @@ def plot_train_data(truth, train_ens, folder):
     for ii in range(y_ref.shape[-1]):
         R = CR(yt, yr[:, :, ii])[1]
         RS.append(R)
-
 
     # Plot training data -------------------------------------
     fig = plt.figure(figsize=[12, 4.5], layout="constrained")

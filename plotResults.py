@@ -9,6 +9,7 @@ import numpy as np
 import matplotlib as mpl
 from run import get_error_metrics
 from matplotlib.ticker import FormatStrFormatter
+
 XDG_RUNTIME_DIR = 'tmp/'
 
 plt.rc('text', usetex=True)
@@ -26,7 +27,6 @@ color_bias = '#20b2aae5'
 color_obs = 'r'
 color_b = 'darkorchid'
 colors_alpha = ['green', 'sandybrown', [0.7, 0.7, 0.87]]
-
 
 
 def post_process_loopParams(results_dir, k_plot=(None,), figs_dir=None, k_max=100.):
@@ -98,7 +98,7 @@ def post_process_WhyAugment(results_dir, k_plot=None, J_plot=None, figs_dir=None
     ks = np.array(ks)[idx_ks]
     k_files = [k_files[i] for i in idx_ks]
 
-    colmap = mpl.colormaps['viridis'](np.linspace(0., 1., len(ks)*2))
+    colmap = mpl.colormaps['viridis'](np.linspace(0., 1., len(ks) * 2))
 
     barData = [[] for _ in range(len(ks) * 2)]
 
@@ -140,18 +140,17 @@ def post_process_WhyAugment(results_dir, k_plot=None, J_plot=None, figs_dir=None
             i1 = np.argmin(abs(t - truth['t_obs'][-1]))  # end of assimilation
 
             # cut signals to interval of interest
-            y, t, y_unbiased = y[i0-N_CR:i1+N_CR], t[i0-N_CR:i1+N_CR], y_unbiased[i0-N_CR:i1+N_CR]
+            y, t, y_unbiased = y[i0 - N_CR:i1 + N_CR], t[i0 - N_CR:i1 + N_CR], y_unbiased[i0 - N_CR:i1 + N_CR]
             y_mean = np.mean(y, -1)
 
             if flag and ii == 0:
                 i0_t = np.argmin(abs(truth['t'] - truth['t_obs'][0]))  # start of assimilation
                 i1_t = np.argmin(abs(truth['t'] - truth['t_obs'][-1]))  # end of assimilation
-                y_truth, t_truth = truth['y'][i0_t-N_CR:i1_t+N_CR], truth['t'][i0_t-N_CR:i1_t+N_CR]
+                y_truth, t_truth = truth['y'][i0_t - N_CR:i1_t + N_CR], truth['t'][i0_t - N_CR:i1_t + N_CR]
                 y_truth_b = y_truth - truth['b'][i0_t - N_CR:i1_t + N_CR]
 
                 Ct, Rt = CR(y_truth[-N_CR:], y_truth_b[-N_CR:])
                 Cpre, Rpre = CR(y_truth[:N_CR], y_mean[:N_CR:])
-
 
             # GET CORRELATION AND RMS ERROR =====================================================================
             CB, RB, CU, RU = [np.zeros(y.shape[-1]) for _ in range(4)]
@@ -161,7 +160,6 @@ def post_process_WhyAugment(results_dir, k_plot=None, J_plot=None, figs_dir=None
 
             barData[ii].append((np.mean(CU), np.mean(RU), np.std(CU), np.std(RU)))
             barData[ii + 1].append((np.mean(CB), np.mean(RB), np.std(CB), np.std(RB)))
-
 
             if filter_ens.bias.k in J_plot:
                 filename = '{}WhyAugment_L{}_augment{}_k{}'.format(figs_dir, L, augment, filter_ens.bias.k)
@@ -212,8 +210,7 @@ def post_process_WhyAugment(results_dir, k_plot=None, J_plot=None, figs_dir=None
 # ==================================================================================================================
 
 
-def post_process_single(filter_ens, truth, params, filename=None, mic=0):
-
+def post_process_single(filter_ens, truth, params, filename=None, mic=0, reference_p=None):
     t_obs, obs = truth['t_obs'], truth['p_obs']
 
     num_DA_blind = filter_ens.num_DA_blind
@@ -241,22 +238,20 @@ def post_process_single(filter_ens, truth, params, filename=None, mic=0):
     y_filter, y_mean, t, y_unbiased = (yy[i0 - N_CR:i1 + N_CR] for yy in [y_filter, y_mean, t, y_unbiased])
 
     y_truth = interpolate(truth['t'], truth['y'][:, mic], t)
+
     std = np.std(y_filter[:, :], axis=1)
 
     # %% PLOT time series ------------------------------------------------------------------------------------------
 
-    # fig1 = plt.figure(figsize=[13, 3], layout="constrained")
-    # subfigs = fig1.subfigures(1, 2, width_ratios=[1, 2])
-
+    # normalizing constant
+    norm = np.max(abs(y_truth), axis=0)
 
     fig1 = plt.figure(figsize=[9, 5.5], layout="constrained")
     subfigs = fig1.subfigures(2, 1, height_ratios=[1, 1.1])
     ax_zoom = subfigs[0].subplots(2, 2, sharex='col', sharey='row')
     ax_all = subfigs[1].subplots(2, 1, sharex='col')
 
-
-    y_lims = [np.min(y_truth[:N_CR]) * 1.1,
-              np.max(y_truth[:N_CR]) * 1.1]
+    y_lims = [np.min(y_truth[:N_CR]) * 1.1, np.max(y_truth[:N_CR]) * 1.1] / norm
 
     x_lims = [[t[0], t[0] + 2 * filter_ens.t_CR],
               [t[-1] - 2 * filter_ens.t_CR, t[-1]],
@@ -264,11 +259,9 @@ def post_process_single(filter_ens, truth, params, filename=None, mic=0):
 
     if filter_ens.bias is not None:
         if filter_ens.bias.name == 'ESN':
-            t_wash = filter_ens.bias.washout_t
-            wash = filter_ens.bias.washout_obs[:, mic]
+            t_wash, wash = filter_ens.bias.washout_t, filter_ens.bias.washout_obs[:, mic]
         b_obs = y_truth - y_mean
-        y_lims_b = [np.min(b_obs[:N_CR]) * 1.1, np.max(b_obs[:N_CR]) * 1.1]
-
+        y_lims_b = [np.min(b_obs[:N_CR]) * 1.1, np.max(b_obs[:N_CR]) * 1.1] / norm
 
     if filter_ens.est_p:
         hist, hist_t = filter_ens.hist, filter_ens.hist_t
@@ -276,52 +269,61 @@ def post_process_single(filter_ens, truth, params, filename=None, mic=0):
         mean_p, std_p, labels_p = [], [], []
 
         max_p, min_p = -np.infty, np.infty
-        superscript = '^0$'
-        reference_p = filter_ens.alpha0
 
-        ii = len(filter_ens.psi0) -1
+        if reference_p is None:
+            reference_p = filter_ens.alpha0
+            twin = False
+            norm_lbl = lambda x: '/\\bar{' + x + '}^0'
+        else:
+            twin = True
+            norm_lbl = lambda x: '/{' + x + '}^\mathrm{true}'
+
+
+
+        ii = filter_ens.Nphi
         for p in filter_ens.est_p:
-            ii += 1
             m = hist_mean[:, ii].squeeze() / reference_p[p]
             s = np.std(hist[:, ii] / reference_p[p], axis=1)
-            max_p, min_p = max(max_p, max(m+2*s)), min(min_p, min(m-2*s))
-            if p in ['C1', 'C2']:
-                labels_p.append('$' + p + '/' + p + superscript)
-            else:
-                labels_p.append('$\\' + p + '/\\bar{\\' + p + '}'+ superscript)
+            max_p, min_p = max(max_p, max(m + 2 * s)), min(min_p, min(m - 2 * s))
+            if p not in ['C1', 'C2']:
+                p = '\\' + p
+            labels_p.append('$' + p + norm_lbl(p) + '$')
             mean_p.append(m)
             std_p.append(s)
+            ii += 1
 
-
-    for axs in [ax_zoom[:,0], ax_zoom[:, 1]]:
-        # Observables-----------------------
-        axs[0].plot(t, y_truth, color=color_true, linewidth=5, label='t')
-        axs[0].plot(t, y_unbiased, '-', color=color_unbias, linewidth=1., label='u')
-        axs[0].plot(t, y_mean, '--', color=color_bias, linewidth=1., alpha=0.9, label='b')
-        axs[0].fill_between(t, y_mean + std, y_mean - std, alpha=0.2, color='lightseagreen')
-        axs[0].plot(t_obs, obs, '.', color=color_obs, markersize=6, label='o')
+    for axs in [ax_zoom[:, 0], ax_zoom[:, 1]]:
+        # Observables ---------------------------------------------------------------------
+        axs[0].plot(t, y_truth / norm, color=color_true, linewidth=5, label='t')
+        axs[0].plot(t, y_unbiased / norm, '-', color=color_unbias, linewidth=1., label='u')
+        axs[0].plot(t, y_mean / norm, '--', color=color_bias, linewidth=1., alpha=0.9, label='b')
+        axs[0].fill_between(t, y_mean / norm + std / norm, y_mean / norm - std / norm, alpha=0.2, color='lightseagreen')
+        axs[0].plot(t_obs, obs / norm, '.', color=color_obs, markersize=6, label='o')
         axs[0].set(ylim=y_lims)
 
-        # BIAS-----------------------
+        # BIAS ---------------------------------------------------------------------
         if filter_ens.bias is not None:
             if filter_ens.bias.name == 'ESN':
-                axs[0].plot(t_wash, wash, '.', color=color_obs, markersize=6)
-            axs[1].plot(t, b_obs, color=color_b, label='O', alpha=0.4, linewidth=3)
-            axs[1].plot(t_b, b, color=color_b, label='ESN', linewidth=.8)
+                axs[0].plot(t_wash, wash / norm, '.', color=color_obs, markersize=6)
+            axs[1].plot(t, b_obs / norm, color=color_b, label='O', alpha=0.4, linewidth=3)
+            axs[1].plot(t_b, b / norm, color=color_b, label='ESN', linewidth=.8)
 
-        # PARAMS-----------------------
+        # PARAMS ---------------------------------------------------------------------
         # if filter_ens.est_p:
         #     for m, s, c, lbl in zip(mean_p, std_p, colors_alpha, labels_p):
         #         axs[2].plot(hist_t, m, color=c, label=lbl)
         #         axs[2].set(xlabel='$t$')
         #         axs[2].fill_between(hist_t, m + s, m - s, alpha=0.2, color=c)
 
+    if int(norm) == 1:
+        ylbls = [["$p(x_\mathrm{f})$ [Pa]", "$b(x_\mathrm{f})$ [Pa]"], ['', '']]
+    else:
+        ylbls = [["$\\tilde{p}(x_\mathrm{f})$", "$\\tilde{b}(x_\mathrm{f})$"], ['', '']]
 
-    ylbls = [["$p(x_\mathrm{f})$ [Pa]", "$b(x_\mathrm{f})$ [Pa]"], ['', '']]
     for axs in [ax_all]:
         if filter_ens.bias is not None:
-            axs[0].plot(t, b_obs, color=color_b, label='O', alpha=0.4, linewidth=3)
-            axs[0].plot(t_b, b, color=color_b, label='ESN', linewidth=.8)
+            axs[0].plot(t, b_obs / norm, color=color_b, label='O', alpha=0.4, linewidth=3)
+            axs[0].plot(t_b, b / norm, color=color_b, label='ESN', linewidth=.8)
             axs[0].set(ylabel=ylbls[0][1], xlim=x_lims[-1], ylim=y_lims_b)
         # PARAMS-----------------------
         if filter_ens.est_p:
@@ -333,34 +335,35 @@ def post_process_single(filter_ens, truth, params, filename=None, mic=0):
             axs[1].set(xlabel='$t$ [s]', ylabel="", xlim=x_lims[-1], ylim=[min_p, max_p])
             axs[1].plot((t_obs[0], t_obs[0]), (-1E6, 1E6), '--', color='k', linewidth=.8)  # DA window
             axs[1].plot((t_obs[-1], t_obs[-1]), (-1E6, 1E6), '--', color='k', linewidth=.8)  # DA window
+            if twin:
+                axs[1].plot((x_lims[-1][0], x_lims[-1][-1]), (1, 1), '--', color='k', linewidth=.8)  # DA window
             if num_DA_blind > 0:
                 axs[1].plot((t_obs[num_DA_blind], t_obs[num_DA_blind]), (-1E6, 1E6), '-.', color='darkblue')
                 axs[1].plot((t_obs[num_DA_blind], t_obs[num_DA_blind]), (-1E6, 1E6), '-.', color='darkblue',
-                               label='Start BE')
+                            label='Start BE')
             if num_SE_only > 0:
                 axs[1].plot((t_obs[num_SE_only], t_obs[num_SE_only]), (-1E6, 1E6), '-.', color='darkviolet')
                 axs[1].plot((t_obs[num_SE_only], t_obs[num_SE_only]), (-1E6, 1E6), '-.', color='darkviolet',
-                               label='Start PE')
+                            label='Start PE')
             # axs.legend(loc='best', orientation='horizontal', ncol=3)
-            axs[1].legend(loc='upper left', bbox_to_anchor=(0., 1.), ncol=1)
-            axs[1].set(ylabel='params')
+            axs[1].legend(loc='upper left', bbox_to_anchor=(1., 1.), ncol=1, fontsize='xx-small')
+            axs[1].set(ylabel='')
             axs[0].legend(loc='upper left', bbox_to_anchor=(1., 1.), ncol=1, fontsize='xx-small')
 
     # axis labels and limits
-    for axs, xl, ylbl in zip([ax_zoom[:,0], ax_zoom[:,1]], x_lims, ylbls):
+    for axs, xl, ylbl in zip([ax_zoom[:, 0], ax_zoom[:, 1]], x_lims, ylbls):
         axs[0].set(ylabel=ylbl[0], xlim=xl)
         axs[1].set(ylabel=ylbl[1], xlim=xl, ylim=y_lims_b, xlabel='$t$ [s]')
         for ax_ in axs:
             ax_.plot((t_obs[0], t_obs[0]), (-1E6, 1E6), '--', color='k', linewidth=.8)  # DA window
             ax_.plot((t_obs[-1], t_obs[-1]), (-1E6, 1E6), '--', color='k', linewidth=.8)  # DA window
 
-    for ax_ in ax_zoom[:,0]:
+    for ax_ in ax_zoom[:, 0]:
         ax_.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
     for ax_ in ax_all:
         ax_.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
-    for ax_ in  ax_zoom[:,1]:
+    for ax_ in ax_zoom[:, 1]:
         ax_.legend(loc='upper left', bbox_to_anchor=(1., 1.), ncol=1, fontsize='xx-small')
-
 
     # # PLOT RMS ERROR-------------------------------------------------------------------
     # Psi = (hist_mean - hist)[:-Nt_extra]
@@ -388,7 +391,7 @@ def post_process_single(filter_ens, truth, params, filename=None, mic=0):
 
 
 # ==================================================================================================================
-def post_process_multiple(folder, filename=None, k_max=100., L_plot=None):
+def post_process_multiple(folder, filename=None, k_max=100., L_plot=None, reference_p=None):
     data_file = folder + 'CR_data'
     if not os.path.isfile(data_file):
         get_error_metrics(folder)
@@ -411,7 +414,7 @@ def post_process_multiple(folder, filename=None, k_max=100., L_plot=None):
 
         # PLOT CORRELATION AND RMS ERROR  -------------------------------------------------------------------
         ms = 4
-        for lbl, col  in zip(['biased', 'unbiased'], [color_bias, color_unbias]):
+        for lbl, col in zip(['biased', 'unbiased'], [color_bias, color_unbias]):
             for ax_i, key in enumerate(['C', 'R']):
                 for suf, mk in zip(['_DA', '_post'], ['o', 'x']):
                     val = out[key + '_' + lbl + suf][Li]
@@ -443,7 +446,7 @@ def post_process_multiple(folder, filename=None, k_max=100., L_plot=None):
             mean_ax[1].set(ylim=[0, 10], ylabel='Unbiased signal error [\%]')
             mean_ax[1].set_yticks([0., 3., 6., 9.])
 
-        clb =fig.colorbar(cmap, ax=mean_ax.ravel().tolist(), orientation='horizontal', shrink=0.5)
+        clb = fig.colorbar(cmap, ax=mean_ax.ravel().tolist(), orientation='horizontal', shrink=0.5)
         clb.set_ticks(np.linspace(min(out['ks']), min(k_max, max(out['ks'])), 5))
 
         # PLOT PARAMETERS AND MEAN EVOLUTION -------------------------------------------------------------------
@@ -458,25 +461,27 @@ def post_process_multiple(folder, filename=None, k_max=100., L_plot=None):
                 continue
             if filter_ens.est_p:
                 if flag:
-                    N_psi = len(filter_ens.psi0)
+                    N_psi = filter_ens.Nphi
                     i0 = np.argmin(abs(filter_ens.hist_t - truth['t_obs'][0]))  # start of assimilation
                     i1 = np.argmin(abs(filter_ens.hist_t - truth['t_obs'][-1]))  # end of assimilation
                     lbl0, lbl1 = [], []
-                    ii = len(filter_ens.psi0) - 1
+                    ii = filter_ens.Nphi - 1
                     for p in filter_ens.est_p:
                         ii += 1
                         if p in ['C1', 'C2']:
-                            lbl0.append('$' + p )
+                            lbl0.append('$' + p)
                             lbl1.append('/\\bar{' + p + '}' + '^0$')
                         else:
                             lbl0.append('$\\' + p)
                             lbl1.append('/\\bar{\\' + p + '}' + '^0$')
 
+                if reference_p is None:
+                    reference_p = filter_ens.alpha0
 
                 for pj, p in enumerate(filter_ens.est_p):
                     for idx, a, tt, mk in zip([-1, 0], [1., .2],
                                               ['(t_\mathrm{end})', '^0'], ['x', '+']):
-                        hist_p = filter_ens.hist[idx, N_psi + pj] / filter_ens.alpha0[p]
+                        hist_p = filter_ens.hist[idx, N_psi + pj] / reference_p[p]
                         lbl = lbl0[pj] + tt + lbl1[pj]
 
                         # print(pj, p, filter_ens.alpha0[p], np.mean(hist_p) * filter_ens.alpha0[p], np.mean(hist_p))
@@ -491,11 +496,11 @@ def post_process_multiple(folder, filename=None, k_max=100., L_plot=None):
 
         for ax1 in axCRP[:]:
             ax1.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
-            ax1.set_aspect(1./ax1.get_data_ratio())
+            ax1.set_aspect(1. / ax1.get_data_ratio())
 
         t_obs = truth['t_obs']
         for ax1 in mean_ax[:]:
-            ax1.set_aspect(0.8/ax1.get_data_ratio())
+            ax1.set_aspect(0.8 / ax1.get_data_ratio())
             ax1.plot((t_obs[0], t_obs[0]), (-1E6, 1E6), '--', color='k', linewidth=.8, alpha=.5)  # DA window
             ax1.plot((t_obs[-1], t_obs[-1]), (-1E6, 1E6), '--', color='k', linewidth=.8, alpha=.5)  # DA window
 
@@ -530,7 +535,7 @@ def plot_Lk_contours(folder, filename='contour'):
     R_titles = ['during DA', 'during DA', 'post-DA', 'post-DA']
     # -------------------------------------------------------------------------------------------------- #
     log_metrics = [(data['R_biased_DA'] + data['R_unbiased_DA']),
-                    (data['R_biased_post'] + data['R_unbiased_post'])]
+                   (data['R_biased_post'] + data['R_unbiased_post'])]
     log_metrics = [np.log(metric) for metric in log_metrics]  # make them logs
 
     min_idx = [np.argmin(metric) for metric in log_metrics]
@@ -562,7 +567,7 @@ def plot_Lk_contours(folder, filename='contour'):
     cmap = mpl.cm.RdBu_r.copy()
     cmap.set_over('k')
     for axs, metrics, lbls, ttls, txts in zip([axs_0, axs_1], [R_metrics, log_metrics], [R_lbls, log_lbls],
-                                               [R_titles, log_titles], [R_text, log_text]):
+                                              [R_titles, log_titles], [R_text, log_text]):
         max_v = min(0.1, max([np.max(metric) for metric in metrics]))
         min_v = min([np.min(metric) for metric in metrics])
         if lbls[0] == log_lbls[0]:
@@ -583,7 +588,7 @@ def plot_Lk_contours(folder, filename='contour'):
             im = ax.contourf(xm, ym, zm, levels=mylevs, cmap=cmap, norm=norm, extend='both')
 
             ax.yaxis.set_major_formatter(FormatStrFormatter('%.0f'))
-            ax.set_aspect(1./ax.get_data_ratio())
+            ax.set_aspect(1. / ax.get_data_ratio())
 
             im.cmap.set_over('k')
             ax.set(title=titl, xlabel='$\\gamma$', ylabel='$L$')
@@ -598,7 +603,6 @@ def plot_Lk_contours(folder, filename='contour'):
                         xy=(ki, Lj), xytext=(0., 0.), bbox={'facecolor': 'white', 'alpha': 0.4, 'pad': 5})
 
             plt.colorbar(im, ax=ax, label=lbl, shrink=0.5, ticks=mylevs[::2], format=FormatStrFormatter('%.3f'))
-
 
     plt.savefig(filename + '.svg', dpi=350)
     plt.close()
@@ -639,7 +643,6 @@ def plot_Rijke_animation(folder, figs_dir):
         elif filter_ens.filt == 'rBA_EnKF':
             filter_ens_BA = filter_ens.copy()
             print('ok2')
-
 
     # load truth
     name_truth = truth['name'].split('_{}'.format(truth['true_params']['manual_bias']))[0]
@@ -706,7 +709,7 @@ def plot_Rijke_animation(folder, figs_dir):
     hist_BA, hist_BB = filter_ens_BA.hist, filter_ens_BB.hist
     for pi, p in enumerate(filter_ens.est_p):
         print(pi)
-        ii = len(filter_ens.psi0) + pi
+        ii = filter_ens.Nphi + pi
         alpha_BA.append(np.mean(hist_BA[:, ii], -1) / reference_p[p])
         std_BA.append(np.std(hist_BA[:, ii] / reference_p[p], axis=1))
         alpha_BB.append(np.mean(hist_BB[:, ii], -1) / reference_p[p])
@@ -752,7 +755,7 @@ def plot_Rijke_animation(folder, figs_dir):
         #     #     ax1.plot(locs_obs, y_mean, 'x', color=c, markeredgewidth=2)
 
     def animate2(ai):
-        t_g =  t_gif[ai]
+        t_g = t_gif[ai]
         # Plot timeseries ------------------------------------------------------------------------
         t11 = np.argmin(abs(filter_ens.hist_t - t_g))
         t00 = np.argmin(abs(filter_ens.hist_t - (t_g - filter_ens.t_CR / 2.)))
@@ -794,6 +797,7 @@ def plot_Rijke_animation(folder, figs_dir):
             for ppi, pp in enumerate(filter_ens.est_p):
                 ax2[1].fill_between(tt_, mean_p[ppi][t00:t11] + std_p[ppi][t00:t11],
                                     mean_p[ppi][t00:t11] - std_p[ppi][t00:t11], alpha=0.2, color=cols[ppi])
+
     # Create and save animations ------------------------------------------------------------------------
     ani1 = mpl.animation.FuncAnimation(fig1, animate1, frames=len(t_gif), interval=10, repeat=False)
     ani2 = mpl.animation.FuncAnimation(fig2, animate2, frames=len(t_gif), interval=10, repeat=False)

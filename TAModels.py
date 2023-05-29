@@ -51,7 +51,6 @@ class Model:
 
         self.alpha0 = {par: getattr(self, par) for par in self.params}
         self.alpha = self.alpha0.copy()
-        self.N, self.Na = len(self.psi0), 0
         self.psi = np.array([self.psi0]).T
 
         # ========================== CREATE HISTORY ========================== ##
@@ -74,18 +73,37 @@ class Model:
     @property
     def M(self):
         if not hasattr(self, '_M'):
-            obs = self.getObservables()
-            Nq = np.shape(obs)[0]
-            # if ensemble.est_b:
-            #     y0 = np.concatenate(y0, np.zeros(ensemble.bias.Nb))
-            y0 = np.concatenate((np.zeros(self.N), np.ones(Nq)))
-            self._M = np.zeros((Nq, len(y0)))
-            iq = 0
-            for ii in range(len(y0)):
-                if y0[ii] == 1:
-                    self._M[iq, ii] = 1
-                    iq += 1
+            self._M = np.hstack((np.zeros([self.Nq, self.Nphi + self.Na]),
+                                 np.eye(self.Nq)))
         return self._M
+
+    @property
+    def Ma(self):
+        return np.hstack((np.zeros([self.Na, self.Nphi]),
+                          np.eye(self.Na), np.zeros([self.Na, self.Nq])))
+
+    @property
+    def Nq(self):
+        if not hasattr(self, '_Nq'):
+            self._Nq = np.shape(self.getObservables())[0]
+        return self._Nq
+
+    @property
+    def Na(self):
+        if hasattr(self, 'est_p'):
+            return len(self.est_p)
+        else:
+            return 0
+
+    @property
+    def Nphi(self):
+        if not hasattr(self, '_Nphi'):
+            self._Nphi = len(self.psi0)
+        return self._Nphi
+
+    @property
+    def N(self):
+        return self.Nphi + self.Na + self.Nq
 
     # -------------- Functions for update/initialise the model ------------------- #
     @staticmethod
@@ -104,7 +122,6 @@ class Model:
     def resetInitialConditions(self):
         self.psi = np.array([self.psi0]).T
         self.hist = np.array([self.psi])
-        self.N = len(self.psi0)
 
     def getOutputs(self):
         out = dict(name=self.name,
@@ -144,9 +161,7 @@ class Model:
         if 'ensure_mean' in DAdict.keys() and DAdict['ensure_mean']:
             self.psi[:, 0] = np.array(self.psi0)
 
-        if len(self.est_p) > 0:  # Augment ensemble with estimated parameters
-            self.Na = len(self.est_p)
-            self.N += self.Na
+        if self.Na > 0:  # Augment ensemble with estimated parameters
             mean_a = np.array([getattr(self, pp) for pp in self.est_p])  # * rng.uniform(0.9, 1.1, len(self.psi0))
             ens_a = self.addUncertainty(mean_a, self.std_a, self.m, method=self.alpha_distr)
 
@@ -274,8 +289,9 @@ class VdP(Model):
 
     name: str = 'VdP'
     attr: dict = dict(dt=1E-4, t_transient=1.5, t_CR=0.04,
-                            omega=2 * np.pi * 120., law='tan',
-                            zeta=60., beta=70., kappa=4.0, gamma=1.7)  # beta, zeta [rad/s]
+                      omega=2 * np.pi * 120., law='tan',
+                      zeta=60., beta=70., kappa=4.0, gamma=1.7)  # beta, zeta [rad/s]
+
     params: list = ['zeta', 'kappa', 'beta']  # ,'omega', 'gamma']
 
     # __________________________ Init method ___________________________ #
