@@ -1,7 +1,7 @@
 import os
 import numpy as np
 import pickle
-from Util import createObservations, CR, interpolate
+from Util import createObservations, CR, interpolate, check_valid_ensemble
 from DA import dataAssimilation
 
 import matplotlib as mpl
@@ -9,18 +9,18 @@ import matplotlib.pyplot as plt
 
 
 rng = np.random.default_rng(6)
-
 path_dir = '/'.join(os.path.realpath(__file__).split('/')[:-1]) + '/'
 
 
-# ======================================================================================================================
-# ======================================================================================================================
 def main(filter_ens, truth, method, results_dir="results/", save_=False):
     os.makedirs(results_dir, exist_ok=True)
 
     # =========================  PERFORM DATA ASSIMILATION ========================== #
     filter_ens = dataAssimilation(filter_ens, truth['p_obs'], truth['t_obs'],
                                   std_obs=truth['std_obs'], method=method)
+
+    filter_ens.is_not_physical(print_=True)
+
     # Integrate further without assimilation as ensemble mean (if truth very long, integrate only .2s more)
     Nt_extra = 0
     if filter_ens.hist_t[-1] < truth['t'][-1]:
@@ -50,59 +50,21 @@ def main(filter_ens, truth, method, results_dir="results/", save_=False):
     return filter_ens, truth, parameters
 
 
-# ======================================================================================================================
-# ======================================================================================================================
-def createEnsemble(true_p, forecast_p, filter_p,
-                   bias_p=None,
-                   working_dir="results", filename='reference_Ensemble', results_dir=None):
+def createEnsemble(true_p, forecast_p, filter_p, bias_p=None,
+                   working_dir="results", filename='reference_Ensemble', results_dir=None, save_=True):
     if results_dir is None:
         results_dir = working_dir
 
-    if os.path.isfile(results_dir + filename):
-        reinit = False
-        if bias_p is not None:
+    if save_:
+        if os.path.isfile(results_dir + filename):
             with open(results_dir + filename, 'rb') as f:
-                ensemble = pickle.load(f)
-                truth = pickle.load(f)
-                b_args = pickle.load(f)
-            return_args = (ensemble, truth, b_args)
-            # check that bias parameters are the same
-            for key, val in bias_p.items():
-                if key in b_args[0]['Bdict'].keys():
-                    if len(b_args[0]['Bdict'][key]) == 1:
-                        if val != b_args[0]['Bdict'][key]:
-                            reinit, break_key, break_val, actual_val = True, key, b_args[0]['Bdict'][key], val
-                            break
-                    else:
-                        for v1, v2 in zip(val, b_args[0]['Bdict'][key]):
-                            if v1 != v2:
-                                reinit, break_key, break_val, actual_val = True, key, b_args[0]['Bdict'][key], val
-                                break
-        else:
-            with open(results_dir + filename, 'rb') as f:
-                ensemble = pickle.load(f)
-                truth = pickle.load(f)
-            return_args = (ensemble, truth)
-        # check that true and forecast model parameters
-        for key, val in filter_p.items():
-            if hasattr(ensemble, key) and getattr(ensemble, key) != val:
-                reinit, break_key, break_val, actual_val = True, key, getattr(ensemble, key), val
-                break
-        for key, val in true_p.items():
-            if key in truth.keys() and truth[key] != val:
-                reinit, break_key, break_val, actual_val = True, key, truth[key], val
-                break
-
-        # check that the data is sufficiently long for assimilation
-        if abs(truth['t_obs'][-1] - filter_p['t_stop']) > truth['dt_obs']:
-            reinit, break_key, break_val, actual_val = True, 't_obs', truth['t_obs'][-1], filter_p['t_stop']
-        if truth['dt_obs']//truth['dt'] != filter_p['kmeas']:
-            reinit, break_key, break_val, actual_val = True, 't_obs', truth['dt_obs']//truth['dt'], filter_p['kmeas']
-
-        if not reinit:
-            return return_args
-        else:
-            print('Re-init ensemble as {} = {} != {}'.format(break_key, break_val, actual_val))
+                load_ens = pickle.load(f)
+                load_truth = pickle.load(f)
+                load_bias = pickle.load(f)
+            if not check_valid_ensemble(true_p, filter_p, bias_p, load_ens, load_truth, load_bias):
+                if load_bias is None:
+                    return load_ens, load_truth
+                return load_ens, load_truth, load_bias
 
     # =============================  CREATE OBSERVATIONS ============================== #
     y_true, t_true, name_truth = createObservations(true_p)
@@ -123,12 +85,12 @@ def createEnsemble(true_p, forecast_p, filter_p,
 
     y_true += b_true
     dt_t = t_true[1] - t_true[0]
-    obs_idx = np.arange(round(filter_p['t_start'] / dt_t),
-                        round(filter_p['t_stop'] / dt_t) + 1, filter_p['kmeas'])
+    obs_idx = np.arange(round(filter_p['t_start'] / dt_t), round(filter_p['t_stop'] / dt_t) + 1, filter_p['kmeas'])
     t_obs = t_true[obs_idx]
     q = np.shape(y_true)[1]
     if 'std_obs' not in true_p.keys():
         true_p['std_obs'] = 0.01
+
     Cdd = np.eye(q) * true_p['std_obs'] ** 2
 
     noise = rng.multivariate_normal(np.zeros(q), Cdd, len(obs_idx))
@@ -137,38 +99,37 @@ def createEnsemble(true_p, forecast_p, filter_p,
                  t_obs=t_obs, p_obs=obs, dt_obs=t_obs[1] - t_obs[0],
                  true_params=true_p, name=name_truth,
                  model=true_p['model'], std_obs=true_p['std_obs'])
+
     # Remove transient to save up space
-    i_transient = np.argmin(abs(truth['t'] - ensemble.t_transient))
+    i_transient = np.argmin(abs(truth['t'] - forecast_p['model'].attr['t_transient']))
     for key in ['y', 't', 'b']:
         truth[key] = truth[key][i_transient:]
 
     # %% =============================  DEFINE BIAS ======================================== #
     if filter_p['biasType'].name == 'ESN':
-        args = (filter_p, forecast_p['model'], truth, working_dir)
-        filter_p['Bdict'] = create_ESN_train_dataset(*args, bias_param=bias_p)
+        bias_args = (filter_p, forecast_p['model'], truth, working_dir)
+        filter_p['Bdict'] = create_ESN_train_dataset(*bias_args, bias_param=bias_p)
     else:
-        args = (None,)
+        bias_args = None
 
     # ===============================  INITIALISE ENSEMBLE  =============================== #
     ensemble = forecast_p['model'](forecast_p, filter_p)
-    os.makedirs(results_dir, exist_ok=True)
 
-    if bias_p is None:
 
+    # ===============================  RETURN and/or SAVE  =============================== #
+    if save_:
+        os.makedirs(results_dir, exist_ok=True)
         with open(results_dir + filename, 'wb') as f:
             pickle.dump(ensemble, f)
             pickle.dump(truth, f)
+            pickle.dump(bias_args, f)
+
+    if bias_args is None:
         return ensemble, truth
     else:
-        with open(results_dir + filename, 'wb') as f:
-            pickle.dump(ensemble, f)
-            pickle.dump(truth, f)
-            pickle.dump(args, f)
-        return ensemble, truth, args
+        return ensemble, truth, bias_args
 
 
-# ======================================================================================================================
-# ======================================================================================================================
 def create_ESN_train_dataset(filter_p, forecast_model, truth, folder, bias_param=None):
 
     if bias_param is None: # If no bias estimation, return empty dic
@@ -244,8 +205,6 @@ def create_ESN_train_dataset(filter_p, forecast_model, truth, folder, bias_param
     return bias_p
 
 
-# ======================================================================================================================
-# ======================================================================================================================
 def get_error_metrics(results_folder):
     print('computing error metrics...')
     out = dict(Ls=[], ks=[])

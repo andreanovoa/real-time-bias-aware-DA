@@ -10,7 +10,8 @@ if __name__ == '__main__':
     true_params = {'model': TAModels.VdP,
                    'manual_bias': None,
                    'law': 'tan',
-                   'std_obs': 0.1
+                   'std_obs': 0.1,
+                   'beta': 115
                    }
 
     forecast_params = {'model': TAModels.VdP,
@@ -19,27 +20,27 @@ if __name__ == '__main__':
                        }
 
     # ==================================== SELECT FILTER PARAMETERS =================================== #
-    filter_params = {'filt': 'EnKF',  # 'rBA_EnKF' 'EnKF' 'EnSRKF'
+    filter_params = {'filt': 'EnSRKF',  # 'rBA_EnKF' 'EnKF' 'EnSRKF'
                      'm': 10,
-                     'est_p': ['beta', 'kappa'],
+                     'est_p': ['beta'],
                      # initial parameter and state uncertainty
                      'std_a': 0.1,
                      'std_psi': 0.1,
                      'biasType': Bias.NoBias,  # Bias.ESN  # Bias.NoBias
                      # Define the observation time window
                      't_start': 2.0,
-                     't_stop': 2.5,
+                     't_stop': 2.6,
                      'kmeas': 35,
                      # Inflation
-                     'inflation': 1.05,
+                     'inflation': 1.002,
                      'start_ensemble_forecast': 10
                      }
 
-    ensemble, truth = createEnsemble(true_params, forecast_params, filter_params, working_dir=folder)
+    ensemble, truth = createEnsemble(true_params, forecast_params, filter_params, working_dir=folder, save_=False)
 
 
     filter_ens = ensemble.copy()
     out = main(filter_ens, truth, filter_params['filt'], save_=False)
 
     # Plot results -------
-    post_process_single(*out, reference_p=TAModels.VdP.attr)
+    post_process_single(*out, reference_p=true_params)

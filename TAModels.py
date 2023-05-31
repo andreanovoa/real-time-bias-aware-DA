@@ -105,7 +105,9 @@ class Model:
     def N(self):
         return self.Nphi + self.Na + self.Nq
 
-    # -------------- Functions for update/initialise the model ------------------- #
+
+
+    # ------------------------- Functions for update/initialise the model --------------------------- #
     @staticmethod
     def addUncertainty(y_mean, y_std, m, method='normal'):
         if method == 'normal':
@@ -150,10 +152,8 @@ class Model:
             else:
                 setattr(self, key, val)
 
-        # ----------------------- DEFINE STATE MATRIX ----------------------- ##
+        # ------------------------DEFINE STATE MATRIX ------------------------ ##
         # Note: if est_p and est_b psi = [psi; alpha; biasWeights]
-        # if self.m > 1:
-        # if True:
         mean_psi = np.array(self.psi0)  # * rng.uniform(0.9, 1.1, len(self.psi0))
         # self.psi = self.addUncertainty(mean, self.std_psi, self.m, method=self.alpha_distr)
         cov = np.diag((self.std_psi ** 2 * abs(mean_psi)))
@@ -164,10 +164,8 @@ class Model:
         if self.Na > 0:  # Augment ensemble with estimated parameters
             mean_a = np.array([getattr(self, pp) for pp in self.est_p])  # * rng.uniform(0.9, 1.1, len(self.psi0))
             ens_a = self.addUncertainty(mean_a, self.std_a, self.m, method=self.alpha_distr)
-
             if 'ensure_mean' in DAdict.keys() and DAdict['ensure_mean']:
                 ens_a[:, 0] = mean_a
-
             self.psi = np.vstack((self.psi, ens_a))
 
         # ------------------------ INITIALISE BIAS ------------------------ ##
@@ -199,6 +197,14 @@ class Model:
         self.hist_t = np.hstack((self.hist_t, t))
         self.psi = psi[-1]
         self.t = t[-1]
+
+    def is_not_physical(self, print_=False):
+        if not hasattr(self, '_physical'):
+            self._physical = 0
+        if print_:
+            print('Number of non-physical analysis = ', self._physical)
+        else:
+            self._physical += 1
 
     # -------------- Functions required for the forecasting ------------------- #
     @property

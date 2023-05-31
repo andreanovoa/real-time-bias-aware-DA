@@ -243,8 +243,7 @@ def post_process_single(filter_ens, truth, params, filename=None, mic=0, referen
 
     # %% PLOT time series ------------------------------------------------------------------------------------------
 
-    # normalizing constant
-    norm = np.max(abs(y_truth), axis=0)
+    norm = np.max(abs(y_truth), axis=0)  # normalizing constant
 
     fig1 = plt.figure(figsize=[9, 5.5], layout="constrained")
     subfigs = fig1.subfigures(2, 1, height_ratios=[1, 1.1])
@@ -277,8 +276,6 @@ def post_process_single(filter_ens, truth, params, filename=None, mic=0, referen
         else:
             twin = True
             norm_lbl = lambda x: '/{' + x + '}^\mathrm{true}'
-
-
 
         ii = filter_ens.Nphi
         for p in filter_ens.est_p:
@@ -327,16 +324,19 @@ def post_process_single(filter_ens, truth, params, filename=None, mic=0, referen
             axs[0].set(ylabel=ylbls[0][1], xlim=x_lims[-1], ylim=y_lims_b)
         # PARAMS-----------------------
         if filter_ens.est_p:
-            for m, s, c, lbl in zip(mean_p, std_p, colors_alpha, labels_p):
+            for p, m, s, c, lbl in zip(filter_ens.est_p, mean_p, std_p, colors_alpha, labels_p):
                 axs[1].plot(hist_t, m, color=c, label=lbl)
                 axs[1].set(xlabel='$t$')
                 axs[1].fill_between(hist_t, m + s, m - s, alpha=0.2, color=c)
+
+                for lim in [filter_ens.param_lims[p][0]/reference_p[p], filter_ens.param_lims[p][1]/reference_p[p]]:
+                    axs[1].plot([hist_t[0], hist_t[-1]], [lim, lim], '--', color=c, lw=0.8)
 
             axs[1].set(xlabel='$t$ [s]', ylabel="", xlim=x_lims[-1], ylim=[min_p, max_p])
             axs[1].plot((t_obs[0], t_obs[0]), (-1E6, 1E6), '--', color='k', linewidth=.8)  # DA window
             axs[1].plot((t_obs[-1], t_obs[-1]), (-1E6, 1E6), '--', color='k', linewidth=.8)  # DA window
             if twin:
-                axs[1].plot((x_lims[-1][0], x_lims[-1][-1]), (1, 1), '--', color='k', linewidth=.8)  # DA window
+                axs[1].plot((x_lims[-1][0], x_lims[-1][-1]), (1, 1), '-', color='k', linewidth=.6)  # DA window
             if num_DA_blind > 0:
                 axs[1].plot((t_obs[num_DA_blind], t_obs[num_DA_blind]), (-1E6, 1E6), '-.', color='darkblue')
                 axs[1].plot((t_obs[num_DA_blind], t_obs[num_DA_blind]), (-1E6, 1E6), '-.', color='darkblue',

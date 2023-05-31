@@ -12,6 +12,7 @@ import numpy as np
 from scipy import linalg
 rng = np.random.default_rng(6)
 
+count = 0
 
 def dataAssimilation(ensemble, obs, t_obs, std_obs=0.05, method='EnSRKF'):
 
@@ -182,9 +183,14 @@ def analysisStep(case, d, Cdd, filt='EnSRKF', get_cost=False):
         else:
             is_physical, broken_bounds, idx_alpha = checkParams(Aa, case)
             if not is_physical:
+                # Count
+                case.is_not_physical()
                 # Try assimilating the parameters themselves
-                Ma = case.Ma[idx_alpha].squeeze(axis=0)
-                broken_bounds = broken_bounds[idx_alpha].squeeze(axis=0)
+                try:
+                    Ma = case.Ma[idx_alpha].squeeze(axis=0)
+                except:
+                    raise ValueError('idx_alpha=', idx_alpha)
+                broken_bounds = .98*broken_bounds[idx_alpha].squeeze(axis=0)
                 Na = len(idx_alpha)
                 M_alpha = np.vstack([M, Ma])
                 d_alpha = np.append(d, broken_bounds)
@@ -192,12 +198,12 @@ def analysisStep(case, d, Cdd, filt='EnSRKF', get_cost=False):
                     print('None bound')
 
                 Caa = np.dot(case.Ma, Af)[idx_alpha].squeeze(axis=0)
-                Caa = np.dot(Caa, Caa.T)
+                Caa = 0.01* (np.dot(Caa, Caa.T))
                 Cdd_alpha = np.block([[Cdd, np.zeros([case.Nq, Na])],
                                       [np.zeros([Na, case.Nq]), Caa]])
 
-                print(case.t, 'Constrained filter')
-                print(Cdd_alpha)
+                # print(case.t, 'Constrained filter')
+                # print(Cdd_alpha)
 
                 if filt == 'EnSRKF':
                     Aa, cost = EnSRKF(Af, d_alpha, Cdd_alpha, M_alpha)
@@ -205,18 +211,16 @@ def analysisStep(case, d, Cdd, filt='EnSRKF', get_cost=False):
                     Aa, cost = EnKF(Af, d_alpha, Cdd_alpha, M_alpha)
                 elif filt == 'rBA_EnKF':
                     if case.activate_bias_aware:
-                        Aa, cost = rBA_EnKF(Af, d_alpha, Cdd_alpha, Cbb, k, M_alpha,
-                                            b, J, get_cost=get_cost)
+                        Aa, cost = rBA_EnKF(Af, d_alpha, Cdd_alpha, Cbb, k, M_alpha,b, J, get_cost=get_cost)
                     else:
                         Aa, cost = EnKF(Af, d, Cdd, M, get_cost=get_cost)
 
-
-                # Aa = inflateEnsemble(Af, 1.05)
+                Aa = inflateEnsemble(Aa, case.inflation)
                 # # double check point in case the inflation takes the ensemble out of parameter range
                 if not checkParams(Aa, case)[0]:
                     print('!', end="")
-                    Aa = Af.copy()
-                # cost = np.array([None] * 4)
+                    Ma = case.Ma[idx_alpha].squeeze(axis=0)
+
                 return Aa[:-np.size(y, 0), :], cost
 
     Aa = inflateEnsemble(Aa, case.inflation)

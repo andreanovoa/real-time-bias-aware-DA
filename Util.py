@@ -20,26 +20,6 @@ from scipy.signal import find_peaks
 rng = np.random.default_rng(6)
 
 
-@lru_cache(maxsize=10)
-def Cheb(Nc, lims=[0, 1], getg=False):  # __________________________________________________
-    """ Compute the Chebyshev collocation derivative matrix (D)
-        and the Chevyshev grid of (N + 1) points in [ [0,1] ] / [-1,1]
-    """
-    g = - np.cos(np.pi * np.arange(Nc + 1, dtype=float) / Nc)
-    c = np.hstack([2., np.ones(Nc - 1), 2.]) * (-1) ** np.arange(Nc + 1)
-    X = np.outer(g, np.ones(Nc + 1))
-    dX = X - X.T
-    D = np.outer(c, 1 / c) / (dX + np.eye(Nc + 1))
-    D -= np.diag(D.sum(1))
-
-    # Modify
-    if lims[0] == 0:
-        g = (g + 1.) / 2.
-    if getg:
-        return D, g
-    else:
-        return D
-
 
 def createObservations(classParams=None):
     if type(classParams) is dict:
@@ -100,6 +80,65 @@ def createObservations(classParams=None):
 
     return p_obs, case.hist_t, name.split('Truth_')[-1]
 
+
+def check_valid_ensemble(true_p, filter_p, bias_p, load_ens, load_truth, load_bias):
+    reinit = False
+    if load_bias is not None and bias_p is not None:
+        # check that bias parameters are the same
+        for key, val in bias_p.items():
+            if key in load_bias[0]['Bdict'].keys():
+                if len(load_bias[0]['Bdict'][key]) == 1:
+                    if val != load_bias[0]['Bdict'][key]:
+                        reinit, break_key, break_val, actual_val = True, key, load_bias[0]['Bdict'][key], val
+                        break
+                else:
+                    for v1, v2 in zip(val, load_bias[0]['Bdict'][key]):
+                        if v1 != v2:
+                            reinit, break_key, break_val, actual_val = True, key, load_bias[0]['Bdict'][key], val
+                            break
+        else:
+            reinit, break_key, break_val, actual_val = True, 'bias model', load_bias,
+
+            # check that true and forecast model parameters
+    for key, val in filter_p.items():
+        if hasattr(load_ens, key) and getattr(load_ens, key) != val:
+            reinit, break_key, break_val, actual_val = True, key, getattr(load_ens, key), val
+            break
+    for key, val in true_p.items():
+        if key in load_truth.keys() and load_truth[key] != val:
+            reinit, break_key, break_val, actual_val = True, key, load_truth[key], val
+            break
+
+    # check that the data is sufficiently long for assimilation
+    if abs(load_truth['t_obs'][-1] - filter_p['t_stop']) > load_truth['dt_obs']:
+        reinit, break_key, break_val, actual_val = True, 't_obs', load_truth['t_obs'][-1], filter_p['t_stop']
+    if load_truth['dt_obs'] // load_truth['dt'] != filter_p['kmeas']:
+        reinit, break_key, break_val, actual_val = True, 't_obs', load_truth['dt_obs'] // load_truth['dt'], filter_p[
+            'kmeas']
+
+    if reinit:
+        print('Re-init ensemble as loaded {} = {} != {}'.format(break_key, break_val, actual_val))
+    return reinit
+
+@lru_cache(maxsize=10)
+def Cheb(Nc, lims=[0, 1], getg=False):  # __________________________________________________
+    """ Compute the Chebyshev collocation derivative matrix (D)
+        and the Chevyshev grid of (N + 1) points in [ [0,1] ] / [-1,1]
+    """
+    g = - np.cos(np.pi * np.arange(Nc + 1, dtype=float) / Nc)
+    c = np.hstack([2., np.ones(Nc - 1), 2.]) * (-1) ** np.arange(Nc + 1)
+    X = np.outer(g, np.ones(Nc + 1))
+    dX = X - X.T
+    D = np.outer(c, 1 / c) / (dX + np.eye(Nc + 1))
+    D -= np.diag(D.sum(1))
+
+    # Modify
+    if lims[0] == 0:
+        g = (g + 1.) / 2.
+    if getg:
+        return D, g
+    else:
+        return D
 
 def RK4(t, q0, func, *kwargs):
     """ 4th order RK for autonomous systems described by func """
