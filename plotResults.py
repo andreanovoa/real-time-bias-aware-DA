@@ -15,9 +15,6 @@ XDG_RUNTIME_DIR = 'tmp/'
 plt.rc('text', usetex=True)
 plt.rc('font', family='times', size=14, serif='Times New Roman')
 plt.rc('mathtext', rm='times', bf='times:bold')
-
-# mpl.rcParams('text', usetex=True)
-# mpl.rcParams['text.latex.unicode']=True
 plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 
 # Figures colors
@@ -517,8 +514,9 @@ def post_process_pdf(filter_ens, truth, params, filename=None, reference_p=None,
 
 
     fig1 = plt.figure(figsize=[9, 5.5], layout="constrained")
-    ax_all = fig1.subplots(filter_ens.Na+1, 1)
-
+    ax_all = fig1.subplots(filter_ens.Na, 1)
+    if filter_ens.Na == 1:
+        ax_all = [ax_all]
 
     hist, hist_t = filter_ens.hist, filter_ens.hist_t
     t_obs, dt_obs = truth['t_obs'], truth['t_obs'][1]-truth['t_obs'][0]
@@ -548,7 +546,20 @@ def post_process_pdf(filter_ens, truth, params, filename=None, reference_p=None,
             norm_lbl = lambda x: ''
         twin = True
 
-
+    # REJECTED ANALYSIS ---------------------------------------------------------------------
+    if hasattr(filter_ens, 'rejected_analysis'):
+        lbl = ['rejected posterior', 'prior']
+        for rejection in filter_ens.rejected_analysis:
+            for t_r, reject_posterior, prior in rejection:
+                ii = 0
+                for p in filter_ens.est_p:
+                    a = reject_posterior[ii] / reference_p[p]
+                    plot_violins(ax_all[ii], [a], [t_r], color='r', widths=dt_obs/2, label=lbl[0])
+                    a = prior[ii] / reference_p[p]
+                    plot_violins(ax_all[ii], [a], [t_r], color='y', widths=dt_obs/2, label=lbl[-1])
+                    ii += 1
+            lbl = [None, None]
+    # PARAMS ---------------------------------------------------------------------
     ii = filter_ens.Nphi
     for p in filter_ens.est_p:
         m = [hist[ti, ii] / reference_p[p] for ti in idx_t]
@@ -559,22 +570,22 @@ def post_process_pdf(filter_ens, truth, params, filename=None, reference_p=None,
         hist_alpha.append(m)
         ii += 1
 
-    # PARAMS ---------------------------------------------------------------------
     for ax, p, a, c, lbl in zip(ax_all, filter_ens.est_p, hist_alpha, colors_alpha, labels_p):
+        plot_violins(ax, a, t_obs, widths=dt_obs/2, color=c, label='analysis posterior')
         # ax.plot(t_obs, a, 'x', color=c)
-        violins = ax.violinplot(a, positions=t_obs, widths=dt_obs/2)
-        for vp in violins['bodies']:
-            vp.set_facecolor(c)
-            vp.set_edgecolor(c)
-            vp.set_linewidth(.5)
-            vp.set_alpha(0.5)
-            vert = vp.get_paths()[0].vertices[:, 0]
-            vp.get_paths()[0].vertices[:, 0] = np.clip(vert, np.mean(vert), np.inf)
-
-        for partname in ('cbars', 'cmins', 'cmaxes'):
-            vp = violins[partname]
-            vp.set_edgecolor(c)
-            vp.set_linewidth(.75)
+        # violins = ax.violinplot(a, positions=t_obs, widths=dt_obs/2)
+        # for vp in violins['bodies']:
+        #     vp.set_facecolor(c)
+        #     vp.set_edgecolor(c)
+        #     vp.set_linewidth(.5)
+        #     vp.set_alpha(0.5)
+        #     vert = vp.get_paths()[0].vertices[:, 0]
+        #     vp.get_paths()[0].vertices[:, 0] = np.clip(vert, np.mean(vert), np.inf)
+        #
+        # for partname in ('cbars', 'cmins', 'cmaxes'):
+        #     vp = violins[partname]
+        #     vp.set_edgecolor(c)
+        #     vp.set_linewidth(.75)
 
         alpha_lims = [filter_ens.param_lims[p][0] / reference_p[p],
                       filter_ens.param_lims[p][1] / reference_p[p]]
@@ -584,12 +595,36 @@ def post_process_pdf(filter_ens, truth, params, filename=None, reference_p=None,
         if twin:
             ax.plot((x_lims[0], x_lims[-1]), (k_twin[p], k_twin[p]), '-', color='k', linewidth=.6)  # DA window
 
-        ax.set(xlabel='$t$ [s]', ylabel=lbl, xlim=x_lims, ylim=[min(min_p, alpha_lims[0] - 0.1),
-                                                                max(max_p, alpha_lims[1] + 0.1)])
+        ax.set(xlabel='$t$ [s]', ylabel=lbl, xlim=x_lims, ylim=[min(min_p, alpha_lims[0] - 0.1*abs(alpha_lims[1])),
+                                                                max(max_p, alpha_lims[1] + 0.1*abs(alpha_lims[1]))])
 
+        ax.legend()
     if filename is not None:
         plt.savefig(filename + '.svg', dpi=350)
         plt.close()
+
+
+def plot_violins(ax, values, location, widths=None, color='b', label=None):
+    if widths is None:
+        violins = ax.violinplot(values, positions=location)
+    else:
+        violins = ax.violinplot(values, positions=location, widths=widths)
+    for vp in violins['bodies']:
+        vp.set_facecolor(color)
+        vp.set_edgecolor(color)
+        vp.set_linewidth(.5)
+        vp.set_alpha(0.5)
+        vert = vp.get_paths()[0].vertices[:, 0]
+        vp.get_paths()[0].vertices[:, 0] = np.clip(vert, np.mean(vert), np.inf)
+    if label is not None:
+        vp.set_label(label)
+    for partname in ('cbars', 'cmins', 'cmaxes'):
+        vp = violins[partname]
+        vp.set_edgecolor(color)
+        vp.set_linewidth(.75)
+
+    # if label is not None:
+    #     ax.legend([violins['bodies'][0]], [label])
 
 # ==================================================================================================================
 

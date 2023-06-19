@@ -9,7 +9,7 @@ if __name__ == '__main__':
     true_params = {'model': TAModels.VdP,
                    'manual_bias': None,
                    'std_obs': 0.01,
-                   'beta': 90,
+                   'beta': 110,
                    'zeta': 60
                    }
 
@@ -20,19 +20,18 @@ if __name__ == '__main__':
 
     # ==================================== SELECT FILTER PARAMETERS =================================== #
     filter_params = {'filter': 'EnKF',
-                     'constrained_filter': True,
-                     'm': 500,
+                     'constrained_filter': 1,
+                     'm': 100,
                      'est_p': ['beta'],
                      # # initial parameter and state uncertainty
-                     # 'std_a': 0.25,
-                     # 'std_psi': 0.25,
                      'biasType': Bias.NoBias,  # Bias.ESN / Bias.NoBias
                      # Define the observation time window
                      't_start': 2.0,
                      't_stop': 2.1,
                      'kmeas': 35,
                      # Inflation
-                     'inflation': 1.00,
+                     'inflation': 1.002,
+                     'reject_inflation': 1.02,
                      'start_ensemble_forecast': 10
                      }
 
@@ -54,6 +53,6 @@ if __name__ == '__main__':
 
     # Plot results -------
     post_process_pdf(*out, reference_p=true_params, normalize=False)
-    post_process_single(*out, reference_p=true_params)
+    # post_process_single(*out, reference_p=true_params)
 
     plt.show()

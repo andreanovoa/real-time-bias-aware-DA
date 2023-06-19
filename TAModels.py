@@ -30,7 +30,7 @@ class Model:
 
     attr_ens: dict = dict(filter='EnKF', constrained_filter=False,
                           m=10, est_p=[], est_s=True, est_b=False,
-                          biasType=Bias.NoBias, inflation=1.002,
+                          biasType=Bias.NoBias, inflation=1.002, reject_inflation=1.002,
                           std_psi=0.001, std_a=0.001, alpha_distr='normal',
                           num_DA_blind=0, num_SE_only=0,
                           start_ensemble_forecast=0.)
@@ -203,6 +203,7 @@ class Model:
     def is_not_physical(self, print_=False):
         if not hasattr(self, '_physical'):
             self._physical = 0
+
         if print_:
             print('Number of non-physical analysis = ', self._physical)
         else:

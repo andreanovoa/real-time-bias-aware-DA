@@ -5,9 +5,7 @@ Created on Fri Apr  8 19:02:23 2022
 @author: an553
 """
 
-import os as os
 import time
-
 import numpy as np
 from scipy import linalg
 
@@ -167,7 +165,7 @@ def analysisStep(case, d, Cdd):
         J = case.bias.stateDerivative(y)
         # -------------- Define bias Covariance and the weight -------------- #
         k = case.bias.k
-        Cbb = Cdd.copy()  # Bias covariance matrix same as obs cov matrix for now
+        Cbb = Cdd.copy()                                        # Bias covariance matrix same as obs cov matrix for now
         if case.activate_bias_aware:
             Aa, cost = rBA_EnKF(Af, d, Cdd, Cbb, k, M, b, J, get_cost=case.get_cost)
         else:
@@ -183,41 +181,29 @@ def analysisStep(case, d, Cdd):
             return np.concatenate((Aa[:-case.Nq, :], Af_params)), cost
 
         else:
-            is_physical, broken_bounds, idx_alpha = checkParams(Aa, case)
+            is_physical, idx_alpha, d_alpha = checkParams(Aa, case)
             if is_physical:
                 Aa = inflateEnsemble(Aa, case.inflation)
-                return Aa[:-np.size(y, 0), :], cost
+                return Aa[:-case.Nq, :], cost
 
             case.is_not_physical()  # Count non-physical parameters
 
+            if not hasattr(case, 'rejected_analysis'):
+                case.rejected_analysis = []
+            case.rejected_analysis.append([(case.t,  np.dot(case.Ma, Aa), np.dot(case.Ma, Af))])
+
             if not case.constrained_filter:
                 print('reject-inflate case')
-                Aa = inflateEnsemble(Af, 1.005)
-                return Aa[:-np.size(y, 0), :], cost
+                Aa = inflateEnsemble(Af, case.reject_inflation)
+                return Aa[:-case.Nq, :], cost
             else:
                 # Try assimilating the parameters themselves
-                Ma = case.Ma[idx_alpha].squeeze(axis=0)
-                broken_bounds = broken_bounds[idx_alpha].squeeze(axis=0)
-
                 Alphas = np.dot(case.Ma, Af)[idx_alpha].squeeze(axis=0)
-
-                print(broken_bounds)
-                # d_alpha = min(.9*broken_bounds,
-                #               np.mean([broken_bounds, np.mean(Alphas, axis=-1)]))
-
-                # d_alpha = np.min(Alphas, axis=-1) - np.std(Alphas, axis=-1)
-                d_alpha = np.min(Alphas, axis=-1)
-                print(d_alpha)
-
-                Na = len(idx_alpha)
-                M_alpha = np.vstack([M, Ma])
-
-                Caa = .01*np.sqrt(np.dot(Alphas, (Alphas).T))                                                             # This may require some thinking!!!!!
-                Cdd_alpha = np.block([[Cdd, np.zeros([case.Nq, Na])], [np.zeros([Na, case.Nq]), Caa]])
-
-                d_alpha = np.append(d, d_alpha)
-                if np.argwhere(d_alpha is None):
-                    print('None bound')
+                M_alpha = np.vstack([M, case.Ma[idx_alpha].squeeze(axis=0)])
+                Caa = np.eye(case.Nq) * np.std(Alphas, axis=-1)
+                Cdd_alpha = np.block([[Cdd, np.zeros([case.Nq, len(idx_alpha)])],
+                                      [np.zeros([len(idx_alpha), case.Nq]), Caa]])
+                d_alpha = np.concatenate([d, d_alpha])
 
                 if case.filter == 'EnSRKF':
                     Aa, cost = EnSRKF(Af, d_alpha, Cdd_alpha, M_alpha, get_cost=case.get_cost)
@@ -227,17 +213,18 @@ def analysisStep(case, d, Cdd):
                     if case.activate_bias_aware:
                         Aa, cost = rBA_EnKF(Af, d_alpha, Cdd_alpha, Cbb, k, M_alpha, b, J, get_cost=case.get_cost)
                     else:
-                        Aa, cost = EnKF(Af, d, Cdd, M, get_cost=case.get_cost)
+                        Aa, cost = EnKF(Af, d_alpha, Cdd_alpha, M_alpha, get_cost=case.get_cost)
 
                 # # double check point in case the inflation takes the ensemble out of parameter range
                 if checkParams(Aa, case)[0]:
                     print('\t ok c-filter case')
-                    Aa = inflateEnsemble(Aa, 2)#case.inflation)
-                    return Aa[:-np.size(y, 0), :], cost
+                    Aa = inflateEnsemble(Aa, case.inflation)
+                    return Aa[:-case.Nq, :], cost
+
                 print('!', end="")
                 print('not ok c-filter case')
                 Aa = inflateEnsemble(Af, case.inflation)
-                return Aa[:-np.size(y, 0), :], cost
+                return Aa[:-case.Nq, :], cost
 
 
 # =================================================================================================================== #
@@ -259,15 +246,46 @@ def checkParams(Aa, case):
     break_low = [lims is not None and any(val < lims) for val, lims in zip(alphas, lower_bounds)]
     break_up = [lims is not None and any(val > lims) for val, lims in zip(alphas, upper_bounds)]
 
+
     is_physical = True
     if not any(np.append(break_low, break_up)):
         return is_physical, None, None
 
+    #  -----------------------------------------------------------------
     is_physical = False
+    broken_bounds, idx_alpha, d_alpha = [], [], []
+
     if any(break_low):
-        return is_physical, np.array(lower_bounds), np.argwhere(break_low)
-    elif any(break_up):
-        return is_physical, np.array(upper_bounds), np.argwhere(break_up)
+        broken_bounds.append(lower_bounds)
+        idx = np.argwhere(break_low).squeeze(axis=0)
+        for idx_ in idx:
+            idx_alpha.append(idx_)
+            bound_ = upper_bounds[idx_]
+            mean_ = np.mean(alphas[idx_])
+            max_ = np.max(alphas[idx_])
+            if mean_ > bound_:
+                d_alpha.append(np.mean([mean_, max_]))
+            elif max_ > bound_:
+                d_alpha.append(max_)
+            else:
+                d_alpha.append(bound_ + np.std(alphas[idx_]))
+
+    if any(break_up):
+        broken_bounds.append(upper_bounds)
+        idx = np.argwhere(break_up).squeeze(axis=0)
+        for idx_ in idx:
+            idx_alpha.append(idx_)
+            bound_ = upper_bounds[idx_]
+            mean_ = np.mean(alphas[idx_])
+            min_ = np.min(alphas[idx_])
+            if mean_ < bound_:
+                d_alpha.append(np.mean([mean_, min_]))
+            elif min_ < bound_:
+                d_alpha.append(min_)
+            else:
+                d_alpha.append(bound_ - np.std(alphas[idx_]))
+
+    return is_physical, np.array(idx_alpha, dtype=int), d_alpha
 
 
 # =================================================================================================================== #
