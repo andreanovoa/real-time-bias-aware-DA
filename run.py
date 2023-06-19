@@ -12,13 +12,17 @@ rng = np.random.default_rng(6)
 path_dir = '/'.join(os.path.realpath(__file__).split('/')[:-1]) + '/'
 
 
-def main(filter_ens, truth, method, results_dir="results/", save_=False):
+def main(filter_ens, truth, results_dir="results/", save_=False):
+
     os.makedirs(results_dir, exist_ok=True)
 
     # =========================  PERFORM DATA ASSIMILATION ========================== #
-    filter_ens = dataAssimilation(filter_ens, truth['p_obs'], truth['t_obs'],
-                                  std_obs=truth['std_obs'], method=method)
 
+    # if type(method) is list:
+    #     filter_ens.constrained_filter = method['constrained']
+    #     filter_name = method['filter']
+
+    filter_ens = dataAssimilation(filter_ens, truth['p_obs'], truth['t_obs'], std_obs=truth['std_obs'])
     filter_ens.is_not_physical(print_=True)
 
     # Integrate further without assimilation as ensemble mean (if truth very long, integrate only .2s more)
@@ -38,7 +42,7 @@ def main(filter_ens, truth, method, results_dir="results/", save_=False):
                       true_model=truth['model'], num_DA=len(truth['t_obs']), Nt_extra=Nt_extra)
     # filter_ens = filter_ens.getOutputs()
     if save_:
-        filename = '{}{}-{}_F-{}'.format(results_dir, method, truth['name'], filter_ens.name)
+        filename = '{}{}-{}_F-{}'.format(results_dir, filter_ens.filter, truth['name'], filter_ens.name)
         if filter_ens.bias.name == 'ESN':
             filename += '_k{}'.format(filter_ens.bias.k)
 
@@ -52,6 +56,7 @@ def main(filter_ens, truth, method, results_dir="results/", save_=False):
 
 def createEnsemble(true_p, forecast_p, filter_p, bias_p=None,
                    working_dir="results", filename='reference_Ensemble', results_dir=None, save_=True):
+
     if results_dir is None:
         results_dir = working_dir
 
@@ -61,6 +66,7 @@ def createEnsemble(true_p, forecast_p, filter_p, bias_p=None,
                 load_ens = pickle.load(f)
                 load_truth = pickle.load(f)
                 load_bias = pickle.load(f)
+
             if not check_valid_ensemble(true_p, filter_p, bias_p, load_ens, load_truth, load_bias):
                 if load_bias is None:
                     return load_ens, load_truth
@@ -115,7 +121,6 @@ def createEnsemble(true_p, forecast_p, filter_p, bias_p=None,
     # ===============================  INITIALISE ENSEMBLE  =============================== #
     ensemble = forecast_p['model'](forecast_p, filter_p)
 
-
     # ===============================  RETURN and/or SAVE  =============================== #
     if save_:
         os.makedirs(results_dir, exist_ok=True)
@@ -132,7 +137,7 @@ def createEnsemble(true_p, forecast_p, filter_p, bias_p=None,
 
 def create_ESN_train_dataset(filter_p, forecast_model, truth, folder, bias_param=None):
 
-    if bias_param is None: # If no bias estimation, return empty dic
+    if bias_param is None:  # If no bias estimation, return empty dic
         return dict()
     # ------------------------------------------------------------------------
     os.makedirs(folder, exist_ok=True)
@@ -181,9 +186,6 @@ def create_ESN_train_dataset(filter_p, forecast_model, truth, folder, bias_param
         bias_p['trainData'] = truth['y'] - y_ref  # [Nt x Nmic x L]
 
     # TODO: clean data. 1. remove FPs, 2. maximize correlation
-
-
-
 
 
     # Add washout ----------------------------------------------------------------

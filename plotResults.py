@@ -510,6 +510,87 @@ def post_process_multiple(folder, filename=None, k_max=100., L_plot=None, refere
             plt.close()
 
 
+def post_process_pdf(filter_ens, truth, params, filename=None, reference_p=None, normalize=True):
+
+    if not filter_ens.est_p:
+        raise ValueError('no parameters to infer')
+
+
+    fig1 = plt.figure(figsize=[9, 5.5], layout="constrained")
+    ax_all = fig1.subplots(filter_ens.Na+1, 1)
+
+
+    hist, hist_t = filter_ens.hist, filter_ens.hist_t
+    t_obs, dt_obs = truth['t_obs'], truth['t_obs'][1]-truth['t_obs'][0]
+
+    idx_t = [np.argmin(abs(hist_t - t_o)) for t_o in t_obs]
+    idx_t = np.array(idx_t)
+
+    x_lims = [t_obs[0]-dt_obs, t_obs[-1]+dt_obs]
+    hist_alpha, labels_p = [], []
+
+    max_p, min_p = -np.infty, np.infty
+
+    if normalize:
+        if reference_p is None:
+            reference_p = filter_ens.alpha0
+            norm_lbl = lambda x: '/\\bar{' + x + '}^0'
+            twin = False
+        else:
+            norm_lbl = lambda x: '/{' + x + '}^\mathrm{true}'
+            twin = True
+            k_twin = 1.
+    else:
+        k_twin = reference_p.copy()
+        reference_p = dict()
+        for p in filter_ens.est_p:
+            reference_p[p] = 1.
+            norm_lbl = lambda x: ''
+        twin = True
+
+
+    ii = filter_ens.Nphi
+    for p in filter_ens.est_p:
+        m = [hist[ti, ii] / reference_p[p] for ti in idx_t]
+        max_p, min_p = max(max_p, np.max(m)), min(min_p, np.min(m))
+        if p not in ['C1', 'C2']:
+            p = '\\' + p
+        labels_p.append('$' + p + norm_lbl(p) + '$')
+        hist_alpha.append(m)
+        ii += 1
+
+    # PARAMS ---------------------------------------------------------------------
+    for ax, p, a, c, lbl in zip(ax_all, filter_ens.est_p, hist_alpha, colors_alpha, labels_p):
+        # ax.plot(t_obs, a, 'x', color=c)
+        violins = ax.violinplot(a, positions=t_obs, widths=dt_obs/2)
+        for vp in violins['bodies']:
+            vp.set_facecolor(c)
+            vp.set_edgecolor(c)
+            vp.set_linewidth(.5)
+            vp.set_alpha(0.5)
+            vert = vp.get_paths()[0].vertices[:, 0]
+            vp.get_paths()[0].vertices[:, 0] = np.clip(vert, np.mean(vert), np.inf)
+
+        for partname in ('cbars', 'cmins', 'cmaxes'):
+            vp = violins[partname]
+            vp.set_edgecolor(c)
+            vp.set_linewidth(.75)
+
+        alpha_lims = [filter_ens.param_lims[p][0] / reference_p[p],
+                      filter_ens.param_lims[p][1] / reference_p[p]]
+        for lim in alpha_lims:
+            ax.plot([hist_t[0], hist_t[-1]], [lim, lim], '--', color=c, lw=0.8)
+
+        if twin:
+            ax.plot((x_lims[0], x_lims[-1]), (k_twin[p], k_twin[p]), '-', color='k', linewidth=.6)  # DA window
+
+        ax.set(xlabel='$t$ [s]', ylabel=lbl, xlim=x_lims, ylim=[min(min_p, alpha_lims[0] - 0.1),
+                                                                max(max_p, alpha_lims[1] + 0.1)])
+
+    if filename is not None:
+        plt.savefig(filename + '.svg', dpi=350)
+        plt.close()
+
 # ==================================================================================================================
 
 def plot_Lk_contours(folder, filename='contour'):
@@ -804,6 +885,9 @@ def plot_Rijke_animation(folder, figs_dir):
     writergif = mpl.animation.PillowWriter(fps=10)
     ani1.save(figs_dir + 'ani_tube.gif', writer=writergif)
     ani2.save(figs_dir + 'ani_timeseries.gif', writer=writergif)
+
+
+
 
 
 if __name__ == '__main__':

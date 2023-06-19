@@ -28,8 +28,9 @@ class Model:
     """
     attr_model: dict = dict(t=0., psi0=np.empty(1), alpha0=np.empty(1), ensemble=False)
 
-    attr_ens: dict = dict(m=10, est_p=[], est_s=True, est_b=False,
-                          biasType=Bias.NoBias, inflation=1.01,
+    attr_ens: dict = dict(filter='EnKF', constrained_filter=False,
+                          m=10, est_p=[], est_s=True, est_b=False,
+                          biasType=Bias.NoBias, inflation=1.002,
                           std_psi=0.001, std_a=0.001, alpha_distr='normal',
                           num_DA_blind=0, num_SE_only=0,
                           start_ensemble_forecast=0.)
@@ -112,7 +113,8 @@ class Model:
     def addUncertainty(y_mean, y_std, m, method='normal'):
         if method == 'normal':
             cov = np.diag((y_std * np.ones(len(y_mean))) ** 2)
-            return (y_mean * rng.multivariate_normal(np.ones(len(y_mean)), cov, m)).T
+            ense = np.array([y_mean]).T * (1. + rng.multivariate_normal(np.zeros(len(y_mean)), cov, m).T)
+            return ense
         elif method == 'uniform':
             ens_aug = np.zeros((len(y_mean), m))
             for ii, pp in enumerate(y_mean):
