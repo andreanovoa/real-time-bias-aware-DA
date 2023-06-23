@@ -112,8 +112,11 @@ class Model:
     @staticmethod
     def addUncertainty(y_mean, y_std, m, method='normal'):
         if method == 'normal':
-            cov = np.diag((y_std * np.ones(len(y_mean))) ** 2)
-            ense = np.array([y_mean]).T * (1. + rng.multivariate_normal(np.zeros(len(y_mean)), cov, m).T)
+            # cov = np.diag((y_std * np.ones(len(y_mean))) ** 2)
+            # ense = np.array([y_mean]).T * (1. + rng.multivariate_normal(np.zeros(len(y_mean)), cov, m).T)
+            cov = np.diag((y_mean * y_std) ** 2)
+            ense = rng.multivariate_normal(y_mean, cov, m).T
+            print('Uncertainty', max(ense[-1,:]), min(ense[-1,:]), np.mean(ense[-1,:]),  np.std(ense[-1,:])/np.mean(ense[-1,:]))
             return ense
         elif method == 'uniform':
             ens_aug = np.zeros((len(y_mean), m))

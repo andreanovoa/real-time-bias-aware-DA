@@ -512,8 +512,7 @@ def post_process_pdf(filter_ens, truth, params, filename=None, reference_p=None,
     if not filter_ens.est_p:
         raise ValueError('no parameters to infer')
 
-
-    fig1 = plt.figure(figsize=[9, 5.5], layout="constrained")
+    fig1 = plt.figure(figsize=[7.5, 3*filter_ens.Na], layout="constrained")
     ax_all = fig1.subplots(filter_ens.Na, 1)
     if filter_ens.Na == 1:
         ax_all = [ax_all]
@@ -548,15 +547,21 @@ def post_process_pdf(filter_ens, truth, params, filename=None, reference_p=None,
 
     # REJECTED ANALYSIS ---------------------------------------------------------------------
     if hasattr(filter_ens, 'rejected_analysis'):
-        lbl = ['rejected posterior', 'prior']
+        lbl = ['rejected posterior', 'prior', 'likelihood']
         for rejection in filter_ens.rejected_analysis:
-            for t_r, reject_posterior, prior in rejection:
+            for t_r, reject_posterior, prior, correction in rejection:
                 ii = 0
                 for p in filter_ens.est_p:
                     a = reject_posterior[ii] / reference_p[p]
                     plot_violins(ax_all[ii], [a], [t_r], color='r', widths=dt_obs/2, label=lbl[0])
                     a = prior[ii] / reference_p[p]
-                    plot_violins(ax_all[ii], [a], [t_r], color='y', widths=dt_obs/2, label=lbl[-1])
+                    plot_violins(ax_all[ii], [a], [t_r], color='y', widths=dt_obs/2, label=lbl[1])
+                    if correction is not None:
+                        rng = np.random.default_rng(6)
+                        a_c = rng.multivariate_normal(correction[0], correction[1], filter_ens.m)
+                        print(a_c.shape)
+                        plot_violins(ax_all[ii], a_c, [t_r], color='grey', widths=dt_obs/2, label=lbl[-1])
+
                     ii += 1
             lbl = [None, None]
     # PARAMS ---------------------------------------------------------------------
@@ -572,31 +577,14 @@ def post_process_pdf(filter_ens, truth, params, filename=None, reference_p=None,
 
     for ax, p, a, c, lbl in zip(ax_all, filter_ens.est_p, hist_alpha, colors_alpha, labels_p):
         plot_violins(ax, a, t_obs, widths=dt_obs/2, color=c, label='analysis posterior')
-        # ax.plot(t_obs, a, 'x', color=c)
-        # violins = ax.violinplot(a, positions=t_obs, widths=dt_obs/2)
-        # for vp in violins['bodies']:
-        #     vp.set_facecolor(c)
-        #     vp.set_edgecolor(c)
-        #     vp.set_linewidth(.5)
-        #     vp.set_alpha(0.5)
-        #     vert = vp.get_paths()[0].vertices[:, 0]
-        #     vp.get_paths()[0].vertices[:, 0] = np.clip(vert, np.mean(vert), np.inf)
-        #
-        # for partname in ('cbars', 'cmins', 'cmaxes'):
-        #     vp = violins[partname]
-        #     vp.set_edgecolor(c)
-        #     vp.set_linewidth(.75)
-
         alpha_lims = [filter_ens.param_lims[p][0] / reference_p[p],
                       filter_ens.param_lims[p][1] / reference_p[p]]
         for lim in alpha_lims:
             ax.plot([hist_t[0], hist_t[-1]], [lim, lim], '--', color=c, lw=0.8)
-
         if twin:
             ax.plot((x_lims[0], x_lims[-1]), (k_twin[p], k_twin[p]), '-', color='k', linewidth=.6)  # DA window
-
-        ax.set(xlabel='$t$ [s]', ylabel=lbl, xlim=x_lims, ylim=[min(min_p, alpha_lims[0] - 0.1*abs(alpha_lims[1])),
-                                                                max(max_p, alpha_lims[1] + 0.1*abs(alpha_lims[1]))])
+        ax.set(xlabel='$t$ [s]', ylabel=lbl, xlim=x_lims,
+               ylim=[alpha_lims[0] - 0.1*abs(alpha_lims[1]), alpha_lims[1] + 0.1*abs(alpha_lims[1])])
 
         ax.legend()
     if filename is not None:
