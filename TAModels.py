@@ -21,6 +21,12 @@ if num_proc > 1:
 rng = np.random.default_rng(6)
 
 
+plt.rc('text', usetex=True)
+plt.rc('font', family='times', size=14, serif='Times New Roman')
+plt.rc('mathtext', rm='times', bf='times:bold')
+plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
+
+
 # %% =================================== PARENT MODEL CLASS ============================================= %% #
 class Model:
     """ Parent Class with the general thermoacoustic model
@@ -105,8 +111,6 @@ class Model:
     @property
     def N(self):
         return self.Nphi + self.Na + self.Nq
-
-
 
     # ------------------------- Functions for update/initialise the model --------------------------- #
     @staticmethod
@@ -546,13 +550,13 @@ class Rijke(Model):
         return np.concatenate((deta_dt, dmu_dt, dv_dt[1:], np.zeros(P['Na'])))
 
 
-# %% =================================== VAN DER POL MODEL ============================================== %% #
+# %% =================================== LORENZ 63 MODEL ============================================== %% #
 class Lorenz63(Model):
     """ Lorenz 63 Class
     """
 
     name: str = 'Lorenz63'
-    attr_child: dict = dict(rho=28., sigma=10., beta=8. / 3.)
+    attr: dict = dict(rho=28., sigma=10., beta=8. / 3.)
     # attr_child: dict = dict(rho=20., sigma=10., beta=1.8)
 
     params: list = ['rho', 'sigma', 'beta']
@@ -607,8 +611,71 @@ class Lorenz63(Model):
         return (dx1, dx2, dx3) + (0,) * params['Na']
 
 
+# %% =================================== 2X VAN DER POL MODEL ============================================== %% #
+class Annular(Model):
+    """ Annular combustor model, wich consists of two coupled oscillators
+    """
+
+    name: str = 'Annular'
+    attr: dict = dict(n=1., alpha=.005, beta=.15, kappa=.2)
+
+    params: list = ['alpha', 'beta', 'kappa']
+
+    # __________________________ Init method ___________________________ #
+    def __init__(self, TAdict=None, DAdict=None):
+
+        if TAdict is None:
+            TAdict = {}
+
+        super().__init__(TAdict)
+
+        self.t_transient = 100.
+        self.dt = 0.01
+        self.t_CR = 5.
+
+        if 'psi0' not in TAdict.keys():
+            self.psi0 = [1.2, .1, -1., .1]  # initialise x, y, z
+            self.resetInitialConditions()
+
+        if DAdict is not None:
+            self.initEnsemble(DAdict)
+
+        # set limits for the parameters
+        self.param_lims = dict(beta=(None, None), alpha=(None, None), kappa=(None, None))
+
+    # _______________ Lorenz63 specific properties and methods ________________ #
+    @property
+    def obsLabels(self):
+        return ["\\eta_1", '\\eta_2']
+
+    def getObservables(self, Nt=1):
+        if Nt == 1:
+            return self.hist[-1, [0, 2], :]
+        else:
+            return self.hist[-Nt:, [0, 2], :]
+
+    # _________________________ Governing equations ________________________ #
+    def govEqnDict(self):
+        d = dict(N=self.N,
+                 Na=self.Na,
+                 n=self.n)
+        if d['Na'] > 0:
+            d['est_p'] = self.est_p
+        return d
+
+    @staticmethod
+    def timeDerivative(t, psi, params, alpha):
+        y1, z1, y2, z2 = psi[:4]
+
+        dz1 = z1 * (alpha['beta'] - alpha['alpha']) - y1 * params['n']**2 \
+              - 3. / 4 * alpha['kappa'] * (z1 * (3. * y1 ** 2 + y2 ** 2) + 2. * z2 * y1 * y2)
+        dz2 = z2 * (alpha['beta'] - alpha['alpha']) - y2 * params['n'] ** 2 \
+              - 3. / 4 * alpha['kappa'] * (z2 * (3 * y2 ** 2 + y1 ** 2) + 2 * z1 * y2 * y1)
+        return (z1, dz1, z2, dz2) + (0,) * params['Na']
+
+
 if __name__ == '__main__':
-    MyModel = Rijke
+    MyModel = Annular
     paramsTA = dict(dt=2E-4)
 
     t1 = time.time()
@@ -620,72 +687,84 @@ if __name__ == '__main__':
     print('Elapsed time = ', str(time.time() - t1))
 
     _, ax = plt.subplots(1, 2, figsize=[10, 5])
-    plt.suptitle('Non-ensemble case')
+    plt.suptitle(MyModel.name)
 
     t_h = case.hist_t
     t_zoom = min([len(t_h) - 1, int(0.05 / case.dt)])
 
     # State evolution
     y, lbl = case.getObservableHist(), case.obsLabels
-    lbl = lbl[0]
-    ax[0].plot(t_h, y[:, 0], color='green', label=lbl)
+
+    print(lbl[0])
+
+
+    ax[0].scatter(t_h, y[:, 0], c=t_h, label=lbl, cmap='Blues',s=10, marker='.')
+    ax[0].set(xlabel='$t$', ylabel='$'+lbl[0]+'$')
     i, j = [0, 1]
-    ax[1].plot(t_h[-t_zoom:], y[-t_zoom:, 0], color='green')
 
-    # Ensemble case =============================
-    paramsDA = dict(m=10, est_p=['beta'])
-    case = MyModel(paramsTA, paramsDA)
+    if len(lbl) > 1:
+        ax[1].scatter(y[:, 0], y[:, 1], c=t_h, s=3, marker='.', cmap='Blues')
+        ax[1].set(xlabel='$'+lbl[0]+'$', ylabel='$'+lbl[1]+'$')
+    else:
+        ax[1].plot(t_h[-t_zoom:], y[-t_zoom:, 0], color='green')
 
-    t1 = time.time()
-    for _ in range(1):
-        state, t_ = case.timeIntegrate(int(1. / case.dt))
-        case.updateHistory(state, t_)
-    for _ in range(5):
-        state, t_ = case.timeIntegrate(int(.1 / case.dt), averaged=True)
-        case.updateHistory(state, t_)
 
-    print('Elapsed time = ', str(time.time() - t1))
 
-    t_h = case.hist_t
-    t_zoom = min([len(t_h) - 1, int(0.05 / case.dt)])
 
-    _, ax = plt.subplots(1, 3, figsize=[15, 5])
-    plt.suptitle('Ensemble case')
-    # State evolution
-    y, lbl = case.getObservableHist(), case.obsLabels
-    lbl = lbl[0]
-    ax[0].plot(t_h, y[:, 0], color='blue', label=lbl)
-    i, j = [0, 1]
-    ax[1].plot(t_h[-t_zoom:], y[-t_zoom:, 0], color='blue')
-
-    ax[0].set(xlabel='t', ylabel=lbl, xlim=[t_h[0], t_h[-1]])
-    ax[1].set(xlabel='t', xlim=[t_h[-t_zoom], t_h[-1]])
-
-    # Params
-
-    ai = - case.Na
-    max_p, min_p = -1000, 1000
-    c = ['g', 'sandybrown', 'mediumpurple', 'cyan']
-    mean = np.mean(case.hist, -1, keepdims=True)
-    for p in case.est_p:
-        superscript = '^\mathrm{init}$'
-        # reference_p = truth['true_params']
-        reference_p = case.alpha0
-
-        mean_p = mean[:, ai].squeeze() / reference_p[p]
-        std = np.std(case.hist[:, ai] / reference_p[p], axis=1)
-
-        max_p = max(max_p, max(mean_p))
-        min_p = min(min_p, min(mean_p))
-
-        ax[2].plot(t_h, mean_p, color=c[-ai], label='$\\' + p + '/\\' + p + superscript)
-
-        ax[2].set(xlabel='$t$', xlim=[t_h[0], t_h[-1]])
-        ax[2].fill_between(t_h, mean_p + std, mean_p - std, alpha=0.2, color=c[-ai])
-        ai += 1
-    ax[2].legend(bbox_to_anchor=(1., 1.), loc="upper left", ncol=1)
-    ax[2].plot(t_h[1:], t_h[1:] / t_h[1:], '-', color='k', linewidth=.5)
-    ax[2].set(ylim=[min_p - 0.1, max_p + 0.1])
+    # # Ensemble case =============================
+    # paramsDA = dict(m=10, est_p=['beta'])
+    # case = MyModel(paramsTA, paramsDA)
+    #
+    # t1 = time.time()
+    # for _ in range(1):
+    #     state, t_ = case.timeIntegrate(int(1. / case.dt))
+    #     case.updateHistory(state, t_)
+    # for _ in range(5):
+    #     state, t_ = case.timeIntegrate(int(.1 / case.dt), averaged=True)
+    #     case.updateHistory(state, t_)
+    #
+    # print('Elapsed time = ', str(time.time() - t1))
+    #
+    # t_h = case.hist_t
+    # t_zoom = min([len(t_h) - 1, int(0.05 / case.dt)])
+    #
+    # _, ax = plt.subplots(1, 3, figsize=[15, 5])
+    # plt.suptitle('Ensemble case')
+    # # State evolution
+    # y, lbl = case.getObservableHist(), case.obsLabels
+    # lbl = lbl[0]
+    # ax[0].plot(t_h, y[:, 0], color='blue', label=lbl)
+    # i, j = [0, 1]
+    # ax[1].plot(t_h[-t_zoom:], y[-t_zoom:, 0], color='blue')
+    #
+    # ax[0].set(xlabel='t', ylabel=lbl, xlim=[t_h[0], t_h[-1]])
+    # ax[1].set(xlabel='t', xlim=[t_h[-t_zoom], t_h[-1]])
+    #
+    # # Params
+    #
+    # ai = - case.Na
+    # max_p, min_p = -1000, 1000
+    # c = ['g', 'sandybrown', 'mediumpurple', 'cyan']
+    # mean = np.mean(case.hist, -1, keepdims=True)
+    # for p in case.est_p:
+    #     superscript = '^\mathrm{init}$'
+    #     # reference_p = truth['true_params']
+    #     reference_p = case.alpha0
+    #
+    #     mean_p = mean[:, ai].squeeze() / reference_p[p]
+    #     std = np.std(case.hist[:, ai] / reference_p[p], axis=1)
+    #
+    #     max_p = max(max_p, max(mean_p))
+    #     min_p = min(min_p, min(mean_p))
+    #
+    #     ax[2].plot(t_h, mean_p, color=c[-ai], label='$\\' + p + '/\\' + p + superscript)
+    #
+    #     ax[2].set(xlabel='$t$', xlim=[t_h[0], t_h[-1]])
+    #     ax[2].fill_between(t_h, mean_p + std, mean_p - std, alpha=0.2, color=c[-ai])
+    #     ai += 1
+    # ax[2].legend(bbox_to_anchor=(1., 1.), loc="upper left", ncol=1)
+    # ax[2].plot(t_h[1:], t_h[1:] / t_h[1:], '-', color='k', linewidth=.5)
+    # ax[2].set(ylim=[min_p - 0.1, max_p + 0.1])
 
     plt.tight_layout()
     plt.show()
