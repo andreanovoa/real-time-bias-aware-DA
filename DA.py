@@ -6,6 +6,8 @@ Created on Fri Apr  8 19:02:23 2022
 """
 
 import time
+
+import matplotlib.pyplot as plt
 import numpy as np
 from scipy import linalg
 
@@ -190,19 +192,28 @@ def analysisStep(case, d, Cdd):
 
             if not hasattr(case, 'rejected_analysis'):
                 case.rejected_analysis = []
-            case.rejected_analysis.append([(case.t,  np.dot(case.Ma, Aa), np.dot(case.Ma, Af))])
 
             if not case.constrained_filter:
                 print('reject-inflate case')
                 Aa = inflateEnsemble(Af, case.reject_inflation)
+                case.rejected_analysis.append([(case.t,  np.dot(case.Ma, Aa), np.dot(case.Ma, Af), None)])
                 return Aa[:-case.Nq, :], cost
             else:
                 # Try assimilating the parameters themselves
-                Alphas = np.dot(case.Ma, Af)[idx_alpha].squeeze(axis=0)
-                M_alpha = np.vstack([M, case.Ma[idx_alpha].squeeze(axis=0)])
-                Caa = np.eye(case.Nq) * np.std(Alphas, axis=-1)
-                Cdd_alpha = np.block([[Cdd, np.zeros([case.Nq, len(idx_alpha)])],
-                                      [np.zeros([len(idx_alpha), case.Nq]), Caa]])
+                Alphas = np.dot(case.Ma, Af)[idx_alpha]
+                M_alpha = np.vstack([M, case.Ma[idx_alpha]])
+
+                Caa = np.eye(len(idx_alpha)) * np.var(Alphas, axis=-1)*.8**2
+                # d_alpha = np.hstack([d_alpha, np.mean(Alphas, axis=-1)])
+                # d_alpha = np.mean(d_alpha, axis=-1, keepdims=True)
+
+                # Store
+                case.rejected_analysis.append([(case.t, np.dot(case.Ma, Aa),
+                                                np.dot(case.Ma, Af), (d_alpha, Caa))])
+
+                C_zeros = np.zeros([case.Nq, len(idx_alpha)])
+                Cdd_alpha = np.block([[Cdd, C_zeros],
+                                      [C_zeros.T, Caa]])
                 d_alpha = np.concatenate([d, d_alpha])
 
                 if case.filter == 'EnSRKF':
@@ -246,7 +257,6 @@ def checkParams(Aa, case):
     break_low = [lims is not None and any(val < lims) for val, lims in zip(alphas, lower_bounds)]
     break_up = [lims is not None and any(val > lims) for val, lims in zip(alphas, upper_bounds)]
 
-
     is_physical = True
     if not any(np.append(break_low, break_up)):
         return is_physical, None, None
@@ -260,31 +270,45 @@ def checkParams(Aa, case):
         idx = np.argwhere(break_low).squeeze(axis=0)
         for idx_ in idx:
             idx_alpha.append(idx_)
-            bound_ = upper_bounds[idx_]
+            bound_ = lower_bounds[idx_]
             mean_ = np.mean(alphas[idx_])
             max_ = np.max(alphas[idx_])
             if mean_ > bound_:
-                d_alpha.append(np.mean([mean_, max_]))
-            elif max_ > bound_:
-                d_alpha.append(max_)
+                vv = alphas[idx_][np.argwhere(alphas[idx_] >= bound_)]
+                d_alpha.append(np.mean(vv))
+                # d_alpha.append(np.mean([mean_, max_]))
+            # elif max_ > bound_:
+            #     d_alpha.append(max_)
             else:
                 d_alpha.append(bound_ + np.std(alphas[idx_]))
 
     if any(break_up):
         broken_bounds.append(upper_bounds)
-        idx = np.argwhere(break_up).squeeze(axis=0)
+        idx = np.argwhere(break_up)
+        if len(idx.shape) > 1:
+            print('idx =', idx, idx.shape)
+            idx = idx.squeeze(axis=-1)
+            print('idx =', idx, idx.shape)
         for idx_ in idx:
             idx_alpha.append(idx_)
             bound_ = upper_bounds[idx_]
             mean_ = np.mean(alphas[idx_])
             min_ = np.min(alphas[idx_])
             if mean_ < bound_:
-                d_alpha.append(np.mean([mean_, min_]))
-            elif min_ < bound_:
-                d_alpha.append(min_)
+                # plt.figure()
+                # xx = np.arange(len(alphas[idx_]))
+                # plt.plot(xx, alphas[idx_], 'o', markerfacecolor=None)
+                vv = alphas[idx_][np.argwhere(alphas[idx_] <= bound_)]
+                # xx = xx[np.argwhere(alphas[idx_] <= bound_)]
+                # plt.plot(xx, vv, 'x')
+                # plt.show()
+                d_alpha.append(np.mean(vv))
+            # elif min_ < bound_:
+            #     d_alpha.append(min_)
             else:
                 d_alpha.append(bound_ - np.std(alphas[idx_]))
 
+    print(np.array(broken_bounds)[np.array(idx_alpha, dtype=int)], d_alpha)
     return is_physical, np.array(idx_alpha, dtype=int), d_alpha
 
 
