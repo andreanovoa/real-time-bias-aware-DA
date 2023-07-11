@@ -67,6 +67,7 @@ def createObservations(classParams=None):
 
     # Load or create and save file
     case = classType(TA_params)
+
     psi, t = case.timeIntegrate(Nt=int(t_max / case.dt))
     case.updateHistory(psi, t)
     case.close()

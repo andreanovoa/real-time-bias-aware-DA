@@ -35,6 +35,7 @@ def main(filter_ens, truth, results_dir="results/", save_=False):
             y = filter_ens.getObservableHist(Nt_extra)
             b, t_b = filter_ens.bias.timeIntegrate(t=t, y=y)
             filter_ens.bias.updateHistory(b, t_b)
+
     filter_ens.close()
 
     # ================================== SAVE DATA  ================================== #

@@ -107,7 +107,7 @@ if __name__ == '__main__':
                 filter_ens.bias.k = k
                 # ======================= RUN DATA ASSIMILATION  =================================
                 name = whyAugment_folder + '{}_L{}_Augment{}/'.format(order, L, augment)
-                main(filter_ens, truth, 'rBA_EnKF', results_dir=name, save_=True)
+                main(filter_ens, truth, results_dir=name, save_=True)
     # ------------------------------------------------------------------------------------------------ #
     if plot_whyAugment:
         if not os.path.isdir(whyAugment_folder):
@@ -140,7 +140,7 @@ if __name__ == '__main__':
                     # Reset gamma value
                     filter_ens.bias.k = k
                     # Run main ---------------------
-                    main(filter_ens, truth, 'rBA_EnKF', results_dir=results_folder, save_=True)
+                    main(filter_ens, truth, results_dir=results_folder, save_=True)
     # ------------------------------------------------------------------------------------------------ #
     if plot_loopParams:
         if not os.path.isdir(loopParams_folder):

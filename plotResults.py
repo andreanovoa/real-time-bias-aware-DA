@@ -291,7 +291,7 @@ def post_process_single(filter_ens, truth, params, filename=None, mic=0, referen
         axs[0].plot(t, y_truth / norm, color=color_true, linewidth=5, label='t')
         axs[0].plot(t, y_unbiased / norm, '-', color=color_unbias, linewidth=1., label='u')
         axs[0].plot(t, y_mean / norm, '--', color=color_bias, linewidth=1., alpha=0.9, label='b')
-        axs[0].fill_between(t, y_mean / norm + std / norm, y_mean / norm - std / norm, alpha=0.2, color='lightseagreen')
+        axs[0].fill_between(t, y_mean / norm + std / norm, y_mean / norm - std / norm, alpha=0.4, color='lightseagreen')
         axs[0].plot(t_obs, obs / norm, '.', color=color_obs, markersize=6, label='o')
         axs[0].set(ylim=y_lims)
 

@@ -6,8 +6,6 @@ Created on Fri Apr  8 19:02:23 2022
 """
 
 import time
-
-import matplotlib.pyplot as plt
 import numpy as np
 from scipy import linalg
 
@@ -77,7 +75,7 @@ def dataAssimilation(ensemble, obs, t_obs, std_obs=0.05):
             ensemble.activate_parameter_estimation = True
         # ------------------------------  PERFORM ASSIMILATION ------------------------------ #
         # Analysis step
-        # Cdd = Cdd_norm * abs(obs[ti]) #?????????
+        # Cdd = Cdd_norm * abs(obs[ti]) # ????????? think this geometrically
 
         Aa, J = analysisStep(ensemble, obs[ti], Cdd)
 
@@ -85,7 +83,7 @@ def dataAssimilation(ensemble, obs, t_obs, std_obs=0.05):
         ensemble.psi = Aa
         ensemble.hist[-1] = Aa
 
-        # Update bias as d - y^a
+        # Update bias as d - y^a  # TODO: Bayesian framework
         y = ensemble.getObservables()
         ensemble.bias.b = obs[ti] - np.mean(y, -1)
 

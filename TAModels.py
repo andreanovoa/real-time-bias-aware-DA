@@ -1,3 +1,4 @@
+import pylab as p
 from scipy.interpolate import splrep, splev
 import pylab as plt
 
@@ -12,6 +13,9 @@ import multiprocessing as mp
 from functools import partial
 from copy import deepcopy
 from datetime import date
+
+from matplotlib.animation import FuncAnimation
+
 
 # os.environ["OMP_NUM_THREADS"] = '1'
 num_proc = os.cpu_count()
@@ -33,7 +37,6 @@ class Model:
         properties and methods definitions.
     """
     attr_model: dict = dict(t=0., psi0=np.empty(1), alpha0=np.empty(1), ensemble=False)
-
     attr_ens: dict = dict(filter='EnKF', constrained_filter=False,
                           m=10, est_p=[], est_s=True, est_b=False,
                           biasType=Bias.NoBias, inflation=1.002, reject_inflation=1.002,
@@ -234,8 +237,10 @@ class Model:
     @staticmethod
     def forecast(y0, fun, t, params, alpha=None):
         # SOLVE IVP ========================================
+        assert len(t) > 1
         out = solve_ivp(fun, t_span=(t[0], t[-1]), y0=y0, t_eval=t, method='RK45', args=(params, alpha))
         psi = out.y.T
+
         # ODEINT =========================================== THIS WORKS AS IF HARD CODED
         # psi = odeint(fun, y0, t_interp, (params,))
         #
@@ -589,7 +594,7 @@ class Lorenz63(Model):
     # _______________ Lorenz63 specific properties and methods ________________ #
     @property
     def obsLabels(self):
-        return ["x", 'y', 'z']
+        return ["$x$", '$y$', '$z$']
 
     def getObservables(self, Nt=1):
         if Nt == 1:
@@ -620,9 +625,19 @@ class Annular(Model):
     """
 
     name: str = 'Annular'
-    attr: dict = dict(n=1., alpha=.005, beta=.15, kappa=.2)
+    # attr: dict = dict(n=1., alpha=.005, beta=.15, kappa=.2)
+    # params: list = ['alpha', 'beta', 'kappa']
 
-    params: list = ['alpha', 'beta', 'kappa']
+    attr: dict = dict(dt=1/51.2E3, t_transient=0.5, t_CR=0.03,
+                      n=1., theta_b=0.63, theta_e=0.66, omega=1090., epsilon=0.0023,
+                      nu=17., beta_c2=17., kappa=1.2E-4)  # values in Fig.4
+
+    # attr['nu'], attr['beta_c2'] = 30., 5.  # spin
+    # attr['nu'], attr['beta_c2'] = 1., 25.  # stand
+    attr['nu'], attr['beta_c2'] = 20., 18.  # mix
+
+
+    params: list = ['omega', 'nu', 'beta_c2', 'kappa', 'epsilon']
 
     # __________________________ Init method ___________________________ #
     def __init__(self, TAdict=None, DAdict=None):
@@ -632,87 +647,195 @@ class Annular(Model):
 
         super().__init__(TAdict)
 
-        self.t_transient = 100.
-        self.dt = 0.01
-        self.t_CR = 5.
+        self.theta_mic = np.radians([0, 60, 120, 240])
+
+        self.cos_theta_b = np.cos(2. * self.theta_b)
+        self.sin_theta_b = np.sin(2. * self.theta_b)
+
+        self.cos_theta_e = np.cos(2. * self.theta_e)
+        self.sin_theta_e = np.sin(2. * self.theta_e)
 
         if 'psi0' not in TAdict.keys():
-            self.psi0 = [1.2, .1, -1., .1]  # initialise x, y, z
+            self.psi0 = [100, -10, -100, 10]  # initialise \eta_a, \dot{\eta_a}, \eta_b, \dot{\eta_b}
             self.resetInitialConditions()
 
         if DAdict is not None:
             self.initEnsemble(DAdict)
 
-        # set limits for the parameters
-        self.param_lims = dict(beta=(None, None), alpha=(None, None), kappa=(None, None))
+        # set limits for the parameters ['omega', 'nu', 'beta_c2', 'kappa']
+        self.param_lims = dict(omega=(1000, 1200), nu=(-40., 50.), beta_c2=(5., 50.), kappa=(None, None))
 
-    # _______________ Lorenz63 specific properties and methods ________________ #
-    @property
-    def obsLabels(self):
-        return ["\\eta_1", '\\eta_2']
+    # _______________  Specific properties and methods ________________ #
+    # @property
+    # def obsLabels(self):
+    #     return ["\\eta_1", '\\eta_2']
 
-    def getObservables(self, Nt=1):
-        if Nt == 1:
-            return self.hist[-1, [0, 2], :]
-        else:
+    def getObservables(self, Nt=1, loc=None, modes=False):
+        """
+        :return: pressure measurements at theta = [0º, 60º, 120º, 240º`]
+        p(θ, t) = η1(t) * cos(nθ) + η2(t) * sin(nθ).
+        """
+        if loc is None:
+            loc = self.theta_mic
+
+        if modes:
+            self.obsLabels = ["$\\eta_1$", '$\\eta_2$']
             return self.hist[-Nt:, [0, 2], :]
+
+        self.obsLabels = ["$p(\\theta={})$".format(int(np.round(np.degrees(th)))) for th in loc]
+
+        loc = np.array(loc)
+        eta1, eta2 = self.hist[-Nt:, 0, :], self.hist[-Nt:, 2, :]
+
+        if max(loc) > 2 * np.pi:
+            raise ValueError('Theta must be in radians')
+
+        p_mics = np.array([eta1 * np.cos(th) + eta2 * np.sin(th) for th in loc]).transpose(1, 0, 2)
+
+        if Nt == 1:
+            return p_mics.squeeze(axis=0)
+        else:
+            return p_mics
 
     # _________________________ Governing equations ________________________ #
     def govEqnDict(self):
         d = dict(N=self.N,
                  Na=self.Na,
-                 n=self.n)
+                 theta_b=self.theta_b,
+                 theta_e=self.theta_e
+                 )
         if d['Na'] > 0:
             d['est_p'] = self.est_p
         return d
 
     @staticmethod
     def timeDerivative(t, psi, params, alpha):
-        y1, z1, y2, z2 = psi[:4]
+        y_a, z_a, y_b, z_b = psi[:4]  # y = η, and z = dη/dt
 
-        dz1 = z1 * (alpha['beta'] - alpha['alpha']) - y1 * params['n']**2 \
-              - 3. / 4 * alpha['kappa'] * (z1 * (3. * y1 ** 2 + y2 ** 2) + 2. * z2 * y1 * y2)
-        dz2 = z2 * (alpha['beta'] - alpha['alpha']) - y2 * params['n'] ** 2 \
-              - 3. / 4 * alpha['kappa'] * (z2 * (3 * y2 ** 2 + y1 ** 2) + 2 * z1 * y2 * y1)
-        return (z1, dz1, z2, dz2) + (0,) * params['Na']
+        def k1(y1, y2, sign):
+            return 2 * alpha['nu'] - 3./4 * alpha['kappa'] * (3 * y1**2 + y2**2) + \
+                   sign/2. * alpha['beta_c2'] * np.cos(2.*params['theta_b'])
+
+        k2 = 0.5 * alpha['beta_c2'] * np.sin(2.*params['theta_b']) - 3./2 * alpha['kappa'] * y_a * y_b
+
+        def k3(y1, y2, sign):
+            return alpha['omega']**2 * (y1 + alpha['epsilon']/2. * (sign * y1 * np.cos(2.*params['theta_e']) +
+                                                                    y2 * np.sin(2.*params['theta_e'])))
+
+        dz_a = z_a * k1(y_a, y_b, 1) + z_b * k2 - k3(y_a, y_b, 1)
+        dz_b = z_b * k1(y_b, y_a, -1) + z_a * k2 - k3(y_b, y_a, -1)
+
+        return (z_a, dz_a, z_b, dz_b) + (0,) * params['Na']
 
 
 if __name__ == '__main__':
     MyModel = Annular
-    paramsTA = dict(dt=2E-4)
+    paramsTA = dict(dt=1/51.2E3)
 
-    t1 = time.time()
+    animate = 0
+    anim_name = 'mov_mix_epsilon.gif'
+
     # Non-ensemble case =============================
+    t1 = time.time()
     case = MyModel(paramsTA)
-    state, t_ = case.timeIntegrate(int(case.t_transient * 2 / case.dt))
+    state, t_ = case.timeIntegrate(int(case.t_transient * 3 / case.dt))
     case.updateHistory(state, t_)
 
+    print(case.dt)
     print('Elapsed time = ', str(time.time() - t1))
 
-    _, ax = plt.subplots(1, 2, figsize=[10, 5])
-    plt.suptitle(MyModel.name)
+    fig1 = plt.figure(figsize=[12, 3], layout="constrained")
+    subfigs = fig1.subfigures(1, 2, width_ratios=[1.2, 1])
+
+    ax = subfigs[0].subplots(1, 2)
+    ax[0].set_title(MyModel.name)
 
     t_h = case.hist_t
     t_zoom = min([len(t_h) - 1, int(0.05 / case.dt)])
 
     # State evolution
-    y, lbl = case.getObservableHist(), case.obsLabels
+    y, lbl = case.getObservableHist(modes=True), case.obsLabels
 
-    print(lbl[0])
+    ax[0].scatter(t_h, y[:, 0], c=t_h, label=lbl, cmap='Blues', s=10, marker='.')
 
 
-    ax[0].scatter(t_h, y[:, 0], c=t_h, label=lbl, cmap='Blues',s=10, marker='.')
-    ax[0].set(xlabel='$t$', ylabel='$'+lbl[0]+'$')
+    ax[0].set(xlabel='$t$', ylabel=lbl[0])
     i, j = [0, 1]
 
     if len(lbl) > 1:
+        # ax[1].scatter(y[:, 0]/np.max(y[:,0]), y[:, 1]/np.max(y[:,1]), c=t_h, s=3, marker='.', cmap='Blues')
+        # ax[1].set(xlabel='$'+lbl[0]+'/'+lbl[0]+'^\mathrm{max}$', ylabel='$'+lbl[1]+'/'+lbl[1]+'^\mathrm{max}$')
         ax[1].scatter(y[:, 0], y[:, 1], c=t_h, s=3, marker='.', cmap='Blues')
-        ax[1].set(xlabel='$'+lbl[0]+'$', ylabel='$'+lbl[1]+'$')
+        ax[1].set(xlabel=lbl[0], ylabel=lbl[1])
     else:
         ax[1].plot(t_h[-t_zoom:], y[-t_zoom:, 0], color='green')
 
+    ax[1].set_aspect(1. / ax[1].get_data_ratio())
 
+    if not animate:
+        ax2 = subfigs[1].subplots(2, 1)
 
+        y, lbl = case.getObservableHist(modes=False), case.obsLabels
+        y = np.mean(y, axis=-1)
+        # print(np.min(y, axis=0))
+        # sorted_id = np.argsort(np.max(abs(y[-1000:]), axis=0))
+        # print(sorted_id)
+        # y = y[:, sorted_id]
+        # lbl = [lbl[idx] for idx in sorted_id]
+
+        for ax in ax2:
+            ax.plot(t_h, y/1E3)
+        ax2[0].set_title('Acoustic Pressure')
+        ax2[0].legend(lbl, bbox_to_anchor=(1., 1.), loc="upper left", ncol=1, fontsize='small')
+        ax2[0].set(xlim=[t_h[0], t_h[-1]], xlabel='$t$', ylabel='$p$ [kPa]')
+        ax2[1].set(xlim=[t_h[-1] - case.t_CR, t_h[-1]], xlabel='$t$', ylabel='$p$ [kPa]')
+    else:
+        ax2 = subfigs[1].subplots(1, 1, subplot_kw={'projection': 'polar'})
+        angles = np.linspace(0, 2 * np.pi, 200)  # Angles from 0 to 2π
+        y, lbl = case.getObservableHist(modes=False, loc=angles), case.obsLabels
+        y = np.mean(y, axis=-1)
+
+        radius = [0, 0.5, 1]
+        theta, r = np.meshgrid(angles, radius)
+
+        # Remove radial tick labels
+        ax2.set_yticklabels([])
+        ax2.grid(False)
+
+        # Add a white concentric circle
+        circle_radius = 0.5
+        ax2.plot(angles, [circle_radius] * len(angles), color='black', lw=1)
+
+        idx_max = np.argmax(y[:, 0])
+        polar_mesh = ax2.pcolormesh(theta, r, [y[idx_max].T] * len(radius), shading='auto', cmap='RdBu')
+
+        ax2.set_theta_zero_location('S')  # Set zero angle to the north (top)
+        ax2.set_title('Acoustic Pressure')
+        ax2.set_theta_direction(1)  # Set clockwise rotation
+
+        start_i = np.argmin(abs(t_h[-1] - (t_h[-1] - case.t_CR)))
+
+        print((t_h[-1]))
+        start_i = int((t_h[-1]-.03) // case.dt)
+
+        print(start_i, t_h[start_i])
+
+        dt_gif = 10
+
+        t_gif = t_h[start_i::dt_gif]
+
+        y_gif = y[start_i::dt_gif]
+
+        def update(frame):
+            ax2.fill(angles, [circle_radius] * len(angles), color='white')
+            polar_mesh.set_array([y_gif[frame].T] * len(radius))
+            ax2.set_title('Acoustic Pressure $t$ = {:.3f}'.format(t_gif[frame]))#, fontsize='small')#, labelpad=50)
+        plt.colorbar(polar_mesh, label='Pressure', shrink=0.75)
+        anim = FuncAnimation(fig1, update, frames=len(t_gif))
+        dt = t_gif[1] - t_gif[0]
+        anim.save(anim_name, fps=dt_gif*10)
+
+    plt.show()
 
     # # Ensemble case =============================
     # paramsDA = dict(m=10, est_p=['beta'])
@@ -760,7 +883,7 @@ if __name__ == '__main__':
     #     max_p = max(max_p, max(mean_p))
     #     min_p = min(min_p, min(mean_p))
     #
-    #     ax[2].plot(t_h, mean_p, color=c[-ai], label='$\\' + p + '/\\' + p + superscript)
+    #     ax[2].plot(t_h, mean_p, color=c[-ai], label= p + '/' + p[:-1] + superscript + '$')
     #
     #     ax[2].set(xlabel='$t$', xlim=[t_h[0], t_h[-1]])
     #     ax[2].fill_between(t_h, mean_p + std, mean_p - std, alpha=0.2, color=c[-ai])
@@ -768,6 +891,6 @@ if __name__ == '__main__':
     # ax[2].legend(bbox_to_anchor=(1., 1.), loc="upper left", ncol=1)
     # ax[2].plot(t_h[1:], t_h[1:] / t_h[1:], '-', color='k', linewidth=.5)
     # ax[2].set(ylim=[min_p - 0.1, max_p + 0.1])
-
-    plt.tight_layout()
-    plt.show()
+    #
+    # plt.tight_layout()
+    # plt.show()
