@@ -73,6 +73,7 @@ if __name__ == '__main__':
                            'tikh_': np.array([1e-16]),
                            'sigin_': [np.log10(1e-5), np.log10(1e-2)],
                            }
+
             if bias_form == 'time':
                 bias_params['t_train'] = 1.5
                 filter_params['kmeas'] = 10

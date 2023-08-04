@@ -76,6 +76,7 @@ def createEnsemble(true_p, forecast_p, filter_p, bias_p=None,
     # =============================  CREATE OBSERVATIONS ============================== #
     y_true, t_true, name_truth = createObservations(true_p)
 
+
     if 'manual_bias' in true_p.keys() and true_p['manual_bias'] is not None:
         if true_p['manual_bias'] == 'time':
             b_true = .4 * y_true * np.sin((np.expand_dims(t_true, -1) * np.pi * 2) ** 2)
@@ -115,7 +116,7 @@ def createEnsemble(true_p, forecast_p, filter_p, bias_p=None,
     # %% =============================  DEFINE BIAS ======================================== #
     if filter_p['biasType'].name == 'ESN':
         bias_args = (filter_p, forecast_p['model'], truth, working_dir)
-        filter_p['Bdict'] = create_ESN_train_dataset(*bias_args, bias_param=bias_p)
+        filter_p['Bdict'] = create_bias_training_dataset(*bias_args, bias_param=bias_p)
     else:
         bias_args = None
 
@@ -136,76 +137,77 @@ def createEnsemble(true_p, forecast_p, filter_p, bias_p=None,
         return ensemble, truth, bias_args
 
 
-def create_ESN_train_dataset(filter_p, forecast_model, truth, folder, bias_param=None):
-
+def create_bias_training_dataset(filter_p, forecast_model, truth, folder, bias_param=None):
     if bias_param is None:  # If no bias estimation, return empty dic
         return dict()
-    # ------------------------------------------------------------------------
-    os.makedirs(folder, exist_ok=True)
-    bias_p = bias_param.copy()
-    if 'L' not in bias_p.keys():
-        bias_p['L'] = 10
-    train_params = bias_p['train_params'].copy()
-    train_params['m'] = bias_p['L']
-
-    # ========================  Multi-parameter training approach ====================
-    ref_ens = forecast_model(train_params, train_params)
-    try:
-        name_train = folder + 'Truth_{}_{}'.format(ref_ens.name, ref_ens.law)
-    except:
-        name_train = folder + 'Truth_{}'.format(ref_ens.name)
-
-    for k in ref_ens.params:
-        name_train += '_{}{}'.format(k, getattr(ref_ens, k))
-    name_train += '_std{:.2}_m{}_{}'.format(ref_ens.std_a, ref_ens.m, ref_ens.alpha_distr)
-    bias_p['filename'] = folder + truth['name'] + '_' + name_train.split('Truth_')[-1] + '_bias'
-
-    # Load or create reference ensemble ---------------------------------------------
-    rerun = True
-    print(name_train)
-    if os.path.isfile(name_train):
-        with open(name_train, 'rb') as f:
-            load_ens = pickle.load(f)
-        if len(truth['t']) <= len(load_ens.hist_t):
-            ref_ens = load_ens.copy()
-            rerun = False
-    if rerun:
-        print('Creating Reference solution(s)')
-        psi, t = ref_ens.timeIntegrate(Nt=len(truth['t']) - 1)
-        ref_ens.updateHistory(psi, t)
-        ref_ens.close()
-        with open(name_train, 'wb') as f:
-            pickle.dump(ref_ens, f)
-
-    # Create the synthetic bias as innovations ------------------------------------
-    y_ref, lbl = ref_ens.getObservableHist(Nt=len(truth['t'])), ref_ens.obsLabels
-    t = ref_ens.hist_t[:len(truth['t'])]
-
-    if len(truth['y'].shape) < len(y_ref.shape):
-        bias_p['trainData'] = np.expand_dims(truth['y'], -1) - y_ref  # [Nt x Nmic x L]
     else:
-        bias_p['trainData'] = truth['y'] - y_ref  # [Nt x Nmic x L]
+        # ------------------------------------------------------------------------
+        os.makedirs(folder, exist_ok=True)
+        bias_p = bias_param.copy()
+        if 'L' not in bias_p.keys():
+            bias_p['L'] = 10
+        train_params = bias_p['train_params'].copy()
+        train_params['m'] = bias_p['L']
 
-    # TODO: clean data. 1. remove FPs, 2. maximize correlation
+        # ========================  Multi-parameter training approach ====================
+        ref_ens = forecast_model(train_params, train_params)
+        try:
+            name_train = folder + 'Truth_{}_{}'.format(ref_ens.name, ref_ens.law)
+        except:
+            name_train = folder + 'Truth_{}'.format(ref_ens.name)
 
+        for k in ref_ens.params:
+            name_train += '_{}{}'.format(k, getattr(ref_ens, k))
+        name_train += '_std{:.2}_m{}_{}'.format(ref_ens.std_a, ref_ens.m, ref_ens.alpha_distr)
+        bias_p['filename'] = folder + truth['name'] + '_' + name_train.split('Truth_')[-1] + '_bias'
 
-    # Add washout ----------------------------------------------------------------
-    if 'start_ensemble_forecast' not in filter_p.keys():
-        filter_p['start_ensemble_forecast'] = 2
-    tol = 1e-5
-    i1 = truth['t_obs'][0] - truth['dt_obs'] * filter_p['start_ensemble_forecast']
-    i1 = int(np.where(abs(truth['t'] - i1) < tol)[0])
-    i0 = i1 - bias_p['N_wash'] * bias_p['upsample']
-    if i0 < 0:
-        min_t = (bias_p['N_wash'] * bias_p['upsample'] + filter_p['kmeas']) * (t[1] - t[0])
-        raise ValueError('increase t_start to > t_wash + dt_a = {}'.format(min_t))
-    bias_p['washout_obs'] = truth['y'][i0:i1 + 1]
-    bias_p['washout_t'] = truth['t'][i0:i1 + 1]
+        # Load or create reference ensemble ---------------------------------------------
+        rerun = True
+        print(name_train)
+        if os.path.isfile(name_train):
+            with open(name_train, 'rb') as f:
+                load_ens = pickle.load(f)
+            if len(truth['t']) <= len(load_ens.hist_t):
+                ref_ens = load_ens.copy()
+                rerun = False
+        if rerun:
+            print('Creating Reference solution(s)')
+            psi, t = ref_ens.timeIntegrate(Nt=len(truth['t']) - 1)
+            ref_ens.updateHistory(psi, t)
+            ref_ens.close()
+            with open(name_train, 'wb') as f:
+                pickle.dump(ref_ens, f)
 
-    # Plot  & savetraining dataset --------------------------------------------------
-    plot_train_data(truth, ref_ens, path_dir + folder)
+        # Create the synthetic bias as innovations ------------------------------------
+        y_ref, lbl = ref_ens.getObservableHist(Nt=len(truth['t'])), ref_ens.obsLabels
+        t = ref_ens.hist_t[:len(truth['t'])]
 
-    return bias_p
+        if len(truth['y'].shape) < len(y_ref.shape):
+            bias_p['trainData'] = np.expand_dims(truth['y'], -1) - y_ref  # [Nt x Nmic x L]
+        else:
+            bias_p['trainData'] = truth['y'] - y_ref  # [Nt x Nmic x L]
+
+        # TODO: clean data.
+        #  1. remove FPs,
+        #  2. maximize correlation
+
+        # Add washout ----------------------------------------------------------------
+        if 'start_ensemble_forecast' not in filter_p.keys():
+            filter_p['start_ensemble_forecast'] = 2
+        tol = 1e-5
+        i1 = truth['t_obs'][0] - truth['dt_obs'] * filter_p['start_ensemble_forecast']
+        i1 = int(np.where(abs(truth['t'] - i1) < tol)[0])
+        i0 = i1 - bias_p['N_wash'] * bias_p['upsample']
+        if i0 < 0:
+            min_t = (bias_p['N_wash'] * bias_p['upsample'] + filter_p['kmeas']) * (t[1] - t[0])
+            raise ValueError('increase t_start to > t_wash + dt_a = {}'.format(min_t))
+        bias_p['wash_data'] = truth['y'][i0:i1 + 1]
+        bias_p['wash_time'] = truth['t'][i0:i1 + 1]
+
+        # Plot & save training dataset --------------------------------------------------
+        plot_train_data(truth, ref_ens, path_dir + folder)
+
+        return bias_p
 
 
 def get_error_metrics(results_folder):
@@ -353,6 +355,8 @@ def plot_train_data(truth, train_ens, folder):
     cmap.set_clim(true_RMS, 1.5)
 
     axs_top[0].plot(tt, yt[:, 0], color='silver', linewidth=6, alpha=.8)
+
+    print(bt.shape)
     axs_top[-1].plot(tt, bt[:, 0], color='silver', linewidth=4, alpha=.8)
 
     xlims = [[truth['t_obs'][0] - t_CR, truth['t_obs'][0]],

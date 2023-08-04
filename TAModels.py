@@ -1,4 +1,3 @@
-import pylab as p
 from scipy.interpolate import splrep, splev
 import pylab as plt
 
@@ -16,14 +15,12 @@ from datetime import date
 
 from matplotlib.animation import FuncAnimation
 
-
 # os.environ["OMP_NUM_THREADS"] = '1'
 num_proc = os.cpu_count()
 if num_proc > 1:
     num_proc = int(num_proc)
 
 rng = np.random.default_rng(6)
-
 
 plt.rc('text', usetex=True)
 plt.rc('font', family='times', size=14, serif='Times New Roman')
@@ -42,7 +39,7 @@ class Model:
                           biasType=Bias.NoBias, inflation=1.002, reject_inflation=1.002,
                           std_psi=0.001, std_a=0.001, alpha_distr='normal',
                           num_DA_blind=0, num_SE_only=0,
-                          start_ensemble_forecast=0.)
+                          start_ensemble_forecast=0., get_cost=False)
 
     def __init__(self, TAdict):
         model_dict = TAdict.copy()
@@ -68,13 +65,14 @@ class Model:
         self.hist_t = np.array([self.t])
         self.hist_J = []
 
+
     def copy(self):
         return deepcopy(self)
 
     def getObservableHist(self, Nt=0, **kwargs):
         return self.getObservables(Nt, **kwargs)
 
-    def printModelParameters(self):
+    def print_model_parameters(self):
         print('\n ------------------ {} Model Parameters ------------------ '.format(self.name))
         for k in self.attr.keys():
             print('\t {} = {}'.format(k, getattr(self, k)))
@@ -92,43 +90,23 @@ class Model:
         return np.hstack((np.zeros([self.Na, self.Nphi]),
                           np.eye(self.Na), np.zeros([self.Na, self.Nq])))
 
-    @property
-    def Nq(self):
-        if not hasattr(self, '_Nq'):
-            self._Nq = np.shape(self.getObservables())[0]
-        return self._Nq
-
-    @property
-    def Na(self):
-        if hasattr(self, 'est_p'):
-            return len(self.est_p)
-        else:
-            return 0
-
-    @property
-    def Nphi(self):
-        if not hasattr(self, '_Nphi'):
-            self._Nphi = len(self.psi0)
-        return self._Nphi
-
-    @property
-    def N(self):
-        return self.Nphi + self.Na + self.Nq
-
     # ------------------------- Functions for update/initialise the model --------------------------- #
     @staticmethod
     def addUncertainty(y_mean, y_std, m, method='normal'):
         if method == 'normal':
-            # cov = np.diag((y_std * np.ones(len(y_mean))) ** 2)
-            # ense = np.array([y_mean]).T * (1. + rng.multivariate_normal(np.zeros(len(y_mean)), cov, m).T)
-            cov = np.diag((y_mean * y_std) ** 2)
-            ense = rng.multivariate_normal(y_mean, cov, m).T
-            print('Uncertainty', max(ense[-1,:]), min(ense[-1,:]), np.mean(ense[-1,:]),  np.std(ense[-1,:])/np.mean(ense[-1,:]))
-            return ense
+            if type(y_std) is float:
+                cov = np.diag((y_mean * y_std) ** 2)
+            return rng.multivariate_normal(y_mean, cov, m).T
+
         elif method == 'uniform':
             ens_aug = np.zeros((len(y_mean), m))
-            for ii, pp in enumerate(y_mean):
-                ens_aug[ii, :] = pp * (1. + rng.uniform(-y_std, y_std, m))
+            if type(y_std) is float:
+                for ii, pp in enumerate(y_mean):
+                    ens_aug[ii, :] = pp * (1. + rng.uniform(-y_std, y_std, m))
+            else:
+                for ii, pp in enumerate(y_mean):
+                    ens_aug[ii, :] = rng.uniform(y_std[ii][0], y_std[ii][1], m)
+
             return ens_aug
         else:
             raise 'Parameter distribution not recognised'
@@ -167,15 +145,16 @@ class Model:
         # ------------------------DEFINE STATE MATRIX ------------------------ ##
         # Note: if est_p and est_b psi = [psi; alpha; biasWeights]
         mean_psi = np.array(self.psi0)  # * rng.uniform(0.9, 1.1, len(self.psi0))
-        # self.psi = self.addUncertainty(mean, self.std_psi, self.m, method=self.alpha_distr)
-        cov = np.diag((self.std_psi ** 2 * abs(mean_psi)))
-        self.psi = rng.multivariate_normal(mean_psi, cov, self.m).T
+        self.psi = self.addUncertainty(mean_psi, self.std_psi, self.m, method='normal')
+        # cov = np.diag((self.std_psi ** 2 * abs(mean_psi)))
+        # self.psi = rng.multivariate_normal(mean_psi, cov, self.m).T
         if 'ensure_mean' in DAdict.keys() and DAdict['ensure_mean']:
             self.psi[:, 0] = np.array(self.psi0)
 
         if self.Na > 0:  # Augment ensemble with estimated parameters
-            mean_a = np.array([getattr(self, pp) for pp in self.est_p])  # * rng.uniform(0.9, 1.1, len(self.psi0))
+            mean_a = np.array([getattr(self, pp) for pp in self.est_p])
             ens_a = self.addUncertainty(mean_a, self.std_a, self.m, method=self.alpha_distr)
+
             if 'ensure_mean' in DAdict.keys() and DAdict['ensure_mean']:
                 ens_a[:, 0] = mean_a
             self.psi = np.vstack((self.psi, ens_a))
@@ -186,7 +165,7 @@ class Model:
         Bdict = DAdict['Bdict'].copy()
         self.initBias(Bdict)
 
-        # ========================== RESET ENSEMBLE HISTORY ========================== ##
+        # --------------------- RESET ENSEMBLE HISTORY ------------------- ##
         self.hist = np.array([self.psi])
 
     def initBias(self, Bdict=None):
@@ -199,9 +178,9 @@ class Model:
             Bdict['filename'] = self.name + '_' + str(date.today())
         # Initialise bias. Note: self.bias is now an instance of the bias class
         yb = self.getObservables()
-        self.bias = self.biasType(yb, self.t, Bdict)
+        self.bias = self.biasType(yb, self.t, **Bdict)
         # Create bias history
-        b = self.bias.getBias(yb)
+        b = self.bias.getBias()
         self.bias.updateHistory(b, self.t, reset=True)
 
     def updateHistory(self, psi, t):
@@ -213,11 +192,29 @@ class Model:
     def is_not_physical(self, print_=False):
         if not hasattr(self, '_physical'):
             self._physical = 0
-
         if print_:
             print('Number of non-physical analysis = ', self._physical)
         else:
             self._physical += 1
+
+    @property
+    def Nq(self):
+        return np.shape(self.getObservables())[0]
+
+    @property
+    def Na(self):
+        if hasattr(self, 'est_p'):
+            return len(self.est_p)
+        else:
+            return 0
+
+    @property
+    def Nphi(self):
+        return len(self.psi0)
+
+    @property
+    def N(self):
+        return self.Nphi + self.Na + self.Nq
 
     # -------------- Functions required for the forecasting ------------------- #
     @property
@@ -246,6 +243,7 @@ class Model:
         #
         # HARD CODED RUGGE KUTTA 4TH ========================
         # psi = RK4(t_interp, y0, fun, params)
+
         return psi
 
     def getAlpha(self, psi=None):
@@ -270,7 +268,7 @@ class Model:
                                 the ensemble is forecast as a mean, i.e., every member is the mean forecast.
                 alpha: possibly-varying parameters
             Returns:
-                psi: forecasted ensemble state
+                psi: forecasted state (Nt x N x m)
                 t: time of the propagated psi
         """
         t = np.linspace(self.t, self.t + Nt * self.dt, Nt + 1)
@@ -313,7 +311,9 @@ class VdP(Model):
                       omega=2 * np.pi * 120., law='tan',
                       zeta=60., beta=70., kappa=4.0, gamma=1.7)  # beta, zeta [rad/s]
 
-    params: list = ['zeta', 'kappa', 'beta']  # ,'omega', 'gamma']
+    params: list = ['beta', 'zeta', 'kappa']  # ,'omega', 'gamma']
+
+    param_labels = dict(beta='$\\beta$', zeta='$\\zeta$', kappa='$\\kappa$')
 
     # __________________________ Init method ___________________________ #
     def __init__(self, TAdict=None, DAdict=None):
@@ -348,12 +348,8 @@ class VdP(Model):
     # _________________________ Governing equations ________________________ #
     def govEqnDict(self):
         d = dict(law=self.law,
-                 N=self.N,
-                 Na=self.Na,
                  omega=self.omega
                  )
-        if d['Na'] > 0:
-            d['est_p'] = self.est_p
         return d
 
     @staticmethod
@@ -366,7 +362,7 @@ class VdP(Model):
         elif P['law'] == 'tan':  # arc tan model
             dmu_dt -= mu * (A['kappa'] * eta ** 2) / (1. + A['kappa'] / A['beta'] * eta ** 2)
 
-        return (mu, dmu_dt) + (0,) * P['Na']
+        return (mu, dmu_dt) + (0,) * (len(psi) - 2)
 
 
 # %% ==================================== RIJKE TUBE MODEL ============================================== %% #
@@ -391,6 +387,9 @@ class Rijke(Model):
                       beta=4.0, tau=1.5E-3, C1=.05, C2=.01, kappa=1E5,
                       xf=0.2, L=1., law='sqrt')
     params: list = ['beta', 'tau', 'C1', 'C2', 'kappa']
+
+    param_labels = dict(beta='$\\beta$', tau='$\\tau$', C1='$C_1$', C2='$C_2$', kappa='$\\kappa$')
+
 
     def __init__(self, TAdict=None, DAdict=None):
         if TAdict is None:
@@ -503,8 +502,6 @@ class Rijke(Model):
                  L=self.L,
                  law=self.law
                  )
-        if self.Na > 0:
-            d['est_p'] = self.est_p
         return d
 
     @staticmethod
@@ -564,10 +561,10 @@ class Lorenz63(Model):
     """
 
     name: str = 'Lorenz63'
-    attr: dict = dict(rho=28., sigma=10., beta=8. / 3.)
-    # attr_child: dict = dict(rho=20., sigma=10., beta=1.8)
+    attr: dict = dict(rho=28., sigma=10., beta=8. / 3., dt=0.02)
 
     params: list = ['rho', 'sigma', 'beta']
+    param_labels = dict(rho='$\\rho$', sigma='$\\sigma$', beta='$\\beta$')
 
     # __________________________ Init method ___________________________ #
     def __init__(self, TAdict=None, DAdict=None):
@@ -577,8 +574,8 @@ class Lorenz63(Model):
 
         super().__init__(TAdict)
 
-        self.t_transient = 0.
-        self.dt = 0.01
+        # self.t_transient = 200.
+        # self.dt = 0.02
         self.t_CR = 5.
 
         if 'psi0' not in TAdict.keys():
@@ -616,7 +613,7 @@ class Lorenz63(Model):
         dx1 = alpha['sigma'] * (x2 - x1)
         dx2 = x1 * (alpha['rho'] - x3) - x2
         dx3 = x1 * x2 - alpha['beta'] * x3
-        return (dx1, dx2, dx3) + (0,) * params['Na']
+        return (dx1, dx2, dx3) + (0,) * (len(psi) - 3)
 
 
 # %% =================================== 2X VAN DER POL MODEL ============================================== %% #
@@ -628,7 +625,7 @@ class Annular(Model):
     # attr: dict = dict(n=1., alpha=.005, beta=.15, kappa=.2)
     # params: list = ['alpha', 'beta', 'kappa']
 
-    attr: dict = dict(dt=1/51.2E3, t_transient=0.5, t_CR=0.03,
+    attr: dict = dict(dt=1 / 51.2E3, t_transient=0.5, t_CR=0.03,
                       n=1., theta_b=0.63, theta_e=0.66, omega=1090., epsilon=0.0023,
                       nu=17., beta_c2=17., kappa=1.2E-4)  # values in Fig.4
 
@@ -636,8 +633,10 @@ class Annular(Model):
     # attr['nu'], attr['beta_c2'] = 1., 25.  # stand
     attr['nu'], attr['beta_c2'] = 20., 18.  # mix
 
+    params: list = ['omega', 'nu', 'beta_c2', 'kappa', 'epsilon', 'theta_b', 'theta_e']
 
-    params: list = ['omega', 'nu', 'beta_c2', 'kappa', 'epsilon']
+    param_labels = dict(omega='$\\omega$', nu='$\\nu$', beta_c2='$c_2\\beta $', kappa='$\\kappa$',
+                        epsilon='$\\epsilon$', theta_b='$\\Theta_\\beta$', theta_e='$\\Theta_\\epsilon$')
 
     # __________________________ Init method ___________________________ #
     def __init__(self, TAdict=None, DAdict=None):
@@ -649,12 +648,6 @@ class Annular(Model):
 
         self.theta_mic = np.radians([0, 60, 120, 240])
 
-        self.cos_theta_b = np.cos(2. * self.theta_b)
-        self.sin_theta_b = np.sin(2. * self.theta_b)
-
-        self.cos_theta_e = np.cos(2. * self.theta_e)
-        self.sin_theta_e = np.sin(2. * self.theta_e)
-
         if 'psi0' not in TAdict.keys():
             self.psi0 = [100, -10, -100, 10]  # initialise \eta_a, \dot{\eta_a}, \eta_b, \dot{\eta_b}
             self.resetInitialConditions()
@@ -663,7 +656,9 @@ class Annular(Model):
             self.initEnsemble(DAdict)
 
         # set limits for the parameters ['omega', 'nu', 'beta_c2', 'kappa']
-        self.param_lims = dict(omega=(1000, 1200), nu=(-40., 50.), beta_c2=(5., 50.), kappa=(None, None))
+        self.param_lims = dict(omega=(1000, 1300), nu=(-40., 60.),
+                               beta_c2=(1., 60.), kappa=(None, None), epsilon=(None, None),
+                               theta_b=(0, 2*np.pi), theta_e=(0, 2*np.pi))
 
     # _______________  Specific properties and methods ________________ #
     # @property
@@ -699,13 +694,7 @@ class Annular(Model):
 
     # _________________________ Governing equations ________________________ #
     def govEqnDict(self):
-        d = dict(N=self.N,
-                 Na=self.Na,
-                 theta_b=self.theta_b,
-                 theta_e=self.theta_e
-                 )
-        if d['Na'] > 0:
-            d['est_p'] = self.est_p
+        d = dict()
         return d
 
     @staticmethod
@@ -713,24 +702,24 @@ class Annular(Model):
         y_a, z_a, y_b, z_b = psi[:4]  # y = η, and z = dη/dt
 
         def k1(y1, y2, sign):
-            return 2 * alpha['nu'] - 3./4 * alpha['kappa'] * (3 * y1**2 + y2**2) + \
-                   sign/2. * alpha['beta_c2'] * np.cos(2.*params['theta_b'])
+            return 2 * alpha['nu'] - 3. / 4 * alpha['kappa'] * (3 * y1 ** 2 + y2 ** 2) + \
+                   sign / 2. * alpha['beta_c2'] * np.cos(2. * alpha['theta_b'])
 
-        k2 = 0.5 * alpha['beta_c2'] * np.sin(2.*params['theta_b']) - 3./2 * alpha['kappa'] * y_a * y_b
+        k2 = 0.5 * alpha['beta_c2'] * np.sin(2. * alpha['theta_b']) - 3. / 2 * alpha['kappa'] * y_a * y_b
 
         def k3(y1, y2, sign):
-            return alpha['omega']**2 * (y1 + alpha['epsilon']/2. * (sign * y1 * np.cos(2.*params['theta_e']) +
-                                                                    y2 * np.sin(2.*params['theta_e'])))
+            return alpha['omega'] ** 2 * (y1 + alpha['epsilon'] / 2. * (sign * y1 * np.cos(2. * alpha['theta_e']) +
+                                                                        y2 * np.sin(2. * alpha['theta_e'])))
 
         dz_a = z_a * k1(y_a, y_b, 1) + z_b * k2 - k3(y_a, y_b, 1)
         dz_b = z_b * k1(y_b, y_a, -1) + z_a * k2 - k3(y_b, y_a, -1)
 
-        return (z_a, dz_a, z_b, dz_b) + (0,) * params['Na']
+        return (z_a, dz_a, z_b, dz_b) + (0,) * (len(psi) - 4)
 
 
 if __name__ == '__main__':
     MyModel = Annular
-    paramsTA = dict(dt=1/51.2E3)
+    paramsTA = dict(dt=1 / 51.2E3)
 
     animate = 0
     anim_name = 'mov_mix_epsilon.gif'
@@ -758,7 +747,6 @@ if __name__ == '__main__':
 
     ax[0].scatter(t_h, y[:, 0], c=t_h, label=lbl, cmap='Blues', s=10, marker='.')
 
-
     ax[0].set(xlabel='$t$', ylabel=lbl[0])
     i, j = [0, 1]
 
@@ -784,7 +772,7 @@ if __name__ == '__main__':
         # lbl = [lbl[idx] for idx in sorted_id]
 
         for ax in ax2:
-            ax.plot(t_h, y/1E3)
+            ax.plot(t_h, y / 1E3)
         ax2[0].set_title('Acoustic Pressure')
         ax2[0].legend(lbl, bbox_to_anchor=(1., 1.), loc="upper left", ncol=1, fontsize='small')
         ax2[0].set(xlim=[t_h[0], t_h[-1]], xlabel='$t$', ylabel='$p$ [kPa]')
@@ -816,7 +804,7 @@ if __name__ == '__main__':
         start_i = np.argmin(abs(t_h[-1] - (t_h[-1] - case.t_CR)))
 
         print((t_h[-1]))
-        start_i = int((t_h[-1]-.03) // case.dt)
+        start_i = int((t_h[-1] - .03) // case.dt)
 
         print(start_i, t_h[start_i])
 
@@ -826,14 +814,17 @@ if __name__ == '__main__':
 
         y_gif = y[start_i::dt_gif]
 
+
         def update(frame):
             ax2.fill(angles, [circle_radius] * len(angles), color='white')
             polar_mesh.set_array([y_gif[frame].T] * len(radius))
-            ax2.set_title('Acoustic Pressure $t$ = {:.3f}'.format(t_gif[frame]))#, fontsize='small')#, labelpad=50)
+            ax2.set_title('Acoustic Pressure $t$ = {:.3f}'.format(t_gif[frame]))  # , fontsize='small')#, labelpad=50)
+
+
         plt.colorbar(polar_mesh, label='Pressure', shrink=0.75)
         anim = FuncAnimation(fig1, update, frames=len(t_gif))
         dt = t_gif[1] - t_gif[0]
-        anim.save(anim_name, fps=dt_gif*10)
+        anim.save(anim_name, fps=dt_gif * 10)
 
     plt.show()
 

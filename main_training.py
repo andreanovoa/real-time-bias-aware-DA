@@ -31,7 +31,8 @@ default_params = dict(trainData=None, filename='',
                       tikh_=np.array([1e-10, 1e-12, 1e-16]),
                       sigin_=[np.log10(1e-4), np.log10(0.5)],
                       rho_=[.7, 1.05],
-                      path_dir=''
+                      path_dir='',
+                      N_fo=4
                       )
 
 inputs = locals().copy()
@@ -178,10 +179,6 @@ def g(val):
 ti = time.time()  # check time
 
 val = RVC_Noise  # Which validation strategy
-try:
-    N_fo = N_fo  # number of folds
-except:
-    N_fo = 4  # number of folds
 
 N_in = 0  # interval before the first fold
 N_fw = (N_train - N_val) // (N_fo - 1)  # num steps forward the validation interval is shifted (evenly spaced)
@@ -218,12 +215,17 @@ key = sorted(params)
 params_gp = np.array([params[key[2]], params[key[5]][0], params[key[5]][1], gp.noise_])
 
 # =========================================  Train Wout =========================================== ##
-Wout = train_save_n(U_wash, U_tv, U[:, N_wash + 1:N_wtv], minimum[2], 10 ** minimum[1], minimum[0])
+Wout = train_save_n(U_wash, U_tv, U[:, N_wash + 1:N_wtv],
+                    minimum[2], 10 ** minimum[1], minimum[0])
 if len(Wout.shape) == 1:
     Wout = np.expand_dims(Wout, axis=1)
 
 print('\n Time per hyperparameter eval.:', (time.time() - ti) / n_tot,
       '\n Best Results: x', minimum[0], 10 ** minimum[1], minimum[2], ', f', -minimum[-1])
+
+
+# %%
+# ____________________________________ OUTPUTS: PLOT SEARCH AND SAVE trainData ____________________________________
 
 pdf = plt_pdf.PdfPages(ESN_filename[:-len('.mat')] + '_Training.pdf')
 
@@ -232,8 +234,6 @@ plot_convergence(res)
 pdf.savefig(fig)
 plt.close(fig)
 
-# %%
-# ____________________________________ OUTPUTS: PLOT SEARCH AND SAVE trainData ____________________________________
 # Plot Gaussian Process reconstruction for each network in the ensemble after n_tot evaluations.
 # The GP reconstruction is based on the n_tot function evaluations decided in the search
 n_len = 100  # points to evaluate the GP at

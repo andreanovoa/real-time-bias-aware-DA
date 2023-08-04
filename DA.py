@@ -19,55 +19,60 @@ def dataAssimilation(ensemble, obs, t_obs, std_obs=0.05):
     dt_obs = t_obs[-1] - t_obs[-2]
 
     # -----------------------------  Print simulation parameters ----------------------------- ##
-    ensemble.printModelParameters()
-    if ensemble.bias.name == 'ESN':
-        ensemble.bias.printESNparameters()
-    print('\n -------------------- ASSIMILATION PARAMETERS -------------------- \n',
-          '\t Filter = {0}  \n\t bias = {1} \n'.format(ensemble.filter, ensemble.bias.name),
-          '\t m = {} \n'.format(ensemble.m),
-          '\t Time between analysis = {0:.2} s \n'.format(dt_obs),
-          '\t Inferred params = {0} \n'.format(ensemble.est_p),
-          '\t Inflation = {0} \n'.format(ensemble.inflation),
-          '\t Ensemble standard deviation = {0}\n'.format(ensemble.std_psi),
-          '\t Number of analysis steps = {}, t0={}, t1={}'.format(len(t_obs), t_obs[0], t_obs[-1])
-          )
-    if ensemble.filter == 'rBA_EnKF':
-        print('\t Bias penalisation factor k = {}\n'.format(ensemble.bias.k))
-    print(' --------------------------------------------')
+    ensemble.print_model_parameters()
+    ensemble.bias.print_bias_parameters()
+    print_DA_parameters(ensemble, t_obs)
 
-    # ----------------------------- FORECAST UNTIL FIRST OBS ----------------------------- ##
+    # ----------------------------- FORECAST UNTIL FIRST OBS ----------------------------- ## TODO: clean up this first stage
     time1 = time.time()
     if ensemble.start_ensemble_forecast > 0:
         t1 = t_obs[ti] - dt_obs * ensemble.start_ensemble_forecast
         Nt = int(np.round((t1 - ensemble.t) / dt))
         ensemble = forecastStep(ensemble, Nt, averaged=True, alpha=ensemble.alpha0)
 
+    mean = np.mean(ensemble.psi, axis=-1)
+    actual_std = abs(np.std(ensemble.psi, axis=-1) / np.mean(ensemble.psi, axis=-1))
+    prefix = ''
+    # for idx, stdd, loc in zip([0, ensemble.Nphi], [ensemble.std_psi, ensemble.std_a], ['phi', 'alpha']):
+    if any(abs(actual_std[:ensemble.Nphi] - ensemble.std_psi) > 0.05):
+        prefix = '(Inflated phi)'
+        psi_inflated = ensemble.addUncertainty(mean[:ensemble.Nphi], ensemble.std_psi, ensemble.m, method='normal')
+        ensemble.psi[:ensemble.Nphi] = psi_inflated
+        ensemble.hist[-1] = ensemble.psi
+        actual_std = abs(np.std(ensemble.psi, axis=-1) / np.mean(ensemble.psi, axis=-1))
+
+    # if any(abs(actual_std[ensemble.Nphi:] - ensemble.std_a) > 0.05):
+    #     alpha_inflated = ensemble.addUncertainty(mean[ensemble.Nphi:], ensemble.std_psi, ensemble.m, method='normal')
+    #     prefix = '(Inflated parameters)'
+    #     ensemble.psi[ensemble.Nphi:] = alpha_inflated
+    #     ensemble.hist[-1] = ensemble.psi
+    #     actual_std = abs(np.std(ensemble.psi, axis=-1) / np.mean(ensemble.psi, axis=-1))
+
+    print('Ensemble initial spread: {:.3f}, {} {}'.format(np.mean(actual_std[:ensemble.Nphi]),
+                                                              actual_std[ensemble.Nphi:], prefix))
+
+
     Nt = int(np.round((t_obs[ti] - ensemble.t) / dt))
     ensemble = forecastStep(ensemble, Nt, averaged=False)
+
     print('Elapsed time to first observation: ' + str(time.time() - time1) + ' s')
 
     # ---------------------------------- REMOVE TRANSIENT -------------------------------- ##
-
-    i_transient = np.argmin(abs(ensemble.hist_t - ensemble.t_transient))
-    for key in ['hist', 'hist_t']:
-        setattr(ensemble, key, getattr(ensemble, key)[i_transient:])
-    i_transient = np.argmin(abs(ensemble.bias.hist_t - ensemble.t_transient))
-    for key in ['hist', 'hist_t']:
-        setattr(ensemble.bias, key, getattr(ensemble.bias, key)[i_transient:])
+    for structure in [ensemble, ensemble.bias]:
+        i_transient = np.argmin(abs(structure.hist_t - ensemble.t_transient))
+        for key in ['hist', 'hist_t']:
+            setattr(structure, key, getattr(structure, key)[i_transient:])
 
     # --------------------------------- ASSIMILATION LOOP -------------------------------- ##
     num_obs = len(t_obs)
+    ensemble.activate_bias_aware, ensemble.activate_parameter_estimation = False, False
     time1, print_i = time.time(), int(len(t_obs) / 4) * np.array([1, 2, 3])
-    print('Assimilation progress: 0 % ', end="")
-
-    ensemble.activate_bias_aware = False
-    ensemble.activate_parameter_estimation = False
-    if not hasattr(ensemble, 'get_cost'):
-        ensemble.get_cost = False
 
     # Define observation covariance matrix
     Cdd_norm = np.diag((std_obs * np.ones(np.size(obs[ti]))))
     Cdd = Cdd_norm * np.max(abs(obs), axis=0) ** 2
+
+    print('Assimilation progress: \n0 % ', end="")
     while True:
         if ti >= ensemble.num_DA_blind:
             ensemble.activate_bias_aware = True
@@ -165,7 +170,7 @@ def analysisStep(case, d, Cdd):
         J = case.bias.stateDerivative(y)
         # -------------- Define bias Covariance and the weight -------------- #
         k = case.bias.k
-        Cbb = Cdd.copy()                                        # Bias covariance matrix same as obs cov matrix for now
+        Cbb = Cdd.copy()  # Bias covariance matrix same as obs cov matrix for now
         if case.activate_bias_aware:
             Aa, cost = rBA_EnKF(Af, d, Cdd, Cbb, k, M, b, J, get_cost=case.get_cost)
         else:
@@ -192,16 +197,16 @@ def analysisStep(case, d, Cdd):
                 case.rejected_analysis = []
 
             if not case.constrained_filter:
-                print('reject-inflate case')
+                # print('reject-inflate')
                 Aa = inflateEnsemble(Af, case.reject_inflation)
-                case.rejected_analysis.append([(case.t,  np.dot(case.Ma, Aa), np.dot(case.Ma, Af), None)])
+                case.rejected_analysis.append([(case.t, np.dot(case.Ma, Aa), np.dot(case.Ma, Af), None)])
                 return Aa[:-case.Nq, :], cost
             else:
                 # Try assimilating the parameters themselves
                 Alphas = np.dot(case.Ma, Af)[idx_alpha]
                 M_alpha = np.vstack([M, case.Ma[idx_alpha]])
 
-                Caa = np.eye(len(idx_alpha)) * np.var(Alphas, axis=-1)*.8**2
+                Caa = np.eye(len(idx_alpha)) * np.var(Alphas, axis=-1) #** 2
                 # d_alpha = np.hstack([d_alpha, np.mean(Alphas, axis=-1)])
                 # d_alpha = np.mean(d_alpha, axis=-1, keepdims=True)
 
@@ -261,52 +266,85 @@ def checkParams(Aa, case):
 
     #  -----------------------------------------------------------------
     is_physical = False
-    broken_bounds, idx_alpha, d_alpha = [], [], []
 
+    if not case.constrained_filter:
+        if any(break_low):
+            idx = np.argwhere(break_low).squeeze(axis=0)
+            for idx_ in idx:
+                alpha_ = alphas[idx_]
+                mean_, min_ = np.mean(alpha_), np.min(alpha_)
+                bound_ = lower_bounds[idx_]
+                if mean_ >= bound_:
+                    print('t = {:.3f} reject-inflate: min {} = {:.2f} < {:.2f}'.format(case.t,
+                                                                                     case.est_p[idx_], min_, bound_))
+                else:
+                    print('t = {:.3f} reject-inflate: mean {} = {:.2f} < {:.2f}'.format(case.t,
+                                                                                      case.est_p[idx_], mean_, bound_))
+        if any(break_up):
+            idx = np.argwhere(break_up)
+            if len(idx.shape) > 1:
+                idx = idx.squeeze(axis=-1)
+            for idx_ in idx:
+                alpha_ = alphas[idx_]
+                mean_, max_ = np.mean(alpha_), np.max(alpha_)
+                bound_ = upper_bounds[idx_]
+                if mean_ <= bound_:
+                    print('t = {:.3f} reject-inflate: max {} = {:.2f} > {:.2f}'.format(case.t,
+                                                                                       case.est_p[idx_], max_, bound_))
+                else:
+                    print('t = {:.3f} reject-inflate: mean {} = {:.2f} > {:.2f}'.format(case.t,
+                                                                                        case.est_p[idx_], mean_,
+                                                                                        bound_))
+        return is_physical, None, None
+
+    #  -----------------------------------------------------------------
+    idx_alpha, d_alpha = [], []
     if any(break_low):
-        broken_bounds.append(lower_bounds)
         idx = np.argwhere(break_low).squeeze(axis=0)
         for idx_ in idx:
             idx_alpha.append(idx_)
+            alpha_ = alphas[idx_]
+            mean_, min_ = np.mean(alpha_), np.min(alpha_)
             bound_ = lower_bounds[idx_]
-            mean_ = np.mean(alphas[idx_])
-            max_ = np.max(alphas[idx_])
-            if mean_ > bound_:
-                vv = alphas[idx_][np.argwhere(alphas[idx_] >= bound_)]
-                d_alpha.append(np.mean(vv))
-                # d_alpha.append(np.mean([mean_, max_]))
-            # elif max_ > bound_:
-            #     d_alpha.append(max_)
+            # max_ = np.max(alphas[idx_])
+            if mean_ >= bound_:
+                # vv = alpha_[np.argwhere(alpha_ >= bound_)]
+                d_alpha.append(np.max(alpha_) + np.std(alpha_))
+                # elif max_ > bound_:
+                #     d_alpha.append(max_)
+
+                print('t = {:.3f}: min {} = {:.2f} < {:.2f}. d_alpha = {:.2f}'.format(case.t, case.est_p[idx_],
+                                                                         min_, bound_, d_alpha[-1]))
             else:
-                d_alpha.append(bound_ + np.std(alphas[idx_]))
+                d_alpha.append(bound_ + 2*np.std(alphas[idx_]))
+                print('t = {:.3f}: mean {} = {:.2f} < {:.2f}. d_alpha = {:.2f}'.format(case.t, case.est_p[idx_],
+                                                                          mean_, bound_, d_alpha[-1]))
 
     if any(break_up):
-        broken_bounds.append(upper_bounds)
         idx = np.argwhere(break_up)
         if len(idx.shape) > 1:
-            print('idx =', idx, idx.shape)
             idx = idx.squeeze(axis=-1)
-            print('idx =', idx, idx.shape)
         for idx_ in idx:
             idx_alpha.append(idx_)
-            bound_ = upper_bounds[idx_]
-            mean_ = np.mean(alphas[idx_])
-            min_ = np.min(alphas[idx_])
-            if mean_ < bound_:
-                # plt.figure()
-                # xx = np.arange(len(alphas[idx_]))
-                # plt.plot(xx, alphas[idx_], 'o', markerfacecolor=None)
-                vv = alphas[idx_][np.argwhere(alphas[idx_] <= bound_)]
-                # xx = xx[np.argwhere(alphas[idx_] <= bound_)]
-                # plt.plot(xx, vv, 'x')
-                # plt.show()
-                d_alpha.append(np.mean(vv))
-            # elif min_ < bound_:
-            #     d_alpha.append(min_)
-            else:
-                d_alpha.append(bound_ - np.std(alphas[idx_]))
+            alpha_ = alphas[idx_]
 
-    print(np.array(broken_bounds)[np.array(idx_alpha, dtype=int)], d_alpha)
+            mean_, max_ = np.mean(alpha_), np.max(alpha_)
+            bound_ = upper_bounds[idx_]
+
+            # min_ = np.min(alphas[idx_])
+            if mean_ < bound_:
+                # vv = alpha_[np.argwhere(alpha_ < bound_)]
+                d_alpha.append(np.min(alpha_) - np.std(alpha_))
+                # elif min_ < bound_:
+                #     d_alpha.append(min_)
+                print('t = {:.3f}: max {} = {:.2f} > {:.2f}. d_alpha = {:.2f}'.format(case.t, case.est_p[idx_],
+                                                                                      max_, bound_, d_alpha[-1]))
+            else:
+                d_alpha.append(bound_ - 2*np.std(alphas[idx_]))
+
+                print('t = {:.3f}: mean {} = {:.2f} > {:.2f}. d_alpha = {:.2f}'.format(case.t, case.est_p[idx_],
+                                                                                       mean_, bound_, d_alpha[-1]))
+
     return is_physical, np.array(idx_alpha, dtype=int), d_alpha
 
 
@@ -499,3 +537,20 @@ def rBA_EnKF(Af, d, Cdd, Cbb, k, M, b, J, get_cost=False):
         return Af, cost
 
 # =================================================================================================================== #
+
+
+def print_DA_parameters(ensemble, t_obs):
+
+    print('\n -------------------- ASSIMILATION PARAMETERS -------------------- \n',
+          '\t Filter = {0}  \n\t bias = {1} \n'.format(ensemble.filter, ensemble.bias.name),
+          '\t m = {} \n'.format(ensemble.m),
+          '\t Time between analysis = {0:.2} s \n'.format(t_obs[1] - t_obs[0]),
+          '\t Inferred params = {0} \n'.format(ensemble.est_p),
+          '\t Inflation = {0} \n'.format(ensemble.inflation),
+          '\t Ensemble standard deviation (psi, alpha) = {0}, {1}\n'.format(ensemble.std_psi, ensemble.std_a),
+          '\t Number of analysis steps = {}, t0={}, t1={}'.format(len(t_obs), t_obs[0], t_obs[-1])
+          )
+    if ensemble.filter == 'rBA_EnKF':
+        print('\t Bias penalisation factor k = {}\n'.format(ensemble.bias.k))
+    print(' --------------------------------------------')
+

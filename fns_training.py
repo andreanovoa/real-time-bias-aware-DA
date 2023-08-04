@@ -21,15 +21,13 @@ def RVC_Noise(x):
         print('\t\t rho \t sigma_in \t tikhonov  \t MSE val ')
     alph = None
     for kk in range(N_alpha):
-        if norm_alpha is not None:
-            alph = alpha[kk]
         # Different validation folds
         for i in range(N_fo):
             p = N_in + i * N_fw
             Y_val = U[kk, N_wash + p: N_wash + p + N_val].copy()  # data to compare the cloop prediction with
 
             for j in range(len_tikn):
-                Yh_val = closed_loop(N_val - 1, Xa_train[kk, p], Wout[j], sigma_in, rho, alph)[0]  # cloop for each tikh_-noise combinatio
+                Yh_val = closed_loop(N_val - 1, Xa_train[kk, p], Wout[j], sigma_in, rho)[0]  # cloop for each tikh_-noise combinatio
                 Mean[j] += np.log10(np.mean((Y_val - Yh_val) ** 2) / np.mean(norm ** 2))
 
                 # prevent from diverging to infinity: put MSE equal to 10^10 (useful for hybrid and similar
@@ -49,7 +47,7 @@ def RVC_Noise(x):
 
 ## ESN with bias architecture
 
-def step(x_pre, u, sigma_in, rho, alpha):
+def step(x_pre, u, sigma_in, rho):
     """ Advances one ESN time step.
         Args:
             x_pre: reservoir state
@@ -62,9 +60,6 @@ def step(x_pre, u, sigma_in, rho, alpha):
     # input is normalized and input bias added
     u_augmented = np.hstack((u / norm, bias_in))
 
-    if norm_alpha is not None:
-        u_augmented = np.hstack((u_augmented, alpha/norm_alpha))
-
 
     # hyperparameters are explicit here
     x_post = np.tanh(Win.dot(u_augmented*sigma_in) + W.dot(rho*x_pre))
@@ -74,7 +69,7 @@ def step(x_pre, u, sigma_in, rho, alpha):
     return x_augmented
 
 
-def open_loop(U_o, x0, sigma_in, rho, alpha):
+def open_loop(U_o, x0, sigma_in, rho):
     """ Advances ESN in open-loop.
         Args:
             U: input time series
@@ -86,12 +81,12 @@ def open_loop(U_o, x0, sigma_in, rho, alpha):
     Xa = np.empty((N + 1, N_units + 1))
     Xa[0] = np.concatenate((x0, bias_out))
     for i in np.arange(1, N + 1):
-        Xa[i] = step(Xa[i - 1, :N_units], U_o[i - 1], sigma_in, rho, alpha)
+        Xa[i] = step(Xa[i - 1, :N_units], U_o[i - 1], sigma_in, rho)
 
     return Xa
 
 
-def closed_loop(N, x0, Wout, sigma_in, rho, alpha):
+def closed_loop(N, x0, Wout, sigma_in, rho):
     """ Advances ESN in closed-loop.
         Args:
             N: number of time steps
@@ -105,7 +100,7 @@ def closed_loop(N, x0, Wout, sigma_in, rho, alpha):
     Yh = np.empty((N + 1, N_dim))
     Yh[0] = np.dot(xa, Wout)
     for i in np.arange(1, N + 1):
-        xa = step(xa[:N_units], Yh[i - 1], sigma_in, rho, alpha)
+        xa = step(xa[:N_units], Yh[i - 1], sigma_in, rho)
         Yh[i] = np.dot(xa, Wout)
 
     return Yh, xa
@@ -127,44 +122,19 @@ def train_n(U_wash, U_train, Y_train, tikh, sigma_in, rho):
     alph = None
     # time1 = time.time()
     for kk in range(N_alpha):
-        if norm_alpha is not None:
-            alph = alpha[kk]
         # Washout phase
         xf_washout = open_loop(U_wash[kk], np.zeros(N_units), sigma_in, rho, alph)[-1, :N_units]
 
         # Open-loop train phase
-        Xa.append(open_loop(U_train[kk], xf_washout, sigma_in, rho, alph))
+        Xa.append(open_loop(U_train[kk], xf_washout, sigma_in, rho))
 
         # Compute matrices for linear regression system
         LHS += np.dot(Xa[kk][1:].T, Xa[kk][1:])
         RHS += np.dot(Xa[kk][1:].T, Y_train[kk])
 
-    # print('for loop: ', time.time()-time1)
-    #
-    # time1 = time.time()
-    # with mp.Pool() as pool:
-    #     sol = [pool.apply_async(open_loop, (U_wash[kk], np.zeros(N_units), sigma_in, rho, alph))
-    #            for kk in range(N_alpha)]
-    #     xf_washout = [s.get() for s in sol]
-    #
-    #     # Open-loop train phase
-    #     sol = [pool.apply_async(open_loop, (U_train[kk], xf_washout[kk], sigma_in, rho, alph))
-    #           for kk in range(N_alpha)]
-    #
-    #     Xa = [s.get() for s in sol]
-    #
-    # LHS2, RHS2 = 0., 0.
-    # for kk in range(len(Xa)):
-    #     LHS2 += np.dot(Xa[kk][1:].T, Xa[kk][1:])
-    #     RHS2 += np.dot(Xa[kk][1:].T, Y_train[kk])
-    #
-    # print('parallel loop: ', time.time()-time1)
-    #
-    # print(sum(LHS2-LHS), sum(RHS2-RHS))
-
     Wout = np.empty((len(tikh), N_units + 1, N_dim))
     for j in range(len(tikh)):
-        if j == 0: #add tikhonov to the diagonal (fast way that requires less memory)
+        if j == 0:  #add tikhonov to the diagonal (fast way that requires less memory)
             LHS.ravel()[::LHS.shape[1]+1] += tikh[j]
         else:
             LHS.ravel()[::LHS.shape[1]+1] += tikh[j] - tikh[j-1]
@@ -186,17 +156,13 @@ def train_save_n(U_wash, U_train, Y_train, tikh, sigma_in, rho):
     """
 
 
-    LHS = 0.
-    RHS = 0.
-    alph = None
+    LHS, RHS = 0., 0.
     for kk in range(N_alpha):
-        if norm_alpha is not None:
-            alph = alpha[kk]
         # Washout phase
         xf_washout = open_loop(U_wash[kk], np.zeros(N_units), sigma_in, rho, alph)[-1, :N_units]
 
         # Open-loop train phase
-        Xa = open_loop(U_train[kk], xf_washout, sigma_in, rho, alph)
+        Xa = open_loop(U_train[kk], xf_washout, sigma_in, rho)
 
         # Compute matrices for linear regression system
         LHS += np.dot(Xa[1:].T, Xa[1:])

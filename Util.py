@@ -69,8 +69,11 @@ def createObservations(classParams=None):
     case = classType(TA_params)
 
     psi, t = case.timeIntegrate(Nt=int(t_max / case.dt))
+
+
     case.updateHistory(psi, t)
     case.close()
+
     with open(name, 'wb') as f:
         pickle.dump(case, f)
     # Retrieve observables
@@ -83,23 +86,33 @@ def createObservations(classParams=None):
 
 def check_valid_ensemble(true_p, filter_p, bias_p, load_ens, load_truth, load_bias):
     reinit = False
-    if load_bias is not None and bias_p is not None:
-        # check that bias parameters are the same
-        for key, val in bias_p.items():
-            if key in load_bias[0]['Bdict'].keys():
-                if len(load_bias[0]['Bdict'][key]) == 1:
-                    if val != load_bias[0]['Bdict'][key]:
-                        reinit, break_key, break_val, actual_val = True, key, load_bias[0]['Bdict'][key], val
-                        break
-                else:
-                    for v1, v2 in zip(val, load_bias[0]['Bdict'][key]):
-                        if v1 != v2:
-                            reinit, break_key, break_val, actual_val = True, key, load_bias[0]['Bdict'][key], val
-                            break
-        else:
-            reinit, break_key, break_val, actual_val = True, 'bias model', load_bias,
+    # if load_bias is not None and bias_p is not None:
+    #     # check that bias parameters are the same
+    #     for key, val in bias_p.items():
+    #         if key in load_bias[0]['Bdict'].keys():
+    #             if len(load_bias[0]['Bdict'][key]) == 1:
+    #                 if val != load_bias[0]['Bdict'][key]:
+    #                     reinit, break_key, break_val, actual_val = True, key, load_bias[0]['Bdict'][key], val
+    #                     break
+    #             else:
+    #                 for v1, v2 in zip(val, load_bias[0]['Bdict'][key]):
+    #                     if v1 != v2:
+    #                         reinit, break_key, break_val, actual_val = True, key, load_bias[0]['Bdict'][key], val
+    #                         break
+    #     else:
+    #         reinit, break_key, break_val, actual_val = True, 'bias model', load_bias,
+    if type(load_bias) is tuple:
+        reinit, break_key, break_val, actual_val = True, None, None, None
 
-            # check that true and forecast model parameters
+
+    # if load_bias is not None:
+    #     for key, val in bias_p.items():
+    #         load_val = getattr(load_bias, key)
+    #         if load_val != val:
+    #             reinit, break_key, break_val, actual_val = True, key, val, load_val
+
+
+    # check that true and forecast model parameters
     for key, val in filter_p.items():
         if hasattr(load_ens, key) and getattr(load_ens, key) != val:
             reinit, break_key, break_val, actual_val = True, key, getattr(load_ens, key), val
@@ -120,6 +133,7 @@ def check_valid_ensemble(true_p, filter_p, bias_p, load_ens, load_truth, load_bi
         print('Re-init ensemble as loaded {} = {} != {}'.format(break_key, break_val, actual_val))
     return reinit
 
+
 @lru_cache(maxsize=10)
 def Cheb(Nc, lims=[0, 1], getg=False):  # __________________________________________________
     """ Compute the Chebyshev collocation derivative matrix (D)
@@ -139,6 +153,7 @@ def Cheb(Nc, lims=[0, 1], getg=False):  # ______________________________________
         return D, g
     else:
         return D
+
 
 def RK4(t, q0, func, *kwargs):
     """ 4th order RK for autonomous systems described by func """
@@ -161,7 +176,7 @@ def plotHistory(ensemble, truth=None):  # ______________________________________
         parameters with a zoomed region in the state.
     """
 
-    def plotwithshade(x, y, c, yl=None):
+    def plot_with_shade(x, y, c, yl=None):
         mean = np.mean(y, 1)
         std = np.std(y, 1)
         ax[i, j].plot(x, mean, color=c, label=lbl)
@@ -186,9 +201,9 @@ def plotHistory(ensemble, truth=None):  # ______________________________________
     # State evolution
     y, lbl = ensemble.getObservableHist()
     lbl = lbl[0]
-    plotwithshade(t, y[0], 'blue', yl=lbl[0])
+    plot_with_shade(t, y[0], 'blue', yl=lbl[0])
     i, j = [0, 1]
-    plotwithshade(t[-t_zoom:], y[0][-t_zoom:], 'blue')
+    plot_with_shade(t[-t_zoom:], y[0][-t_zoom:], 'blue')
     # Parameter evolution
     params = ensemble.hist[:, ensemble.N - len(ensemble.est_p):, :]
     c = ['g', 'sandybrown', 'mediumpurple']
@@ -196,7 +211,7 @@ def plotHistory(ensemble, truth=None):  # ______________________________________
     p_j = 0
     for p in ensemble.est_p:
         lbl = '$\\' + p + '/\\' + p + '^t$'
-        plotwithshade(t, params[:, p_j] / ensemble.alpha0[p], c[p_j])
+        plot_with_shade(t, params[:, p_j] / ensemble.alpha0[p], c[p_j])
         p_j += 1
 
     plt.tight_layout()
@@ -204,11 +219,12 @@ def plotHistory(ensemble, truth=None):  # ______________________________________
 
 
 def interpolate(t_y, y, t_eval, method='cubic', ax=0, bound=False):
-    spline = interp1d(t_y, y, kind=method, axis=ax, copy=True, bounds_error=bound, fill_value=0)
+    spline = interp1d(t_y, y, kind=method, axis=ax,
+                      copy=True, bounds_error=bound, fill_value=0)
     return spline(t_eval)
 
 
-def getEnvelope(timeseries_x, timeseries_y, rejectCloserThan=0):
+def getEnvelope(timeseries_x, timeseries_y):
     peaks, peak_properties = find_peaks(timeseries_y, distance=200)
     u_p = interp1d(timeseries_x[peaks], timeseries_y[peaks], bounds_error=False)
     return u_p

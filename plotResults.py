@@ -23,7 +23,8 @@ color_unbias = '#000080ff'
 color_bias = '#20b2aae5'
 color_obs = 'r'
 color_b = 'darkorchid'
-colors_alpha = ['green', 'sandybrown', [0.7, 0.7, 0.87]]
+colors_alpha = ['green', 'sandybrown',
+                [0.7, 0.7, 0.87], 'blue', 'red', 'gold', 'deepskyblue']
 
 
 def post_process_loopParams(results_dir, k_plot=(None,), figs_dir=None, k_max=100.):
@@ -207,7 +208,7 @@ def post_process_WhyAugment(results_dir, k_plot=None, J_plot=None, figs_dir=None
 # ==================================================================================================================
 
 
-def post_process_single(filter_ens, truth, params, filename=None, mic=0, reference_p=None):
+def post_process_single(filter_ens, truth, params, filename=None, mic=0, reference_p=None, plot_params=False):
     t_obs, obs = truth['t_obs'], truth['p_obs']
 
     num_DA_blind = filter_ens.num_DA_blind
@@ -241,6 +242,11 @@ def post_process_single(filter_ens, truth, params, filename=None, mic=0, referen
     # %% PLOT time series ------------------------------------------------------------------------------------------
 
     norm = np.max(abs(y_truth), axis=0)  # normalizing constant
+    if int(norm) == 1:
+        ylbls = [["$p(x_\mathrm{f})$ [Pa]", "$b(x_\mathrm{f})$ [Pa]"], ['', '']]
+    else:
+        ylbls = [["$p(x_\mathrm{f})$ norm.", "$b(x_\mathrm{f})$ norm."], ['', '']]
+
 
     fig1 = plt.figure(figsize=[9, 5.5], layout="constrained")
     subfigs = fig1.subfigures(2, 1, height_ratios=[1, 1.1])
@@ -248,14 +254,13 @@ def post_process_single(filter_ens, truth, params, filename=None, mic=0, referen
     ax_all = subfigs[1].subplots(2, 1, sharex='col')
 
     y_lims = [np.min(y_truth[:N_CR]) * 1.1, np.max(y_truth[:N_CR]) * 1.1] / norm
-
     x_lims = [[t[0], t[0] + 2 * filter_ens.t_CR],
               [t[-1] - 2 * filter_ens.t_CR, t[-1]],
               [t[0], t[-1]]]
 
     if filter_ens.bias is not None:
         if filter_ens.bias.name == 'ESN':
-            t_wash, wash = filter_ens.bias.washout_t, filter_ens.bias.washout_obs[:, mic]
+            t_wash, wash = filter_ens.bias.wash_time, filter_ens.bias.wash_data[:, mic]
         b_obs = y_truth - y_mean
         y_lims_b = [np.min(b_obs[:N_CR]) * 1.1, np.max(b_obs[:N_CR]) * 1.1] / norm
 
@@ -267,21 +272,18 @@ def post_process_single(filter_ens, truth, params, filename=None, mic=0, referen
         max_p, min_p = -np.infty, np.infty
 
         if reference_p is None:
-            reference_p = filter_ens.alpha0
-            twin = False
-            norm_lbl = lambda x: '/\\bar{' + x + '}^0'
+            twin, reference_p = False, filter_ens.alpha0
+            norm_lbl = lambda x: x[:-1] + '/\\bar{' + x[1:-1] + '}^\mathrm{0}$'
         else:
             twin = True
-            norm_lbl = lambda x: '/{' + x + '}^\mathrm{true}'
+            norm_lbl = lambda x:  x[:-1] + '/' + x[1:-1] + '^\mathrm{true}$'
 
         ii = filter_ens.Nphi
         for p in filter_ens.est_p:
             m = hist_mean[:, ii].squeeze() / reference_p[p]
             s = np.std(hist[:, ii] / reference_p[p], axis=1)
             max_p, min_p = max(max_p, max(m + 2 * s)), min(min_p, min(m - 2 * s))
-            if p not in ['C1', 'C2']:
-                p = '\\' + p
-            labels_p.append('$' + p + norm_lbl(p) + '$')
+            labels_p.append(norm_lbl(filter_ens.param_labels[p]))
             mean_p.append(m)
             std_p.append(s)
             ii += 1
@@ -291,7 +293,8 @@ def post_process_single(filter_ens, truth, params, filename=None, mic=0, referen
         axs[0].plot(t, y_truth / norm, color=color_true, linewidth=5, label='t')
         axs[0].plot(t, y_unbiased / norm, '-', color=color_unbias, linewidth=1., label='u')
         axs[0].plot(t, y_mean / norm, '--', color=color_bias, linewidth=1., alpha=0.9, label='b')
-        axs[0].fill_between(t, y_mean / norm + std / norm, y_mean / norm - std / norm, alpha=0.4, color='lightseagreen')
+        axs[0].fill_between(t, y_mean / norm + abs(std) / norm, y_mean / norm - abs(std) / norm, alpha=0.4,
+                            color='lightseagreen')
         axs[0].plot(t_obs, obs / norm, '.', color=color_obs, markersize=6, label='o')
         axs[0].set(ylim=y_lims)
 
@@ -309,11 +312,6 @@ def post_process_single(filter_ens, truth, params, filename=None, mic=0, referen
         #         axs[2].set(xlabel='$t$')
         #         axs[2].fill_between(hist_t, m + s, m - s, alpha=0.2, color=c)
 
-    if int(norm) == 1:
-        ylbls = [["$p(x_\mathrm{f})$ [Pa]", "$b(x_\mathrm{f})$ [Pa]"], ['', '']]
-    else:
-        ylbls = [["$\\tilde{p}(x_\mathrm{f})$", "$\\tilde{b}(x_\mathrm{f})$"], ['', '']]
-
     for axs in [ax_all]:
         if filter_ens.bias is not None:
             axs[0].plot(t, b_obs / norm, color=color_b, label='O', alpha=0.4, linewidth=3)
@@ -324,14 +322,16 @@ def post_process_single(filter_ens, truth, params, filename=None, mic=0, referen
             for p, m, s, c, lbl in zip(filter_ens.est_p, mean_p, std_p, colors_alpha, labels_p):
                 axs[1].plot(hist_t, m, color=c, label=lbl)
                 axs[1].set(xlabel='$t$')
-                axs[1].fill_between(hist_t, m + s, m - s, alpha=0.2, color=c)
+                axs[1].fill_between(hist_t, m + abs(s), m - abs(s), alpha=0.2, color=c)
 
-                for lim in [filter_ens.param_lims[p][0]/reference_p[p], filter_ens.param_lims[p][1]/reference_p[p]]:
-                    axs[1].plot([hist_t[0], hist_t[-1]], [lim, lim], '--', color=c, lw=0.8)
+                # if filter_ens.param_lims[p][0] is not None and filter_ens.param_lims[p][1] is not None:
+                #     for lim in [filter_ens.param_lims[p][0] / reference_p[p],
+                #                 filter_ens.param_lims[p][1] / reference_p[p]]:
+                #         axs[1].plot([hist_t[0], hist_t[-1]], [lim, lim], '--', color=c, lw=2, alpha=0.5)
 
             axs[1].set(xlabel='$t$ [s]', ylabel="", xlim=x_lims[-1], ylim=[min_p, max_p])
-            axs[1].plot((t_obs[0], t_obs[0]), (-1E6, 1E6), '--', color='k', linewidth=.8)  # DA window
-            axs[1].plot((t_obs[-1], t_obs[-1]), (-1E6, 1E6), '--', color='k', linewidth=.8)  # DA window
+            axs[1].plot((t_obs[0], t_obs[0]), (min_p, max_p), '--', color='k', linewidth=.8)  # DA window
+            axs[1].plot((t_obs[-1], t_obs[-1]), (min_p, max_p), '--', color='k', linewidth=.8)  # DA window
             if twin:
                 axs[1].plot((x_lims[-1][0], x_lims[-1][-1]), (1, 1), '-', color='k', linewidth=.6)  # DA window
             if num_DA_blind > 0:
@@ -355,10 +355,9 @@ def post_process_single(filter_ens, truth, params, filename=None, mic=0, referen
             ax_.plot((t_obs[0], t_obs[0]), (-1E6, 1E6), '--', color='k', linewidth=.8)  # DA window
             ax_.plot((t_obs[-1], t_obs[-1]), (-1E6, 1E6), '--', color='k', linewidth=.8)  # DA window
 
-    for ax_ in ax_zoom[:, 0]:
-        ax_.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
-    for ax_ in ax_all:
-        ax_.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
+    for axs_ in [ax_zoom[:, 0], ax_all]:
+        for ax_ in axs_:
+            ax_.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
     for ax_ in ax_zoom[:, 1]:
         ax_.legend(loc='upper left', bbox_to_anchor=(1., 1.), ncol=1, fontsize='xx-small')
 
@@ -379,6 +378,9 @@ def post_process_single(filter_ens, truth, params, filename=None, mic=0, referen
     # J_ax.legend(['$\\mathcal{J}_{\\psi}$', '$\\mathcal{J}_{d}$',
     #              '$\\mathcal{J}_{b}$'], bbox_to_anchor=(0., 1.),
     #             loc="lower left", ncol=3)
+
+    if plot_params:
+        plot_parameters(filter_ens, truth, filename=filename, reference_p=reference_p)
 
     if filename is not None:
         plt.savefig(filename + '.svg', dpi=350)
@@ -508,22 +510,21 @@ def post_process_multiple(folder, filename=None, k_max=100., L_plot=None, refere
 
 
 def post_process_pdf(filter_ens, truth, params, filename=None, reference_p=None, normalize=True):
-
     if not filter_ens.est_p:
         raise ValueError('no parameters to infer')
 
-    fig1 = plt.figure(figsize=[7.5, 3*filter_ens.Na], layout="constrained")
+    fig1 = plt.figure(figsize=[7.5, 3 * filter_ens.Na], layout="constrained")
     ax_all = fig1.subplots(filter_ens.Na, 1)
     if filter_ens.Na == 1:
         ax_all = [ax_all]
 
     hist, hist_t = filter_ens.hist, filter_ens.hist_t
-    t_obs, dt_obs = truth['t_obs'], truth['t_obs'][1]-truth['t_obs'][0]
+    t_obs, dt_obs = truth['t_obs'], truth['t_obs'][1] - truth['t_obs'][0]
 
     idx_t = [np.argmin(abs(hist_t - t_o)) for t_o in t_obs]
     idx_t = np.array(idx_t)
 
-    x_lims = [t_obs[0]-dt_obs, t_obs[-1]+dt_obs]
+    x_lims = [t_obs[0] - dt_obs, t_obs[-1] + dt_obs]
     hist_alpha, labels_p = [], []
 
     max_p, min_p = -np.infty, np.infty
@@ -553,14 +554,14 @@ def post_process_pdf(filter_ens, truth, params, filename=None, reference_p=None,
                 ii = 0
                 for p in filter_ens.est_p:
                     a = reject_posterior[ii] / reference_p[p]
-                    plot_violins(ax_all[ii], [a], [t_r], color='r', widths=dt_obs/2, label=lbl[0])
+                    plot_violins(ax_all[ii], [a], [t_r], color='r', widths=dt_obs / 2, label=lbl[0])
                     a = prior[ii] / reference_p[p]
-                    plot_violins(ax_all[ii], [a], [t_r], color='y', widths=dt_obs/2, label=lbl[1])
+                    plot_violins(ax_all[ii], [a], [t_r], color='y', widths=dt_obs / 2, label=lbl[1])
                     if correction is not None:
                         rng = np.random.default_rng(6)
                         a_c = rng.multivariate_normal(correction[0], correction[1], filter_ens.m)
                         print(a_c.shape)
-                        plot_violins(ax_all[ii], a_c, [t_r], color='grey', widths=dt_obs/2, label=lbl[-1])
+                        plot_violins(ax_all[ii], a_c, [t_r], color='grey', widths=dt_obs / 2, label=lbl[-1])
 
                     ii += 1
             lbl = [None, None]
@@ -576,7 +577,7 @@ def post_process_pdf(filter_ens, truth, params, filename=None, reference_p=None,
         ii += 1
 
     for ax, p, a, c, lbl in zip(ax_all, filter_ens.est_p, hist_alpha, colors_alpha, labels_p):
-        plot_violins(ax, a, t_obs, widths=dt_obs/2, color=c, label='analysis posterior')
+        plot_violins(ax, a, t_obs, widths=dt_obs / 2, color=c, label='analysis posterior')
         alpha_lims = [filter_ens.param_lims[p][0] / reference_p[p],
                       filter_ens.param_lims[p][1] / reference_p[p]]
         for lim in alpha_lims:
@@ -584,7 +585,7 @@ def post_process_pdf(filter_ens, truth, params, filename=None, reference_p=None,
         if twin:
             ax.plot((x_lims[0], x_lims[-1]), (k_twin[p], k_twin[p]), '-', color='k', linewidth=.6)  # DA window
         ax.set(xlabel='$t$ [s]', ylabel=lbl, xlim=x_lims,
-               ylim=[alpha_lims[0] - 0.1*abs(alpha_lims[1]), alpha_lims[1] + 0.1*abs(alpha_lims[1])])
+               ylim=[alpha_lims[0] - 0.1 * abs(alpha_lims[1]), alpha_lims[1] + 0.1 * abs(alpha_lims[1])])
 
         ax.legend()
     if filename is not None:
@@ -613,6 +614,76 @@ def plot_violins(ax, values, location, widths=None, color='b', label=None):
 
     # if label is not None:
     #     ax.legend([violins['bodies'][0]], [label])
+
+
+def plot_parameters(filter_ens, truth, filename=None, reference_p=None):
+
+        t_obs = truth['t_obs']
+
+        if len(filter_ens.est_p) < 4:
+            fig1 = plt.figure(figsize=[6, 1.5*len(filter_ens.est_p)], layout="constrained")
+            axs = fig1.subplots(len(filter_ens.est_p), 1, sharex='col')
+        else:
+            fig1 = plt.figure(figsize=[12, 1.5*int(round(len(filter_ens.est_p)/2))], layout="constrained")
+            axs = fig1.subplots(int(round(len(filter_ens.est_p)/2)), 2, sharex='all')
+            axs = axs.ravel()
+
+        hist, hist_t = filter_ens.hist, filter_ens.hist_t
+        hist_mean = np.mean(hist, -1, keepdims=True)
+
+        x_lims = [t_obs[0], t_obs[-1]]
+        mean_p, std_p, labels_p = [], [], []
+        if reference_p is None:
+            twin, reference_p = False, filter_ens.alpha0
+            reference_p_OG = reference_p.copy()
+            norm_lbl = lambda x: '/\\bar{' + x + '}^0'
+        else:
+            twin = True
+            norm_lbl = lambda x:  x
+            reference_p_OG = dict()
+            for key, val in reference_p.items():
+                reference_p[key] = 1.
+                reference_p_OG[key] = val
+
+        ii = filter_ens.Nphi
+        for p in filter_ens.est_p:
+            m = hist_mean[:, ii].squeeze() / reference_p[p]
+            s = np.std(hist[:, ii] / reference_p[p], axis=1)
+            labels_p.append(norm_lbl(filter_ens.param_labels[p]))
+            mean_p.append(m)
+            std_p.append(s)
+            ii += 1
+
+        for ax, p, m, s, c, lbl in zip(axs, filter_ens.est_p, mean_p, std_p, colors_alpha, labels_p):
+            max_p = np.max(m + abs(s))
+            min_p = np.min(m - abs(s))
+            ax.plot(hist_t, m, color=c, label=lbl)
+            ax.fill_between(hist_t, m + abs(s), m - abs(s), alpha=0.2, color=c)
+            if filter_ens.param_lims[p][0] is not None and filter_ens.param_lims[p][1] is not None:
+                for lim in [filter_ens.param_lims[p][0] / reference_p[p],
+                            filter_ens.param_lims[p][1] / reference_p[p]]:
+                    ax.plot([hist_t[0], hist_t[-1]], [lim, lim], '--', color=c, lw=2, alpha=0.5)
+
+            if twin:
+                val = reference_p_OG[p]
+                min_p, max_p = min(min_p, val)-min(s), max(max_p, val)+max(s)
+                ax.plot((hist_t[0], hist_t[-1]), (val, val), '-', color='k', linewidth=.6, label='truth')
+
+            for idx, cl, ll in zip(['num_DA_blind', 'num_SE_only'], ['darkblue', 'darkviolet'], ['BE', 'PE']):
+                idx = getattr(filter_ens, idx)
+                if idx > 0:
+                    ax.plot((t_obs[idx], t_obs[idx]), (min_p, max_p), '-.', color=cl)
+                    ax.plot((t_obs[idx], t_obs[idx]), (min_p, max_p), '-.', color=cl, label='Start '+ll)
+
+            ax.plot((t_obs[0], t_obs[0]), (min_p, max_p), '--', color='k', linewidth=.8)  # DA window
+            ax.plot((t_obs[-1], t_obs[-1]), (min_p, max_p), '--', color='k', linewidth=.8)  # DA window
+            ax.legend(loc='upper right', fontsize='small', ncol=2)
+            ax.set(ylabel='', ylim=[min_p, max_p])
+
+        axs[-1].set(xlabel='$t$ [s]', xlim=x_lims)
+
+        if filename is not None:
+            plt.savefig(filename + '_params.svg', dpi=350)
 
 # ==================================================================================================================
 
@@ -848,7 +919,7 @@ def plot_Rijke_animation(folder, figs_dir):
         for yy, c, l in zip([y_BA[ai], y_BB[ai]], [color_bias, 'orange'], ['-', '--']):
             y_mean, y_std = np.mean(yy, -1), np.std(yy, -1)
             ax1.plot(locs, y_mean, l, color=c)
-            ax1.fill_between(locs, y_mean + y_std, y_mean - y_std, alpha=0.1, color=c)
+            ax1.fill_between(locs, y_mean + abs(y_std), y_mean - abs(y_std), alpha=0.1, color=c)
         # # Plot observables
         # if any(abs(t_gif[ii] - truth['t_obs']) < 1E-6):
         #     jj = np.argmin(abs(t_gif[ai] - truth['t_obs']))
@@ -882,7 +953,7 @@ def plot_Rijke_animation(folder, figs_dir):
         for yy, c, l in zip([y_BA_tt, y_BB_tt], [color_bias, 'orange'], ['-', '--']):
             yy = interpolate(filter_ens.hist_t, yy, tt_)
             y_std = np.std(yy, -1)
-            ax2[0].fill_between(tt_, y_mean + y_std, y_mean - y_std, alpha=0.1, color=c)
+            ax2[0].fill_between(tt_, y_mean + abs(y_std), y_mean - abs(y_std), alpha=0.1, color=c)
         # # Plot obs data ------------------------------------------------------------------------
         t11_o = np.argmin(abs(truth['t_obs'] - t_g))
         t00_o = np.argmin(abs(truth['t_obs'] - (t_g - filter_ens.t_CR / 2.)))
@@ -899,8 +970,8 @@ def plot_Rijke_animation(folder, figs_dir):
         for mean_p, std_p, line_type in zip([alpha_BB, alpha_BA], [std_BB, std_BA], ['-', '--']):
             cols = ['mediumpurple', 'orchid']
             for ppi, pp in enumerate(filter_ens.est_p):
-                ax2[1].fill_between(tt_, mean_p[ppi][t00:t11] + std_p[ppi][t00:t11],
-                                    mean_p[ppi][t00:t11] - std_p[ppi][t00:t11], alpha=0.2, color=cols[ppi])
+                ax2[1].fill_between(tt_, mean_p[ppi][t00:t11] + abs(std_p)[ppi][t00:t11],
+                                    mean_p[ppi][t00:t11] - abs(std_p)[ppi][t00:t11], alpha=0.2, color=cols[ppi])
 
     # Create and save animations ------------------------------------------------------------------------
     ani1 = mpl.animation.FuncAnimation(fig1, animate1, frames=len(t_gif), interval=10, repeat=False)
@@ -908,9 +979,6 @@ def plot_Rijke_animation(folder, figs_dir):
     writergif = mpl.animation.PillowWriter(fps=10)
     ani1.save(figs_dir + 'ani_tube.gif', writer=writergif)
     ani2.save(figs_dir + 'ani_timeseries.gif', writer=writergif)
-
-
-
 
 
 if __name__ == '__main__':
