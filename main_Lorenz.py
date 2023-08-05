@@ -1,5 +1,5 @@
-import TAModels
-import Bias
+import physical_models
+import bias_models
 from run import main, create_ESN_train_dataset, createEnsemble
 from plotResults import *
 

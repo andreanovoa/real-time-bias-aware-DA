@@ -1,7 +1,7 @@
 from scipy.interpolate import splrep, splev
 import pylab as plt
 
-import Bias
+import bias_models
 from Util import Cheb, RK4
 import os
 import time

@@ -1,7 +1,7 @@
 
 if __name__ == '__main__':
-    import TAModels
-    import Bias
+    import physical_models
+    import bias_models
     from run import main, create_ESN_train_dataset, createEnsemble
     from plotResults import *
     import os as os
@@ -43,18 +43,18 @@ if __name__ == '__main__':
         filter_params = {'filt': 'rBA_EnKF',  # 'rBA_EnKF' 'EnKF' 'EnSRKF'
                          'm': mm,
                          'est_p': ['beta', 'tau'],
-                         'biasType': Bias.ESN,
+                         'biasType': bias_models.ESN,
                          # Define the observation time window
                          't_start': 1.5,  # ensure SS
                          't_stop': 2.0,
-                         'kmeas': 20,
+                         'dt_obs': 20,
                          # Inflation
                          'inflation': 1.002,
                          'start_ensemble_forecast': 1
                          }
 
         if filter_params['biasType'] is not None and filter_params['biasType'].name == 'ESN':
-            train_params = {'model': TAModels.Rijke,
+            train_params = {'model': physical_models.Rijke,
                             'std_a': 0.2,
                             'std_psi': 0.2,
                             'est_p': filter_params['est_p'],
@@ -76,12 +76,12 @@ if __name__ == '__main__':
 
             if bias_form == 'time':
                 bias_params['t_train'] = 1.5
-                filter_params['kmeas'] = 10
+                filter_params['dt_obs'] = 10
         else:
             bias_params = None
         #
         # ================================== CREATE REFERENCE ENSEMBLE ======================================
-        name = 'reference_Ensemble_m{}_kmeas{}'.format(filter_params['m'], filter_params['kmeas'])
+        name = 'reference_Ensemble_m{}_dt_obs{}'.format(filter_params['m'], filter_params['dt_obs'])
         ensemble, truth, args = createEnsemble(true_params, forecast_params,
                                                filter_params, bias_params,
                                                working_dir=folder, filename=name)

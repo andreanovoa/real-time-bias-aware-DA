@@ -1,12 +1,13 @@
 if __name__ == '__main__':
-    import TAModels
-    import Bias
-    from run import main, createEnsemble
+    import physical_models
+    import bias_models
+    from run import main, createEnsemble, create_bias_training_dataset
     from plotResults import *
+    from Util import save_to_pickle_file
 
     folder = 'results/test_Gaussians/'
     # %% ============================= SELECT TRUE AND FORECAST MODELS ================================= #
-    true_params = {'model': TAModels.VdP,
+    true_params = {'model': physical_models.VdP,
                    'manual_bias': 'cosine',
                    'std_obs': 0.05,
                    'beta': 50,
@@ -14,7 +15,7 @@ if __name__ == '__main__':
                    'kappa': 9.0
                    }
 
-    forecast_params = {'model': TAModels.VdP,
+    forecast_params = {'model': physical_models.VdP,
                        'beta': 50,
                        'zeta': 25,
                        'kappa': 9.0
@@ -26,11 +27,11 @@ if __name__ == '__main__':
                      'm': 10,
                      'est_p': ['beta'],
                      # # initial parameter and state uncertainty
-                     'biasType': Bias.ESN,  # Bias.ESN / Bias.NoBias
+                     'biasType': bias_models.ESN,  # Bias.ESN / Bias.NoBias
                      # Define the observation time window
                      't_start': 3.0,
                      't_stop': 3.5,
-                     'kmeas': 35,
+                     'dt_obs': 35,
                      # Inflation
                      'inflation': 1.005,
                      'reject_inflation': 1.02,
@@ -38,19 +39,18 @@ if __name__ == '__main__':
                      }
     # ==================================== SELECT ESN PARAMETERS =================================== #
 
-    train_params = {'model': TAModels.VdP,
+    train_params = {'model': physical_models.VdP,
                     'std_a': 0.3,
                     'std_psi': 0.3,
                     'est_p': filter_params['est_p'],
                     'alpha_distr': 'uniform',
                     'ensure_mean': True,
+                    'L': 10,
                     }
 
     bias_params = {'N_wash': 30,
                    'upsample': 5,
-                   'L': 10,
                    'augment_data': True,
-                   'train_params': train_params,
                    'tikh_range': [1e-16],
                    'sigma_in_range': (np.log10(1e-6), np.log10(1e-2)),
                    'test_run': True,
@@ -58,12 +58,20 @@ if __name__ == '__main__':
                    }
 
     # ============================ CREATE REFERENCE ENSEMBLE =================================== #
-    name = 'reference_Ensemble_m{}_kmeas{}'.format(filter_params['m'], filter_params['kmeas'])
-    ensemble, truth, esn_args = createEnsemble(true_params, forecast_params,
-                                               filter_params, bias_params,
-                                               working_dir=folder, filename=name)
+    name = 'reference_Ensemble_m{}_dt_obs{}'.format(filter_params['m'], filter_params['dt_obs'])
+    ensemble, truth = createEnsemble(true_params, forecast_params, filter_params, bias_params)
 
     filter_ens = ensemble.copy()
+    # ================================= START BIAS MODEL ======================================== #
+
+    y_train = create_bias_training_dataset(ensemble.model, truth, folder, bias_param=None)
+
+    train_data = truth['y'] - y_train  # [Nt x Nmic x L]
+
+
+
+    # Store file
+    save_to_pickle_file(folder + name, filter_ens, truth)
 
     std = 0.2
     mean = np.mean(filter_ens.psi, axis=-1)

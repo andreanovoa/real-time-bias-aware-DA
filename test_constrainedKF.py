@@ -1,6 +1,6 @@
 if __name__ == '__main__':
-    import TAModels
-    import Bias
+    import physical_models
+    import bias_models
     from run import main, createEnsemble
     from plotResults import *
 

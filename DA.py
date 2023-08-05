@@ -90,7 +90,7 @@ def dataAssimilation(ensemble, obs, t_obs, std_obs=0.05):
 
         # Update bias as d - y^a  # TODO: Bayesian framework
         y = ensemble.getObservables()
-        ensemble.bias.b = obs[ti] - np.mean(y, -1)
+        ensemble.bias.resetBias(obs[ti] - np.mean(y, -1))
 
         # Store cost function
         ensemble.hist_J.append(J)
@@ -166,10 +166,10 @@ def analysisStep(case, d, Cdd):
         Aa, cost = EnKF(Af, d, Cdd, M, get_cost=case.get_cost)
     elif case.filter == 'rBA_EnKF':
         # ----------------- Retrieve bias and its Jacobian ----------------- #
-        b = case.bias.getBias(y)
-        J = case.bias.stateDerivative(y)
+        b = case.bias.getBias()
+        J = case.bias.stateDerivative()
         # -------------- Define bias Covariance and the weight -------------- #
-        k = case.bias.k
+        k = case.regularization_factor
         Cbb = Cdd.copy()  # Bias covariance matrix same as obs cov matrix for now
         if case.activate_bias_aware:
             Aa, cost = rBA_EnKF(Af, d, Cdd, Cbb, k, M, b, J, get_cost=case.get_cost)
@@ -349,6 +349,9 @@ def checkParams(Aa, case):
 
 
 # =================================================================================================================== #
+# =========================================== ENSEMBLE FILTERS ====================================================== #
+# =================================================================================================================== #
+
 def EnSRKF(Af, d, Cdd, M, get_cost=False):
     """Ensemble Square-Root Kalman Filter based on Evensen (2009)
         Inputs:
@@ -411,9 +414,6 @@ def EnSRKF(Af, d, Cdd, M, get_cost=False):
         return Af, cost
 
 
-# =================================================================================================================== #
-
-
 def EnKF(Af, d, Cdd, M, get_cost=False):
     """Ensemble Kalman Filter as derived in Evensen (2009) eq. 9.27.
         Inputs:
@@ -463,9 +463,6 @@ def EnKF(Af, d, Cdd, M, get_cost=False):
     else:
         print('Aa not real')
         return Af, cost
-
-
-# =================================================================================================================== #
 
 
 def rBA_EnKF(Af, d, Cdd, Cbb, k, M, b, J, get_cost=False):
@@ -551,6 +548,6 @@ def print_DA_parameters(ensemble, t_obs):
           '\t Number of analysis steps = {}, t0={}, t1={}'.format(len(t_obs), t_obs[0], t_obs[-1])
           )
     if ensemble.filter == 'rBA_EnKF':
-        print('\t Bias penalisation factor k = {}\n'.format(ensemble.bias.k))
+        print('\t Bias penalisation factor k = {}\n'.format(ensemble.regularization_factor))
     print(' --------------------------------------------')
 

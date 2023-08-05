@@ -10,7 +10,7 @@ import numpy as np
 from scipy.signal import find_peaks
 import os as os
 import pickle
-import TAModels
+import physical_models
 import time
 from scipy.integrate import solve_ivp
 

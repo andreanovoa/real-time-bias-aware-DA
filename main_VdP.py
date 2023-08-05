@@ -1,7 +1,7 @@
 
 if __name__ == '__main__':
-    import TAModels
-    import Bias
+    import physical_models
+    import bias_models
     from run import main, create_ESN_train_dataset, createEnsemble
     from plotResults import *
     import os as os
@@ -28,7 +28,7 @@ if __name__ == '__main__':
         whyAug_ks = [0., 10., 20.]
         loop_ks = np.linspace(0., 20., 21)
         # %% ============================= SELECT TRUE AND FORECAST MODELS ================================= #
-        true_params = {'model': TAModels.VdP,
+        true_params = {'model': physical_models.VdP,
                        'manual_bias': 'cosine',
                        'law': 'tan',
                        'beta': 75.,  # forcing
@@ -37,26 +37,27 @@ if __name__ == '__main__':
                        'std_obs': 0.01,
                        }
 
-        forecast_params = {'model': TAModels.VdP
+        forecast_params = {'model': physical_models.VdP
                            }
 
         # ==================================== SELECT FILTER PARAMETERS =================================== #
         filter_params = {'filt': 'rBA_EnKF',  # 'rBA_EnKF' 'EnKF' 'EnSRKF'
                          'm': 10,
                          'est_p': ['beta', 'zeta', 'kappa'],
-                         'biasType': Bias.ESN,  # Bias.ESN  # None
+                         'biasType': bias_models.ESN,  # Bias.ESN  # None
                          # Define the observation time window
                          't_start': 2.0,
                          't_stop': 3.0,
-                         'kmeas': 30,
+                         'dt_obs': 30,
                          # Inflation
                          'inflation': 1.002,
-                         'start_ensemble_forecast': 2
+                         'start_ensemble_forecast': 2,
+                         'regularization_factor': 0.
                          }
 
         if filter_params['biasType'].name == 'ESN':
             # using default TA parameters for ESN training
-            train_params = {'model': TAModels.VdP,
+            train_params = {'model': physical_models.VdP,
                             'std_a': 0.3,
                             'std_psi': 0.3,
                             'est_p': filter_params['est_p'],
@@ -75,7 +76,7 @@ if __name__ == '__main__':
         else:
             bias_params = None
 
-        name = 'reference_Ensemble_m{}_kmeas{}'.format(filter_params['m'], filter_params['kmeas'])
+        name = 'reference_Ensemble_m{}_dt_obs{}'.format(filter_params['m'], filter_params['dt_obs'])
 
         # ======================= CREATE REFERENCE ENSEMBLE =================================
         ensemble, truth, esn_args = createEnsemble(true_params, forecast_params,
@@ -104,7 +105,7 @@ if __name__ == '__main__':
                 # Reset ESN
                 filter_params['Bdict'] = create_ESN_train_dataset(*esn_args, bias_param=bias_params)  # reset bias
                 filter_ens.initBias(filter_params['Bdict'])
-                filter_ens.bias.k = k
+                filter_ens.regularization_factor = k
                 # ======================= RUN DATA ASSIMILATION  =================================
                 name = whyAugment_folder + '{}_L{}_Augment{}/'.format(order, L, augment)
                 main(filter_ens, truth, results_dir=name, save_=True)
@@ -138,7 +139,7 @@ if __name__ == '__main__':
                 for k in loop_ks:
                     filter_ens = blank_ens.copy()
                     # Reset gamma value
-                    filter_ens.bias.k = k
+                    filter_ens.regularization_factor = k
                     # Run main ---------------------
                     main(filter_ens, truth, results_dir=results_folder, save_=True)
     # ------------------------------------------------------------------------------------------------ #

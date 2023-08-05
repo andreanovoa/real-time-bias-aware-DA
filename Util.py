@@ -4,20 +4,19 @@ Created on Wed May 11 09:45:48 2022
 
 @author: an553
 """
-
-import os as os
+import os
 import numpy as np
-import pylab as plt
 import pickle
 import scipy.io as sio
 from functools import lru_cache
-import pathlib
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+
 
 from scipy.interpolate import interp1d
 from scipy.signal import find_peaks
 
 rng = np.random.default_rng(6)
-
 
 
 def createObservations(classParams=None):
@@ -35,7 +34,7 @@ def createObservations(classParams=None):
     # Wave case: load .mat file ====================================
     if type(classType) is str:
         try:
-            mat = sio.loadmat('data/Truth_wave.mat')
+            mat = sio.loadmat(classType + '.mat')
         except:
             raise ValueError('File ' + classType + ' not defined')
         p_obs = mat['p_mic'].transpose()
@@ -69,13 +68,12 @@ def createObservations(classParams=None):
     case = classType(TA_params)
 
     psi, t = case.timeIntegrate(Nt=int(t_max / case.dt))
-
-
     case.updateHistory(psi, t)
     case.close()
 
     with open(name, 'wb') as f:
         pickle.dump(case, f)
+
     # Retrieve observables
     p_obs = case.getObservableHist()
     if len(np.shape(p_obs)) > 2:
@@ -86,31 +84,8 @@ def createObservations(classParams=None):
 
 def check_valid_ensemble(true_p, filter_p, bias_p, load_ens, load_truth, load_bias):
     reinit = False
-    # if load_bias is not None and bias_p is not None:
-    #     # check that bias parameters are the same
-    #     for key, val in bias_p.items():
-    #         if key in load_bias[0]['Bdict'].keys():
-    #             if len(load_bias[0]['Bdict'][key]) == 1:
-    #                 if val != load_bias[0]['Bdict'][key]:
-    #                     reinit, break_key, break_val, actual_val = True, key, load_bias[0]['Bdict'][key], val
-    #                     break
-    #             else:
-    #                 for v1, v2 in zip(val, load_bias[0]['Bdict'][key]):
-    #                     if v1 != v2:
-    #                         reinit, break_key, break_val, actual_val = True, key, load_bias[0]['Bdict'][key], val
-    #                         break
-    #     else:
-    #         reinit, break_key, break_val, actual_val = True, 'bias model', load_bias,
     if type(load_bias) is tuple:
         reinit, break_key, break_val, actual_val = True, None, None, None
-
-
-    # if load_bias is not None:
-    #     for key, val in bias_p.items():
-    #         load_val = getattr(load_bias, key)
-    #         if load_val != val:
-    #             reinit, break_key, break_val, actual_val = True, key, val, load_val
-
 
     # check that true and forecast model parameters
     for key, val in filter_p.items():
@@ -135,7 +110,7 @@ def check_valid_ensemble(true_p, filter_p, bias_p, load_ens, load_truth, load_bi
 
 
 @lru_cache(maxsize=10)
-def Cheb(Nc, lims=[0, 1], getg=False):  # __________________________________________________
+def Cheb(Nc, lims=(0, 1), getg=False):  # __________________________________________________
     """ Compute the Chebyshev collocation derivative matrix (D)
         and the Chevyshev grid of (N + 1) points in [ [0,1] ] / [-1,1]
     """
@@ -171,53 +146,6 @@ def RK4(t, q0, func, *kwargs):
     return np.array(qhist)
 
 
-def plotHistory(ensemble, truth=None):  # _________________________________________________________________________
-    """ Function that plots the history of the observables and the
-        parameters with a zoomed region in the state.
-    """
-
-    def plot_with_shade(x, y, c, yl=None):
-        mean = np.mean(y, 1)
-        std = np.std(y, 1)
-        ax[i, j].plot(x, mean, color=c, label=lbl)
-        ax[i, j].fill_between(x, mean + std, mean - std, alpha=.2, color=c)
-        if yl is True:
-            ax[i, j].set(ylabel=yl)
-        ax[i, j].set(xlabel='$t_interp$', xlim=[x[0], x[-1]])
-        ax[i, j].legend(bbox_to_anchor=(1., 1.), loc="upper left", ncol=1)
-
-    t = ensemble.hist_t
-    t_zoom = min([len(t) - 1, int(0.05 / ensemble.dt)])
-
-    _, ax = plt.subplots(2, 2, figsize=[10, 5])
-    # Truth
-    if truth is not None:
-        y, _ = truth.getObservableHist()
-        y = np.squeeze(y)
-        ax[0, 0].plot(t, y, color='k', alpha=.2, label='Truth', linewidth=4)
-        ax[0, 1].plot(t, y, color='k', alpha=.2, label='Truth', linewidth=4)
-
-    i, j = [0, 0]
-    # State evolution
-    y, lbl = ensemble.getObservableHist()
-    lbl = lbl[0]
-    plot_with_shade(t, y[0], 'blue', yl=lbl[0])
-    i, j = [0, 1]
-    plot_with_shade(t[-t_zoom:], y[0][-t_zoom:], 'blue')
-    # Parameter evolution
-    params = ensemble.hist[:, ensemble.N - len(ensemble.est_p):, :]
-    c = ['g', 'sandybrown', 'mediumpurple']
-    i, j = [1, 0]
-    p_j = 0
-    for p in ensemble.est_p:
-        lbl = '$\\' + p + '/\\' + p + '^t$'
-        plot_with_shade(t, params[:, p_j] / ensemble.alpha0[p], c[p_j])
-        p_j += 1
-
-    plt.tight_layout()
-    plt.show()
-
-
 def interpolate(t_y, y, t_eval, method='cubic', ax=0, bound=False):
     spline = interp1d(t_y, y, kind=method, axis=ax,
                       copy=True, bounds_error=bound, fill_value=0)
@@ -228,6 +156,102 @@ def getEnvelope(timeseries_x, timeseries_y):
     peaks, peak_properties = find_peaks(timeseries_y, distance=200)
     u_p = interp1d(timeseries_x[peaks], timeseries_y[peaks], bounds_error=False)
     return u_p
+
+
+def save_to_pickle_file(filename, *args):
+    with open(filename, 'wb') as f:
+        for arg in args:
+            pickle.dump(arg, f)
+
+
+def load_from_pickle_file(filename):
+    args = []
+    with open(filename, 'rb') as f:
+        while True:
+            try:
+                arg = pickle.load(f)
+                args.append(arg)
+            except EOFError:
+                break
+    if len(args) == 1:
+        return args[0]
+    else:
+        return args
+
+
+def plot_train_data(truth, train_ens, folder):
+
+    y_ref = train_ens.getObservableHist(Nt=len(truth['t']))
+    t = train_ens.hist_t[:len(truth['t'])]
+
+    Nt = int(train_ens.t_CR / truth['dt'])
+    i0_t = np.argmin(abs(truth['t'] - truth['t_obs'][0]))
+    i0_r = np.argmin(abs(train_ens.hist_t - truth['t_obs'][0]))
+    t_CR = train_ens.t_CR
+
+    yt = truth['y'][i0_t - Nt:i0_t]
+    bt = truth['b'][i0_t - Nt:i0_t]
+    yr = y_ref[i0_r - Nt:i0_r]
+    tt = train_ens.hist_t[i0_r - Nt:i0_r]
+
+    RS = []
+    for ii in range(y_ref.shape[-1]):
+        R = CR(yt, yr[:, :, ii])[1]
+        RS.append(R)
+
+    # Plot training data -------------------------------------
+    fig = plt.figure(figsize=[12, 4.5], layout="constrained")
+
+    subfigs = fig.subfigures(2, 1, height_ratios=[1, 1])
+    axs_top = subfigs[0].subplots(1, 2)
+    axs_bot = subfigs[1].subplots(1, 2)
+
+    true_RMS = CR(yt, yt - bt)[1]
+    norm = mpl.colors.Normalize(vmin=true_RMS, vmax=1.5)
+
+    cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.viridis)
+    cmap.set_clim(true_RMS, 1.5)
+
+    axs_top[0].plot(tt, yt[:, 0], color='silver', linewidth=6, alpha=.8)
+
+    print(bt.shape)
+    axs_top[-1].plot(tt, bt[:, 0], color='silver', linewidth=4, alpha=.8)
+
+    xlims = [[truth['t_obs'][0] - t_CR, truth['t_obs'][0]],
+             [truth['t_obs'][0], truth['t_obs'][0] + t_CR * 2]]
+
+    for ii in range(y_ref.shape[-1]):
+        clr = cmap.to_rgba(RS[ii])
+        axs_top[0].plot(tt, yr[:, 0, ii], color=clr)
+        norm_bias = (truth['y'][:, 0] - y_ref[:, 0, ii])
+        axs_bot[-1].plot(t, norm_bias, color=clr)
+        axs_top[-1].plot(t, norm_bias, color=clr)
+
+    axs_top[0].plot(tt, yt[:, 0], color='silver', linewidth=4, alpha=.5)
+    axs_top[-1].plot(tt, bt[:, 0], color='silver', linewidth=4, alpha=.5)
+
+    max_y = np.max(abs(yt[:, 0] - bt[:, 0]))
+
+    axs_bot[0].plot(t, truth['b'][:, 0] / max_y * 100, color='silver', linewidth=4, alpha=.5)
+
+    axs_top[0].legend(['Truth'], bbox_to_anchor=(0., 0.25), loc="upper left")
+    axs_top[1].legend(['True RMS $={0:.3f}$'.format(true_RMS)], bbox_to_anchor=(0., 0.25), loc="upper left")
+
+    axs_top[0].set(xlabel='$t$', ylabel='$\\eta$', xlim=xlims[0])
+    axs_top[-1].set(xlabel='$t$', ylabel='$b$', xlim=xlims[0])
+    axs_bot[0].set(xlabel='$t$', ylabel='$b$ normalized [\\%]', xlim=xlims[-1])
+    axs_bot[-1].set(xlabel='$t$', ylabel='$b$', xlim=xlims[-1])
+
+    clb = fig.colorbar(cmap, ax=axs_bot, orientation='vertical', extend='max')
+    clb.ax.set_title('$\\mathrm{RMS}$')
+    clb = fig.colorbar(cmap, ax=axs_top, orientation='vertical', extend='max')
+    clb.ax.set_title('$\\mathrm{RMS}$')
+
+    os.makedirs(folder, exist_ok=True)
+
+    L = y_ref.shape[-1]
+    plt.savefig(folder + 'L{}_training_data.svg'.format(L), dpi=350)
+    plt.close()
 
 
 def CR(y_true, y_est):
@@ -241,72 +265,109 @@ def CR(y_true, y_est):
     R = np.sqrt(np.sum((y_true - y_est) ** 2) / np.sum(y_true ** 2))
     return C, R
 
-#
-# def get_CR_values(results_folder):
-#
-#     Ls, RBs, RUs, CBs, CUs = [],[],[],[],[]
-#     # ==================================================================================================================
-#     ii= -1
-#     for Ldir in os.listdir(results_folder):
-#         Ldir = results_folder + Ldir + '/'
-#         if not os.path.isdir(Ldir):
-#             continue
-#         ii += 1
-#         Ls.append(Ldir.split('L')[-1])
-#         flag = True
-#         ks = []
-#
-#         L_RB, L_RU, L_CB, L_CU = [], [], [], []
-#         for ff in os.listdir(Ldir):
-#             if ff.find('_k') == -1:
-#                 continue
-#             k = float(ff.split('_k')[-1])
-#             ks.append(k)
-#             with open(Ldir + ff + '.gz', 'rb') as f:
-#                 params = load(f)
-#                 truth = load(f)
-#                 filter_ens = load(f)
-#
-#             y, t = filter_ens.getObservableHist(), filter_ens.hist_t
-#             b, t_b = filter_ens.bias.hist, filter_ens.bias.hist_t
-#             y_truth = truth['y'][:len(y)]
-#             y = np.mean(y, -1)
-#
-#             # Unbiased signal error
-#             if filter_ens.bias.name == 'ESN':
-#                 y_unbiased = y[::filter_ens.bias.upsample] + b
-#                 y_unbiased = interpolate(t_b, y_unbiased, t)
-#             else:
-#                 y_unbiased = y + np.expand_dims(b, -1)
-#
-#             if flag:
-#                 N_CR = int(filter_ens.t_CR / filter_ens.dt)  # Length of interval to compute correlation and RMS
-#                 i0 = np.argmin(abs(t - truth['t_obs'][0]))  # start of assimilation
-#                 i1 = np.argmin(abs(t - truth['t_obs'][params['num_DA']-1]))  # end of assimilation
-#
-#             C, R = CR(y_truth[i1-N_CR:i1], y[i1-N_CR:i1])
-#             L_RB.append([R])
-#             L_CB.append([C])
-#             C, R = CR(y_truth[i1-N_CR:i1], y_unbiased[i1-N_CR:i1])
-#             L_RU.append([R])
-#             L_CU.append([C])
-#
-#             flag = False
-#         RBs.append(L_RB)
-#         RUs.append(L_RU)
-#         CBs.append(L_CB)
-#         CUs.append(L_CU)
-#
-#     # true and pre-DA R
-#     y_truth_u = y_truth - truth['b_true'][:len(y)]
-#     Ct, Rt = CR(y_truth[-N_CR:], y_truth_u[-N_CR:])
-#     Cpre, Rpre = CR(y_truth[i0 - N_CR:i0 + 1:], y[i0 - N_CR:i0 + 1:])
-#
-#     results = dict(Ls=Ls, ks=ks,
-#                    RBs=RBs, RUs=RUs,
-#                    Rt=Rt, Rpre=Rpre,
-#                    CBs=CBs, CUs=CUs,
-#                    Ct=Ct, Cpre=Cpre)
-#
-#     with open(results_folder + 'CR_data.gz', 'wb') as f:
-#         dump(results, f)
+
+def get_error_metrics(results_folder):
+    print('computing error metrics...')
+    out = dict(Ls=[], ks=[])
+
+    L_dirs, k_files = [], []
+    LLL = os.listdir(results_folder)
+    for Ldir in LLL:
+        if os.path.isdir(results_folder + Ldir + '/') and Ldir[0] == 'L':
+            L_dirs.append(results_folder + Ldir + '/')
+            out['Ls'].append(float(Ldir.split('L')[-1]))
+
+    for ff in os.listdir(L_dirs[0]):
+        k = float(ff.split('_k')[-1])
+        out['ks'].append(k)
+        k_files.append(ff)
+
+    # sort ks and Ls
+    idx_ks = np.argsort(np.array(out['ks']))
+    out['ks'] = np.array(out['ks'])[idx_ks]
+    out['k_files'] = [k_files[i] for i in idx_ks]
+
+    idx = np.argsort(np.array(out['Ls']))
+    out['L_dirs'] = [L_dirs[i] for i in idx]
+    out['Ls'] = np.array(out['Ls'])[idx]
+
+    # Output quantities
+    keys = ['R_biased_DA', 'R_biased_post',
+            'C_biased_DA', 'C_biased_post',
+            'R_unbiased_DA', 'R_unbiased_post',
+            'C_unbiased_DA', 'C_unbiased_post']
+    for key in keys:
+        out[key] = np.empty([len(out['Ls']), len(out['ks'])])
+
+    print(out['Ls'])
+    print(out['ks'])
+
+    from plotResults import post_process_single
+    ii = -1
+    for Ldir in out['L_dirs']:
+        ii += 1
+        print('L = ', out['Ls'][ii])
+        jj = -1
+        for ff in out['k_files']:
+            jj += 1
+            # Read file
+            truth, filter_ens = load_from_pickle_file(Ldir + ff)[1:]
+            truth = truth.copy()
+
+            print('\t k = ', out['ks'][jj], '({}, {})'.format(filter_ens.bias.L, filter_ens.bias.k))
+            # Compute biased and unbiased signals
+            y, t = filter_ens.getObservableHist(), filter_ens.hist_t
+            b, t_b = filter_ens.bias.hist, filter_ens.bias.hist_t
+            y_mean = np.mean(y, -1)
+
+            # Unbiased signal error
+            if hasattr(filter_ens.bias, 'upsample'):
+                y_unbiased = y_mean[::filter_ens.bias.upsample] + b
+                y_unbiased = interpolate(t_b, y_unbiased, t)
+            else:
+                y_unbiased = y_mean + b
+
+            # if jj == 0:
+            N_CR = int(filter_ens.t_CR // filter_ens.dt)  # Length of interval to compute correlation and RMS
+            i0 = np.argmin(abs(t - truth['t_obs'][0]))  # start of assimilation
+            i1 = np.argmin(abs(t - truth['t_obs'][-1]))  # end of assimilation
+
+            # cut signals to interval of interest
+            y_mean, t, y_unbiased = y_mean[i0 - N_CR:i1 + N_CR], t[i0 - N_CR:i1 + N_CR], y_unbiased[i0 - N_CR:i1 + N_CR]
+
+            if ii == 0 and jj == 0:
+                i0_t = np.argmin(abs(truth['t'] - truth['t_obs'][0]))  # start of assimilation
+                i1_t = np.argmin(abs(truth['t'] - truth['t_obs'][-1]))  # end of assimilation
+                y_truth, t_truth = truth['y'][i0_t - N_CR:i1_t + N_CR], truth['t'][i0_t - N_CR:i1_t + N_CR]
+                y_truth_b = y_truth - truth['b'][i0_t - N_CR:i1_t + N_CR]
+
+                out['C_true'], out['R_true'] = CR(y_truth[-N_CR:], y_truth_b[-N_CR:])
+                out['C_pre'], out['R_pre'] = CR(y_truth[:N_CR], y_mean[:N_CR])
+                out['t_interp'] = t[::N_CR]
+                scale = np.max(y_truth, axis=0)
+                for key in ['error_biased', 'error_unbiased']:
+                    out[key] = np.empty([len(out['Ls']), len(out['ks']), len(out['t_interp']), y_mean.shape[-1]])
+
+            # End of assimilation
+            for yy, key in zip([y_mean, y_unbiased], ['_biased_DA', '_unbiased_DA']):
+                C, R = CR(y_truth[-N_CR * 2:-N_CR], yy[-N_CR * 2:-N_CR])
+                out['C' + key][ii, jj] = C
+                out['R' + key][ii, jj] = R
+
+            # After Assimilaiton
+            for yy, key in zip([y_mean, y_unbiased], ['_biased_post', '_unbiased_post']):
+                C, R = CR(y_truth[-N_CR:], yy[-N_CR:])
+                out['C' + key][ii, jj] = C
+                out['R' + key][ii, jj] = R
+
+            # Compute mean errors
+            b_obs = y_truth - y_mean
+            b_obs_u = y_truth - y_unbiased
+            ei, a = -N_CR, -1
+            while ei < len(b_obs) - N_CR - 1:
+                a += 1
+                ei += N_CR
+                out['error_biased'][ii, jj, a, :] = np.mean(abs(b_obs[ei:ei + N_CR]), axis=0) / scale
+                out['error_unbiased'][ii, jj, a, :] = np.mean(abs(b_obs_u[ei:ei + N_CR]), axis=0) / scale
+
+    save_to_pickle_file(results_folder + 'CR_data', out)
