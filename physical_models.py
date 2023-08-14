@@ -30,19 +30,34 @@ plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 
 # %% =================================== PARENT MODEL CLASS ============================================= %% #
 class Model:
-    """ Parent Class with the general thermoacoustic model
-        properties and methods definitions.
+    """ Parent Class with the general model properties and methods definitions.
     """
-    attr_model: dict = dict(t=0., psi0=np.empty(1), alpha0=np.empty(1))
-    attr_ens: dict = dict(filter='EnKF', constrained_filter=False,
-                          m=10, est_p=[], est_s=True, est_b=False,
-                          biasType=bias_models.NoBias, inflation=1.002, reject_inflation=1.002,
-                          std_psi=0.001, std_a=0.001, alpha_distr='normal',
-                          num_DA_blind=0, num_SE_only=0,
-                          start_ensemble_forecast=0., get_cost=False)
+    attr_model: dict = dict(t=0.,
+                            psi0=np.empty(1),
+                            alpha0=np.empty(1)
+                            )
+    attr_ens: dict = dict(filter='EnKF',
+                          constrained_filter=False,
+                          regularization_factor=0.,
+                          m=10,
+                          dt_obs=None,
+                          est_a=(),
+                          est_s=True,
+                          est_b=False,
+                          biasType=bias_models.NoBias,
+                          inflation=1.002,
+                          reject_inflation=1.002,
+                          std_psi=0.001,
+                          std_a=0.001,
+                          alpha_distr='normal',
+                          ensure_mean=False,
+                          num_DA_blind=0,
+                          num_SE_only=0,
+                          start_ensemble_forecast=0.,
+                          get_cost=False
+                          )
 
-    def __init__(self, TAdict):
-        model_dict = TAdict.copy()
+    def __init__(self, **model_dict):
         # ================= INITIALISE THERMOACOUSTIC MODEL ================== ##
         for key, val in self.attr.items():
             if key in model_dict.keys():
@@ -60,11 +75,24 @@ class Model:
         self.alpha = self.alpha0.copy()
         self.psi = np.array([self.psi0]).T
         self.ensemble = False
-
+        self.filename = ""
         # ========================== CREATE HISTORY ========================== ##
         self.hist = np.array([self.psi])
         self.hist_t = np.array([self.t])
         self.hist_J = []
+        # ========================== DEFINE LENGTHS ========================== ##
+        self.Na = 0
+
+    @property
+    def Nphi(self):
+        return len(self.psi0)
+    @property
+    def Nq(self):
+        return np.shape(self.getObservables())[0]
+
+    @property
+    def N(self):
+        return self.Nphi + self.Na + self.Nq
 
     def copy(self):
         return deepcopy(self)
@@ -81,39 +109,50 @@ class Model:
     @property
     def M(self):
         if not hasattr(self, '_M'):
-            self._M = np.hstack((np.zeros([self.Nq, self.Nphi + self.Na]),
-                                 np.eye(self.Nq)))
+            setattr(self, '_M', np.hstack((np.zeros([self.Nq, self.Na+self.Nphi]),
+                                           np.eye(self.Nq))))
         return self._M
 
     @property
     def Ma(self):
-        return np.hstack((np.zeros([self.Na, self.Nphi]),
-                          np.eye(self.Na), np.zeros([self.Na, self.Nq])))
+        if not hasattr(self, '_Ma'):
+            setattr(self, '_Ma', np.hstack((np.zeros([self.Na, self.Nphi]),
+                                            np.eye(self.Na),
+                                            np.zeros([self.Na, self.Nq]))))
+        return self._Ma
 
     # ------------------------- Functions for update/initialise the model --------------------------- #
     @staticmethod
-    def addUncertainty(y_mean, y_std, m, method='normal'):
+    def addUncertainty(mean, std, m, method='normal', param_names=None, ensure_mean=False):
         if method == 'normal':
-            if type(y_std) is float:
-                cov = np.diag((y_mean * y_std) ** 2)
-            return rng.multivariate_normal(y_mean, cov, m).T
-
-        elif method == 'uniform':
-            ens_aug = np.zeros((len(y_mean), m))
-            if type(y_std) is float:
-                for ii, pp in enumerate(y_mean):
-                    ens_aug[ii, :] = pp * (1. + rng.uniform(-y_std, y_std, m))
+            if isinstance(std, float):
+                cov = np.diag((mean * std) ** 2)
             else:
-                for ii, pp in enumerate(y_mean):
-                    ens_aug[ii, :] = rng.uniform(y_std[ii][0], y_std[ii][1], m)
-
-            return ens_aug
+                raise TypeError('std in normal distribution must be float not {}'.format(type(std)))
+            ens = rng.multivariate_normal(mean, cov, m).T
+        elif method == 'uniform':
+            ens = np.zeros((len(mean), m))
+            if isinstance(std, float):
+                for ii, pp in enumerate(mean):
+                    if abs(std) <= .5:
+                        ens[ii, :] = pp * (1. + rng.uniform(-std, std, m))
+                    else:
+                        ens[ii, :] = rng.uniform(pp - std, pp + std, m)
+            elif isinstance(std, dict):
+                if param_names is not None:
+                    for ii, key in enumerate(param_names):
+                        ens[ii, :] = rng.uniform(std[key][0], std[key][1], m)
+                else:
+                    for ii, _ in enumerate(mean):
+                        ens[ii, :] = rng.uniform(std[ii][0], std[ii][1], m)
+            else:
+                raise TypeError('std in normal distribution must be float or dict')
         else:
-            raise 'Parameter distribution not recognised'
+            raise ValueError('Parameter distribution {} not recognised'.format(method))
 
-    def resetInitialConditions(self):
-        self.psi = np.array([self.psi0]).T
-        self.hist = np.array([self.psi])
+        if ensure_mean:
+            ens[:, 0] = mean
+        return ens
 
     def getOutputs(self):
         out = dict(name=self.name,
@@ -125,15 +164,14 @@ class Model:
                    hist_J=self.hist_J,
                    alpha0=self.alpha0
                    )
+        for key in self.attr.keys():
+            out[key] = getattr(self, key)
         if self.ensemble:
             for key in self.attr_ens.keys():
                 out[key] = getattr(self, key)
-        for attrs in [self.attr_child, self.attr_parent]:
-            for key in attrs.keys():
-                out[key] = getattr(self, key)
         return out
 
-    def initEnsemble(self, DAdict, Bias_dict):
+    def initEnsemble(self, **DAdict):
         DAdict = DAdict.copy()
         self.ensemble = True
         for key, val in Model.attr_ens.items():
@@ -141,48 +179,54 @@ class Model:
                 setattr(self, key, DAdict[key])
             else:
                 setattr(self, key, val)
-
-        # ------------------------DEFINE STATE MATRIX ------------------------ ##
-        # Note: if est_p and est_b psi = [psi; alpha; biasWeights]
+        self.filename = '{}_ensemble_m{}'.format(self.name, self.m)
+        if hasattr(self, 'modify_settings'):
+            self.modify_settings()
+        # --------------- RESET INITIAL CONDITION AND HISTORY --------------- ##
+        # Note: if est_a and est_b psi = [psi; alpha; biasWeights]
+        ensure_mean = self.ensure_mean
         mean_psi = np.array(self.psi0)  # * rng.uniform(0.9, 1.1, len(self.psi0))
-        self.psi = self.addUncertainty(mean_psi, self.std_psi, self.m, method='normal')
-        # cov = np.diag((self.std_psi ** 2 * abs(mean_psi)))
-        # self.psi = rng.multivariate_normal(mean_psi, cov, self.m).T
-        if 'ensure_mean' in DAdict.keys() and DAdict['ensure_mean']:
-            self.psi[:, 0] = np.array(self.psi0)
+        new_psi0 = self.addUncertainty(mean_psi, self.std_psi, self.m,
+                                       method='normal', ensure_mean=ensure_mean)
 
-        if self.Na > 0:  # Augment ensemble with estimated parameters
-            mean_a = np.array([getattr(self, pp) for pp in self.est_p])
-            ens_a = self.addUncertainty(mean_a, self.std_a, self.m, method=self.alpha_distr)
+        if self.est_a:  # Augment ensemble with estimated parameters
+            mean_a = np.array([getattr(self, pp) for pp in self.est_a])
+            new_alpha0 = self.addUncertainty(mean_a, self.std_a, self.m, method=self.alpha_distr,
+                                             param_names=self.est_a, ensure_mean=ensure_mean)
+            new_psi0 = np.vstack((new_psi0, new_alpha0))
+            self.Na = len(self.est_a)
 
-            if 'ensure_mean' in DAdict.keys() and DAdict['ensure_mean']:
-                ens_a[:, 0] = mean_a
-            self.psi = np.vstack((self.psi, ens_a))
-
-        # ------------------------ INITIALISE BIAS ------------------------ ##
-        self.initBias(**Bias_dict)
-
-        # --------------------- RESET ENSEMBLE HISTORY ------------------- ##
-        self.hist = np.array([self.psi])
+        # RESET ENSEMBLE HISTORY
+        self.updateHistory(psi=new_psi0, reset=True)
 
     def initBias(self, **Bdict):
         # Assign some required items
-        Bdict['est_b'] = self.est_b
-        Bdict['dt'] = self.dt
-        if 'filename' not in Bdict.keys():  # default bias file name
-            Bdict['filename'] = self.name + '_' + str(date.today())
+        for key, default_value in zip(['t_val', 't_train', 't_test'],
+                                      [self.t_CR, self.t_transient, self.t_CR*2]):
+            if key not in Bdict.keys():
+                Bdict[key] = default_value
+
         # Initialise bias. Note: self.bias is now an instance of the bias class
-        yb = self.getObservables()
-        self.bias = self.biasType(yb, self.t, **Bdict)
+        self.bias = self.biasType(y=self.getObservables(),
+                                  t=self.t, dt=self.dt, **Bdict)
         # Create bias history
         b = self.bias.getBias
         self.bias.updateHistory(b, self.t, reset=True)
 
-    def updateHistory(self, psi, t):
-        self.hist = np.concatenate((self.hist, psi), axis=0)
-        self.hist_t = np.hstack((self.hist_t, t))
-        self.psi = psi[-1]
-        self.t = t[-1]
+    def updateHistory(self, psi=None, t=None, reset=False):
+        if not reset:
+            self.hist = np.concatenate((self.hist, psi), axis=0)
+            self.hist_t = np.hstack((self.hist_t, t))
+        else:
+            if psi is None:
+                psi = np.array([self.psi0]).T
+            if t is None:
+                t = self.t
+            self.hist = np.array([psi])
+            self.hist_t = np.array([t])
+
+        self.psi = self.hist[-1]
+        self.t = self.hist_t[-1]
 
     def is_not_physical(self, print_=False):
         if not hasattr(self, '_physical'):
@@ -191,25 +235,6 @@ class Model:
             print('Number of non-physical analysis = ', self._physical)
         else:
             self._physical += 1
-
-    @property
-    def Nq(self):
-        return np.shape(self.getObservables())[0]
-
-    @property
-    def Na(self):
-        if hasattr(self, 'est_p'):
-            return len(self.est_p)
-        else:
-            return 0
-
-    @property
-    def Nphi(self):
-        return len(self.psi0)
-
-    @property
-    def N(self):
-        return self.Nphi + self.Na + self.Nq
 
     # -------------- Functions required for the forecasting ------------------- #
     @property
@@ -248,7 +273,7 @@ class Model:
         for mi in range(psi.shape[-1]):
             ii = -self.Na
             alph = self.alpha0.copy()
-            for param in self.est_p:
+            for param in self.est_a:
                 alph[param] = psi[ii, mi]
                 ii += 1
             alpha.append(alph)
@@ -289,6 +314,7 @@ class Model:
             psi = [psi_mean * (1 + psi_std[:, ii]) for ii in range(self.m)]
 
         # Rearrange dimensions to be Nt x N x m and remove initial condition
+
         psi = np.array(psi).transpose(1, 2, 0)
         return psi[1:], t[1:]
 
@@ -311,41 +337,34 @@ class VdP(Model):
     param_labels = dict(beta='$\\beta$', zeta='$\\zeta$', kappa='$\\kappa$')
 
     # __________________________ Init method ___________________________ #
-    def __init__(self, TAdict=None, DAdict=None):
-        if TAdict is None:
-            TAdict = {}
-
-        super().__init__(TAdict)
-
+    def __init__(self, **TAdict):
+        super().__init__(**TAdict)
         if 'psi0' not in TAdict.keys():
             self.psi0 = [0.1, 0.1]  # initialise eta and mu
-            self.resetInitialConditions()
-        #
-        # # initialise model history
-        # if DAdict is not None:
-        #     self.initEnsemble(DAdict)
-
-        # set limits for the parameters
-        self.param_lims = dict(zeta=(20, 120), kappa=(0.1, 10.),
-                               gamma=(None, None), beta=(20, 120))
+            self.updateHistory(reset=True)
 
     # _______________ VdP specific properties and methods ________________ #
     @property
+    def param_lims(self):
+        return dict(zeta=(5, 120),
+                    kappa=(0.1, 20),
+                    beta=(5, 120),
+                    gamma=(0., 5.)
+                    )
+
+    @property
     def obsLabels(self):
-        return "$\\eta$"
+        return "$\\eta$"  #, "$\\dot{\\eta}$"
 
     def getObservables(self, Nt=1):
         if Nt == 1:  # required to reduce from 3 to 2 dimensions
-            return self.hist[-1, 0:1, :]
+            return self.hist[-1, :1, :]
         else:
-            return self.hist[-Nt:, 0:1, :]
+            return self.hist[-Nt:, :1, :]
 
     # _________________________ Governing equations ________________________ #
     def govEqnDict(self):
-        d = dict(law=self.law,
-                 omega=self.omega
-                 )
-        return d
+        return dict(law=self.law, omega=self.omega)
 
     @staticmethod
     def timeDerivative(t, psi, P, A):
@@ -385,32 +404,18 @@ class Rijke(Model):
 
     param_labels = dict(beta='$\\beta$', tau='$\\tau$', C1='$C_1$', C2='$C_2$', kappa='$\\kappa$')
 
+    def __init__(self, **TAdict):
+        super().__init__(**TAdict)
 
-    def __init__(self, TAdict=None, DAdict=None):
-        if TAdict is None:
-            TAdict = {}
-        super().__init__(TAdict)
-
-        if DAdict is not None and 'est_p' in DAdict.keys() and 'tau' in DAdict['est_p']:
-            self.tau_adv, self.Nc = 1E-2, 50
-        else:
-            self.tau_adv = self.tau
-
+        self.tau_adv = self.tau
         if 'psi0' not in TAdict.keys():
             self.psi0 = .05 * np.hstack([np.ones(2 * self.Nm), np.zeros(self.Nc)])
-            self.resetInitialConditions()
-
-        assert self.N == self.Nc + 2 * self.Nm
-
-        self.param_lims = dict(beta=(0.01, 5),
-                               tau=(1E-6, self.tau_adv),
-                               C1=(0., 1.),
-                               C2=(0., 1.),
-                               kappa=(1E3, 1E8)
-                               )
-        # ------------------------------------------------------------------------------------- #
+            # self.resetInitialConditions()
+            self.updateHistory(reset=True)
         # Chebyshev modes
         self.Dc, self.gc = Cheb(self.Nc, getg=True)
+
+        # ------------------------------------------------------------------------------------- #
 
         # Microphone locations
         self.x_mic = np.linspace(self.xf, self.L, self.Nmic + 1)[:-1]
@@ -441,10 +446,23 @@ class Rijke(Model):
         # Qbar: 5000      R_gas: 287.1000     gamma: 1.4000
         ##############################################################################################################
 
-        if DAdict is not None:
-            self.initEnsemble(DAdict)
+    def modify_settings(self):
+        if self.est_a and 'tau' in self.est_a:
+            extra_Nc = self.Nc - 50
+            self.tau_adv, self.Nc = 1E-2, 50
+            self.psi0 = np.hstack([self.psi0, np.zeros(extra_Nc)])
+            # self.resetInitialConditions()
+            self.updateHistory(reset=True)
 
     # _______________ Rijke specific properties and methods ________________ #
+    @property
+    def param_lims(self):
+        return dict(beta=(0.01, 5),
+                    tau=(1E-6, self.tau_adv),
+                    C1=(0., 1.),
+                    C2=(0., 1.),
+                    kappa=(1E3, 1E8)
+                    )
 
     @property
     def obsLabels(self, loc=None, velocity=False):
@@ -456,13 +474,11 @@ class Rijke(Model):
             return [["$p'(x = {:.2f})$".format(x) for x in loc[:, 0].tolist()],
                     ["$u'(x = {:.2f})$".format(x) for x in loc[:, 0].tolist()]]
 
-    def getObservables(self, Nt=1, loc=None, velocity=False):
+    def getObservables(self, Nt=1, loc=None):
         if loc is None:
             loc = self.x_mic
         loc = np.expand_dims(loc, axis=1)
         om = np.array([self.jpiL])
-
-        eta = self.hist[-Nt:, :self.Nm, :]
         mu = self.hist[-Nt:, self.Nm:2 * self.Nm, :]
 
         # Compute acoustic pressure and velocity at locations
@@ -470,14 +486,6 @@ class Rijke(Model):
         p_mic = p_mic.transpose(1, 0, 2)
         if Nt == 1:
             p_mic = p_mic[0]
-
-        # if velocity:
-        #     u_mic = np.dot(np.cos(np.dot(loc, om)), eta)
-        #     u_mic = u_mic.transpose(1, 0, 2)
-        #     if Nt == 1:
-        #         u_mic = u_mic[0]
-        #     return [p_mic, u_mic]
-        # else:
         return p_mic
 
     # _________________________ Governing equations ________________________ #
@@ -562,12 +570,9 @@ class Lorenz63(Model):
     param_labels = dict(rho='$\\rho$', sigma='$\\sigma$', beta='$\\beta$')
 
     # __________________________ Init method ___________________________ #
-    def __init__(self, TAdict=None, DAdict=None):
+    def __init__(self, TAdict, DAdict=None):
 
-        if TAdict is None:
-            TAdict = {}
-
-        super().__init__(TAdict)
+        super().__init__(**TAdict)
 
         # self.t_transient = 200.
         # self.dt = 0.02
@@ -575,10 +580,8 @@ class Lorenz63(Model):
 
         if 'psi0' not in TAdict.keys():
             self.psi0 = [1.0, 1.0, 1.0]  # initialise x, y, z
-            self.resetInitialConditions()
-
-        if DAdict is not None:
-            self.initEnsemble(DAdict)
+            # self.resetInitialConditions()
+            self.updateHistory(reset=True)
 
         # set limits for the parameters
         self.param_lims = dict(rho=(None, None), beta=(None, None), sigma=(None, None))
@@ -596,11 +599,7 @@ class Lorenz63(Model):
 
     # _________________________ Governing equations ________________________ #
     def govEqnDict(self):
-        d = dict(N=self.N,
-                 Na=self.Na)
-        if d['Na'] > 0:
-            d['est_p'] = self.est_p
-        return d
+        return None
 
     @staticmethod
     def timeDerivative(t, psi, params, alpha):
@@ -617,9 +616,6 @@ class Annular(Model):
     """
 
     name: str = 'Annular'
-    # attr: dict = dict(n=1., alpha=.005, beta=.15, kappa=.2)
-    # params: list = ['alpha', 'beta', 'kappa']
-
     attr: dict = dict(dt=1 / 51.2E3, t_transient=0.5, t_CR=0.03,
                       n=1., theta_b=0.63, theta_e=0.66, omega=1090., epsilon=0.0023,
                       nu=17., beta_c2=17., kappa=1.2E-4)  # values in Fig.4
@@ -634,26 +630,28 @@ class Annular(Model):
                         epsilon='$\\epsilon$', theta_b='$\\Theta_\\beta$', theta_e='$\\Theta_\\epsilon$')
 
     # __________________________ Init method ___________________________ #
-    def __init__(self, TAdict=None, DAdict=None):
+    def __init__(self, **TAdict):
 
-        if TAdict is None:
-            TAdict = {}
-
-        super().__init__(TAdict)
+        super().__init__(**TAdict)
 
         self.theta_mic = np.radians([0, 60, 120, 240])
 
         if 'psi0' not in TAdict.keys():
             self.psi0 = [100, -10, -100, 10]  # initialise \eta_a, \dot{\eta_a}, \eta_b, \dot{\eta_b}
-            self.resetInitialConditions()
+            # self.resetInitialConditions()
+            self.updateHistory(reset=True)
 
-        if DAdict is not None:
-            self.initEnsemble(DAdict)
-
-        # set limits for the parameters ['omega', 'nu', 'beta_c2', 'kappa']
-        self.param_lims = dict(omega=(1000, 1300), nu=(-40., 60.),
-                               beta_c2=(1., 60.), kappa=(None, None), epsilon=(None, None),
-                               theta_b=(0, 2*np.pi), theta_e=(0, 2*np.pi))
+    # set limits for the parameters ['omega', 'nu', 'beta_c2', 'kappa']
+    @property
+    def param_lims(self):
+        return dict(omega=(1000, 1300),
+                    nu=(-40., 60.),
+                    beta_c2=(1., 60.),
+                    kappa=(None, None),
+                    epsilon=(None, None),
+                    theta_b=(0, 2 * np.pi),
+                    theta_e=(0, 2 * np.pi)
+                    )
 
     # _______________  Specific properties and methods ________________ #
     # @property
@@ -824,7 +822,7 @@ if __name__ == '__main__':
     plt.show()
 
     # # Ensemble case =============================
-    # paramsDA = dict(m=10, est_p=['beta'])
+    # paramsDA = dict(m=10, est_a=['beta'])
     # case = MyModel(paramsTA, paramsDA)
     #
     # t1 = time.time()
@@ -858,7 +856,7 @@ if __name__ == '__main__':
     # max_p, min_p = -1000, 1000
     # c = ['g', 'sandybrown', 'mediumpurple', 'cyan']
     # mean = np.mean(case.hist, -1, keepdims=True)
-    # for p in case.est_p:
+    # for p in case.est_a:
     #     superscript = '^\mathrm{init}$'
     #     # reference_p = truth['true_params']
     #     reference_p = case.alpha0

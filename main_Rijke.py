@@ -2,7 +2,7 @@
 if __name__ == '__main__':
     import physical_models
     import bias_models
-    from run import main, create_ESN_train_dataset, createEnsemble
+    from run import main, create_ESN_train_dataset, create_ensemble
     from plotResults import *
     import os as os
 
@@ -82,9 +82,7 @@ if __name__ == '__main__':
         #
         # ================================== CREATE REFERENCE ENSEMBLE ======================================
         name = 'reference_Ensemble_m{}_dt_obs{}'.format(filter_params['m'], filter_params['dt_obs'])
-        ensemble, truth, args = createEnsemble(true_params, forecast_params,
-                                               filter_params, bias_params,
-                                               working_dir=folder, filename=name)
+        ensemble, truth, args = create_ensemble(true_params, forecast_params, filter_params, bias_params)
 
         if run_loopParams:
             # =========================================== RUN LOOP ==========================================

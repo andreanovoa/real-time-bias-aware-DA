@@ -223,8 +223,7 @@ def post_process_single(filter_ens, truth, params, filename=None, mic=0, referen
     obs = obs[:, mic]
 
     if hasattr(filter_ens.bias, 'upsample'):
-        y_unbiased = y_mean[::filter_ens.bias.upsample] + b
-        y_unbiased = interpolate(t_b, y_unbiased, t)
+        y_unbiased = y_mean + interpolate(t_b, b, t)
     else:
         y_unbiased = y_mean + b
 
@@ -259,12 +258,12 @@ def post_process_single(filter_ens, truth, params, filename=None, mic=0, referen
               [t[0], t[-1]]]
 
     if filter_ens.bias is not None:
-        if filter_ens.bias.name == 'ESN':
-            t_wash, wash = filter_ens.bias.wash_time, filter_ens.bias.wash_data[:, mic]
+        if filter_ens.bias.N_wash > 0:
+            t_wash, wash = filter_ens.bias.wash_time, filter_ens.bias.wash_obs[:, mic]
         b_obs = y_truth - y_mean
         y_lims_b = [np.min(b_obs[:N_CR]) * 1.1, np.max(b_obs[:N_CR]) * 1.1] / norm
 
-    if filter_ens.est_p:
+    if filter_ens.est_a:
         hist, hist_t = filter_ens.hist, filter_ens.hist_t
         hist_mean = np.mean(hist, -1, keepdims=True)
         mean_p, std_p, labels_p = [], [], []
@@ -279,7 +278,7 @@ def post_process_single(filter_ens, truth, params, filename=None, mic=0, referen
             norm_lbl = lambda x:  x[:-1] + '/' + x[1:-1] + '^\mathrm{true}$'
 
         ii = filter_ens.Nphi
-        for p in filter_ens.est_p:
+        for p in filter_ens.est_a:
             m = hist_mean[:, ii].squeeze() / reference_p[p]
             s = np.std(hist[:, ii] / reference_p[p], axis=1)
             max_p, min_p = max(max_p, max(m + 2 * s)), min(min_p, min(m - 2 * s))
@@ -306,7 +305,7 @@ def post_process_single(filter_ens, truth, params, filename=None, mic=0, referen
             axs[1].plot(t_b, b / norm, color=color_b, label='ESN', linewidth=.8)
 
         # PARAMS ---------------------------------------------------------------------
-        # if filter_ens.est_p:
+        # if filter_ens.est_a:
         #     for m, s, c, lbl in zip(mean_p, std_p, colors_alpha, labels_p):
         #         axs[2].plot(hist_t, m, color=c, label=lbl)
         #         axs[2].set(xlabel='$t$')
@@ -318,8 +317,8 @@ def post_process_single(filter_ens, truth, params, filename=None, mic=0, referen
             axs[0].plot(t_b, b / norm, color=color_b, label='ESN', linewidth=.8)
             axs[0].set(ylabel=ylbls[0][1], xlim=x_lims[-1], ylim=y_lims_b)
         # PARAMS-----------------------
-        if filter_ens.est_p:
-            for p, m, s, c, lbl in zip(filter_ens.est_p, mean_p, std_p, colors_alpha, labels_p):
+        if filter_ens.est_a:
+            for p, m, s, c, lbl in zip(filter_ens.est_a, mean_p, std_p, colors_alpha, labels_p):
                 axs[1].plot(hist_t, m, color=c, label=lbl)
                 axs[1].set(xlabel='$t$')
                 axs[1].fill_between(hist_t, m + abs(s), m - abs(s), alpha=0.2, color=c)
@@ -458,14 +457,14 @@ def post_process_multiple(folder, filename=None, k_max=100., L_plot=None, refere
             k = filter_ens.bias.k
             if k > k_max:
                 continue
-            if filter_ens.est_p:
+            if filter_ens.est_a:
                 if flag:
                     N_psi = filter_ens.Nphi
                     i0 = np.argmin(abs(filter_ens.hist_t - truth['t_obs'][0]))  # start of assimilation
                     i1 = np.argmin(abs(filter_ens.hist_t - truth['t_obs'][-1]))  # end of assimilation
                     lbl0, lbl1 = [], []
                     ii = filter_ens.Nphi - 1
-                    for p in filter_ens.est_p:
+                    for p in filter_ens.est_a:
                         ii += 1
                         if p in ['C1', 'C2']:
                             lbl0.append('$' + p)
@@ -477,7 +476,7 @@ def post_process_multiple(folder, filename=None, k_max=100., L_plot=None, refere
                 if reference_p is None:
                     reference_p = filter_ens.alpha0
 
-                for pj, p in enumerate(filter_ens.est_p):
+                for pj, p in enumerate(filter_ens.est_a):
                     for idx, a, tt, mk in zip([-1, 0], [1., .2],
                                               ['(t_\mathrm{end})', '^0'], ['x', '+']):
                         hist_p = filter_ens.hist[idx, N_psi + pj] / reference_p[p]
@@ -510,7 +509,7 @@ def post_process_multiple(folder, filename=None, k_max=100., L_plot=None, refere
 
 
 def post_process_pdf(filter_ens, truth, params, filename=None, reference_p=None, normalize=True):
-    if not filter_ens.est_p:
+    if not filter_ens.est_a:
         raise ValueError('no parameters to infer')
 
     fig1 = plt.figure(figsize=[7.5, 3 * filter_ens.Na], layout="constrained")
@@ -541,7 +540,7 @@ def post_process_pdf(filter_ens, truth, params, filename=None, reference_p=None,
     else:
         k_twin = reference_p.copy()
         reference_p = dict()
-        for p in filter_ens.est_p:
+        for p in filter_ens.est_a:
             reference_p[p] = 1.
             norm_lbl = lambda x: ''
         twin = True
@@ -552,7 +551,7 @@ def post_process_pdf(filter_ens, truth, params, filename=None, reference_p=None,
         for rejection in filter_ens.rejected_analysis:
             for t_r, reject_posterior, prior, correction in rejection:
                 ii = 0
-                for p in filter_ens.est_p:
+                for p in filter_ens.est_a:
                     a = reject_posterior[ii] / reference_p[p]
                     plot_violins(ax_all[ii], [a], [t_r], color='r', widths=dt_obs / 2, label=lbl[0])
                     a = prior[ii] / reference_p[p]
@@ -567,7 +566,7 @@ def post_process_pdf(filter_ens, truth, params, filename=None, reference_p=None,
             lbl = [None, None]
     # PARAMS ---------------------------------------------------------------------
     ii = filter_ens.Nphi
-    for p in filter_ens.est_p:
+    for p in filter_ens.est_a:
         m = [hist[ti, ii] / reference_p[p] for ti in idx_t]
         max_p, min_p = max(max_p, np.max(m)), min(min_p, np.min(m))
         if p not in ['C1', 'C2']:
@@ -576,7 +575,7 @@ def post_process_pdf(filter_ens, truth, params, filename=None, reference_p=None,
         hist_alpha.append(m)
         ii += 1
 
-    for ax, p, a, c, lbl in zip(ax_all, filter_ens.est_p, hist_alpha, colors_alpha, labels_p):
+    for ax, p, a, c, lbl in zip(ax_all, filter_ens.est_a, hist_alpha, colors_alpha, labels_p):
         plot_violins(ax, a, t_obs, widths=dt_obs / 2, color=c, label='analysis posterior')
         alpha_lims = [filter_ens.param_lims[p][0] / reference_p[p],
                       filter_ens.param_lims[p][1] / reference_p[p]]
@@ -620,12 +619,12 @@ def plot_parameters(filter_ens, truth, filename=None, reference_p=None):
 
         t_obs = truth['t_obs']
 
-        if len(filter_ens.est_p) < 4:
-            fig1 = plt.figure(figsize=[6, 1.5*len(filter_ens.est_p)], layout="constrained")
-            axs = fig1.subplots(len(filter_ens.est_p), 1, sharex='col')
+        if len(filter_ens.est_a) < 4:
+            fig1 = plt.figure(figsize=[6, 1.5*len(filter_ens.est_a)], layout="constrained")
+            axs = fig1.subplots(len(filter_ens.est_a), 1, sharex='col')
         else:
-            fig1 = plt.figure(figsize=[12, 1.5*int(round(len(filter_ens.est_p)/2))], layout="constrained")
-            axs = fig1.subplots(int(round(len(filter_ens.est_p)/2)), 2, sharex='all')
+            fig1 = plt.figure(figsize=[12, 1.5*int(round(len(filter_ens.est_a)/2))], layout="constrained")
+            axs = fig1.subplots(int(round(len(filter_ens.est_a)/2)), 2, sharex='all')
             axs = axs.ravel()
 
         hist, hist_t = filter_ens.hist, filter_ens.hist_t
@@ -646,7 +645,7 @@ def plot_parameters(filter_ens, truth, filename=None, reference_p=None):
                 reference_p_OG[key] = val
 
         ii = filter_ens.Nphi
-        for p in filter_ens.est_p:
+        for p in filter_ens.est_a:
             m = hist_mean[:, ii].squeeze() / reference_p[p]
             s = np.std(hist[:, ii] / reference_p[p], axis=1)
             labels_p.append(norm_lbl(filter_ens.param_labels[p]))
@@ -654,7 +653,7 @@ def plot_parameters(filter_ens, truth, filename=None, reference_p=None):
             std_p.append(s)
             ii += 1
 
-        for ax, p, m, s, c, lbl in zip(axs, filter_ens.est_p, mean_p, std_p, colors_alpha, labels_p):
+        for ax, p, m, s, c, lbl in zip(axs, filter_ens.est_a, mean_p, std_p, colors_alpha, labels_p):
             max_p = np.max(m + abs(s))
             min_p = np.min(m - abs(s))
             ax.plot(hist_t, m, color=c, label=lbl)
@@ -882,7 +881,7 @@ def plot_Rijke_animation(folder, figs_dir):
     reference_p = filter_ens_BA.alpha0
     alpha_BA, std_BA, alpha_BB, std_BB = [], [], [], []
     hist_BA, hist_BB = filter_ens_BA.hist, filter_ens_BB.hist
-    for pi, p in enumerate(filter_ens.est_p):
+    for pi, p in enumerate(filter_ens.est_a):
         print(pi)
         ii = filter_ens.Nphi + pi
         alpha_BA.append(np.mean(hist_BA[:, ii], -1) / reference_p[p])
@@ -895,7 +894,7 @@ def plot_Rijke_animation(folder, figs_dir):
 
     params_legend = []
     for filter_name in ['EnKF', 'BA-EnKF']:
-        for p in filter_ens.est_p:
+        for p in filter_ens.est_a:
             params_legend.append('$\\' + p + '$ ' + filter_name)
 
     # timeseries
@@ -964,12 +963,12 @@ def plot_Rijke_animation(folder, figs_dir):
         ax2[1].set(ylim=[min_p, max_p], ylabel="")
         for mean_p, std_p, line_type in zip([alpha_BA, alpha_BB], [std_BA, std_BB], ['-', '--']):
             cols = ['mediumpurple', 'orchid']
-            for ppi, pp in enumerate(filter_ens.est_p):
+            for ppi, pp in enumerate(filter_ens.est_a):
                 ax2[1].plot(tt_, mean_p[ppi][t00:t11], line_type, color=cols[ppi], label=pp)
         ax2[1].legend(params_legend, bbox_to_anchor=(1., 1.), loc="upper left", ncol=1, fontsize='small')
         for mean_p, std_p, line_type in zip([alpha_BB, alpha_BA], [std_BB, std_BA], ['-', '--']):
             cols = ['mediumpurple', 'orchid']
-            for ppi, pp in enumerate(filter_ens.est_p):
+            for ppi, pp in enumerate(filter_ens.est_a):
                 ax2[1].fill_between(tt_, mean_p[ppi][t00:t11] + abs(std_p)[ppi][t00:t11],
                                     mean_p[ppi][t00:t11] - abs(std_p)[ppi][t00:t11], alpha=0.2, color=cols[ppi])
 

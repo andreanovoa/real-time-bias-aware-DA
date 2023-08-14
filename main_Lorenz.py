@@ -1,6 +1,6 @@
 import physical_models
 import bias_models
-from run import main, create_ESN_train_dataset, createEnsemble
+from run import main, create_ESN_train_dataset, create_ensemble
 from plotResults import *
 
 folder = 'results/Lorenz_0131_good/'
@@ -66,9 +66,7 @@ results_folder = folder + '{}_{}/'.format(filter_params['biasType'].name, filter
 figs_folder = results_folder + 'figs/'
 
 if __name__ == '__main__':
-    ensemble, truth, b_args = createEnsemble(true_params, forecast_params,
-                                             filter_params, bias_params,
-                                             folder=results_folder, folderESN=folder)
+    ensemble, truth, b_args = create_ensemble(true_params, forecast_params, filter_params, bias_params)
 
     # ================================================================================== #
     # ================================================================================== #

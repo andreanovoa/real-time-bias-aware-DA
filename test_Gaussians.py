@@ -1,7 +1,7 @@
 if __name__ == '__main__':
     import physical_models
     import bias_models
-    from run import main, createEnsemble
+    from run import main, create_ensemble
     from plotResults import *
 
     folder = 'results/test_Gaussians/'
@@ -37,8 +37,7 @@ if __name__ == '__main__':
                      'start_ensemble_forecast': 10
                      }
 
-    ensemble, truth = createEnsemble(true_params, forecast_params,
-                                     filter_params, working_dir=folder, save_=False)
+    ensemble, truth = create_ensemble(true_params, forecast_params, filter_params)
 
     filter_ens = ensemble.copy()
 

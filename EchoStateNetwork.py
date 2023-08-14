@@ -1,9 +1,7 @@
 import numpy as np
 import EchoStateNetwork
 import scipy.linalg as la
-from scipy.io import loadmat
 import time
-from Util import interpolate
 import os
 import matplotlib.pyplot as plt
 import matplotlib.backends.backend_pdf as plt_pdf
@@ -25,10 +23,9 @@ class EchoStateNetwork:
     defaults = dict(N_units=100,
                     upsample=5,
                     L=1,
-                    train_data=None,
-                    wash_data=None,
+                    wash_obs=None,
                     wash_time=None,
-                    test_run=True,
+                    perform_test=True,
                     augment_data=False,
                     connect=5,
                     initialised=False,
@@ -47,7 +44,6 @@ class EchoStateNetwork:
                     N_folds=4,
                     N_split=4,
                     N_initial_rand=0,
-                    plot_training=False,
                     # Default hyperparameters
                     rho=0.9,
                     sigma_in=-4,
@@ -75,6 +71,12 @@ class EchoStateNetwork:
 
         self.filename = 'ESN_L_{}'.format(self.L)
 
+        # Define time windows
+        self.N_train = int(round(self.t_train / self.dt_ESN))
+        self.N_val = int(round(self.t_val / self.dt_ESN))
+        self.N_test = int(round(self.t_test / self.dt_ESN))
+
+
         # -----------  Initialise reservoir state and its history to zeros ------------ #
         self.r = np.zeros(self.N_units)
         self.norm = None
@@ -86,16 +88,16 @@ class EchoStateNetwork:
         return len(self.u)
 
     @property
-    def N_val(self):
-        return int(round(self.t_val / self.dt_ESN))
-
-    @property
-    def N_train(self):
-        return int(round(self.t_train / self.dt_ESN))
+    def len_train_data(self):
+        val = self.N_train + self.N_val + self.N_wash
+        if self.perform_test:
+            val += self.N_test * 10
+        return val
 
     @property
     def dt_ESN(self):
         return self.dt * self.upsample
+
 
     @property
     def WCout(self):
@@ -123,12 +125,12 @@ class EchoStateNetwork:
             self.r = r
 
     # _______________________________________________________________________________________________________ JACOBIAN
-    def JacobianESN(self, open_loop_J=True):
+    def Jacobian(self, open_loop_J=True):
         # Get current state
         u_in, r_in = self.getReservoirState()
 
-        Win_1 = self.Win[:self.N_dim, :].transpose()
-        Wout_1 = self.Wout[:self.N_units, :].transpose()
+        Win_1 = self.Win[:, self.N_dim]
+        Wout_1 = self.Wout[:self.N_units, :].T
 
         # # Option(i) rin function of bin:
         if open_loop_J:
@@ -201,10 +203,12 @@ class EchoStateNetwork:
         return u, r
 
     # _______________________________________________________________________________________ TRAIN & VALIDATE THE ESN
-    def trainESN(self, train_data, validation_strategy):
+    def train(self, train_data, validation_strategy,
+              plot_training=True, folder='./'):
 
         # Format training data and divide into wash-train-validate, and test sets
         U_wtv, Y_tv, U_test = self.format_training_data(train_data)
+        print(U_wtv.shape, train_data.shape)
 
         #  ==================== ADD NOISE TO TRAINING INPUT ====================== ## TODO: add this to the optimization
         # Add noise to inputs during training. Larger noise level
@@ -240,25 +244,26 @@ class EchoStateNetwork:
         res = EchoStateNetwork.hyperparam_optimization(val_func, search_space,
                                                        x0=search_grid, n_calls=self.N_func_evals)
         f_iters = np.array(res.func_vals)
-        minimum = np.append(res.x, [tikh_opt[np.argmin(f_iters)], res.fun])
 
         # Save optimized parameters
         self.reset_hyperparams(res.x, hp_names, tikhonov=tikh_opt[np.argmin(f_iters)])
 
         for hpi, hp in enumerate(self.optimize_hyperparams):
-            self.filename += '_{}_{:.3f}'.format(hp, getattr(self, hp))
+            self.filename += '_{}_{:.3e}'.format(hp, getattr(self, hp))
 
         # ============================  Train Wout ================================== ##
         self.reset_state(u=self.u*0, r=self.r*0)
         self.Wout = self.solveRidgeRegression(U_wtv, Y_tv)
         print('\n Time per hyperparameter eval.:', (time.time() - ti) / self.N_func_evals,
-              '\n Best Results: x', minimum[0], minimum[1], minimum[2], ', f', -minimum[-1])
-
+              '\n Best Results: x ')
+        for hp in self.optimize_hyperparams:
+            print('\t {:.2e}'.format(getattr(self, hp)), end="")
+        print(' f {:.4f}'.format(-res.fun))
         # =============================  Plot result ================================ ##
-        if self.plot_training or self.test_run:
-            os.makedirs('figs_ESN', exist_ok=True)
-            pdf = plt_pdf.PdfPages('./figs_ESN/' + self.filename + '_Training.pdf')
-            if self.plot_training:
+        if plot_training or self.perform_test:
+            os.makedirs(folder+'figs_ESN', exist_ok=True)
+            pdf = plt_pdf.PdfPages(folder + 'figs_ESN/' + self.filename + '_Training.pdf')
+            if plot_training:
 
                 # Plot Bayesian optimization convergence
                 fig = plt.figure()
@@ -306,7 +311,7 @@ class EchoStateNetwork:
                                  alpha=0.8, markeredgecolor='k', markersize=8)
                         pdf.savefig(fig)
                         plt.close(fig)
-            if self.test_run:
+            if self.perform_test:
                 # Run test
                 self.run_test(U_test, pdf_file=pdf)
 
@@ -331,16 +336,16 @@ class EchoStateNetwork:
 
     def computeRRterms(self, U_wtv, Y_tv):
         LHS, RHS = 0., 0.
-        R = [np.empty([0, self.N_units])] * self.L
-        U = [np.empty([0, self.N_dim])] * self.L
+        R_RR = [np.empty([0, self.N_units])] * self.L
+        U_RR = [np.empty([0, self.N_dim])] * self.L
         self.r = 0
-        for kk in range(self.L):
+        for ll in range(self.L):
             # Washout phase. Store the last r value only
-            self.r = self.openLoop(U_wtv[kk][:self.N_wash], extra_closed=True)[1][-1]
+            self.r = self.openLoop(U_wtv[ll][:self.N_wash], extra_closed=True)[1][-1]
 
             # Split training data for faster computations
-            U_train = np.array_split(U_wtv[kk][self.N_wash:], self.N_split, axis=0)
-            Y_target = np.array_split(Y_tv[kk], self.N_split, axis=0)
+            U_train = np.array_split(U_wtv[ll][self.N_wash:], self.N_split, axis=0)
+            Y_target = np.array_split(Y_tv[ll], self.N_split, axis=0)
 
             for U_t, Y_t in zip(U_train, Y_target):
                 # Open-loop train phase
@@ -349,8 +354,8 @@ class EchoStateNetwork:
 
                 self.reset_state(u=u_open[-1], r=r_open[-1])
 
-                R[kk] = np.append(R[kk], r_open, axis=0)
-                U[kk] = np.append(U[kk], u_open, axis=0)
+                R_RR[ll] = np.append(R_RR[ll], r_open, axis=0)
+                U_RR[ll] = np.append(U_RR[ll], u_open, axis=0)
 
                 # Compute matrices for linear regression system
                 bias_out = np.ones([r_open.shape[0], 1]) * self.bias_out
@@ -358,36 +363,28 @@ class EchoStateNetwork:
                 LHS += np.dot(r_aug.T, r_aug)
                 RHS += np.dot(r_aug.T, Y_t)
 
-        return LHS, RHS, U, R
+        return LHS, RHS, U_RR, R_RR
 
     def solveRidgeRegression(self, U_wtv, Y_tv):
         LHS, RHS = self.computeRRterms(U_wtv, Y_tv)[:2]
         LHS.ravel()[::LHS.shape[1] + 1] += self.tikh  # Add tikhonov to the diagonal
         return np.linalg.solve(LHS, RHS)  # Solve linear regression problem
 
-    def format_training_data(self, trainData):
-        # Force trainData shape to be (L, Nt, Ndim)
-        if len(np.shape(trainData)) == 1:  # (Nt,)
-            trainData = np.expand_dims(trainData, 1)
-            trainData = np.expand_dims(trainData, 0)
-        elif len(np.shape(trainData)) == 2:  # (Nt, Ndim)
-            trainData = np.expand_dims(trainData, 0)
-        elif np.shape(trainData)[0] != self.L or np.argmax(trainData.shape) != 1:
-            trainData = trainData.transpose((2, 0, 1))
-
+    def format_training_data(self, train_data):
         #   APPLY UPSAMPLE ________________________
-        U = trainData[:, ::self.upsample].copy()
+        train_data = train_data[:, ::self.upsample].copy()
 
         #   SEPARATE INTO WASH/TRAIN/VAL/TEST SETS _______________
         N_tv = self.N_train + self.N_val
         N_wtv = self.N_wash + N_tv  # useful for compact code later
 
-        if U.shape[1] < N_wtv:
+        if train_data.shape[1] < N_wtv:
+            print(train_data.shape[1], N_wtv)
             raise ValueError('Increase the length of the training data signal')
 
-        U_wtv = U[:, :N_wtv - 1].copy()
-        Y_tv = U[:, self.N_wash + 1:N_wtv].copy()
-        U_test = U[:, N_wtv + 1:].copy()
+        U_wtv = train_data[:, :N_wtv - 1].copy()
+        Y_tv = train_data[:, self.N_wash + 1:N_wtv].copy()
+        U_test = train_data[:, N_wtv + 1:].copy()
 
         # compute norm (normalize inputs by component range)
         m = np.mean(U_wtv.min(axis=1), axis=0)
@@ -459,7 +456,7 @@ class EchoStateNetwork:
     @staticmethod
     def RVC_Noise(x, case, U_wtv, Y_tv, tikh_opt, hp_names):
         """
-        chaotic Recycle Validation
+        Chaotic Recycle Validation
         """
         # Re-set hyperparams as the optimization goes on
         if hp_names:
@@ -517,22 +514,22 @@ class EchoStateNetwork:
         return n_MSE[a] / case.N_folds / case.L
 
     # ________________________________________________________________________________________________ TESTING FUNCTION
-    def run_test(self, U_test, pdf_file=None):
+    def run_test(self, U_test, pdf_file=None, folder='./'):
 
         if pdf_file is None:
-            os.makedirs('figs_ESN', exist_ok=True)
-            pdf_file = plt_pdf.PdfPages('./figs_ESN/' + self.filename + '_Test.pdf')
+            os.makedirs(folder+'figs_ESN', exist_ok=True)
+            pdf_file = plt_pdf.PdfPages(folder+'figs_ESN/' + self.filename + '_Test.pdf')
 
         # Testing window
-        N_test = int(self.t_test / self.dt_ESN)
+        N_test = self.N_test
 
         # Number of tests (with a maximum of 10)
         max_test_time = np.shape(U_test)[1]
         total_tests = min(10, int(np.floor(max_test_time / N_test)))
 
-        # Break if not enough trainData for testing
+        # Break if not enough train_data for testing
         if total_tests < 1:
-            print('Test not performed. Not enough trainData')
+            print('Test not performed. Not enough train_data')
         else:
             medians_alpha, max_alpha = [], -np.inf
 
@@ -642,7 +639,7 @@ if __name__ == '__main__':
     U = y[:, :2]
 
     ESN_case = EchoStateNetwork(U[0], dt=dt_ESN / upsample, **params_ESN)
-    ESN_case.trainESN(U, validation_strategy=EchoStateNetwork.RVC_Noise)
+    ESN_case.train(U, validation_strategy=EchoStateNetwork.RVC_Noise)
 
     # Initialise ESN
     t_wash = t1[-ESN_case.N_wash * ESN_case.upsample + 1::ESN_case.upsample]
