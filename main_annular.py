@@ -1,7 +1,7 @@
 if __name__ == '__main__':
     import physical_models
     import bias_models
-    from run import main, create_ESN_train_dataset, createEnsemble
+    from run import main, create_ESN_train_dataset, create_ensemble
     from plotResults import *
     import os as os
 
@@ -29,15 +29,17 @@ if __name__ == '__main__':
                        }
 
     # ==================================== SELECT FILTER PARAMETERS =================================== #
+    parameters_IC = dict(nu=(-15., 25.), beta_c2=(5, 40), kappa=(.5E-4, 2.E-4), epsilon=(0.001, 0.003),
+                         omega=(1080, 1100), theta_b=(0.2, 0.7), theta_e=(0.6, 0.7))
+
     filter_params = {'filt': 'EnKF',  # 'rBA_EnKF' 'EnKF' 'EnSRKF'
                      'constrained_filter': 0,
                      'm': 50,
-                     'est_p': ['nu', 'beta_c2', 'kappa', 'epsilon', 'omega', 'theta_b', 'theta_e'],
-                     'std_a': [(-15., 25.), (5, 40), (.5E-4, 2.E-4),
-                               (0.001, 0.003), (1080, 1100), (0.2, 0.7), (0.6, 0.7)],
+                     'est_a': ['nu', 'beta_c2', 'kappa', 'epsilon', 'omega', 'theta_b', 'theta_e'],
+                     'std_a': parameters_IC,
                      'alpha_distr': 'uniform',
                      'std_psi': 1.,
-                     'biasType': Bias.NoBias,  # Bias.ESN  # None
+                     'biasType': bias_models.NoBias,  # Bias.ESN  # None
                      # Define the observation time window
                      't_start': 2.0,
                      't_stop': 2.5,
@@ -47,11 +49,8 @@ if __name__ == '__main__':
                      'start_ensemble_forecast': 10
                      }
 
-    name = 'reference_Ensemble_m{}_dt_obs{}'.format(filter_params['m'], filter_params['dt_obs'])
-
     # ======================= CREATE REFERENCE ENSEMBLE =================================
-    ensemble, truth = createEnsemble(true_params, forecast_params, filter_params,
-                                     working_dir=folder, filename=name, save_=False)
+    ensemble, truth = create_ensemble(true_params, forecast_params, filter_params)
     filter_ens = ensemble.copy()
 
     out = main(filter_ens, truth, save_=False)
