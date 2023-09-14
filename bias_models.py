@@ -11,9 +11,13 @@ class Bias:
         self.b = b
         self.t = t
         self.dt = dt
+        self.precision_t = int(-np.log10(dt)) + 2
+
+        # ========================== CREATE HISTORY ========================== ##
         self.hist = np.array([self.b])
         self.hist_t = np.array([self.t])
 
+        # ========================= DEFINE ESSENTIALS ========================== ##
         for key, val in Bias.attrs.items():
             if key in kwargs.keys():
                 setattr(self, key, kwargs[key])
@@ -45,6 +49,7 @@ class Bias:
     @property
     def getBias(self):
         return self.b
+
 
 # =================================================================================================================== #
 
@@ -94,8 +99,10 @@ class ESN(Bias, EchoStateNetwork):
         return -J
 
     def timeIntegrate(self, t, y=None):
-        Nt = int(round(len(t) / self.upsample))
-        t_b = np.linspace(self.t, self.t + Nt * self.dt_ESN, Nt + 1)
+        Nt = len(t) // self.upsample
+        if len(t) % self.upsample:
+            Nt += 1
+        t_b = np.round(self.t + np.arange(0, Nt+1) * self.dt_ESN, self.precision_t)
 
         # If the time is before the washout initialization, return zeros
         if t[-1] <= self.wash_time[-1]:
@@ -105,7 +112,7 @@ class ESN(Bias, EchoStateNetwork):
             b = np.zeros((Nt + 1, self.N_dim))
             t1 = np.argmin(abs(t_b - self.wash_time[0]))
             Nt -= t1
-            print(Nt, t1, self.N_wash)
+
             # Flag initialised
             self.initialised = True
             # Run washout phase in open-loop
@@ -145,10 +152,7 @@ class ESN(Bias, EchoStateNetwork):
 
     def train_bias_model(self, train_data, val_strategy=EchoStateNetwork.RVC_Noise,
                          plot_training=True, folder='./'):
-        if self.augment_data:
-            print('Augmented data')
-            train_data = np.concatenate([train_data,
-                                         train_data * 1e-1], axis=0)
+        print(self.t_val)
         self.train(train_data, validation_strategy=val_strategy,
                    plot_training=plot_training, folder=folder)
         self.trained = True

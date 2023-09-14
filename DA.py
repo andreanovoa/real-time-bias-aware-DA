@@ -8,10 +8,11 @@ Created on Fri Apr  8 19:02:23 2022
 import time
 import numpy as np
 from scipy import linalg
+
 rng = np.random.default_rng(6)
 
 
-def dataAssimilation(ensemble, obs, t_obs, std_obs=0.2):
+def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, wash_obs=None, wash_t=None):
     dt, ti = ensemble.dt, 0
     dt_obs = t_obs[-1] - t_obs[-2]
 
@@ -22,17 +23,19 @@ def dataAssimilation(ensemble, obs, t_obs, std_obs=0.2):
 
     # ----------------------------- FORECAST UNTIL FIRST OBS ----------------------------- ## TODO: clean up this first stage
     time1 = time.time()
-    if ensemble.start_ensemble_forecast > 0:
-        if hasattr(ensemble.bias, 'wash_time'):
-            t1 = ensemble.bias.wash_time[0] - dt_obs * ensemble.start_ensemble_forecast
-        else:
-            t1 = t_obs[ti] - dt_obs * ensemble.start_ensemble_forecast
+    if wash_t is not None:
+        t0 = wash_t[0] - dt_obs * ensemble.start_ensemble_forecast
+        for key, val in zip(['wash_obs', 'wash_time'], [wash_obs, wash_t]):
+            setattr(ensemble.bias, key, val)
+    else:
+        t0 = t_obs[ti] - dt_obs * ensemble.start_ensemble_forecast
 
-        Nt = int(np.round((t1 - ensemble.t) / dt))
+    if t0 < t_obs[ti]:
+        Nt = int(np.round((t0 - ensemble.t) / dt))
         ensemble = forecastStep(ensemble, Nt, averaged=True, alpha=ensemble.alpha0)
 
-    actual_std = abs(np.std(ensemble.psi, axis=-1) / np.mean(ensemble.psi, axis=-1))
-    prefix = ''
+    # actual_std = abs(np.std(ensemble.psi, axis=-1) / np.mean(ensemble.psi, axis=-1))
+    # prefix = ''
     # mean = np.mean(ensemble.psi, axis=-1)
     # if any(abs(actual_std[:ensemble.Nphi] - ensemble.std_psi) > 0.05):
     #     prefix = '(Inflated phi)'
@@ -41,12 +44,14 @@ def dataAssimilation(ensemble, obs, t_obs, std_obs=0.2):
     #     ensemble.hist[-1] = ensemble.psi
     #     actual_std = abs(np.std(ensemble.psi, axis=-1) / np.mean(ensemble.psi, axis=-1))
 
-    print('Ensemble initial spread: {:.3f}, {} {}'.format(np.mean(actual_std[:ensemble.Nphi]),
-                                                          actual_std[ensemble.Nphi:], prefix))
+    # print('Ensemble initial spread: {:.3f}, {} {}'.format(np.mean(actual_std[:ensemble.Nphi]),
+    #                                                       actual_std[ensemble.Nphi:], prefix))
 
     Nt = int(np.round((t_obs[ti] - ensemble.t) / dt))
     ensemble = forecastStep(ensemble, Nt, averaged=False)
     print('Elapsed time to first observation: ' + str(time.time() - time1) + ' s')
+
+    assert ensemble.t == t_obs[ti]
 
     # ---------------------------------- REMOVE TRANSIENT -------------------------------- ##
     i_transient = np.argmin(abs(ensemble.hist_t - ensemble.t_transient))
@@ -58,11 +63,11 @@ def dataAssimilation(ensemble, obs, t_obs, std_obs=0.2):
     # --------------------------------- ASSIMILATION LOOP -------------------------------- ##
     num_obs = len(t_obs)
     ensemble.activate_bias_aware, ensemble.activate_parameter_estimation = False, False
-    time1, print_i = time.time(), int(len(t_obs) / 4) * np.array([1, 2, 3])
+    time1, print_i = time.time(), int(len(t_obs) / 10) * np.array([range(10)])
 
     # Define observation covariance matrix
     Cdd_norm = np.diag((std_obs * np.ones(ensemble.Nq)))
-    Cdd = Cdd_norm * np.max(abs(obs), axis=0) ** 2
+    Cdd = Cdd_norm * np.max(abs(y_obs), axis=0) ** 2
 
     print('Assimilation progress: \n\t0 % ', end="")
     while True:
@@ -74,7 +79,7 @@ def dataAssimilation(ensemble, obs, t_obs, std_obs=0.2):
         # Analysis step
         # Cdd = Cdd_norm * abs(obs[ti]) # ????????? think this geometrically
 
-        Aa, J = analysisStep(ensemble, obs[ti], Cdd)
+        Aa, J = analysisStep(ensemble, y_obs[ti], Cdd)
 
         # Update state with analysis
         ensemble.psi = Aa
@@ -82,12 +87,12 @@ def dataAssimilation(ensemble, obs, t_obs, std_obs=0.2):
 
         # Update bias as d - y^a  # TODO: Bayesian framework
         y = ensemble.getObservables()
-        ensemble.bias.resetBias(obs[ti] - np.mean(y, -1))
+        ensemble.bias.resetBias(y_obs[ti] - np.mean(y, -1))
 
         # Store cost function
         ensemble.hist_J.append(J)
 
-        assert len(ensemble.hist_t[::ensemble.bias.upsample]) == len(ensemble.bias.hist_t)
+        assert ensemble.hist_t[-1] == ensemble.bias.hist_t[-1]
 
         # ------------------------------ FORECAST TO NEXT OBSERVATION ---------------------- #
         # next observation index
@@ -100,7 +105,6 @@ def dataAssimilation(ensemble, obs, t_obs, std_obs=0.2):
 
         Nt = int(np.round((t_obs[ti] - ensemble.t) / dt))
         ensemble = forecastStep(ensemble, Nt)  # Parallel forecast
-
 
     print('Elapsed time during assimilation: ' + str(time.time() - time1) + ' s')
     return ensemble
@@ -122,23 +126,18 @@ def forecastStep(case, Nt, averaged=False, alpha=None):
     """
 
     # Forecast ensemble and update the history
-    # print('from ', case.t,  case.bias.t, 'to ',
-    #       case.t + case.dt*Nt, case.bias.t + case.bias.dt_ESN*int(round(Nt/case.bias.upsample)))
 
     psi, t = case.timeIntegrate(Nt=Nt, averaged=averaged, alpha=alpha)
     case.updateHistory(psi, t)
+
     # Forecast ensemble bias and update its history
     if case.bias is not None:
         y = case.getObservableHist(Nt)
         b, t_b = case.bias.timeIntegrate(t=t, y=y)
         case.bias.updateHistory(b, t_b)
 
-    # print('\t reached ', case.t, case.bias.t)
-
-    if len(case.hist_t[::case.bias.upsample]) != len(case.bias.hist_t):
-        raise AssertionError('t assertion', len(case.hist_t[::case.bias.upsample]), len(case.bias.hist_t))
-    if len(case.hist[::case.bias.upsample]) != len(case.bias.hist):
-        raise AssertionError('y assertion', len(case.hist[::case.bias.upsample]), len(case.bias.hist))
+    if case.hist_t[-1] != case.bias.hist_t[-1]:
+        raise AssertionError('t assertion', case.hist_t[-1], case.bias.hist_t[-1])
     return case
 
 
@@ -175,6 +174,7 @@ def analysisStep(case, d, Cdd):
         J = case.bias.stateDerivative()
         # -------------- Define bias Covariance and the weight -------------- #
         k = case.regularization_factor
+
         Cbb = Cdd.copy()  # Bias covariance matrix same as obs cov matrix for now
         if case.activate_bias_aware:
             Aa, cost = rBA_EnKF(Af, d, Cdd, Cbb, k, M, b, J, get_cost=case.get_cost)
@@ -184,7 +184,9 @@ def analysisStep(case, d, Cdd):
         raise ValueError('Filter ' + case.filter + ' not defined.')
 
     # ============================ CHECK PARAMETERS AND INFLATE =========================== #
-    if case.est_a:
+    if not case.est_a:
+        return Aa[:-case.Nq, :], cost
+    else:
         if not case.activate_parameter_estimation:
             Af_params = Af[-case.Na:, :]
             Aa = inflateEnsemble(Aa, case.inflation)
@@ -202,7 +204,7 @@ def analysisStep(case, d, Cdd):
 
             if not case.constrained_filter:
                 print('reject-inflate')
-                Aa = inflateEnsemble(Af, case.reject_inflation)
+                Aa = inflateEnsemble(Af, case.reject_inflation, d=d, additive=True)
                 case.rejected_analysis.append([(case.t, np.dot(case.Ma, Aa), np.dot(case.Ma, Af), None)])
                 return Aa[:-case.Nq, :], cost
             else:
@@ -210,7 +212,7 @@ def analysisStep(case, d, Cdd):
                 Alphas = np.dot(case.Ma, Af)[idx_alpha]
                 M_alpha = np.vstack([M, case.Ma[idx_alpha]])
 
-                Caa = np.eye(len(idx_alpha)) * np.var(Alphas, axis=-1) #** 2
+                Caa = np.eye(len(idx_alpha)) * np.var(Alphas, axis=-1)  # ** 2
                 # Store
                 case.rejected_analysis.append([(case.t, np.dot(case.Ma, Aa),
                                                 np.dot(case.Ma, Af), (d_alpha, Caa))])
@@ -243,7 +245,15 @@ def analysisStep(case, d, Cdd):
 
 
 # =================================================================================================================== #
-def inflateEnsemble(A, rho):
+def inflateEnsemble(A, rho, d=None, additive=False):
+    if additive:
+        # y_pert = d * 1e-4
+        A[:len(d)] += d * (rho - 1)
+    #     print(A.shape, d.shape, np.mean(A, axis=-1))
+    #     raise ValueError
+    #
+    #     return A + pert
+    # else:
     A_m = np.mean(A, -1, keepdims=True)
     return A_m + rho * (A - A_m)
 
@@ -277,10 +287,11 @@ def checkParams(Aa, case):
                 bound_ = lower_bounds[idx_]
                 if mean_ >= bound_:
                     print('t = {:.3f} reject-inflate: min {} = {:.2f} < {:.2f}'.format(case.t,
-                                                                                     case.est_a[idx_], min_, bound_))
+                                                                                       case.est_a[idx_], min_, bound_))
                 else:
                     print('t = {:.3f} reject-inflate: mean {} = {:.2f} < {:.2f}'.format(case.t,
-                                                                                      case.est_a[idx_], mean_, bound_))
+                                                                                        case.est_a[idx_], mean_,
+                                                                                        bound_))
         if any(break_up):
             idx = np.argwhere(break_up)
             if len(idx.shape) > 1:
@@ -311,11 +322,11 @@ def checkParams(Aa, case):
                 d_alpha.append(np.max(alpha_) + np.std(alpha_))
 
                 print('t = {:.3f}: min {} = {:.2f} < {:.2f}. d_alpha = {:.2f}'.format(case.t, case.est_a[idx_],
-                                                                         min_, bound_, d_alpha[-1]))
+                                                                                      min_, bound_, d_alpha[-1]))
             else:
-                d_alpha.append(bound_ + 2*np.std(alphas[idx_]))
+                d_alpha.append(bound_ + 2 * np.std(alphas[idx_]))
                 print('t = {:.3f}: mean {} = {:.2f} < {:.2f}. d_alpha = {:.2f}'.format(case.t, case.est_a[idx_],
-                                                                          mean_, bound_, d_alpha[-1]))
+                                                                                       mean_, bound_, d_alpha[-1]))
 
     if any(break_up):
         idx = np.argwhere(break_up)
@@ -337,7 +348,7 @@ def checkParams(Aa, case):
                 print('t = {:.3f}: max {} = {:.2f} > {:.2f}. d_alpha = {:.2f}'.format(case.t, case.est_a[idx_],
                                                                                       max_, bound_, d_alpha[-1]))
             else:
-                d_alpha.append(bound_ - 2*np.std(alphas[idx_]))
+                d_alpha.append(bound_ - 2 * np.std(alphas[idx_]))
 
                 print('t = {:.3f}: mean {} = {:.2f} > {:.2f}. d_alpha = {:.2f}'.format(case.t, case.est_a[idx_],
                                                                                        mean_, bound_, d_alpha[-1]))
@@ -478,8 +489,8 @@ def rBA_EnKF(Af, d, Cdd, Cbb, k, M, b, J, get_cost=False):
             Aa: analysis ensemble (or Af is Aa is not real)
             cost: (optional) calculation of the DA cost function and its derivative
     """
-    m = np.size(Af, 1)
-    Nq = len(b)
+    Nm = np.size(Af, 1)
+    Nq = len(d)
 
     Iq = np.eye(Nq)
     # Mean and deviations of the ensemble
@@ -488,20 +499,21 @@ def rBA_EnKF(Af, d, Cdd, Cbb, k, M, b, J, get_cost=False):
     Q = np.dot(M, Af)
 
     # Create an ensemble of observations
-    D = rng.multivariate_normal(d, Cdd, m).transpose()
-    B = rng.multivariate_normal(b, Cbb, m).transpose()
-    # B = np.repeat(np.expand_dims(b, 1), m, axis=1)
+    D = rng.multivariate_normal(d, Cdd, Nm).transpose()
+    B = rng.multivariate_normal(b, Cbb, Nm).transpose()
+    # B = np.repeat(np.expand_dims(b, 1), Nm, axis=1)
 
     Y = Q + B
 
     Cqq = np.dot(S, S.T)  # covariance of observations M Psi_f Psi_f.T M.T
-    # TODO: fix this to work with constrained filter
     if np.array_equiv(Cdd, Cbb):
-        CdWb = Iq.copy()
+        CdWb = Iq
     else:
-        CdWb = np.dot(Cdd[:Cbb.shape[0], :Cbb.shape[0]], linalg.inv(Cbb))
+        CdWb = np.dot(Cdd, linalg.inv(Cbb))
 
-    Cinv = (m - 1) * Cdd + np.dot(Iq + J, np.dot(Cqq, (Iq + J).T)) + k * np.dot(CdWb, np.dot(J, np.dot(Cqq, J.T)))
+    Cinv = (Nm - 1) * Cdd + np.dot(Iq + J,
+                                   np.dot(Cqq, (Iq + J).T)) + k * np.dot(CdWb,
+                                                                         np.dot(J, np.dot(Cqq, J.T)))
     K = np.dot(Psi_f, np.dot(S.T, linalg.inv(Cinv)))
     Aa = Af + np.dot(K, np.dot(Iq + J, D - Y) - k * np.dot(CdWb, np.dot(J, B)))
 
@@ -523,7 +535,7 @@ def rBA_EnKF(Af, d, Cdd, Cbb, k, M, b, J, get_cost=False):
             dbdpsi = np.dot(M.T, J.T)
             dydpsi = dbdpsi + M.T
 
-            Ba = np.repeat(np.expand_dims(ba, 1), m, axis=1)
+            Ba = np.repeat(np.expand_dims(ba, 1), Nm, axis=1)
             dJdpsi = np.dot(Wpp, Af - Aa) + np.dot(dydpsi, np.dot(Wdd, Ya - D)) + np.dot(dbdpsi, np.dot(Wbb, Ba))
             cost[3] = abs(np.mean(dJdpsi) / 2.)
         return Aa, cost
@@ -531,11 +543,11 @@ def rBA_EnKF(Af, d, Cdd, Cbb, k, M, b, J, get_cost=False):
         print('Aa not real')
         return Af, cost
 
+
 # =================================================================================================================== #
 
 
 def print_DA_parameters(ensemble, t_obs):
-
     print('\n -------------------- ASSIMILATION PARAMETERS -------------------- \n',
           '\t Filter = {0}  \n\t bias = {1} \n'.format(ensemble.filter, ensemble.bias.name),
           '\t m = {} \n'.format(ensemble.m),
@@ -549,4 +561,3 @@ def print_DA_parameters(ensemble, t_obs):
     if ensemble.filter == 'rBA_EnKF':
         print('\t Bias penalisation factor k = {}\n'.format(ensemble.regularization_factor))
     print(' --------------------------------------------')
-

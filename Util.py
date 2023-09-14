@@ -7,7 +7,6 @@ Created on Wed May 11 09:45:48 2022
 import os
 import numpy as np
 import pickle
-import scipy.io as sio
 from functools import lru_cache
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -19,186 +18,35 @@ from scipy.signal import find_peaks
 rng = np.random.default_rng(6)
 
 
-def createObservations(classParams=None):
-    if type(classParams) is dict:
-        TA_params = classParams.copy()
-        classType = TA_params['model']
-        if 't_max' in TA_params.keys():
-            t_max = TA_params['t_max']
-        else:
-            t_max = 8.
-            print('t_max=8.')
+def colour_noise(Nt, noise_colour='pink', beta=2):
+    ff = np.fft.rfftfreq(Nt)
+    if 'white' in noise_colour.lower():
+        return np.ones(ff.shape)
+    elif 'blue' in noise_colour.lower():
+        return np.sqrt(ff)
+    elif 'violet' in noise_colour.lower():
+        return ff
+    elif 'pink' in noise_colour.lower():
+        number_ids = [int(xx) for xx in noise_colour if xx.isdigit()]
+        if any(number_ids):
+            beta = number_ids[0]
+        return 1 / np.where(ff == 0, float('inf'), ff ** (1 / beta))
+    elif 'brown' in noise_colour.lower():
+        return 1 / np.where(ff == 0, float('inf'), ff)
     else:
-        raise ValueError('classParams must be dict')
-
-    # Wave case: load .mat file ====================================
-    if type(classType) is str:
-        try:
-            mat = sio.loadmat(classType + '.mat')
-        except FileNotFoundError:
-            raise ValueError('File ' + classType + ' not defined')
-        p_obs = mat['p_mic'].transpose()
-        t_obs = mat['t_mic'].transpose()
-        if len(np.shape(t_obs)) > 1:
-            t_obs = np.squeeze(t_obs, axis=-1)
-
-        if t_obs[-1] > t_max:
-            idx = np.argmin(abs(t_obs - t_max))
-            t_obs, p_obs = [yy[:idx + 1] for yy in [t_obs, p_obs]]
-            print('Data too long. Redefine t_max = ', t_max)
-
-        return p_obs, t_obs, 'Wave'
-
-    # ============================================================
-    # Add key parameters to filename
-    suffix = ''
-    key_save = classType.params + ['law']
-    for key, val in TA_params.items():
-        if key in key_save:
-            if type(val) == str:
-                suffix += val + '_'
-            else:
-                suffix += key + '{:.2e}'.format(val) + '_'
-
-    name = os.path.join(os.getcwd() + '/data/')
-    os.makedirs(name, exist_ok=True)
-    name += 'Truth_{}_{}tmax-{:.2}'.format(classType.name, suffix, t_max)
-
-    # Load or create and save file
-    case = classType(**TA_params)
-
-    psi, t = case.timeIntegrate(Nt=int(t_max / case.dt))
-    case.updateHistory(psi, t)
-    case.close()
-
-    save_to_pickle_file(name, case)
-
-    # Retrieve observables
-    p_obs = case.getObservableHist()
-    if len(np.shape(p_obs)) > 2:
-        p_obs = np.squeeze(p_obs, axis=-1)
-
-    return p_obs, case.hist_t, name.split('Truth_')[-1]
-
-
-def create_bias_training_dataset(y_truth, ensemble, train_params, filename, plot_=False):
-    try:
-        train_data = load_from_pickle_file(filename)
-        if train_data.shape[1] < ensemble.bias.len_train_data:
-            print('Increasing the length of the training data signal')
-        else:
-            print('Load multi-parameter training data')
-            # return train_data
-    except FileNotFoundError:
-        print('Create multi-parameter training data')
-
-    # ========================  Multi-parameter training approach ====================
-    train_ens = ensemble.copy()
-    train_params = train_params.copy()
-    train_params['m'] = train_params['L']
-
-    train_ens.initEnsemble(**train_params)
-
-    # Forecast one member to transient ------------------------------------------------------
-    psi, t = train_ens.timeIntegrate(Nt=int(round(train_ens.t_transient / train_ens.dt)))
-    train_ens.updateHistory(psi, t)
-
-    # Remove fixed points ---------------------------------------------------------
-    y_train = train_ens.getObservableHist(Nt=int(round(train_ens.t_transient / train_ens.dt)))  # Nt x Nq x m
-
-    tol = 1e-1
-    N_CR = int(round(train_ens.t_CR / train_ens.dt))
-    range_y = np.max(np.max(y_train[-N_CR:], axis=0) - np.min(y_train[-N_CR:], axis=0), axis=0)
-    idx_FP = (range_y < tol)
-    psi0 = psi[-1, :, ~idx_FP]  # non-fixed point ICs
-    if any(idx_FP) > 0:
-        print('There are {}/{} fixed points'.format(len(np.argwhere(idx_FP)),len(idx_FP)))
-        mean_psi = np.mean(psi0, axis=0)
-        cov_psi = np.cov(psi0.T)
-        new_psi0 = rng.multivariate_normal(mean_psi, cov_psi, len(np.argwhere(idx_FP)))
-        psi0 = np.concatenate([psi0, new_psi0], axis=0)
-
-    # Reset ensemble with post-transient ICs -------------------------------------
-    train_ens.updateHistory(psi=psi0.T, reset=True)
-
-    # Forcast training ensemble and correlate to the truth -----------------------
-    Nt = train_ens.bias.len_train_data * train_ens.bias.upsample
-    N_corr = int(round(train_ens.t_CR / train_ens.dt))
-
-    psi, tt = train_ens.timeIntegrate(Nt=Nt + N_corr)
-    train_ens.updateHistory(psi, tt)
-
-    y_train = train_ens.getObservableHist()
-    y_true = y_truth[-Nt:].copy()
-    if len(y_true.shape) < 3:
-        y_true = np.expand_dims(y_true, -1)
-
-    yy_true = y_true[:N_corr, :, 0]
-    lags = np.linspace(0, N_corr, N_corr // 2, dtype=int)
-    y_corr = np.zeros([Nt, y_train.shape[1], y_train.shape[2]])
-    for ii in range(train_ens.m):
-        yy = y_train[:, :, ii]
-        RS = [CR(yy_true, yy[:N_corr])[1]]
-        for lag in lags[1:]:
-            RS.append(CR(yy_true[:N_corr], yy[lag:N_corr + lag])[1])
-        best_lag = lags[np.argmin(RS)]
-        y_corr[:, :, ii] = yy[best_lag:Nt + best_lag]
-
-    # Create the synthetic bias as innovations ------------------------------------
-    train_data = y_true - y_corr
-
-    # Force train_data shape to be (L, Nt, Ndim)
-    if len(np.shape(train_data)) == 1:  # (Nt,)
-        train_data = np.expand_dims(train_data, 1)
-        train_data = np.expand_dims(train_data, 0)
-    elif len(np.shape(train_data)) == 2:  # (Nt, Ndim)
-        train_data = np.expand_dims(train_data, 0)
-    elif np.shape(train_data)[0] != train_params['L'] or np.argmax(train_data.shape) != 1:
-        train_data = train_data.transpose((2, 0, 1))
-
-    save_to_pickle_file(filename, train_data)
-
-    if plot_:
-        # Compute the correlation of raw and processed data --------------------------
-        RS, RS_corr = [], []
-        for ii in range(y_corr.shape[-1]):
-            RS_corr.append(CR(y_true[:, :, 0], y_corr[:, :, ii])[1])
-            RS.append(CR(y_true[:, :, 0], y_train[:Nt, :, ii])[1])
-
-        # Create the synthetic bias as innovations ------------------------------------
-
-        fig1 = plt.figure(figsize=[12, 6], layout="constrained")
-        sub_figs = fig1.subfigures(1, 2, width_ratios=[1.2, 1])
-        norm = mpl.colors.Normalize(vmin=min(RS_corr), vmax=max(RS))
-        cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.viridis)
-        ax1, ax2 = [sf.subplots(train_ens.Nq + 1, 1) for sf in sub_figs]
-        for yy, RR, axs, title in zip([y_train, y_corr], [RS, RS_corr],
-                                      [ax1, ax2], ['Original', 'Correlated']):
-            axs[0].set_title(title)
-            for qq, ax in enumerate(axs[:-1]):
-                for ll in range(yy.shape[-1]):
-                    clr = cmap.to_rgba(RR[ll])
-                    ax.plot(tt[:N_corr], yy[:N_corr, qq, ll], color=clr)
-                ax.plot(tt[:N_corr], y_true[:N_corr, qq], 'darkgrey')
-            for ll in range(yy.shape[-1]):
-                clr = cmap.to_rgba(RR[ll])
-                axs[-1].plot(ll, RR[ll], 'o', color=clr)
-        plt.show()
-    return train_data
+        raise ValueError('{} noise type not defined'.format(noise_colour))
 
 
 def check_valid_file(load_case, params_dict):
-    reinit = False
     # check that true and forecast model parameters
+    print('Test if loaded file is valid', end='')
     for key, val in params_dict.items():
         if hasattr(load_case, key):
-            print(key, val, getattr(load_case, key))
+            print('\n\t', key, val, getattr(load_case, key), end='')
             if getattr(load_case, key) != val:
-                reinit, break_key, break_val, actual_val = True, key, getattr(load_case, key), val
-                break
-    if reinit:
-        print('Re-init as loaded {} = {} != {}'.format(break_key, break_val, actual_val))
-    return reinit
+                print('\t <--- Re-init model!')
+                return True
+    return False
 
 
 @lru_cache(maxsize=10)

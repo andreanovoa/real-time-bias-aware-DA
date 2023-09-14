@@ -3,11 +3,10 @@ import os
 from matplotlib import colors
 import matplotlib.pyplot as plt
 import matplotlib.animation
-from Util import interpolate, CR, getEnvelope
+from Util import interpolate, CR, getEnvelope, get_error_metrics
 from scipy.interpolate import CubicSpline, interp1d, interp2d
 import numpy as np
 import matplotlib as mpl
-from run import get_error_metrics
 from matplotlib.ticker import FormatStrFormatter
 
 XDG_RUNTIME_DIR = 'tmp/'
@@ -208,8 +207,8 @@ def post_process_WhyAugment(results_dir, k_plot=None, J_plot=None, figs_dir=None
 # ==================================================================================================================
 
 
-def post_process_single(filter_ens, truth, params, filename=None, mic=0, reference_p=None, plot_params=False):
-    t_obs, obs = truth['t_obs'], truth['p_obs']
+def post_process_single(filter_ens, truth, filename=None, mic=0, reference_p=None, plot_params=False):
+    t_obs, obs = truth['t_obs'], truth['y_obs']
 
     num_DA_blind = filter_ens.num_DA_blind
     num_SE_only = filter_ens.num_SE_only
@@ -236,7 +235,7 @@ def post_process_single(filter_ens, truth, params, filename=None, mic=0, referen
 
     y_truth = interpolate(truth['t'], truth['y'][:, mic], t)
 
-    std = np.std(y_filter[:, :], axis=1)
+    std = abs(np.std(y_filter[:, :], axis=1))
 
     # %% PLOT time series ------------------------------------------------------------------------------------------
 
@@ -257,11 +256,11 @@ def post_process_single(filter_ens, truth, params, filename=None, mic=0, referen
               [t[-1] - 2 * filter_ens.t_CR, t[-1]],
               [t[0], t[-1]]]
 
-    if filter_ens.bias is not None:
-        if filter_ens.bias.N_wash > 0:
-            t_wash, wash = filter_ens.bias.wash_time, filter_ens.bias.wash_obs[:, mic]
-        b_obs = y_truth - y_mean
-        y_lims_b = [np.min(b_obs[:N_CR]) * 1.1, np.max(b_obs[:N_CR]) * 1.1] / norm
+    if filter_ens.bias.name != 'None' and hasattr(filter_ens.bias, 'N_wash'):
+        t_wash, wash = filter_ens.bias.wash_time, filter_ens.bias.wash_obs[:, mic]
+
+    b_obs = y_truth - y_mean
+    y_lims_b = [np.min(b_obs[:N_CR]) * 1.1, np.max(b_obs[:N_CR]) * 1.1] / norm
 
     if filter_ens.est_a:
         hist, hist_t = filter_ens.hist, filter_ens.hist_t
@@ -280,7 +279,7 @@ def post_process_single(filter_ens, truth, params, filename=None, mic=0, referen
         ii = filter_ens.Nphi
         for p in filter_ens.est_a:
             m = hist_mean[:, ii].squeeze() / reference_p[p]
-            s = np.std(hist[:, ii] / reference_p[p], axis=1)
+            s = abs(np.std(hist[:, ii] / reference_p[p], axis=1))
             max_p, min_p = max(max_p, max(m + 2 * s)), min(min_p, min(m - 2 * s))
             labels_p.append(norm_lbl(filter_ens.param_labels[p]))
             mean_p.append(m)
@@ -292,17 +291,18 @@ def post_process_single(filter_ens, truth, params, filename=None, mic=0, referen
         axs[0].plot(t, y_truth / norm, color=color_true, linewidth=5, label='t')
         axs[0].plot(t, y_unbiased / norm, '-', color=color_unbias, linewidth=1., label='u')
         axs[0].plot(t, y_mean / norm, '--', color=color_bias, linewidth=1., alpha=0.9, label='b')
-        axs[0].fill_between(t, y_mean / norm + abs(std) / norm, y_mean / norm - abs(std) / norm, alpha=0.4,
-                            color='lightseagreen')
+        axs[0].fill_between(t, (y_mean + std) / norm, (y_mean - std) / norm, alpha=0.2, color='lightseagreen')
+        for mi in range(y_filter.shape[1]):
+            axs[0].plot(t, y_filter[:, mi] / norm, lw=.5, color='lightseagreen')
+
         axs[0].plot(t_obs, obs / norm, '.', color=color_obs, markersize=6, label='o')
         axs[0].set(ylim=y_lims)
 
         # BIAS ---------------------------------------------------------------------
-        if filter_ens.bias is not None:
-            if filter_ens.bias.name == 'ESN':
-                axs[0].plot(t_wash, wash / norm, '.', color=color_obs, markersize=6)
-            axs[1].plot(t, b_obs / norm, color=color_b, label='O', alpha=0.4, linewidth=3)
-            axs[1].plot(t_b, b / norm, color=color_b, label='ESN', linewidth=.8)
+        if 'wash' in locals().keys():
+            axs[0].plot(t_wash, wash / norm, '.', color=color_obs, markersize=6)
+        axs[1].plot(t, b_obs / norm, color=color_b, label='O', alpha=0.4, linewidth=3)
+        axs[1].plot(t_b, b / norm, color=color_b, label=filter_ens.bias.name, linewidth=.8)
 
         # PARAMS ---------------------------------------------------------------------
         # if filter_ens.est_a:
@@ -312,21 +312,15 @@ def post_process_single(filter_ens, truth, params, filename=None, mic=0, referen
         #         axs[2].fill_between(hist_t, m + s, m - s, alpha=0.2, color=c)
 
     for axs in [ax_all]:
-        if filter_ens.bias is not None:
-            axs[0].plot(t, b_obs / norm, color=color_b, label='O', alpha=0.4, linewidth=3)
-            axs[0].plot(t_b, b / norm, color=color_b, label='ESN', linewidth=.8)
-            axs[0].set(ylabel=ylbls[0][1], xlim=x_lims[-1], ylim=y_lims_b)
+        axs[0].plot(t, b_obs / norm, color=color_b, label='O', alpha=0.4, linewidth=3)
+        axs[0].plot(t_b, b / norm, color=color_b, label=filter_ens.bias.name, linewidth=.8)
+        axs[0].set(ylabel=ylbls[0][1], xlim=x_lims[-1], ylim=y_lims_b)
         # PARAMS-----------------------
         if filter_ens.est_a:
             for p, m, s, c, lbl in zip(filter_ens.est_a, mean_p, std_p, colors_alpha, labels_p):
                 axs[1].plot(hist_t, m, color=c, label=lbl)
                 axs[1].set(xlabel='$t$')
-                axs[1].fill_between(hist_t, m + abs(s), m - abs(s), alpha=0.2, color=c)
-
-                # if filter_ens.param_lims[p][0] is not None and filter_ens.param_lims[p][1] is not None:
-                #     for lim in [filter_ens.param_lims[p][0] / reference_p[p],
-                #                 filter_ens.param_lims[p][1] / reference_p[p]]:
-                #         axs[1].plot([hist_t[0], hist_t[-1]], [lim, lim], '--', color=c, lw=2, alpha=0.5)
+                axs[1].fill_between(hist_t, m + s, m - s, alpha=0.2, color=c)
 
             axs[1].set(xlabel='$t$ [s]', ylabel="", xlim=x_lims[-1], ylim=[min_p, max_p])
             axs[1].plot((t_obs[0], t_obs[0]), (min_p, max_p), '--', color='k', linewidth=.8)  # DA window
@@ -647,7 +641,7 @@ def plot_parameters(filter_ens, truth, filename=None, reference_p=None):
         ii = filter_ens.Nphi
         for p in filter_ens.est_a:
             m = hist_mean[:, ii].squeeze() / reference_p[p]
-            s = np.std(hist[:, ii] / reference_p[p], axis=1)
+            s = abs(np.std(hist[:, ii] / reference_p[p], axis=1))
             labels_p.append(norm_lbl(filter_ens.param_labels[p]))
             mean_p.append(m)
             std_p.append(s)
@@ -685,6 +679,7 @@ def plot_parameters(filter_ens, truth, filename=None, reference_p=None):
             plt.savefig(filename + '_params.svg', dpi=350)
 
 # ==================================================================================================================
+
 
 def plot_Lk_contours(folder, filename='contour'):
     data_file = folder + 'CR_data'
@@ -885,9 +880,9 @@ def plot_Rijke_animation(folder, figs_dir):
         print(pi)
         ii = filter_ens.Nphi + pi
         alpha_BA.append(np.mean(hist_BA[:, ii], -1) / reference_p[p])
-        std_BA.append(np.std(hist_BA[:, ii] / reference_p[p], axis=1))
+        std_BA.append(abs(np.std(hist_BA[:, ii] / reference_p[p], axis=1)))
         alpha_BB.append(np.mean(hist_BB[:, ii], -1) / reference_p[p])
-        std_BB.append(np.std(hist_BB[:, ii] / reference_p[p], axis=1))
+        std_BB.append(abs(np.std(hist_BB[:, ii] / reference_p[p], axis=1)))
 
     max_p = max([np.max(np.array(a) + np.array(s)) for a, s in zip([alpha_BA, alpha_BB], [std_BA, std_BB])])
     min_p = min([np.min(np.array(a) - np.array(s)) for a, s in zip([alpha_BA, alpha_BB], [std_BA, std_BB])])
@@ -916,9 +911,9 @@ def plot_Rijke_animation(folder, figs_dir):
         ax1.plot([filter_ens.x_mic[0], filter_ens.x_mic[0]], [-max_v, max_v], '--',
                  color='firebrick', linewidth=4, alpha=0.2)
         for yy, c, l in zip([y_BA[ai], y_BB[ai]], [color_bias, 'orange'], ['-', '--']):
-            y_mean, y_std = np.mean(yy, -1), np.std(yy, -1)
+            y_mean, y_std = np.mean(yy, -1), abs(np.std(yy, -1))
             ax1.plot(locs, y_mean, l, color=c)
-            ax1.fill_between(locs, y_mean + abs(y_std), y_mean - abs(y_std), alpha=0.1, color=c)
+            ax1.fill_between(locs, y_mean + y_std, y_mean - y_std, alpha=0.1, color=c)
         # # Plot observables
         # if any(abs(t_gif[ii] - truth['t_obs']) < 1E-6):
         #     jj = np.argmin(abs(t_gif[ai] - truth['t_obs']))
@@ -951,8 +946,8 @@ def plot_Rijke_animation(folder, figs_dir):
         ax2[0].legend(pressure_legend, bbox_to_anchor=(1., 1.), loc="upper left", ncol=1, fontsize='small')
         for yy, c, l in zip([y_BA_tt, y_BB_tt], [color_bias, 'orange'], ['-', '--']):
             yy = interpolate(filter_ens.hist_t, yy, tt_)
-            y_std = np.std(yy, -1)
-            ax2[0].fill_between(tt_, y_mean + abs(y_std), y_mean - abs(y_std), alpha=0.1, color=c)
+            y_std = abs(np.std(yy, -1))
+            ax2[0].fill_between(tt_, y_mean + y_std, y_mean - y_std, alpha=0.1, color=c)
         # # Plot obs data ------------------------------------------------------------------------
         t11_o = np.argmin(abs(truth['t_obs'] - t_g))
         t00_o = np.argmin(abs(truth['t_obs'] - (t_g - filter_ens.t_CR / 2.)))

@@ -11,7 +11,6 @@ from scipy.integrate import solve_ivp
 import multiprocessing as mp
 from functools import partial
 from copy import deepcopy
-from datetime import date
 
 from matplotlib.animation import FuncAnimation
 
@@ -34,11 +33,10 @@ class Model:
     """
     attr_model: dict = dict(t=0.,
                             psi0=np.empty(1),
-                            alpha0=np.empty(1)
                             )
     attr_ens: dict = dict(filter='EnKF',
                           constrained_filter=False,
-                          regularization_factor=0.,
+                          regularization_factor=1.,
                           m=10,
                           dt_obs=None,
                           est_a=(),
@@ -82,6 +80,7 @@ class Model:
         self.hist_J = []
         # ========================== DEFINE LENGTHS ========================== ##
         self.Na = 0
+        self.precision_t = int(-np.log10(self.dt)) + 2
 
     @property
     def Nphi(self):
@@ -185,7 +184,7 @@ class Model:
         # --------------- RESET INITIAL CONDITION AND HISTORY --------------- ##
         # Note: if est_a and est_b psi = [psi; alpha; biasWeights]
         ensure_mean = self.ensure_mean
-        mean_psi = np.array(self.psi0)  # * rng.uniform(0.9, 1.1, len(self.psi0))
+        mean_psi = np.array(self.psi0) * rng.uniform(0.9, 1.1, len(self.psi0))
         new_psi0 = self.addUncertainty(mean_psi, self.std_psi, self.m,
                                        method='normal', ensure_mean=ensure_mean)
 
@@ -200,9 +199,13 @@ class Model:
         self.updateHistory(psi=new_psi0, reset=True)
 
     def initBias(self, **Bdict):
+
+        if 'biasType' in Bdict.keys():
+            self.biasType = Bdict['biasType']
+
         # Assign some required items
         for key, default_value in zip(['t_val', 't_train', 't_test'],
-                                      [self.t_CR, self.t_transient, self.t_CR*2]):
+                                      [self.t_CR, self.t_transient, self.t_CR]):
             if key not in Bdict.keys():
                 Bdict[key] = default_value
 
@@ -291,31 +294,38 @@ class Model:
                 psi: forecasted state (Nt x N x m)
                 t: time of the propagated psi
         """
-        t = np.linspace(self.t, self.t + Nt * self.dt, Nt + 1)
+        # t = np.linspace(self.t, self.t + Nt * self.dt, Nt + 1)
+        t = np.round(self.t + np.arange(0, Nt+1) * self.dt, self.precision_t)
+
         self_dict = self.govEqnDict()
 
         if not self.ensemble:
             psi = [Model.forecast(self.psi[:, 0], self.timeDerivative, t, params=self_dict, alpha=self.alpha0)]
-            psi = np.array(psi).transpose(1, 2, 0)
-            return psi[1:], t[1:]
 
-        if not averaged:
-            alpha = self.getAlpha()
-            fun_part = partial(Model.forecast, fun=self.timeDerivative, t=t, params=self_dict)
-            sol = [self.pool.apply_async(fun_part, kwds={'y0': self.psi[:, mi].T, 'alpha': alpha[mi]})
-                   for mi in range(self.m)]
-            psi = [s.get() for s in sol]
         else:
-            psi_mean = np.mean(self.psi, 1, keepdims=True)
-            psi_std = (self.psi - psi_mean) / psi_mean
-            if alpha is None:
-                alpha = self.getAlpha(psi_mean)[0]
-            psi_mean = Model.forecast(y0=psi_mean[:, 0], fun=self.timeDerivative, t=t, params=self_dict, alpha=alpha)
-            psi = [psi_mean * (1 + psi_std[:, ii]) for ii in range(self.m)]
+            if not averaged:
+                alpha = self.getAlpha()
+                fun_part = partial(Model.forecast, fun=self.timeDerivative, t=t, params=self_dict)
+                sol = [self.pool.apply_async(fun_part, kwds={'y0': self.psi[:, mi].T, 'alpha': alpha[mi]})
+                       for mi in range(self.m)]
+                psi = [s.get() for s in sol]
+            else:
+                psi_mean0 = np.mean(self.psi, 1, keepdims=True)
+                psi_deviation = self.psi - psi_mean0
+
+                if alpha is None:
+                    alpha = self.getAlpha(psi_mean0)[0]
+                psi_mean = Model.forecast(y0=psi_mean0[:, 0], fun=self.timeDerivative, t=t,
+                                          params=self_dict, alpha=alpha)
+
+                if np.mean(np.std(self.psi[:len(self.psi0)]/np.array([self.psi0]).T, axis=0)) < 2.:
+                    psi_deviation /= psi_mean0
+                    psi = [psi_mean * (1 + psi_deviation[:, ii]) for ii in range(self.m)]
+                else:
+                    psi = [psi_mean + psi_deviation[:, ii] for ii in range(self.m)]
 
         # Rearrange dimensions to be Nt x N x m and remove initial condition
-
-        psi = np.array(psi).transpose(1, 2, 0)
+        psi = np.array(psi).transpose((1, 2, 0))
         return psi[1:], t[1:]
 
 
@@ -328,7 +338,7 @@ class VdP(Model):
     """
 
     name: str = 'VdP'
-    attr: dict = dict(dt=1E-4, t_transient=1.5, t_CR=0.04,
+    attr: dict = dict(dt=1.0E-4, t_transient=1.5, t_CR=0.04,
                       omega=2 * np.pi * 120., law='tan',
                       zeta=60., beta=70., kappa=4.0, gamma=1.7)  # beta, zeta [rad/s]
 
@@ -354,7 +364,7 @@ class VdP(Model):
 
     @property
     def obsLabels(self):
-        return "$\\eta$"  #, "$\\dot{\\eta}$"
+        return "$\\eta$"
 
     def getObservables(self, Nt=1):
         if Nt == 1:  # required to reduce from 3 to 2 dimensions
