@@ -695,46 +695,21 @@ def run_ESN_test(dim=3,  # Number of dimensions the ESN predicts
     return ESN_case, model
 
 
-def Jacobian_numerical_test(ESN_case, epsilon_range=(-10, 3), open_loop=True):
-
-    # Analytical Jacobian
-    J_analytical = ESN_case.Jacobian(open_loop_J=open_loop)
-
-    # Numerical Jacobian
-    errors = []
-    epsilons = np.arange(*epsilon_range, 0.1)
-
-    # u_out = ESN_case.closedLoop(Nt=1)[0][-1]
-    u_init, r_init = ESN_case.getReservoirState()
-    u_out = ESN_case.step(u_init, r_init)[0]
-
-    # print('start : \t', u_init, u_out, np.linalg.norm(J_analytical))
-    for epsilon in epsilons:
-        eps = 10. ** epsilon
-        J_numerical = np.zeros([ESN_case.N_dim, ESN_case.N_dim])
-        for qi in range(ESN_case.N_dim):
-            u_tilde = u_init.copy()
-            u_tilde[qi] = u_tilde[qi] + eps
-            u_out_tilde = ESN_case.step(u_tilde, r_init.copy())[0]
-            J_numerical[:, qi] = (u_out_tilde - u_out) / eps
-
-        # Check difference
-        errors.append(np.linalg.norm(J_analytical - J_numerical) / np.linalg.norm(J_analytical))
-        # print('eps={}:\t'.format(epsilon), u_tilde, u_out_tilde, np.linalg.norm(J_numerical))
-
-    plt.figure(figsize=[12, 9], layout="tight")
-    plt.semilogy(-epsilons, errors, 'rx')
-    plt.xlabel('$-\\log_{10}(\\epsilon)$')
 
 if __name__ == '__main__':
-    plot_test_Jacobian = True
+    from Util import Jacobian_numerical_test
 
     # ============================= TEST ESN BY FORECASTING LORENZ63 =================================== #
     t_lyap = 0.906 ** (-1)  # Lyapunov Time (inverse of largest Lyapunov exponent
-    ESN, forecast_model = run_ESN_test(dim=3, num_tests=0)
+    ESN_case, forecast_model = run_ESN_test(dim=3, num_tests=0)
+
 
     # ============================= TEST IF JACOBIAN PROPERLY DEFINED =================================== #
+    J_ESN = ESN_case.Jacobian(open_loop_J=True)
 
-    Jacobian_numerical_test(ESN, open_loop=False)
+    u_init, r_init = ESN_case.getReservoirState()
+    fun = partial(ESN_case.step, r=r_init)
+
+    Jacobian_numerical_test(J_ESN, step_function=fun, y_init=u_init, y_out_idx=0)
 
     plt.show()
