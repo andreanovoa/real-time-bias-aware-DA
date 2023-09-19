@@ -16,44 +16,43 @@ from skopt.plots import plot_convergence
 
 from scipy.sparse import csr_matrix, lil_matrix
 from scipy.sparse.linalg import eigs as sparse_eigs
+import scipy.sparse.linalg as sla
 
 
 class EchoStateNetwork:
-    defaults = dict(N_units=100,
-                    upsample=5,
-                    L=1,
-                    wash_obs=None,
-                    wash_time=None,
-                    perform_test=True,
-                    augment_data=False,
-                    connect=5,
-                    initialised=False,
+    defaults = dict(augment_data=False,
                     bias_in=None,  # np.array([0.1]),
                     bias_out=np.array([1.0]),
-                    # Validation & training parameters
-                    N_ensemble=1,
+                    connect=5,
+                    initialised=False,
+                    L=1,
+                    N_ensemble=1,  # TODO
+                    N_folds=4,
+                    N_func_evals=20,
+                    N_grid=4,
+                    N_initial_rand=0,
+                    N_random_points=0,
+                    N_split=4,
+                    N_units=100,
+                    N_wash=50,
+                    perform_test=True,
+                    seed_W=1,
                     t_val=0.1,
                     t_train=1.0,
                     t_test=0.5,
-                    N_wash=50,
-                    seed_W=1,
-                    N_func_evals=20,
-                    N_random_points=0,
-                    N_grid=4,
-                    N_folds=4,
-                    N_split=4,
-                    N_initial_rand=0,
-                    # Default hyperparameters
-                    rho=0.9,
-                    sigma_in=-4,
+                    upsample=5,
+                    wash_obs=None,
+                    wash_time=None,
+                    # Default hyperparameters and optimization ranges
                     noise=0.2,
-                    tikh=1e-12,
-                    # Hyperparameter optimization
+                    noise_range=(0.05, 0.5),  # TODO: add noise to optimization. Same as Tikhonov
                     optimize_hyperparams=['rho', 'sigma_in', 'tikh'],
-                    tikh_range=[1e-10, 1e-12, 1e-16],
-                    sigma_in_range=(-5, -1),
+                    rho=0.9,
                     rho_range=(.8, 1.05),
-                    noise_range=(0.05, 0.5)  # TODO: add noise to optimization. Same as Tikhonov
+                    sigma_in=-4,
+                    sigma_in_range=(-5, -1),
+                    tikh=1e-12,
+                    tikh_range=[1e-10, 1e-12, 1e-16],
                     )
 
     # Use slots rather than dict to save memory
@@ -99,7 +98,19 @@ class EchoStateNetwork:
     @property
     def WCout(self):
         if self._WCout is None:
-            self._WCout = la.lstsq(self.Wout[:-1], self.W)[0]
+            dW = self.W.toarray()
+
+            # from scipy.sparse import issparse
+            #
+            # print(issparse(self.W))
+            # print(type(dW), type(dW[0]), dW.shape)
+
+            self._WCout = np.linalg.lstsq(self.Wout[:-1], dW, rcond=None)[0]
+            # self._WCout = sla.minres(self.Wout[:-1], dW)[0]
+
+            # print(self.Wout[:-1].shape, dW.shape, self._WCout.shape, type(self._WCout[0]))
+            # raise
+
         return self._WCout
 
     @property
@@ -126,7 +137,7 @@ class EchoStateNetwork:
         # Get current state
         u_in, r_in = self.getReservoirState()
 
-        Win_1 = self.Win[:, self.N_dim]
+        Win_1 = self.Win[:, :self.N_dim]
         Wout_1 = self.Wout[:self.N_units, :].T
 
         # # Option(i) rin function of bin:
@@ -134,12 +145,13 @@ class EchoStateNetwork:
             rout = self.step(u_in, r_in)[1]
             dr_di = self.sigma_in * Win_1 / self.norm
         else:
-            b_aug = np.concatenate((u_in / self.norm, np.array([self.bias_in])))
-            rout = np.tanh(np.dot(b_aug * self.sigma_in, self.Win) + self.rho * np.dot(u_in, self.WCout))
-            dr_di = self.sigma_in * Win_1 / self.norm + self.rho * self.WCout.transpose()
+            u_aug = np.concatenate((u_in / self.norm, self.bias_in))
+            rout = np.tanh(self.sigma_in * self.Win.dot(u_aug) + self.rho * np.dot(self.WCout.T, u_in))
+            dr_di = self.sigma_in * Win_1 / self.norm + self.rho * self.WCout.T
+            # raise NotImplementedError('Numerical test did not pass')
 
         # Compute Jacobian
-        T = 1 - rout ** 2
+        T = 1. - rout ** 2
         return np.dot(Wout_1, np.array(dr_di) * np.expand_dims(T, 1))
 
     # ___________________________________________________________________________________ FUNCTIONS TO FORECAST THE ESN
@@ -154,14 +166,14 @@ class EchoStateNetwork:
         # Normalise input data and augment with input bias (ESN symmetry parameter)
         u_aug = np.concatenate((u / self.norm, self.bias_in))
         # Forecast the reservoir state
-        r_out = np.tanh(self.Win.dot(u_aug * self.sigma_in) + self.W.dot(self.rho * r))
+        r_out = np.tanh(self.sigma_in * self.Win.dot(u_aug) + self.rho * self.W.dot(r))
         # output bias added
         r_aug = np.concatenate((r_out, self.bias_out))
         # compute output from ESN if not during training
         u_out = np.dot(r_aug, self.Wout)
         return u_out, r_out
 
-    def openLoop(self, u_wash, extra_closed=False):
+    def openLoop(self, u_wash, extra_closed=0):
         """ Initialises ESN in open-loop.
             Input:
                 - U_wash: washout input time series
@@ -171,7 +183,7 @@ class EchoStateNetwork:
         """
         Nt = u_wash.shape[0] - 1
         if extra_closed:
-            Nt += 1
+            Nt += extra_closed
 
         r = np.empty((Nt + 1, self.N_units))
         u = np.empty((Nt + 1, self.N_dim))
@@ -264,27 +276,23 @@ class EchoStateNetwork:
             os.makedirs(folder + 'figs_ESN', exist_ok=True)
             pdf = plt_pdf.PdfPages(folder + 'figs_ESN/' + self.filename + '_Training.pdf')
             if plot_training:
-
-                # Plot Bayesian optimization convergence
                 fig = plt.figure()
+                # Plot Bayesian optimization convergence
                 plot_convergence(res)
-                pdf.savefig(fig)
-                plt.close(fig)
+                add_pdf_page(pdf, fig)
 
                 # Plot Gaussian Process reconstruction for each network in the ensemble after n_tot evaluations.
                 # The GP reconstruction is based on the n_tot function evaluations decided in the search
-
                 if len(hp_names) >= 2:  # plot GP reconstruction
                     gp = res.models[-1]
-                    x_iters = np.array(res.x_iters)
+                    res_x = np.array(res.x_iters)
 
                     for hpi in range(len(hp_names) - 1):
                         range_1 = getattr(self, hp_names[hpi] + '_range')
                         range_2 = getattr(self, hp_names[hpi + 1] + '_range')
 
                         n_len = 100  # points to evaluate the GP at
-                        xx, yy = np.meshgrid(np.linspace(*range_1, n_len),
-                                             np.linspace(*range_2, n_len))
+                        xx, yy = np.meshgrid(np.linspace(*range_1, n_len), np.linspace(*range_2, n_len))
 
                         x_x = np.column_stack((xx.flatten(), yy.flatten()))
                         x_gp = res.space.transform(x_x.tolist())  # gp prediction needs norm. format
@@ -295,27 +303,27 @@ class EchoStateNetwork:
                         plt.ylabel(hp_names[hpi + 1])
 
                         # retrieve the gp reconstruction
-                        amin = np.amin([10, f_iters.max()])
+                        amin = np.amin([10, np.max(f_iters)])
 
                         # Final GP reconstruction for each realization at the evaluation points
-                        y_pred = np.clip(-gp.predict(x_gp), a_min=-amin, a_max=-f_iters.min()).reshape(n_len, n_len)
+                        y_pred = np.clip(-gp.predict(x_gp), a_min=-amin, a_max=-np.min(f_iters)).reshape(n_len, n_len)
 
                         plt.contourf(xx, yy, y_pred, levels=20, cmap='Blues')
                         cbar = plt.colorbar()
-                        cbar.set_label('-$\log_{10}$(MSE)', labelpad=15)
+                        cbar.set_label('-$\\log_{10}$(MSE)', labelpad=15)
                         plt.contour(xx, yy, y_pred, levels=20, colors='black', linewidths=1, linestyles='solid',
                                     alpha=0.3)
                         #   Plot the n_tot search points
-                        plt.plot(x_iters[:self.N_grid ** 2, 0], x_iters[:self.N_grid ** 2, 1], 'v', c='w',
-                                 alpha=0.8, markeredgecolor='k', markersize=10)
-                        plt.plot(x_iters[self.N_grid ** 2:, 0], x_iters[self.N_grid ** 2:, 1], 's', c='w',
-                                 alpha=0.8, markeredgecolor='k', markersize=8)
+                        for rx, mk, c in zip([res_x[:self.N_grid**2], res_x[self.N_grid**2:]], ['v', 's'], ['k', 'w']):
+                            plt.plot(rx[:, 0], rx[:, 1], mk, c='w', alpha=.8, mec=c, ms=8)
+                        # Plot best point
+                        best_idx = np.argmin(f_iters)
+                        print(best_idx)
+                        plt.plot(res_x[best_idx, 0], res_x[best_idx, 1], 'xr', alpha=.8, mec='r', ms=8)
                         pdf.savefig(fig)
                         plt.close(fig)
             if self.perform_test:
-                # Run test
-                self.run_test(U_test, pdf_file=pdf)
-
+                self.run_test(U_test, pdf_file=pdf)   # Run test
             pdf.close()  # Close training results pdf
 
     def generate_W_Win(self, seed=1):
@@ -329,8 +337,7 @@ class EchoStateNetwork:
 
         # Reservoir state matrix: Erdos-Renyi network
         W = csr_matrix(rnd0.uniform(-1, 1, (self.N_units, self.N_units)) *
-                       (rnd0.rand(self.N_units, self.N_units) < (1 - self.sparse))
-                       )
+                       (rnd0.rand(self.N_units, self.N_units) < (1 - self.sparse)))
         # scale W by the spectral radius to have unitary spectral radius
         spectral_radius = np.abs(sparse_eigs(W, k=1, which='LM', return_eigenvectors=False))[0]
         self.W = (1. / spectral_radius) * W
@@ -384,14 +391,13 @@ class EchoStateNetwork:
         N_tv = self.N_train + self.N_val
         N_wtv = self.N_wash + N_tv  # useful for compact code later
 
-
         if train_data.shape[1] < N_wtv:
             print(train_data.shape, N_wtv)
             raise ValueError('Increase the length of the training data signal')
 
         U_wtv = train_data[:, :N_wtv - 1].copy()
         Y_tv = train_data[:, self.N_wash + 1:N_wtv].copy()
-        U_test = train_data[:, N_wtv + 1:].copy()
+        U_test = train_data[:, N_wtv:].copy()
 
         # compute norm (normalize inputs by component range)
         m = np.mean(U_wtv.min(axis=1), axis=0)
@@ -528,22 +534,22 @@ class EchoStateNetwork:
             os.makedirs(folder + 'figs_ESN', exist_ok=True)
             pdf_file = plt_pdf.PdfPages(folder + 'figs_ESN/' + self.filename + '_Test.pdf')
 
-        # Testing window
-        N_test = self.N_test
-
         # Number of tests (with a maximum of 10)
-        max_test_time = np.shape(U_test)[1]
-        total_tests = min(10, int(np.floor(max_test_time / N_test)))
+        N_test = self.N_test  # Testing window
+        max_test_time = np.shape(U_test)[1] - self.N_wash
+
+        print(N_test, max_test_time)
+
+        total_tests = min(10, int(np.floor(max_test_time / self.N_test)))
 
         # Break if not enough train_data for testing
         if total_tests < 1:
             print('Test not performed. Not enough train_data')
         else:
             medians_alpha, max_alpha = [], -np.inf
-
             for U_test_l in U_test:
                 subplots = min(10, total_tests)  # number of plotted intervals
-                plt.subplots(subplots, 1, figsize=[10, 2 * subplots])
+                fig, _ = plt.subplots(subplots, 1, figsize=[10, 2 * subplots], sharex='all', layout='tight')
                 errors = np.zeros(total_tests)
                 # Different intervals in the test set
                 ti, dim_i = -N_test, -1
@@ -575,105 +581,33 @@ class EchoStateNetwork:
                     if dim_i == self.N_dim - 1:
                         dim_i = -1
 
-                max_alpha = max(max_alpha, errors.max())
+                max_alpha = max(max_alpha, max(errors))
                 medians_alpha.append(np.median(errors))
                 # Save to pdf
-                plt.tight_layout()
-                fig = plt.gcf()
-                pdf_file.savefig(fig)
-                plt.close(fig)
+                add_pdf_page(pdf_file, fig)
+
             print('Median and max error in', self.L, ' test:', np.median(medians_alpha), max_alpha)
 
 
-def test_ESN(test_model, plot=False):
+def add_pdf_page(pdf, fig):
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
+def run_ESN_test(dim=3,  # Number of dimensions the ESN predicts
+                 upsample=5,  # to increase the dt of the ESN wrt the numerical integrator
+                 num_tests=0):
+    from physical_models import Lorenz63
+    rnd = np.random.RandomState(0)
     # Create signal to predict ---------------------------------
     # Note: Does not need to be a class. Any signal can be used as U
-
-    model = test_model({'dt': dt_ESN / upsample,
-                        'psi0': rnd.random(3)  # initial random condition
-                        })
-
-    fig1 = plt.figure(figsize=[12, 9], layout="tight")
-    axs = fig1.subplots(3, 2, sharex='col', sharey='row')
-
-    N_wtv = int(N_washout+N_train+N_val)
-
-    for Nt in [int(N_transient), N_wtv]:
-        state1, t1 = model.timeIntegrate(Nt * upsample)
-        model.updateHistory(state1, t1)
-        yy = model.getObservableHist(len(t1))
-        if plot:
-            for ii, ax in enumerate(axs[:, 0]):
-                ax.plot(t1 / t_lyap, yy[:, ii], '.-')
-                ax.set(ylabel=model.obsLabels[ii])
-
-
-    # number of time steps for washout, train, validation, test
-    yy = model.getObservableHist(N_wtv * upsample)
-    U = yy[:, :dim].transpose(2, 0, 1)
-
-    ESN_case = EchoStateNetwork(U[0, 0], dt=dt_ESN / upsample, **params_ESN)
-    ESN_case.train(U, validation_strategy=EchoStateNetwork.RVC_Noise)
-
-    # Initialise ESN
-    y_wash = model.getObservableHist(int(N_washout) * upsample)
-    u_wash_data = y_wash[::upsample, :dim, 0]
-    u_wash, r_wash = ESN_case.openLoop(u_wash_data)
-    for key, val in zip(['u', 'r'], [u_wash[-1], r_wash[-1]]):
-        setattr(ESN_case, key, val)
-
-    if plot:
-        t_wash = t1[-int(N_washout) * upsample::upsample]
-        print(t_wash.shape, y_wash.shape, u_wash.shape, u_wash_data.shape)
-        for ii, ax in enumerate(axs[:, 0]):
-            if ii < ESN_case.N_dim:
-                ax.plot(t_wash / t_lyap, u_wash_data[:, ii], 'x-')
-                # ax.plot(t_wash[-1], ESN_case.u[ii], '*-', ms=12)
-
-    # Forecast model and ESN and compare
-    state2, t2 = model.timeIntegrate(int(N_test) * upsample)
-    model.updateHistory(state2, t2)
-    yy = model.getObservableHist(len(t2))
-
-    print(ESN_case.upsample)
-
-    t2_up = t2[::ESN_case.upsample]
-    u_closed = ESN_case.closedLoop(len(t2_up))[0]
-
-    if plot:
-        for ii, ax in enumerate(axs[:, -1]):
-            ax.plot(t2 / t_lyap, yy[:, ii], '.-')
-            ax.set(ylim=[min(yy[:, ii]), max(yy[:, ii])])
-            if ii < ESN_case.N_dim:
-                ax.plot(t2_up / t_lyap, u_closed[1:, ii], 'x-')
-
-        t1 = t2_up[0] / t_lyap
-        t2 = t2_up[-1] / t_lyap
-        # t2 = t1 + N_test / N_lyap
-
-        for ax, xl in zip(axs[-1, :], [[0, t1+.5], [t1-.1, t2]]):
-            ax.set(xlabel='Lyapunov times', xlim=xl)
-        for ax, leg in zip(axs[0, :], [['transient', 'training + val set', 'ESN washout'],
-                                       ['test set', 'ESN prediction']]):
-            ax.legend(leg, ncols=3, loc='lower center', bbox_to_anchor=(0.5, 1.0))
-        plt.show()
-
-
-if __name__ == '__main__':
-    from physical_models import Lorenz63
-
-    rnd = np.random.RandomState(0)
-
-    dim = 3 # Number of dimensions the ESN predicts
-    upsample = 5  # to increase the dt of the ESN wrt the numerical integrator
-    t_lyap = 0.906 ** (-1)  # Lyapunov Time (inverse of largest Lyapunov exponent
-
     dt_ESN = 0.015 * upsample  # time step
-
     N_lyap = t_lyap / dt_ESN  # number of time steps in one Lyapunov time
-
     # number of time steps for washout, train, validation, test
-    N_transient, N_train, N_val, N_washout, N_test = [n * N_lyap for n in (20, 60, 5, 5, 20)]
+    N_transient, N_train, N_val, N_washout, N_test = [n * N_lyap for n in (20, 60, 5, 5, 10)]
+
+    model = Lorenz63(**{'dt': dt_ESN / upsample,
+                        'psi0': rnd.random(3)})
 
     params_ESN = {'upsample': upsample,
                   't_train': N_train * dt_ESN,
@@ -692,4 +626,115 @@ if __name__ == '__main__':
                   'N_grid': 4,
                   'noise': 1e-5,
                   }
-    test_ESN(test_model=Lorenz63, plot=True)
+
+    N_wtv = int(N_washout + N_train + N_val + N_test * (num_tests + 1))
+
+    for Nt in [int(N_transient), N_wtv]:
+        state1, t1 = model.timeIntegrate(Nt * upsample)
+        model.updateHistory(state1, t1)
+
+    # number of time steps for washout, train, validation, test
+    yy = model.getObservableHist(N_wtv * upsample)
+    U = yy[:, :dim].transpose(2, 0, 1)
+
+    ESN_case = EchoStateNetwork(U[0, 0], dt=dt_ESN / upsample, **params_ESN)
+    ESN_case.train(U, validation_strategy=EchoStateNetwork.RVC_Noise)
+
+    # Initialise ESN
+    y_wash = model.getObservableHist(int(N_washout) * upsample)
+    u_wash_data = y_wash[::upsample, :dim, 0]
+    u_wash, r_wash = ESN_case.openLoop(u_wash_data)
+    for key, val in zip(['u', 'r'], [u_wash[-1], r_wash[-1]]):
+        setattr(ESN_case, key, val)
+
+    # Forecast model and ESN and compare
+    state2, t2 = model.timeIntegrate(int(N_test) * upsample)
+    model.updateHistory(state2, t2)
+    t2_up = t2[::ESN_case.upsample]
+    u_closed, r_closed = ESN_case.closedLoop(len(t2_up))
+
+    if num_tests:
+        fig1 = plt.figure(figsize=[12, 9], layout="tight")
+        axs = fig1.subplots(3, 2, sharex='col', sharey='row')
+        y_hist = model.getObservableHist()
+        i0 = 0
+        for i1 in [int(N_transient), N_wtv]:
+            t1 = model.hist_t[i0:i0 + i1 * upsample]
+            yy = y_hist[i0:i0 + i1 * upsample]
+            for ii, ax in enumerate(axs[:, 0]):
+                ax.plot(t1 / t_lyap, yy[:, ii], '.-')
+                ax.set(ylabel=model.obsLabels[ii])
+            i0 = i1 * upsample
+
+        t_wash = t1[-int(N_washout) * upsample::upsample]
+        print(t_wash.shape, y_wash.shape, u_wash.shape, u_wash_data.shape)
+
+        for ii, ax in enumerate(axs[:, 0]):
+            if ii < ESN_case.N_dim:
+                ax.plot(t_wash / t_lyap, u_wash_data[:, ii], 'x-')
+
+        for axs_col in [axs[:, 0], axs[:, 1]]:
+            t1 = model.hist_t[-int(N_test) * upsample:]
+            yy = y_hist[-int(N_test) * upsample:]
+            for ii, ax in enumerate(axs_col):
+                ax.plot(t1 / t_lyap, yy[:, ii], '.-', color='k', lw=2, alpha=.8)
+                ax.set(ylim=[min(yy[:, ii]), max(yy[:, ii])])
+                if ii < ESN_case.N_dim:
+                    ax.plot(t1[::upsample] / t_lyap, u_closed[1:, ii], 'x--', color='r')
+
+        t1 = t2_up[0] / t_lyap
+        t2 = t2_up[-1] / t_lyap
+
+        for ax, xl in zip(axs[-1, :], [[0, t1 + .5], [t1 - .1, t2]]):
+            ax.set(xlabel='Lyapunov times', xlim=xl)
+        for ax, leg in zip(axs[0, :], [['transient', 'training + val set', 'ESN washout'],
+                                       ['test set', 'ESN prediction']]):
+            ax.legend(leg, ncols=3, loc='lower center', bbox_to_anchor=(0.5, 1.0))
+
+    ESN_case.reset_state(u=u_closed[-1], r=r_closed[-1])
+    return ESN_case, model
+
+
+def Jacobian_numerical_test(ESN_case, epsilon_range=(-10, 3), open_loop=True):
+
+    # Analytical Jacobian
+    J_analytical = ESN_case.Jacobian(open_loop_J=open_loop)
+
+    # Numerical Jacobian
+    errors = []
+    epsilons = np.arange(*epsilon_range, 0.1)
+
+    # u_out = ESN_case.closedLoop(Nt=1)[0][-1]
+    u_init, r_init = ESN_case.getReservoirState()
+    u_out = ESN_case.step(u_init, r_init)[0]
+
+    # print('start : \t', u_init, u_out, np.linalg.norm(J_analytical))
+    for epsilon in epsilons:
+        eps = 10. ** epsilon
+        J_numerical = np.zeros([ESN_case.N_dim, ESN_case.N_dim])
+        for qi in range(ESN_case.N_dim):
+            u_tilde = u_init.copy()
+            u_tilde[qi] = u_tilde[qi] + eps
+            u_out_tilde = ESN_case.step(u_tilde, r_init.copy())[0]
+            J_numerical[:, qi] = (u_out_tilde - u_out) / eps
+
+        # Check difference
+        errors.append(np.linalg.norm(J_analytical - J_numerical) / np.linalg.norm(J_analytical))
+        # print('eps={}:\t'.format(epsilon), u_tilde, u_out_tilde, np.linalg.norm(J_numerical))
+
+    plt.figure(figsize=[12, 9], layout="tight")
+    plt.semilogy(-epsilons, errors, 'rx')
+    plt.xlabel('$-\\log_{10}(\\epsilon)$')
+
+if __name__ == '__main__':
+    plot_test_Jacobian = True
+
+    # ============================= TEST ESN BY FORECASTING LORENZ63 =================================== #
+    t_lyap = 0.906 ** (-1)  # Lyapunov Time (inverse of largest Lyapunov exponent
+    ESN, forecast_model = run_ESN_test(dim=3, num_tests=0)
+
+    # ============================= TEST IF JACOBIAN PROPERLY DEFINED =================================== #
+
+    Jacobian_numerical_test(ESN, open_loop=False)
+
+    plt.show()

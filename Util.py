@@ -92,9 +92,9 @@ def interpolate(t_y, y, t_eval, method='cubic', ax=0, bound=False):
     return spline(t_eval)
 
 
-def getEnvelope(timeseries_x, timeseries_y):
+def getEnvelope(timeseries_x, timeseries_y, fill_value=0):
     peaks, peak_properties = find_peaks(timeseries_y, distance=200)
-    u_p = interp1d(timeseries_x[peaks], timeseries_y[peaks], bounds_error=False)
+    u_p = interp1d(timeseries_x[peaks], timeseries_y[peaks], bounds_error=False, fill_value=fill_value)
     return u_p
 
 

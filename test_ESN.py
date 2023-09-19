@@ -10,6 +10,7 @@ if __name__ == '__main__':
 
     # %% ============================= SELECT TRUE AND FORECAST MODELS ================================= #
     model = physical_models.VdP
+
     true_params = {'model': model,
                    'manual_bias': 'cosine',
                    'std_obs': 0.01,
@@ -21,7 +22,7 @@ if __name__ == '__main__':
                        'beta': 50,
                        'zeta': 25,
                        'kappa': 9.0,
-                       'psi0': [1., .5]
+                       'psi0': [-1., .5]
                        }
 
     # ==================================== SELECT FILTER PARAMETERS =================================== #
@@ -29,7 +30,7 @@ if __name__ == '__main__':
 
     filter_params = {'filter': 'rBA_EnKF',
                      'constrained_filter': False,
-                     'regularization_factor': 10.,
+                     'regularization_factor': 5.,
                      'm': 10,
                      # # initial parameter and state uncertainty
                      'est_a': ('beta', 'kappa'),

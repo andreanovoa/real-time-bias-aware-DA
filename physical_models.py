@@ -57,12 +57,6 @@ class Model:
 
     def __init__(self, **model_dict):
         # ================= INITIALISE THERMOACOUSTIC MODEL ================== ##
-        for key, val in self.attr.items():
-            if key in model_dict.keys():
-                setattr(self, key, model_dict[key])
-            else:
-                setattr(self, key, val)
-
         for key, val in Model.attr_model.items():
             if key in model_dict.keys():
                 setattr(self, key, model_dict[key])
@@ -81,6 +75,9 @@ class Model:
         # ========================== DEFINE LENGTHS ========================== ##
         self.Na = 0
         self.precision_t = int(-np.log10(self.dt)) + 2
+
+        # _________________________ Governing equations ________________________ #
+        self.governing_eqns_params = dict()
 
     @property
     def Nphi(self):
@@ -254,21 +251,6 @@ class Model:
         else:
             pass
 
-    @staticmethod
-    def forecast(y0, fun, t, params, alpha=None):
-        # SOLVE IVP ========================================
-        assert len(t) > 1
-        out = solve_ivp(fun, t_span=(t[0], t[-1]), y0=y0, t_eval=t, method='RK45', args=(params, alpha))
-        psi = out.y.T
-
-        # ODEINT =========================================== THIS WORKS AS IF HARD CODED
-        # psi = odeint(fun, y0, t_interp, (params,))
-        #
-        # HARD CODED RUGGE KUTTA 4TH ========================
-        # psi = RK4(t_interp, y0, fun, params)
-
-        return psi
-
     def getAlpha(self, psi=None):
         alpha = []
         if psi is None:
@@ -282,6 +264,23 @@ class Model:
             alpha.append(alph)
         return alpha
 
+    @staticmethod
+    def forecast(y0, fun, t, params):
+        # SOLVE IVP ========================================
+        assert len(t) > 1
+
+        part_fun = partial(fun, **params)
+
+        out = solve_ivp(part_fun, t_span=(t[0], t[-1]), y0=y0, t_eval=t, method='RK45')
+        psi = out.y.T
+
+        # ODEINT =========================================== THIS WORKS AS IF HARD CODED
+        # psi = odeint(fun, y0, t_interp, (params,))
+        #
+        # HARD CODED RUGGE KUTTA 4TH ========================
+        # psi = RK4(t_interp, y0, fun, params)
+        return psi
+
     def timeIntegrate(self, Nt=100, averaged=False, alpha=None):
         """
             Integrator of the model. If the model is forcast as an ensemble, it uses parallel computation.
@@ -294,19 +293,20 @@ class Model:
                 psi: forecasted state (Nt x N x m)
                 t: time of the propagated psi
         """
-        # t = np.linspace(self.t, self.t + Nt * self.dt, Nt + 1)
-        t = np.round(self.t + np.arange(0, Nt+1) * self.dt, self.precision_t)
 
-        self_dict = self.govEqnDict()
+        t = np.round(self.t + np.arange(0, Nt+1) * self.dt, self.precision_t)
+        args = self.governing_eqns_params
 
         if not self.ensemble:
-            psi = [Model.forecast(self.psi[:, 0], self.timeDerivative, t, params=self_dict, alpha=self.alpha0)]
+
+            psi = [Model.forecast(y0=self.psi[:, 0], fun=self.timeDerivative, t=t, params={**self.alpha0, **args})]
 
         else:
             if not averaged:
                 alpha = self.getAlpha()
-                fun_part = partial(Model.forecast, fun=self.timeDerivative, t=t, params=self_dict)
-                sol = [self.pool.apply_async(fun_part, kwds={'y0': self.psi[:, mi].T, 'alpha': alpha[mi]})
+                forecast_part = partial(Model.forecast, fun=self.timeDerivative, t=t)
+                sol = [self.pool.apply_async(forecast_part,
+                                             kwds={'y0': self.psi[:, mi].T, 'params':{**args, **alpha[mi]}})
                        for mi in range(self.m)]
                 psi = [s.get() for s in sol]
             else:
@@ -316,7 +316,7 @@ class Model:
                 if alpha is None:
                     alpha = self.getAlpha(psi_mean0)[0]
                 psi_mean = Model.forecast(y0=psi_mean0[:, 0], fun=self.timeDerivative, t=t,
-                                          params=self_dict, alpha=alpha)
+                                          params={**alpha, **args})
 
                 if np.mean(np.std(self.psi[:len(self.psi0)]/np.array([self.psi0]).T, axis=0)) < 2.:
                     psi_deviation /= psi_mean0
@@ -343,15 +343,31 @@ class VdP(Model):
                       zeta=60., beta=70., kappa=4.0, gamma=1.7)  # beta, zeta [rad/s]
 
     params: list = ['beta', 'zeta', 'kappa']  # ,'omega', 'gamma']
-
     param_labels = dict(beta='$\\beta$', zeta='$\\zeta$', kappa='$\\kappa$')
+
+    fixed_params = ['law', 'omega']
 
     # __________________________ Init method ___________________________ #
     def __init__(self, **TAdict):
-        super().__init__(**TAdict)
-        if 'psi0' not in TAdict.keys():
+        model_dict = dict(TAdict)
+        for key, val in self.attr.items():
+            if key in TAdict.keys():
+                setattr(self, key, TAdict[key])
+                del model_dict[key]
+            else:
+                setattr(self, key, val)
+
+        super().__init__(**model_dict)
+        if 'psi0' not in model_dict.keys():
             self.psi0 = [0.1, 0.1]  # initialise eta and mu
             self.updateHistory(reset=True)
+
+        # _________________________ Add fixed parameters  ________________________ #
+        self.set_fixed_params()
+
+    def set_fixed_params(self):
+        for key in VdP.fixed_params:
+            self.governing_eqns_params[key] = getattr(self, key)
 
     # _______________ VdP specific properties and methods ________________ #
     @property
@@ -372,19 +388,15 @@ class VdP(Model):
         else:
             return self.hist[-Nt:, :1, :]
 
-    # _________________________ Governing equations ________________________ #
-    def govEqnDict(self):
-        return dict(law=self.law, omega=self.omega)
-
     @staticmethod
-    def timeDerivative(t, psi, P, A):
+    def timeDerivative(t, psi, beta, zeta, kappa, law, omega):
         eta, mu = psi[:2]
-        dmu_dt = - P['omega'] ** 2 * eta + mu * (A['beta'] - A['zeta'])
+        dmu_dt = - omega ** 2 * eta + mu * (beta - zeta)
         # Add nonlinear term
-        if P['law'] == 'cubic':  # Cubic law
-            dmu_dt -= mu * A['kappa'] * eta ** 2
-        elif P['law'] == 'tan':  # arc tan model
-            dmu_dt -= mu * (A['kappa'] * eta ** 2) / (1. + A['kappa'] / A['beta'] * eta ** 2)
+        if law == 'cubic':  # Cubic law
+            dmu_dt -= mu * kappa * eta ** 2
+        elif law == 'tan':  # arc tan model
+            dmu_dt -= mu * (kappa * eta ** 2) / (1. + kappa / beta * eta ** 2)
 
         return (mu, dmu_dt) + (0,) * (len(psi) - 2)
 
@@ -411,11 +423,21 @@ class Rijke(Model):
                       beta=4.0, tau=1.5E-3, C1=.05, C2=.01, kappa=1E5,
                       xf=0.2, L=1., law='sqrt')
     params: list = ['beta', 'tau', 'C1', 'C2', 'kappa']
-
     param_labels = dict(beta='$\\beta$', tau='$\\tau$', C1='$C_1$', C2='$C_2$', kappa='$\\kappa$')
 
+    fixed_params = ['cosomjxf', 'Dc',  'gc', 'jpiL', 'L', 'law', 'meanFlow', 'Na', 'Nm', 'tau_adv', 'sinomjxf']
+
     def __init__(self, **TAdict):
-        super().__init__(**TAdict)
+
+        model_dict = dict(TAdict)
+        for key, val in self.attr.items():
+            if key in TAdict.keys():
+                setattr(self, key, TAdict[key])
+                del model_dict[key]
+            else:
+                setattr(self, key, val)
+
+        super().__init__(**model_dict)
 
         self.tau_adv = self.tau
         if 'psi0' not in TAdict.keys():
@@ -431,8 +453,8 @@ class Rijke(Model):
         self.x_mic = np.linspace(self.xf, self.L, self.Nmic + 1)[:-1]
 
         # Define modes frequency of each mode and sin cos etc
-        self.j = np.arange(1, self.Nm + 1)
-        self.jpiL = self.j * np.pi / self.L
+        jj = np.arange(1, self.Nm + 1)
+        self.jpiL = jj * np.pi / self.L
         self.sinomjxf = np.sin(self.jpiL * self.xf)
         self.cosomjxf = np.cos(self.jpiL * self.xf)
 
@@ -449,12 +471,15 @@ class Rijke(Model):
         self.meanFlow['rho'] = self.meanFlow['p'] / (self.meanFlow['R'] * self.meanFlow['T'])
         self.meanFlow['c'] = np.sqrt(self.meanFlow['gamma'] * self.meanFlow['R'] * self.meanFlow['T'])
 
+        self.set_fixed_params()
+
         # Wave parameters ############################################################################################
         # c1: 347.2492    p1: 1.0131e+05      rho1: 1.1762    u1: 10          M1: 0.0288          T1: 300
         # c2: 423.6479    p2: 101300          rho2: 0.7902    u2: 11.1643     M2: 0.0264          T2: 446.5282
         # Tau: 0.0320     Td: 0.0038          Tu: 0.0012      R_in: -0.9970   R_out: -0.9970      Su: 0.9000
         # Qbar: 5000      R_gas: 287.1000     gamma: 1.4000
         ##############################################################################################################
+
 
     def modify_settings(self):
         if self.est_a and 'tau' in self.est_a:
@@ -463,6 +488,13 @@ class Rijke(Model):
             self.psi0 = np.hstack([self.psi0, np.zeros(extra_Nc)])
             # self.resetInitialConditions()
             self.updateHistory(reset=True)
+            self.set_fixed_params()
+
+    # _________________________ Governing equations ________________________ #
+    def set_fixed_params(self):
+        for key in Rijke.fixed_params:
+            self.governing_eqns_params[key] = getattr(self, key)
+
 
     # _______________ Rijke specific properties and methods ________________ #
     @property
@@ -498,74 +530,56 @@ class Rijke(Model):
             p_mic = p_mic[0]
         return p_mic
 
-    # _________________________ Governing equations ________________________ #
-    def govEqnDict(self):
-        d = dict(Nm=self.Nm,
-                 Nc=self.Nc,
-                 N=self.N,
-                 Na=self.Na,
-                 j=self.j,
-                 jpiL=self.jpiL,
-                 cosomjxf=self.cosomjxf,
-                 sinomjxf=self.sinomjxf,
-                 tau_adv=self.tau_adv,
-                 meanFlow=self.meanFlow,
-                 Dc=self.Dc,
-                 gc=self.gc,
-                 L=self.L,
-                 law=self.law
-                 )
-        return d
 
     @staticmethod
-    def timeDerivative(t, psi, P, A):
+    def timeDerivative(t, psi,
+                       C1, C2, beta, kappa, tau,  # Possibly-inferred parameters
+                       cosomjxf, Dc,  gc, jpiL, L, law, meanFlow, Na, Nm, tau_adv, sinomjxf  # fixed_params
+                       ):
         """
             Governing equations of the model.
             Args:
                 psi: current state vector
                 t: current time
-                P: dictionary with all the case parameters
-                A: dictionary of varying parameters
             Returns:
                 concatenation of the state vector time derivative
         """
 
-        eta = psi[:P['Nm']]
-        mu = psi[P['Nm']:2 * P['Nm']]
-        v = psi[2 * P['Nm']:P['N'] - P['Na']]
+        eta = psi[:Nm]
+        mu = psi[Nm:2 *Nm]
+        v = psi[2 * Nm:len(psi)-Na]
 
         # Advection equation boundary conditions
-        v2 = np.hstack((np.dot(eta, P['cosomjxf']), v))
+        v2 = np.hstack((np.dot(eta, cosomjxf), v))
 
         # Evaluate u(t_interp-tau) i.e. velocity at the flame at t_interp - tau
-        x_tau = A['tau'] / P['tau_adv']
+        x_tau = tau / tau_adv
         if x_tau < 1:
-            f = splrep(P['gc'], v2)
+            f = splrep(gc, v2)
             u_tau = splev(x_tau, f)
         elif x_tau == 1:  # if no tau estimation, bypass interpolation to speed up code
             u_tau = v2[-1]
         else:
-            raise Exception("tau = {} can't_interp be larger than tau_adv = {}".format(A['tau'], P['tau_adv']))
+            raise Exception("tau = {} can't_interp be larger than tau_adv = {}".format(tau, tau_adv))
 
         # Compute damping and heat release law
-        zeta = A['C1'] * P['j'] ** 2 + A['C2'] * P['j'] ** .5
+        zeta = C1 * (jpiL * L / np.pi) ** 2 + C2 * (jpiL * L / np.pi) ** .5
 
-        MF = P['meanFlow']  # Physical properties
-        if P['law'] == 'sqrt':
-            qdot = MF['p'] * MF['u'] * A['beta'] * (
-                    np.sqrt(abs(1. / 3 + u_tau / MF['u'])) - np.sqrt(1. / 3))  # [W/m2]=[m/s3]
-        elif P['law'] == 'tan':
-            qdot = A['beta'] * np.sqrt(A['beta'] / A['kappa']) * np.arctan(
-                np.sqrt(A['beta'] / A['kappa']) * u_tau)  # [m / s3]
-
-        qdot *= -2. * (MF['gamma'] - 1.) / P['L'] * P['sinomjxf']  # [Pa/s]
+        MF = meanFlow.copy()  # Physical properties
+        if law == 'sqrt':
+            q_dot = MF['p'] * MF['u'] * beta * (np.sqrt(abs(1./3 + u_tau / MF['u'])) - np.sqrt(1./3))  # [W/m2]=[m/s3]
+        elif law == 'tan':
+            q_dot = beta * np.sqrt(beta / kappa) * np.arctan(np.sqrt(beta / kappa) * u_tau)  # [m / s3]
+        else:
+            raise ValueError('Law "{}" not defined'.format(law))
+        q_dot *= -2. * (MF['gamma'] - 1.) / L * sinomjxf  # [Pa/s]
 
         # governing equations
-        deta_dt = P['jpiL'] / MF['rho'] * mu
-        dmu_dt = - P['jpiL'] * MF['gamma'] * MF['p'] * eta - MF['c'] / P['L'] * zeta * mu + qdot
-        dv_dt = - 2. / P['tau_adv'] * np.dot(P['Dc'], v2)
+        deta_dt = jpiL/ MF['rho'] * mu
+        dmu_dt = - jpiL * MF['gamma'] * MF['p'] * eta - MF['c'] / L * zeta * mu + q_dot
+        dv_dt = - 2. / tau_adv * np.dot(Dc, v2)
 
-        return np.concatenate((deta_dt, dmu_dt, dv_dt[1:], np.zeros(P['Na'])))
+        return np.concatenate((deta_dt, dmu_dt, dv_dt[1:], np.zeros(Na)))
 
 
 # %% =================================== LORENZ 63 MODEL ============================================== %% #
@@ -574,23 +588,28 @@ class Lorenz63(Model):
     """
 
     name: str = 'Lorenz63'
-    attr: dict = dict(rho=28., sigma=10., beta=8. / 3., dt=0.02)
+    attr: dict = dict(rho=28., sigma=10., beta=8. / 3., dt=0.02, t_CR=5.)
 
     params: list = ['rho', 'sigma', 'beta']
     param_labels = dict(rho='$\\rho$', sigma='$\\sigma$', beta='$\\beta$')
 
+    fixed_params = []
+
     # __________________________ Init method ___________________________ #
-    def __init__(self, TAdict, DAdict=None):
+    def __init__(self, **TAdict):
 
-        super().__init__(**TAdict)
+        model_dict = dict(TAdict)
+        for key, val in self.attr.items():
+            if key in TAdict.keys():
+                setattr(self, key, TAdict[key])
+                del model_dict[key]
+            else:
+                setattr(self, key, val)
 
-        # self.t_transient = 200.
-        # self.dt = 0.02
-        self.t_CR = 5.
+        super().__init__(**model_dict)
 
         if 'psi0' not in TAdict.keys():
             self.psi0 = [1.0, 1.0, 1.0]  # initialise x, y, z
-            # self.resetInitialConditions()
             self.updateHistory(reset=True)
 
         # set limits for the parameters
@@ -607,16 +626,12 @@ class Lorenz63(Model):
         else:
             return self.hist[-Nt:, :, :]
 
-    # _________________________ Governing equations ________________________ #
-    def govEqnDict(self):
-        return None
-
     @staticmethod
-    def timeDerivative(t, psi, params, alpha):
+    def timeDerivative(t, psi, sigma, rho, beta):
         x1, x2, x3 = psi[:3]
-        dx1 = alpha['sigma'] * (x2 - x1)
-        dx2 = x1 * (alpha['rho'] - x3) - x2
-        dx3 = x1 * x2 - alpha['beta'] * x3
+        dx1 = sigma * (x2 - x1)
+        dx2 = x1 * (rho - x3) - x2
+        dx3 = x1 * x2 - beta * x3
         return (dx1, dx2, dx3) + (0,) * (len(psi) - 3)
 
 
@@ -639,6 +654,8 @@ class Annular(Model):
     param_labels = dict(omega='$\\omega$', nu='$\\nu$', beta_c2='$c_2\\beta $', kappa='$\\kappa$',
                         epsilon='$\\epsilon$', theta_b='$\\Theta_\\beta$', theta_e='$\\Theta_\\epsilon$')
 
+    fixed_params = []
+
     # __________________________ Init method ___________________________ #
     def __init__(self, **TAdict):
 
@@ -651,7 +668,7 @@ class Annular(Model):
             # self.resetInitialConditions()
             self.updateHistory(reset=True)
 
-    # set limits for the parameters ['omega', 'nu', 'beta_c2', 'kappa']
+    # set limits for the parameters
     @property
     def param_lims(self):
         return dict(omega=(1000, 1300),
@@ -695,24 +712,17 @@ class Annular(Model):
         else:
             return p_mics
 
-    # _________________________ Governing equations ________________________ #
-    def govEqnDict(self):
-        d = dict()
-        return d
-
     @staticmethod
-    def timeDerivative(t, psi, params, alpha):
+    def timeDerivative(t, psi, nu, kappa, beta_c2, theta_b, omega, epsilon, theta_e):
         y_a, z_a, y_b, z_b = psi[:4]  # y = η, and z = dη/dt
 
         def k1(y1, y2, sign):
-            return 2 * alpha['nu'] - 3. / 4 * alpha['kappa'] * (3 * y1 ** 2 + y2 ** 2) + \
-                   sign / 2. * alpha['beta_c2'] * np.cos(2. * alpha['theta_b'])
+            return 2 * nu - 3. / 4 * kappa * (3 * y1 ** 2 + y2 ** 2) + sign / 2. * beta_c2 * np.cos(2. * theta_b)
 
-        k2 = 0.5 * alpha['beta_c2'] * np.sin(2. * alpha['theta_b']) - 3. / 2 * alpha['kappa'] * y_a * y_b
+        k2 = 0.5 * beta_c2 * np.sin(2. * theta_b) - 3. / 2 * kappa * y_a * y_b
 
         def k3(y1, y2, sign):
-            return alpha['omega'] ** 2 * (y1 + alpha['epsilon'] / 2. * (sign * y1 * np.cos(2. * alpha['theta_e']) +
-                                                                        y2 * np.sin(2. * alpha['theta_e'])))
+            return omega ** 2 * (y1 + epsilon / 2. * (sign * y1 * np.cos(2. * theta_e) + y2 * np.sin(2. * theta_e)))
 
         dz_a = z_a * k1(y_a, y_b, 1) + z_b * k2 - k3(y_a, y_b, 1)
         dz_b = z_b * k1(y_b, y_a, -1) + z_a * k2 - k3(y_b, y_a, -1)
