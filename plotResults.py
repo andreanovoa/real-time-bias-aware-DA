@@ -126,11 +126,7 @@ def post_process_WhyAugment(results_dir, k_plot=None, J_plot=None, figs_dir=None
             b, t_b = filter_ens.bias.hist, filter_ens.bias.hist_t
 
             # Unbiased signal error
-            if hasattr(filter_ens.bias, 'upsample'):
-                y_unbiased = y[::filter_ens.bias.upsample] + np.expand_dims(b, -1)
-                y_unbiased = interpolate(t_b, y_unbiased, t)
-            else:
-                y_unbiased = y + b
+            y_unbiased = recover_unbiased_solution(t_b, b, t, y, upsample=hasattr(filter_ens.bias, 'upsample'))
 
             N_CR = int(filter_ens.t_CR // filter_ens.dt)  # Length of interval to compute correlation and RMS
             i0 = np.argmin(abs(t - truth['t_obs'][0]))  # start of assimilation
@@ -205,6 +201,13 @@ def post_process_WhyAugment(results_dir, k_plot=None, J_plot=None, figs_dir=None
 
 
 # ==================================================================================================================
+def recover_unbiased_solution(t_b, b, t, y, upsample=True):
+    if upsample:
+        y_unbiased = interpolate(t, y, t_b) + b
+        y_unbiased = interpolate(t_b, y_unbiased, t)
+    else:
+        y_unbiased = y + b
+    return y_unbiased
 
 
 def post_process_single(filter_ens, truth, filename=None, mic=0, reference_p=None, plot_params=False):
@@ -216,15 +219,16 @@ def post_process_single(filter_ens, truth, filename=None, mic=0, reference_p=Non
     y_filter, t = filter_ens.getObservableHist(), filter_ens.hist_t
     b, t_b = filter_ens.bias.hist, filter_ens.bias.hist_t
 
-    y_filter = y_filter[:, mic]
+    y_filter, b, obs = [yy[:, mic] for yy in [y_filter, b, obs]]
     y_mean = np.mean(y_filter, -1)
-    b = b[:, mic]
-    obs = obs[:, mic]
 
-    if hasattr(filter_ens.bias, 'upsample'):
-        y_unbiased = y_mean + interpolate(t_b, b, t)
-    else:
-        y_unbiased = y_mean + b
+    b = interpolate(t_b, b, t)
+    t_b = t
+    y_unbiased = y_mean + b
+
+    # y_unbiased = recover_unbiased_solution(t_b, b, t, y_mean, upsample=hasattr(filter_ens.bias, 'upsample'))
+
+
 
     # cut signals to interval of interest -----
     N_CR = int(filter_ens.t_CR // filter_ens.dt)  # Length of interval to compute correlation and RMS
@@ -867,7 +871,7 @@ def plot_Rijke_animation(folder, figs_dir):
     y_BB_obs = filter_ens_BB.getObservableHist()
     y_BA_obs = filter_ens_BA.getObservableHist()
 
-    y_BA_obs = y_BA_obs[::filter_ens_BA.bias.upsample] + np.expand_dims(filter_ens_BA.bias.hist, -1)
+    y_BA_obs = y_BA_obs + interpolate(filter_ens_BA.bias.hist_t, filter_ens_BA.bias.hist, filter_ens_BA.hist_t)
 
     y_BA_obs = interpolate(filter_ens_BA.bias.hist_t, y_BA_obs, t_gif)
     y_BB_obs = interpolate(filter_ens_BB.hist_t, y_BB_obs, t_gif)
@@ -894,7 +898,8 @@ def plot_Rijke_animation(folder, figs_dir):
 
     # timeseries
     y_BA_tt = filter_ens_BA.getObservableHist()[:, 0]
-    y_BA_tt_u = y_BA_tt[::filter_ens_BA.bias.upsample] + np.expand_dims(filter_ens_BA.bias.hist[:, 0], -1)
+    y_BA_tt_u = y_BA_tt + interpolate(filter_ens_BA.bias.hist_t, filter_ens_BA.bias.hist, filter_ens_BA.hist_t)
+
 
     y_BB_tt = filter_ens_BB.getObservableHist()[:, 0]
     y_t_tt = truth['y'][:, 0]

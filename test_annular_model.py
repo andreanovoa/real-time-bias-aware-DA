@@ -9,7 +9,7 @@ if __name__ == '__main__':
     MyModel = Annular
     paramsTA = dict(dt=1 / 51.2E3)
 
-    animate = True
+    animate = False
     anim_name = '{}_Annulat_mov_mix_epsilon.gif'.format(datetime.date.today())
 
     # Non-ensemble case =============================

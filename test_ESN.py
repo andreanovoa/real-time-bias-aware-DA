@@ -13,56 +13,54 @@ if __name__ == '__main__':
 
     true_params = {'model': model,
                    'manual_bias': 'cosine',
-                   'std_obs': 0.01,
+                   'std_obs': 0.5,
                    'beta': 50,
                    'zeta': 25,
                    'kappa': 9.0
                    }
-    forecast_params = {'model': model,
-                       'beta': 50,
-                       'zeta': 25,
-                       'kappa': 9.0,
-                       'psi0': [-1., .5]
+
+    forecast_params = {'model': model
                        }
 
     # ==================================== SELECT FILTER PARAMETERS =================================== #
-    parameters_IC = dict(beta=(40, 60), zeta=(20, 30), kappa=(8., 10.))
+    parameters_IC = dict(beta=(40., 60.), zeta=(20., 30.), kappa=(8., 10.))
 
     filter_params = {'filter': 'rBA_EnKF',
                      'constrained_filter': False,
-                     'regularization_factor': 5.,
+                     'regularization_factor': 2.,
                      'm': 10,
                      # # initial parameter and state uncertainty
-                     'est_a': ('beta', 'kappa'),
+                     'est_a': ('beta', 'kappa', 'zeta'),
                      'std_a': parameters_IC,
-                     'std_psi': 0.25,
+                     'std_psi': 0.5,
                      'alpha_distr': 'uniform',
                      # Define the observation time window
                      't_start': 3.0,
                      't_stop': 4.5,
-                     'dt_obs': 30,
+                     'dt_obs': 35,
                      # Inflation
-                     'inflation': 1.001,
+                     'inflation': 1.002,
                      'reject_inflation': 1.001,
                      'start_ensemble_forecast': 10
                      }
     # ==================================== SELECT ESN PARAMETERS =================================== #
 
     bias_params = {'biasType': bias_models.ESN,  # Bias.ESN / Bias.NoBias
-                   'L': 10,  # ESN training specs
-                   'std_a': parameters_IC,
-                   'std_psi': 2.,
-                   'est_a': filter_params['est_a'],
-                   'alpha_distr': 'uniform',
-                   'ensure_mean': True,
-                   'N_wash': 30,
-                   'upsample': 1,
                    'augment_data': True,
-                   'tikh_range': [1e-12],
-                   'sigma_in_range': (np.log10(1e-5), np.log10(1e0)),
-                   'rho_range': (0.5, 1.1),
+                   'alpha_distr': 'uniform',
+                   'L': 10,  # ESN training specs
+                   'ensure_mean': True,
+                   'est_a': filter_params['est_a'],
+                   'N_wash': 30,
+                   'noise': 0.01,
                    'plot_training': True,
                    'perform_test': True,
+                   'rho_range': (0.5, 1.1),
+                   'std_a': parameters_IC,
+                   'std_psi': 2.,
+                   'sigma_in_range': (np.log10(1e-5), np.log10(1e0)),
+                   'tikh_range': [1e-12],
+                   'upsample': 2,
                    }
 
     # ============================ CREATE REFERENCE ENSEMBLE =================================== #

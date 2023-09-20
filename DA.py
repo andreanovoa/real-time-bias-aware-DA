@@ -53,13 +53,13 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, wash_obs=None, wash_t=
 
     assert ensemble.t == t_obs[ti]
 
-    # ---------------------------------- REMOVE TRANSIENT -------------------------------- ##
-    i_transient = np.argmin(abs(ensemble.hist_t - ensemble.t_transient))
-    for structure in [ensemble, ensemble.bias]:
-        if hasattr(structure, 'upsample'):
-            i_transient = int(i_transient / structure.upsample)
-        for key in ['hist', 'hist_t']:
-            setattr(structure, key, getattr(structure, key)[i_transient:])
+    # # ---------------------------------- REMOVE TRANSIENT -------------------------------- ##
+    # i_transient = np.argmin(abs(ensemble.hist_t - ensemble.t_transient))
+    # for structure in [ensemble, ensemble.bias]:
+    #     if hasattr(structure, 'upsample'):
+    #         i_transient = int(i_transient / structure.upsample)
+    #     for key in ['hist', 'hist_t']:
+    #         setattr(structure, key, getattr(structure, key)[i_transient:])
     # --------------------------------- ASSIMILATION LOOP -------------------------------- ##
     num_obs = len(t_obs)
     ensemble.activate_bias_aware, ensemble.activate_parameter_estimation = False, False
@@ -101,7 +101,7 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, wash_obs=None, wash_t=
             print('100% ----------------\n')
             break
         elif ti in print_i:
-            print(np.int(np.round(ti / len(t_obs) * 100, decimals=0)), end="% ")
+            print(int(np.round(ti / len(t_obs) * 100, decimals=0)), end="% ")
 
         Nt = int(np.round((t_obs[ti] - ensemble.t) / dt))
         ensemble = forecastStep(ensemble, Nt)  # Parallel forecast

@@ -299,7 +299,7 @@ class EchoStateNetwork:
                         plt.contour(xx, yy, y_pred, levels=20, colors='black', linewidths=1, linestyles='solid',
                                     alpha=0.3)
                         #   Plot the n_tot search points
-                        for rx, mk, c in zip([res_x[:self.N_grid**2], res_x[self.N_grid**2:]], ['v', 's']):
+                        for rx, mk in zip([res_x[:self.N_grid**2], res_x[self.N_grid**2:]], ['v', 's']):
                             plt.plot(rx[:, 0], rx[:, 1], mk, c='w', alpha=.8, mec='k', ms=8)
                         # Plot best point
                         best_idx = np.argmin(f_iters)

@@ -4,7 +4,6 @@ import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
-
 from Util import load_from_pickle_file, save_to_pickle_file, CR, colour_noise, check_valid_file
 
 rng = np.random.default_rng(6)
@@ -104,9 +103,9 @@ def create_truth(true_p, filter_p, noise_type):
     else:
         noise = np.zeros([Nt, q])
         for ii in range(q):
-            noise_white = np.fft.rfft(rng.standard_normal(Nt+1) * true_p['std_obs'])
+            noise_white = np.fft.rfft(rng.standard_normal(Nt + 1) * true_p['std_obs'])
             # Generate the noise signal
-            S = colour_noise(Nt+1, noise_colour=noise_type)
+            S = colour_noise(Nt + 1, noise_colour=noise_type)
             S = noise_white * S / np.sqrt(np.mean(S ** 2))  # Normalize S
             noise[:, ii] = np.fft.irfft(S)[1:]  # transform back into time domain
 
@@ -120,23 +119,29 @@ def create_truth(true_p, filter_p, noise_type):
     y_obs, t_obs = y_noise[obs_idx], t_true[obs_idx]
 
     # Compute signal-to-noise ratio
-    P_signal = np.mean(y_true**2, axis=0)
-    P_noise = np.mean((y_noise - y_true)**2, axis=0)
+    P_signal = np.mean(y_true ** 2, axis=0)
+    P_noise = np.mean((y_noise - y_true) ** 2, axis=0)
 
     # Save as a dict
     truth = dict(y=y_true, t=t_true, b=b_true, dt=dt_t,
                  t_obs=t_obs, y_obs=y_obs, dt_obs=t_obs[1] - t_obs[0],
                  true_params=true_p, name=name_truth,
                  model=true_p['model'], std_obs=true_p['std_obs'],
-                 SNR=P_signal/P_noise, noise=noise, noise_type=noise_type)
+                 SNR=P_signal / P_noise, noise=noise, noise_type=noise_type)
     return truth
 
 
 def create_ensemble(true_p, forecast_p, filter_p, bias_p=None):
-
     # =========================  INITIALISE ENSEMBLE & BIAS  =========================== #
+    if 'std_a' in filter_p.keys() and type(filter_p['std_a']) is dict:
+        for key, vals in filter_p['std_a'].items():
+            forecast_p[key] = .5 * (vals[1] + vals[0])
+
     ensemble = forecast_p['model'](**forecast_p)
-    ensemble.initEnsemble(**filter_p)   # TODO init ensemble after some forecast to have a proper IC
+    state, t_ = ensemble.timeIntegrate(int(ensemble.t_CR / ensemble.dt))
+    ensemble.updateHistory(state, t_)
+
+    ensemble.initEnsemble(**filter_p)  # TODO init ensemble after some forecast to have a proper IC
     ensemble.initBias(**bias_p)
 
     # =============================  CREATE OBSERVATIONS ============================== #
@@ -171,7 +176,6 @@ def create_ensemble(true_p, forecast_p, filter_p, bias_p=None):
 def create_bias_model(filter_ens, y_true,
                       bias_params, bias_filename,
                       esn_folder, plot_train_data=False):
-
     if bias_params['biasType'].name == 'None':
         return
 
@@ -222,7 +226,9 @@ def create_bias_training_dataset(y_truth, ensemble, train_params, filename, plot
         print('Run multi-parameter training data: file not found')
 
     # ========================  Multi-parameter training approach ====================
-    train_ens = ensemble.copy()
+    train_ens = ensemble.reshape_ensemble(m=1, reset=True)
+    state, t_ = train_ens.timeIntegrate(int(train_ens.t_transient / train_ens.dt))
+    train_ens.updateHistory(state, t_)
 
     train_ens.initEnsemble(**train_params)
 
@@ -263,7 +269,7 @@ def create_bias_training_dataset(y_truth, ensemble, train_params, filename, plot
         y_true = np.expand_dims(y_true, -1)
 
     # Create the synthetic bias as innovations ------------------------------------
-    train_data = y_true - y_train[-Nt:]
+    # train_data = y_true - y_train[-Nt:]
 
     if train_params['augment_data']:
         # Compute correlated signals --------------
@@ -280,9 +286,12 @@ def create_bias_training_dataset(y_truth, ensemble, train_params, filename, plot
             y_corr[:, :, ii] = yy[best_lag:Nt + best_lag]
 
         # Augment train data with correlated signals and a fraction --------------
-        train_data = np.concatenate([train_data,
-                                     y_true - y_corr,
-                                     (y_true - y_corr)*1.5], axis=-1)
+        train_data = y_true - np.concatenate([y_train[-Nt:],
+                                              y_train[-Nt:] * -.5,
+                                              y_corr],
+                                             axis=-1)
+    else:
+        train_data = y_true - y_train[-Nt:]
 
     # Force train_data shape to be (L, Nt, Ndim)
     train_data = train_data.transpose((2, 0, 1))
@@ -305,18 +314,21 @@ def create_bias_training_dataset(y_truth, ensemble, train_params, filename, plot
         sub_figs = fig1.subfigures(1, 2, width_ratios=[1.2, 1])
         norm = mpl.colors.Normalize(vmin=0, vmax=max(RS))
         cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.viridis)
-        ax1, ax2 = [sf.subplots(train_ens.Nq + 1, 1) for sf in sub_figs]
+        ax1, ax2 = [sf.subplots(3, 1) for sf in sub_figs]
+
         for yy, RR, axs, title in zip([y_train, y_corr], [RS, RS_corr],
                                       [ax1, ax2], ['Original', 'Correlated']):
             axs[0].set_title(title)
-            for qq, ax in enumerate(axs[:-1]):
-                for ll in range(yy.shape[-1]):
-                    clr = cmap.to_rgba(RR[ll])
-                    ax.plot(tt[:N_corr], yy[:N_corr, qq, ll], color=clr)
-                ax.plot(tt[:N_corr], y_true[:N_corr, qq], 'darkgrey')
             for ll in range(yy.shape[-1]):
                 clr = cmap.to_rgba(RR[ll])
-                axs[-1].plot(ll, RR[ll], 'o', color=clr)
+                axs[0].plot(tt[:N_corr], yy[:N_corr, 0, ll], color=clr)
+                axs[-1].plot(tt[:N_corr], yy[:N_corr, 0, ll] - y_true[:N_corr, 0, 0], color=clr)
+            axs[0].plot(tt[:N_corr], y_true[:N_corr, 0], 'darkgrey')
+            for ll in range(yy.shape[-1]):
+                clr = cmap.to_rgba(RR[ll])
+                axs[1].plot(ll, RR[ll], 'o', color=clr)
+
+
         plt.show()
 
     # Save training data ------------------------------------

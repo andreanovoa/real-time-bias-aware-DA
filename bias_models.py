@@ -99,9 +99,11 @@ class ESN(Bias, EchoStateNetwork):
         return -J
 
     def timeIntegrate(self, t, y=None):
+        interp_flag = False
         Nt = len(t) // self.upsample
         if len(t) % self.upsample:
             Nt += 1
+            interp_flag = True
         t_b = np.round(self.t + np.arange(0, Nt+1) * self.dt_ESN, self.precision_t)
 
         # If the time is before the washout initialization, return zeros
@@ -132,6 +134,11 @@ class ESN(Bias, EchoStateNetwork):
         else:
             # Run closed-loop
             b, r = self.closedLoop(Nt)
+
+        if interp_flag:
+            b[-1] = interpolate(t_b[-Nt:], b[-Nt:], t[-1])
+            r[-1] = interpolate(t_b[-Nt:], r[-Nt:], t[-1])
+            t_b[-1] = t[-1]
 
         # update ESN physical and reservoir states
         self.reset_state(u=b[-1], r=r[-1])

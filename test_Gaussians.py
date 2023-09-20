@@ -6,7 +6,7 @@ if __name__ == '__main__':
 
     folder = 'results/test_Gaussians/'
     # %% ============================= SELECT TRUE AND FORECAST MODELS ================================= #
-    true_params = {'model': TAModels.VdP,
+    true_params = {'model': physical_models.VdP,
                    'manual_bias': None,
                    'std_obs': 0.05,
                    'beta': 110,
@@ -14,7 +14,7 @@ if __name__ == '__main__':
                    'kappa': 9.0
                    }
 
-    forecast_params = {'model': TAModels.VdP,
+    forecast_params = {'model': physical_models.VdP,
                        'beta': 50,
                        'zeta': 25,
                        'kappa': 9.0
@@ -26,7 +26,7 @@ if __name__ == '__main__':
                      'm': 100,
                      'est_p': ['beta'],
                      # # initial parameter and state uncertainty
-                     'biasType': Bias.NoBias,  # Bias.ESN / Bias.NoBias
+                     'biasType': bias_models.NoBias,  # Bias.ESN / Bias.NoBias
                      # Define the observation time window
                      't_start': 2.0,
                      't_stop': 2.5,

@@ -92,6 +92,20 @@ class Model:
     def copy(self):
         return deepcopy(self)
 
+    def reshape_ensemble(self, m=None, reset=True):
+        model = self.copy()
+        if m is None:
+            m = model.m
+        psi = model.psi
+        if m == 1:
+            psi = np.mean(psi, -1, keepdims=True)
+            model.ensemble = False
+        else:
+            psi = model.addUncertainty(np.mean(psi, -1, keepdims=True), np.std(psi, -1, keepdims=True), m)
+        model.updateHistory(psi=psi, t=0., reset=reset)
+        print(self.psi.shape, m)
+        return model
+
     def getObservableHist(self, Nt=0, **kwargs):
         return self.getObservables(Nt, **kwargs)
 
@@ -497,7 +511,6 @@ class Rijke(Model):
         for key in Rijke.fixed_params:
             self.governing_eqns_params[key] = getattr(self, key)
 
-
     # _______________ Rijke specific properties and methods ________________ #
     @property
     def param_lims(self):
@@ -753,9 +766,7 @@ if __name__ == '__main__':
 
     t1 = time.time()
     for _ in range(5):
-        print('t', case.t)
         state, t_ = case.timeIntegrate(int(1. / case.dt))
-        print(t_[0])
         case.updateHistory(state, t_)
     # for _ in range(5):
     #     state, t_ = case.timeIntegrate(int(.1 / case.dt), averaged=True)
@@ -786,7 +797,6 @@ if __name__ == '__main__':
     c = ['g', 'sandybrown', 'mediumpurple', 'cyan']
     mean = np.mean(case.hist, -1, keepdims=True)
     for p in case.est_a:
-        print(ai)
         # reference_p = truth['true_params']
         reference_p = case.alpha0
 
@@ -808,9 +818,9 @@ if __name__ == '__main__':
 
     plt.tight_layout()
 
-    import pympler.asizeof
+    # import pympler.asizeof
 
 
-    print('time={}, size={}'.format(time.time() - t0, pympler.asizeof.asizeof(case)))
+    # print('time={}, size={}'.format(time.time() - t0, pympler.asizeof.asizeof(case)))
 
     plt.show()
