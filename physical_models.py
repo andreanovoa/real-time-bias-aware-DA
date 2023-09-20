@@ -12,8 +12,6 @@ import multiprocessing as mp
 from functools import partial
 from copy import deepcopy
 
-from matplotlib.animation import FuncAnimation
-
 # os.environ["OMP_NUM_THREADS"] = '1'
 num_proc = os.cpu_count()
 if num_proc > 1:
@@ -31,15 +29,15 @@ plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 class Model:
     """ Parent Class with the general model properties and methods definitions.
     """
-    attr_model: dict = dict(t=0.,
-                            psi0=np.empty(1),
-                            )
+    attr_model: dict = dict(t=0., dt=1e-4, precision_t=6,
+                            psi0=np.empty(1), alpha0=np.empty(1), psi=None, alpha=None,
+                            ensemble=False, filename='', governing_eqns_params=dict())
     attr_ens: dict = dict(filter='EnKF',
                           constrained_filter=False,
                           regularization_factor=1.,
                           m=10,
                           dt_obs=None,
-                          est_a=(),
+                          est_a=False,
                           est_s=True,
                           est_b=False,
                           biasType=bias_models.NoBias,
@@ -52,36 +50,37 @@ class Model:
                           num_DA_blind=0,
                           num_SE_only=0,
                           start_ensemble_forecast=0.,
-                          get_cost=False
+                          get_cost=False,
+                          Na=0
                           )
+    __slots__ = list(attr_model.keys()) + list(attr_ens.keys()) + ['hist', 'hist_t', 'hist_J', '_pool', '_M', '_Ma']
 
     def __init__(self, **model_dict):
         # ================= INITIALISE THERMOACOUSTIC MODEL ================== ##
         for key, val in Model.attr_model.items():
             if key in model_dict.keys():
                 setattr(self, key, model_dict[key])
+                del model_dict[key]
             else:
                 setattr(self, key, val)
+        for key, val in Model.attr_ens.items():
+            if key in model_dict.keys():
+                setattr(self, key, model_dict[key])
 
         self.alpha0 = {par: getattr(self, par) for par in self.params}
         self.alpha = self.alpha0.copy()
         self.psi = np.array([self.psi0]).T
-        self.ensemble = False
-        self.filename = ""
         # ========================== CREATE HISTORY ========================== ##
         self.hist = np.array([self.psi])
         self.hist_t = np.array([self.t])
         self.hist_J = []
         # ========================== DEFINE LENGTHS ========================== ##
-        self.Na = 0
         self.precision_t = int(-np.log10(self.dt)) + 2
-
-        # _________________________ Governing equations ________________________ #
-        self.governing_eqns_params = dict()
 
     @property
     def Nphi(self):
         return len(self.psi0)
+
     @property
     def Nq(self):
         return np.shape(self.getObservables())[0]
@@ -150,38 +149,41 @@ class Model:
             ens[:, 0] = mean
         return ens
 
-    def getOutputs(self):
-        out = dict(name=self.name,
-                   hist_y=self.getObservableHist(),
-                   y_lbls=self.obsLabels,
-                   bias=self.bias.getOutputs(),
-                   hist_t=self.hist_t,
-                   hist=self.hist,
-                   hist_J=self.hist_J,
-                   alpha0=self.alpha0
-                   )
-        for key in self.attr.keys():
-            out[key] = getattr(self, key)
-        if self.ensemble:
-            for key in self.attr_ens.keys():
-                out[key] = getattr(self, key)
-        return out
+    # def getOutputs(self):
+    #     out = dict(name=self.name,
+    #                hist_y=self.getObservableHist(),
+    #                y_lbls=self.obsLabels,
+    #                bias=self.bias.getOutputs(),
+    #                hist_t=self.hist_t,
+    #                hist=self.hist,
+    #                hist_J=self.hist_J,
+    #                alpha0=self.alpha0
+    #                )
+    #     for key in self.attr.keys():
+    #         out[key] = getattr(self, key)
+    #     if self.ensemble:
+    #         for key in self.attr_ens.keys():
+    #             out[key] = getattr(self, key)
+    #     return out
 
     def initEnsemble(self, **DAdict):
         DAdict = DAdict.copy()
         self.ensemble = True
+
         for key, val in Model.attr_ens.items():
             if key in DAdict.keys():
                 setattr(self, key, DAdict[key])
             else:
                 setattr(self, key, val)
-        self.filename = '{}_ensemble_m{}'.format(self.name, self.m)
+        self.filename += '{}_ensemble_m{}'.format(self.name, self.m)
         if hasattr(self, 'modify_settings'):
             self.modify_settings()
         # --------------- RESET INITIAL CONDITION AND HISTORY --------------- ##
         # Note: if est_a and est_b psi = [psi; alpha; biasWeights]
         ensure_mean = self.ensure_mean
-        mean_psi = np.array(self.psi0) * rng.uniform(0.9, 1.1, len(self.psi0))
+        self.psi0 = np.mean(self.psi, -1)
+
+        mean_psi = self.psi0 * rng.uniform(0.9, 1.1, len(self.psi0))
         new_psi0 = self.addUncertainty(mean_psi, self.std_psi, self.m,
                                        method='normal', ensure_mean=ensure_mean)
 
@@ -193,7 +195,7 @@ class Model:
             self.Na = len(self.est_a)
 
         # RESET ENSEMBLE HISTORY
-        self.updateHistory(psi=new_psi0, reset=True)
+        self.updateHistory(psi=new_psi0, t=0., reset=True)
 
     def initBias(self, **Bdict):
 
@@ -659,6 +661,14 @@ class Annular(Model):
     # __________________________ Init method ___________________________ #
     def __init__(self, **TAdict):
 
+        model_dict = dict(TAdict)
+        for key, val in self.attr.items():
+            if key in TAdict.keys():
+                setattr(self, key, TAdict[key])
+                del model_dict[key]
+            else:
+                setattr(self, key, val)
+
         super().__init__(**TAdict)
 
         self.theta_mic = np.radians([0, 60, 120, 240])
@@ -731,170 +741,76 @@ class Annular(Model):
 
 
 if __name__ == '__main__':
-    MyModel = Annular
-    paramsTA = dict(dt=1 / 51.2E3)
 
-    animate = 0
-    anim_name = 'mov_mix_epsilon.gif'
-
-    # Non-ensemble case =============================
-    t1 = time.time()
-    case = MyModel(paramsTA)
-    state, t_ = case.timeIntegrate(int(case.t_transient * 3 / case.dt))
+    t0 = time.time()
+    # Ensemble case =============================
+    case = VdP(beta=80)
+    DA_params = dict(m=10, est_a=['beta'], std_psi=0.1, std_a=dict(beta=(70, 90)), alpha_distr='uniform')
+    state, t_ = case.timeIntegrate(int(case.t_transient / case.dt))
     case.updateHistory(state, t_)
 
-    print(case.dt)
+    case.initEnsemble(**DA_params)
+
+    t1 = time.time()
+    for _ in range(5):
+        print('t', case.t)
+        state, t_ = case.timeIntegrate(int(1. / case.dt))
+        print(t_[0])
+        case.updateHistory(state, t_)
+    # for _ in range(5):
+    #     state, t_ = case.timeIntegrate(int(.1 / case.dt), averaged=True)
+    #     case.updateHistory(state, t_)
+
+
     print('Elapsed time = ', str(time.time() - t1))
-
-    fig1 = plt.figure(figsize=[12, 3], layout="constrained")
-    subfigs = fig1.subfigures(1, 2, width_ratios=[1.2, 1])
-
-    ax = subfigs[0].subplots(1, 2)
-    ax[0].set_title(MyModel.name)
 
     t_h = case.hist_t
     t_zoom = min([len(t_h) - 1, int(0.05 / case.dt)])
 
+    _, ax = plt.subplots(1, 3, figsize=[15, 5])
+    plt.suptitle('Ensemble case')
     # State evolution
-    y, lbl = case.getObservableHist(modes=True), case.obsLabels
+    y, lbl = case.getObservableHist(), case.obsLabels
 
-    ax[0].scatter(t_h, y[:, 0], c=t_h, label=lbl, cmap='Blues', s=10, marker='.')
-
-    ax[0].set(xlabel='$t$', ylabel=lbl[0])
+    ax[0].plot(t_h, y[:, 0], color='blue', label=lbl)
     i, j = [0, 1]
+    ax[1].plot(t_h[-t_zoom:], y[-t_zoom:, 0], color='blue')
 
-    if len(lbl) > 1:
-        # ax[1].scatter(y[:, 0]/np.max(y[:,0]), y[:, 1]/np.max(y[:,1]), c=t_h, s=3, marker='.', cmap='Blues')
-        # ax[1].set(xlabel='$'+lbl[0]+'/'+lbl[0]+'^\mathrm{max}$', ylabel='$'+lbl[1]+'/'+lbl[1]+'^\mathrm{max}$')
-        ax[1].scatter(y[:, 0], y[:, 1], c=t_h, s=3, marker='.', cmap='Blues')
-        ax[1].set(xlabel=lbl[0], ylabel=lbl[1])
-    else:
-        ax[1].plot(t_h[-t_zoom:], y[-t_zoom:, 0], color='green')
+    ax[0].set(xlabel='t', ylabel=lbl, xlim=[t_h[0], t_h[-1]])
+    ax[1].set(xlabel='t', xlim=[t_h[-t_zoom], t_h[-1]])
 
-    ax[1].set_aspect(1. / ax[1].get_data_ratio())
+    # Params
 
-    if not animate:
-        ax2 = subfigs[1].subplots(2, 1)
+    ai = -case.Na
+    max_p, min_p = -1000, 1000
+    c = ['g', 'sandybrown', 'mediumpurple', 'cyan']
+    mean = np.mean(case.hist, -1, keepdims=True)
+    for p in case.est_a:
+        print(ai)
+        # reference_p = truth['true_params']
+        reference_p = case.alpha0
 
-        y, lbl = case.getObservableHist(modes=False), case.obsLabels
-        y = np.mean(y, axis=-1)
-        # print(np.min(y, axis=0))
-        # sorted_id = np.argsort(np.max(abs(y[-1000:]), axis=0))
-        # print(sorted_id)
-        # y = y[:, sorted_id]
-        # lbl = [lbl[idx] for idx in sorted_id]
+        mean_p = mean[:, ai].squeeze() / reference_p[p]
+        std = np.std(case.hist[:, ai] / reference_p[p], axis=1)
 
-        for ax in ax2:
-            ax.plot(t_h, y / 1E3)
-        ax2[0].set_title('Acoustic Pressure')
-        ax2[0].legend(lbl, bbox_to_anchor=(1., 1.), loc="upper left", ncol=1, fontsize='small')
-        ax2[0].set(xlim=[t_h[0], t_h[-1]], xlabel='$t$', ylabel='$p$ [kPa]')
-        ax2[1].set(xlim=[t_h[-1] - case.t_CR, t_h[-1]], xlabel='$t$', ylabel='$p$ [kPa]')
-    else:
-        ax2 = subfigs[1].subplots(1, 1, subplot_kw={'projection': 'polar'})
-        angles = np.linspace(0, 2 * np.pi, 200)  # Angles from 0 to 2π
-        y, lbl = case.getObservableHist(modes=False, loc=angles), case.obsLabels
-        y = np.mean(y, axis=-1)
+        max_p = max(max_p, max(mean_p))
+        min_p = min(min_p, min(mean_p))
 
-        radius = [0, 0.5, 1]
-        theta, r = np.meshgrid(angles, radius)
+        ax[2].plot(t_h, mean_p, color=c[-ai], label='$\\{0}/\\{0}^{1}$'.format(p, '\\mathrm{init}'))
+        ax[2].fill_between(t_h, mean_p + std, mean_p - std, alpha=0.2, color=c[-ai])
+        ax[2].plot(t_h, case.hist[:, ai] / reference_p[p], lw=.5, color=c[-ai])
 
-        # Remove radial tick labels
-        ax2.set_yticklabels([])
-        ax2.grid(False)
+        ax[2].set(xlabel='$t$', xlim=[t_h[0], t_h[-1]])
+        ai += 1
+    ax[2].legend(bbox_to_anchor=(1., 1.), loc="upper left", ncol=1)
+    ax[2].plot(t_h[1:], t_h[1:] / t_h[1:], '-', color='k', linewidth=.5)
+    ax[2].set(ylim=[min_p - 0.1, max_p + 0.1])
 
-        # Add a white concentric circle
-        circle_radius = 0.5
-        ax2.plot(angles, [circle_radius] * len(angles), color='black', lw=1)
+    plt.tight_layout()
 
-        idx_max = np.argmax(y[:, 0])
-        polar_mesh = ax2.pcolormesh(theta, r, [y[idx_max].T] * len(radius), shading='auto', cmap='RdBu')
-
-        ax2.set_theta_zero_location('S')  # Set zero angle to the north (top)
-        ax2.set_title('Acoustic Pressure')
-        ax2.set_theta_direction(1)  # Set clockwise rotation
-
-        start_i = np.argmin(abs(t_h[-1] - (t_h[-1] - case.t_CR)))
-
-        print((t_h[-1]))
-        start_i = int((t_h[-1] - .03) // case.dt)
-
-        print(start_i, t_h[start_i])
-
-        dt_gif = 10
-
-        t_gif = t_h[start_i::dt_gif]
-
-        y_gif = y[start_i::dt_gif]
+    import pympler.asizeof
 
 
-        def update(frame):
-            ax2.fill(angles, [circle_radius] * len(angles), color='white')
-            polar_mesh.set_array([y_gif[frame].T] * len(radius))
-            ax2.set_title('Acoustic Pressure $t$ = {:.3f}'.format(t_gif[frame]))  # , fontsize='small')#, labelpad=50)
-
-
-        plt.colorbar(polar_mesh, label='Pressure', shrink=0.75)
-        anim = FuncAnimation(fig1, update, frames=len(t_gif))
-        dt = t_gif[1] - t_gif[0]
-        anim.save(anim_name, fps=dt_gif * 10)
+    print('time={}, size={}'.format(time.time() - t0, pympler.asizeof.asizeof(case)))
 
     plt.show()
-
-    # # Ensemble case =============================
-    # paramsDA = dict(m=10, est_a=['beta'])
-    # case = MyModel(paramsTA, paramsDA)
-    #
-    # t1 = time.time()
-    # for _ in range(1):
-    #     state, t_ = case.timeIntegrate(int(1. / case.dt))
-    #     case.updateHistory(state, t_)
-    # for _ in range(5):
-    #     state, t_ = case.timeIntegrate(int(.1 / case.dt), averaged=True)
-    #     case.updateHistory(state, t_)
-    #
-    # print('Elapsed time = ', str(time.time() - t1))
-    #
-    # t_h = case.hist_t
-    # t_zoom = min([len(t_h) - 1, int(0.05 / case.dt)])
-    #
-    # _, ax = plt.subplots(1, 3, figsize=[15, 5])
-    # plt.suptitle('Ensemble case')
-    # # State evolution
-    # y, lbl = case.getObservableHist(), case.obsLabels
-    # lbl = lbl[0]
-    # ax[0].plot(t_h, y[:, 0], color='blue', label=lbl)
-    # i, j = [0, 1]
-    # ax[1].plot(t_h[-t_zoom:], y[-t_zoom:, 0], color='blue')
-    #
-    # ax[0].set(xlabel='t', ylabel=lbl, xlim=[t_h[0], t_h[-1]])
-    # ax[1].set(xlabel='t', xlim=[t_h[-t_zoom], t_h[-1]])
-    #
-    # # Params
-    #
-    # ai = - case.Na
-    # max_p, min_p = -1000, 1000
-    # c = ['g', 'sandybrown', 'mediumpurple', 'cyan']
-    # mean = np.mean(case.hist, -1, keepdims=True)
-    # for p in case.est_a:
-    #     superscript = '^\mathrm{init}$'
-    #     # reference_p = truth['true_params']
-    #     reference_p = case.alpha0
-    #
-    #     mean_p = mean[:, ai].squeeze() / reference_p[p]
-    #     std = np.std(case.hist[:, ai] / reference_p[p], axis=1)
-    #
-    #     max_p = max(max_p, max(mean_p))
-    #     min_p = min(min_p, min(mean_p))
-    #
-    #     ax[2].plot(t_h, mean_p, color=c[-ai], label= p + '/' + p[:-1] + superscript + '$')
-    #
-    #     ax[2].set(xlabel='$t$', xlim=[t_h[0], t_h[-1]])
-    #     ax[2].fill_between(t_h, mean_p + std, mean_p - std, alpha=0.2, color=c[-ai])
-    #     ai += 1
-    # ax[2].legend(bbox_to_anchor=(1., 1.), loc="upper left", ncol=1)
-    # ax[2].plot(t_h[1:], t_h[1:] / t_h[1:], '-', color='k', linewidth=.5)
-    # ax[2].set(ylim=[min_p - 0.1, max_p + 0.1])
-    #
-    # plt.tight_layout()
-    # plt.show()

@@ -98,19 +98,7 @@ class EchoStateNetwork:
     @property
     def WCout(self):
         if self._WCout is None:
-            dW = self.W.toarray()
-
-            # from scipy.sparse import issparse
-            #
-            # print(issparse(self.W))
-            # print(type(dW), type(dW[0]), dW.shape)
-
-            self._WCout = np.linalg.lstsq(self.Wout[:-1], dW, rcond=None)[0]
-            # self._WCout = sla.minres(self.Wout[:-1], dW)[0]
-
-            # print(self.Wout[:-1].shape, dW.shape, self._WCout.shape, type(self._WCout[0]))
-            # raise
-
+            self._WCout = np.linalg.lstsq(self.Wout[:-1], self.W.toarray(), rcond=None)[0]
         return self._WCout
 
     @property
@@ -148,7 +136,7 @@ class EchoStateNetwork:
             u_aug = np.concatenate((u_in / self.norm, self.bias_in))
             rout = np.tanh(self.sigma_in * self.Win.dot(u_aug) + self.rho * np.dot(self.WCout.T, u_in))
             dr_di = self.sigma_in * Win_1 / self.norm + self.rho * self.WCout.T
-            # raise NotImplementedError('Numerical test did not pass')
+            raise NotImplementedError('Numerical test of closed-loop Jacobian did not pass')
 
         # Compute Jacobian
         T = 1. - rout ** 2
@@ -217,14 +205,11 @@ class EchoStateNetwork:
 
         # Format training data and divide into wash-train-validate, and test sets
         U_wtv, Y_tv, U_test = self.format_training_data(train_data)
-        print(U_wtv.shape, train_data.shape)
 
         #  ==================== ADD NOISE TO TRAINING INPUT ====================== ## TODO: add this to the optimization
         # Add noise to inputs during training. Larger noise level
         # promotes stability in long term, but hinders time accuracy
         U_std = np.std(U_wtv, axis=1)
-
-        print(U_std.shape, self.L, self.N_dim)
 
         rnd = np.random.RandomState(0)
         for ll in range(self.L):
@@ -314,12 +299,11 @@ class EchoStateNetwork:
                         plt.contour(xx, yy, y_pred, levels=20, colors='black', linewidths=1, linestyles='solid',
                                     alpha=0.3)
                         #   Plot the n_tot search points
-                        for rx, mk, c in zip([res_x[:self.N_grid**2], res_x[self.N_grid**2:]], ['v', 's'], ['k', 'w']):
-                            plt.plot(rx[:, 0], rx[:, 1], mk, c='w', alpha=.8, mec=c, ms=8)
+                        for rx, mk, c in zip([res_x[:self.N_grid**2], res_x[self.N_grid**2:]], ['v', 's']):
+                            plt.plot(rx[:, 0], rx[:, 1], mk, c='w', alpha=.8, mec='k', ms=8)
                         # Plot best point
                         best_idx = np.argmin(f_iters)
-                        print(best_idx)
-                        plt.plot(res_x[best_idx, 0], res_x[best_idx, 1], 'xr', alpha=.8, mec='r', ms=8)
+                        plt.plot(res_x[best_idx, 0], res_x[best_idx, 1], '*r', alpha=.8, mec='r', ms=8)
                         pdf.savefig(fig)
                         plt.close(fig)
             if self.perform_test:
@@ -538,8 +522,6 @@ class EchoStateNetwork:
         N_test = self.N_test  # Testing window
         max_test_time = np.shape(U_test)[1] - self.N_wash
 
-        print(N_test, max_test_time)
-
         total_tests = min(10, int(np.floor(max_test_time / self.N_test)))
 
         # Break if not enough train_data for testing
@@ -596,7 +578,7 @@ def add_pdf_page(pdf, fig):
 
 def run_ESN_test(dim=3,  # Number of dimensions the ESN predicts
                  upsample=5,  # to increase the dt of the ESN wrt the numerical integrator
-                 num_tests=0):
+                 num_tests=0, **kwargs):
     from physical_models import Lorenz63
     rnd = np.random.RandomState(0)
     # Create signal to predict ---------------------------------
@@ -604,7 +586,7 @@ def run_ESN_test(dim=3,  # Number of dimensions the ESN predicts
     dt_ESN = 0.015 * upsample  # time step
     N_lyap = t_lyap / dt_ESN  # number of time steps in one Lyapunov time
     # number of time steps for washout, train, validation, test
-    N_transient, N_train, N_val, N_washout, N_test = [n * N_lyap for n in (20, 60, 5, 5, 10)]
+    N_transient, N_train, N_val, N_washout, N_test = [n * N_lyap for n in (20, 100, 5, 1, 10)]
 
     model = Lorenz63(**{'dt': dt_ESN / upsample,
                         'psi0': rnd.random(3)})
@@ -626,6 +608,8 @@ def run_ESN_test(dim=3,  # Number of dimensions the ESN predicts
                   'N_grid': 4,
                   'noise': 1e-5,
                   }
+    for key, val in kwargs.items():
+        params_ESN[key] = val
 
     N_wtv = int(N_washout + N_train + N_val + N_test * (num_tests + 1))
 
@@ -667,7 +651,6 @@ def run_ESN_test(dim=3,  # Number of dimensions the ESN predicts
             i0 = i1 * upsample
 
         t_wash = t1[-int(N_washout) * upsample::upsample]
-        print(t_wash.shape, y_wash.shape, u_wash.shape, u_wash_data.shape)
 
         for ii, ax in enumerate(axs[:, 0]):
             if ii < ESN_case.N_dim:
@@ -695,14 +678,17 @@ def run_ESN_test(dim=3,  # Number of dimensions the ESN predicts
     return ESN_case, model
 
 
-
 if __name__ == '__main__':
     from Util import Jacobian_numerical_test
 
     # ============================= TEST ESN BY FORECASTING LORENZ63 =================================== #
     t_lyap = 0.906 ** (-1)  # Lyapunov Time (inverse of largest Lyapunov exponent
-    ESN_case, forecast_model = run_ESN_test(dim=3, num_tests=0)
 
+    params = dict(N_folds=20,
+                  sigma_in_range=(np.log10(0.5), np.log10(50.)),
+                  N_func_evals=40,
+                  N_grid=6)
+    ESN_case, forecast_model = run_ESN_test(dim=3, num_tests=5, **params)
 
     # ============================= TEST IF JACOBIAN PROPERLY DEFINED =================================== #
     J_ESN = ESN_case.Jacobian(open_loop_J=True)

@@ -42,21 +42,21 @@ if __name__ == '__main__':
                      't_stop': 4.5,
                      'dt_obs': 30,
                      # Inflation
-                     'inflation': 1.000,
-                     'reject_inflation': 1.000,
+                     'inflation': 1.001,
+                     'reject_inflation': 1.001,
                      'start_ensemble_forecast': 10
                      }
     # ==================================== SELECT ESN PARAMETERS =================================== #
 
     bias_params = {'biasType': bias_models.ESN,  # Bias.ESN / Bias.NoBias
-                   'L': 20,  # ESN training specs
+                   'L': 10,  # ESN training specs
                    'std_a': parameters_IC,
-                   'std_psi': 1.,
+                   'std_psi': 2.,
                    'est_a': filter_params['est_a'],
                    'alpha_distr': 'uniform',
                    'ensure_mean': True,
                    'N_wash': 30,
-                   'upsample': 2,
+                   'upsample': 1,
                    'augment_data': True,
                    'tikh_range': [1e-12],
                    'sigma_in_range': (np.log10(1e-5), np.log10(1e0)),
@@ -78,8 +78,6 @@ if __name__ == '__main__':
     bias = create_bias_model(filter_ens, truth['y'], bias_params,
                              bias_filename, folder, plot_train_data=True)
 
-    print('\n trained?', filter_ens.bias.wash_time)
-    print(bias)
     # ================================= START BIAS MODEL ======================================== #
 
     filtered_ens = main(filter_ens, truth)

@@ -18,7 +18,6 @@ def create_observations(classParams=None):
             t_max = TA_params['t_max']
         else:
             t_max = 8.
-            print('t_max=8.')
     else:
         raise ValueError('classParams must be dict')
 
@@ -99,7 +98,6 @@ def create_truth(true_p, filter_p, noise_type):
         true_p['std_obs'] = 0.01
 
     # Create noise to add to the truth
-    print('Noise type: ', noise_type)
     if 'gauss' in noise_type.lower():
         Cdd = np.eye(q) * true_p['std_obs'] ** 2
         noise = rng.multivariate_normal(np.zeros(q), Cdd, Nt)
@@ -138,7 +136,7 @@ def create_ensemble(true_p, forecast_p, filter_p, bias_p=None):
 
     # =========================  INITIALISE ENSEMBLE & BIAS  =========================== #
     ensemble = forecast_p['model'](**forecast_p)
-    ensemble.initEnsemble(**filter_p)
+    ensemble.initEnsemble(**filter_p)   # TODO init ensemble after some forecast to have a proper IC
     ensemble.initBias(**bias_p)
 
     # =============================  CREATE OBSERVATIONS ============================== #
@@ -157,11 +155,10 @@ def create_ensemble(true_p, forecast_p, filter_p, bias_p=None):
         if hasattr(ensemble.bias, 't_init'):
             raise 'continue here'
 
-        i1 = truth['t_obs'][0] - truth['dt_obs'] # MODIFY IF LONGER CLOSED-LOOP PRE-DA
+        i1 = truth['t_obs'][0] - truth['dt_obs']  # MODIFY IF LONGER CLOSED-LOOP PRE-DA IS WANTED
         i1 = np.argmin(abs(truth['t'] - i1))
         i0 = i1 - ensemble.bias.N_wash * ensemble.bias.upsample
 
-        print('Washout', len(np.arange(i0, i1)), ensemble.bias.N_wash)
         if i0 < 0:
             min_Nt = (ensemble.bias.N_wash * ensemble.bias.upsample + truth['dt_obs']) * ensemble.dt
             raise ValueError('increase t_start to > t_wash + dt_obs = {}'.format(min_Nt))
@@ -183,7 +180,6 @@ def create_bias_model(filter_ens, y_true,
         bias = load_from_pickle_file(esn_folder + bias_filename)
         if check_valid_file(bias, bias_params) is False:
             filter_ens.bias = bias
-            print('\n trained load?', bias.trained)
             return bias
 
     # print('Train and save bias case')
@@ -202,8 +198,6 @@ def create_bias_model(filter_ens, y_true,
 
     # Save
     save_to_pickle_file(esn_folder + bias_filename, ensemble.bias)
-
-    print('\n trained?', ensemble.bias.trained)
     filter_ens.bias = ensemble.bias
 
     return ensemble.bias
@@ -288,7 +282,7 @@ def create_bias_training_dataset(y_truth, ensemble, train_params, filename, plot
         # Augment train data with correlated signals and a fraction --------------
         train_data = np.concatenate([train_data,
                                      y_true - y_corr,
-                                     train_data * 1e-1], axis=-1)
+                                     (y_true - y_corr)*1.5], axis=-1)
 
     # Force train_data shape to be (L, Nt, Ndim)
     train_data = train_data.transpose((2, 0, 1))

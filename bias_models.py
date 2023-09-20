@@ -152,7 +152,6 @@ class ESN(Bias, EchoStateNetwork):
 
     def train_bias_model(self, train_data, val_strategy=EchoStateNetwork.RVC_Noise,
                          plot_training=True, folder='./'):
-        print(self.t_val)
         self.train(train_data, validation_strategy=val_strategy,
                    plot_training=plot_training, folder=folder)
         self.trained = True
