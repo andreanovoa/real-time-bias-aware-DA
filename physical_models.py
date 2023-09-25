@@ -29,7 +29,7 @@ plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 class Model:
     """ Parent Class with the general model properties and methods definitions.
     """
-    attr_model: dict = dict(t=0., dt=1e-4, precision_t=6,
+    attr_model: dict = dict(t=0., precision_t=6,
                             psi0=np.empty(1), alpha0=np.empty(1), psi=None, alpha=None,
                             ensemble=False, filename='', governing_eqns_params=dict())
     attr_ens: dict = dict(filter='EnKF',
@@ -162,23 +162,6 @@ class Model:
         if ensure_mean:
             ens[:, 0] = mean
         return ens
-
-    # def getOutputs(self):
-    #     out = dict(name=self.name,
-    #                hist_y=self.getObservableHist(),
-    #                y_lbls=self.obsLabels,
-    #                bias=self.bias.getOutputs(),
-    #                hist_t=self.hist_t,
-    #                hist=self.hist,
-    #                hist_J=self.hist_J,
-    #                alpha0=self.alpha0
-    #                )
-    #     for key in self.attr.keys():
-    #         out[key] = getattr(self, key)
-    #     if self.ensemble:
-    #         for key in self.attr_ens.keys():
-    #             out[key] = getattr(self, key)
-    #     return out
 
     def initEnsemble(self, **DAdict):
         DAdict = DAdict.copy()
@@ -495,7 +478,6 @@ class Rijke(Model):
         # Tau: 0.0320     Td: 0.0038          Tu: 0.0012      R_in: -0.9970   R_out: -0.9970      Su: 0.9000
         # Qbar: 5000      R_gas: 287.1000     gamma: 1.4000
         ##############################################################################################################
-
 
     def modify_settings(self):
         if self.est_a and 'tau' in self.est_a:

@@ -13,7 +13,7 @@ if __name__ == '__main__':
 
     true_params = {'model': model,
                    'manual_bias': 'cosine',
-                   'std_obs': 0.5,
+                   'std_obs': 0.01,
                    'beta': 50,
                    'zeta': 25,
                    'kappa': 9.0
@@ -30,18 +30,17 @@ if __name__ == '__main__':
                      'regularization_factor': 2.,
                      'm': 10,
                      # # initial parameter and state uncertainty
-                     'est_a': ('beta', 'kappa', 'zeta'),
+                     'est_a': ('beta', 'kappa'),
                      'std_a': parameters_IC,
-                     'std_psi': 0.5,
+                     'std_psi': 0.2,
                      'alpha_distr': 'uniform',
                      # Define the observation time window
-                     't_start': 3.0,
-                     't_stop': 4.5,
-                     'dt_obs': 35,
+                     't_start': 1.0,
+                     't_stop': 2.5,
+                     'dt_obs': 60,
                      # Inflation
                      'inflation': 1.002,
-                     'reject_inflation': 1.001,
-                     'start_ensemble_forecast': 10
+                     'reject_inflation': 1.001
                      }
     # ==================================== SELECT ESN PARAMETERS =================================== #
 
@@ -52,7 +51,6 @@ if __name__ == '__main__':
                    'ensure_mean': True,
                    'est_a': filter_params['est_a'],
                    'N_wash': 30,
-                   'noise': 0.01,
                    'plot_training': True,
                    'perform_test': True,
                    'rho_range': (0.5, 1.1),

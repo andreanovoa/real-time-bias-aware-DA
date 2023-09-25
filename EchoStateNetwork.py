@@ -579,17 +579,23 @@ def add_pdf_page(pdf, fig):
 def run_ESN_test(dim=3,  # Number of dimensions the ESN predicts
                  upsample=5,  # to increase the dt of the ESN wrt the numerical integrator
                  num_tests=0, **kwargs):
+
     from physical_models import Lorenz63
-    rnd = np.random.RandomState(0)
+    rnd = np.random.RandomState(6)
     # Create signal to predict ---------------------------------
     # Note: Does not need to be a class. Any signal can be used as U
-    dt_ESN = 0.015 * upsample  # time step
+    dt_model = 0.015
+    dt_ESN = dt_model * upsample  # time step
+    t_lyap = 0.906 ** (-1)  # Lyapunov Time (inverse of largest Lyapunov exponent
     N_lyap = t_lyap / dt_ESN  # number of time steps in one Lyapunov time
+
     # number of time steps for washout, train, validation, test
     N_transient, N_train, N_val, N_washout, N_test = [n * N_lyap for n in (20, 100, 5, 1, 10)]
 
-    model = Lorenz63(**{'dt': dt_ESN / upsample,
+    model = Lorenz63(**{'dt': dt_model,
                         'psi0': rnd.random(3)})
+
+    print(model.dt)
 
     params_ESN = {'upsample': upsample,
                   't_train': N_train * dt_ESN,
@@ -615,7 +621,9 @@ def run_ESN_test(dim=3,  # Number of dimensions the ESN predicts
 
     for Nt in [int(N_transient), N_wtv]:
         state1, t1 = model.timeIntegrate(Nt * upsample)
-        model.updateHistory(state1, t1)
+        model.updateHistory(state1, t1, reset=False)
+
+    print(model.t)
 
     # number of time steps for washout, train, validation, test
     yy = model.getObservableHist(N_wtv * upsample)
@@ -633,10 +641,11 @@ def run_ESN_test(dim=3,  # Number of dimensions the ESN predicts
 
     # Forecast model and ESN and compare
     state2, t2 = model.timeIntegrate(int(N_test) * upsample)
-    model.updateHistory(state2, t2)
+    model.updateHistory(state2, t2, reset=False)
     t2_up = t2[::ESN_case.upsample]
     u_closed, r_closed = ESN_case.closedLoop(len(t2_up))
 
+    print(model.t)
     if num_tests:
         fig1 = plt.figure(figsize=[12, 9], layout="tight")
         axs = fig1.subplots(3, 2, sharex='col', sharey='row')
@@ -651,7 +660,6 @@ def run_ESN_test(dim=3,  # Number of dimensions the ESN predicts
             i0 = i1 * upsample
 
         t_wash = t1[-int(N_washout) * upsample::upsample]
-
         for ii, ax in enumerate(axs[:, 0]):
             if ii < ESN_case.N_dim:
                 ax.plot(t_wash / t_lyap, u_wash_data[:, ii], 'x-')
@@ -661,14 +669,11 @@ def run_ESN_test(dim=3,  # Number of dimensions the ESN predicts
             yy = y_hist[-int(N_test) * upsample:]
             for ii, ax in enumerate(axs_col):
                 ax.plot(t1 / t_lyap, yy[:, ii], '.-', color='k', lw=2, alpha=.8)
-                ax.set(ylim=[min(yy[:, ii]), max(yy[:, ii])])
+                # ax.set(ylim=[min(yy[:, ii]), max(yy[:, ii])])
                 if ii < ESN_case.N_dim:
                     ax.plot(t1[::upsample] / t_lyap, u_closed[1:, ii], 'x--', color='r')
 
-        t1 = t2_up[0] / t_lyap
-        t2 = t2_up[-1] / t_lyap
-
-        for ax, xl in zip(axs[-1, :], [[0, t1 + .5], [t1 - .1, t2]]):
+        for ax, xl in zip(axs[-1, :], [[0, t2_up[0]/t_lyap + .5], [t2_up[0] / t_lyap - .1, t2_up[-1] / t_lyap]]):
             ax.set(xlabel='Lyapunov times', xlim=xl)
         for ax, leg in zip(axs[0, :], [['transient', 'training + val set', 'ESN washout'],
                                        ['test set', 'ESN prediction']]):
@@ -682,7 +687,6 @@ if __name__ == '__main__':
     from Util import Jacobian_numerical_test
 
     # ============================= TEST ESN BY FORECASTING LORENZ63 =================================== #
-    t_lyap = 0.906 ** (-1)  # Lyapunov Time (inverse of largest Lyapunov exponent
 
     params = dict(N_folds=20,
                   sigma_in_range=(np.log10(0.5), np.log10(50.)),
@@ -690,7 +694,7 @@ if __name__ == '__main__':
                   N_grid=6)
     ESN_case, forecast_model = run_ESN_test(dim=3, num_tests=5, **params)
 
-    # ============================= TEST IF JACOBIAN PROPERLY DEFINED =================================== #
+    # # ============================= TEST IF JACOBIAN PROPERLY DEFINED =================================== #
     J_ESN = ESN_case.Jacobian(open_loop_J=True)
 
     u_init, r_init = ESN_case.getReservoirState()

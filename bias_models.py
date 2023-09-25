@@ -82,10 +82,8 @@ class ESN(Bias, EchoStateNetwork):
     def __init__(self, y, t, dt, **kwargs):
         # --------------------------  Initialise parent Bias  ------------------------- #
         Bias.__init__(self, b=np.zeros(len(y)), t=t, dt=dt, **kwargs)
-
         # ---------------------  Initialise parent EchoStateNetwork  --------------------- #
         EchoStateNetwork.__init__(self, y=np.zeros(len(y)), dt=dt, **kwargs)
-
         self.initialised = False
         self.trained = False
 
@@ -94,9 +92,7 @@ class ESN(Bias, EchoStateNetwork):
         self.reset_state(u=value)
 
     def stateDerivative(self):
-        # Compute ESN Jacobian
-        J = self.Jacobian(open_loop_J=True)
-        return -J
+        return -self.Jacobian(open_loop_J=True)  # Compute ESN Jacobian
 
     def timeIntegrate(self, t, y=None):
         interp_flag = False
@@ -120,9 +116,7 @@ class ESN(Bias, EchoStateNetwork):
             # Run washout phase in open-loop
             wash_model = interpolate(t, np.mean(y, -1),
                                      self.wash_time, bound=False)
-
-            washout = self.wash_obs - wash_model
-            b_open, r = self.openLoop(washout)
+            b_open, r = self.openLoop(self.wash_obs - wash_model)
             b[t1:t1+self.N_wash+1] = b_open
             Nt -= self.N_wash
             # Run the rest of the time window in closed-loop

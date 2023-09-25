@@ -328,7 +328,6 @@ def create_bias_training_dataset(y_truth, ensemble, train_params, filename, plot
                 clr = cmap.to_rgba(RR[ll])
                 axs[1].plot(ll, RR[ll], 'o', color=clr)
 
-
         plt.show()
 
     # Save training data ------------------------------------

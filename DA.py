@@ -24,15 +24,15 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, wash_obs=None, wash_t=
     # ----------------------------- FORECAST UNTIL FIRST OBS ----------------------------- ## TODO: clean up this first stage
     time1 = time.time()
     if wash_t is not None:
-        t0 = wash_t[0] - dt_obs * ensemble.start_ensemble_forecast
-        for key, val in zip(['wash_obs', 'wash_time'], [wash_obs, wash_t]):
-            setattr(ensemble.bias, key, val)
-    else:
-        t0 = t_obs[ti] - dt_obs * ensemble.start_ensemble_forecast
-
-    if t0 < t_obs[ti]:
-        Nt = int(np.round((t0 - ensemble.t) / dt))
-        ensemble = forecastStep(ensemble, Nt, averaged=True, alpha=ensemble.alpha0)
+        # t0 = wash_t[0] - dt_obs * ensemble.start_ensemble_forecast
+        setattr(ensemble.bias, 'wash_obs', wash_obs)
+        setattr(ensemble.bias, 'wash_time', wash_t)
+    # else:
+    #     t0 = t_obs[ti] - dt_obs * ensemble.start_ensemble_forecast
+    #
+    # if t0 < t_obs[ti]:
+    #     Nt = int(np.round((t0 - ensemble.t) / dt))
+    #     ensemble = forecastStep(ensemble, Nt, averaged=True, alpha=ensemble.alpha0)
 
     # actual_std = abs(np.std(ensemble.psi, axis=-1) / np.mean(ensemble.psi, axis=-1))
     # prefix = ''
