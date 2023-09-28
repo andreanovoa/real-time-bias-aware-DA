@@ -140,15 +140,15 @@ class ESN(Bias, EchoStateNetwork):
         return b[1:], t_b[1:]
 
     def print_bias_parameters(self):
-        print('\n ----------------  Bias model parameters ---------------- ',
+        print('\n -----------------------  Bias model parameters -------------------- ',
               '\n Bias model: {}'.format(self.name),
               '\n Data filename: {}'.format(self.filename),
-              '\n Training time: {} s, \t Validation time: {} s'.format(self.t_train, self.t_val),
+              '\n Training time: {:.6} s, \t Validation time: {:.6} s'.format(self.t_train, self.t_val),
               '\n Washout steps: {}, \t Upsample: {}'.format(self.N_wash, self.upsample),
               '\n Num of neurones: {}, \t Run test?: {}'.format(self.N_units, self.perform_test),
               '\n Augment data?: {}, \t Num of training datasets: {}'.format(self.augment_data, self.L),
-              '\n Connectivity: {}, \t Tikhonov parameter: {}'.format(self.connect, self.tikh),
-              '\n Spectral radius: {}, \t Input scaling: {}'.format(self.rho, self.sigma_in)
+              '\n Connectivity: {}, \t\t Tikhonov parameter: {}'.format(self.connect, self.tikh),
+              '\n Spectral radius: {:.6}, \t Input scaling: {:.6}'.format(self.rho, self.sigma_in)
               )
 
     def train_bias_model(self, train_data, val_strategy=EchoStateNetwork.RVC_Noise,

@@ -74,16 +74,20 @@ def create_truth(true_p, filter_p, noise_type):
     y_true, t_true, name_truth = create_observations(true_p)
 
     if 'manual_bias' in true_p.keys():
-        if true_p['manual_bias'] == 'time':
-            b_true = .4 * y_true * np.sin((np.expand_dims(t_true, -1) * np.pi * 2) ** 2)
-        elif true_p['manual_bias'] == 'periodic':
-            b_true = 0.2 * np.max(y_true, 0) * np.cos(2 * y_true / np.max(y_true, 0))
-        elif true_p['manual_bias'] == 'linear':
-            b_true = .1 * np.max(y_true, 0) + .3 * y_true
-        elif true_p['manual_bias'] == 'cosine':
-            b_true = np.cos(y_true)
+        if type(true_p['manual_bias']) is str:
+            if true_p['manual_bias'] == 'time':
+                b_true = .4 * y_true * np.sin((np.expand_dims(t_true, -1) * np.pi * 2) ** 2)
+            elif true_p['manual_bias'] == 'periodic':
+                b_true = 0.2 * np.max(y_true, 0) * np.cos(2 * y_true / np.max(y_true, 0))
+            elif true_p['manual_bias'] == 'linear':
+                b_true = .1 * np.max(y_true, 0) + .3 * y_true
+            elif true_p['manual_bias'] == 'cosine':
+                b_true = np.cos(y_true)
+            else:
+                raise ValueError("Bias type not recognized choose: 'linear', 'periodic', 'time'")
         else:
-            raise ValueError("Bias type not recognised choose: 'linear', 'periodic', 'time'")
+            b_true = true_p['manual_bias'](y_true, t_true)
+
     else:
         b_true = np.zeros(1)
 
@@ -132,16 +136,21 @@ def create_truth(true_p, filter_p, noise_type):
 
 
 def create_ensemble(true_p, forecast_p, filter_p, bias_p=None):
-    # =========================  INITIALISE ENSEMBLE & BIAS  =========================== #
+    if bias_p is None:
+        bias_p = dict()
+    # ==============================  INITIALISE MODEL  ================================= #
     if 'std_a' in filter_p.keys() and type(filter_p['std_a']) is dict:
         for key, vals in filter_p['std_a'].items():
             forecast_p[key] = .5 * (vals[1] + vals[0])
 
     ensemble = forecast_p['model'](**forecast_p)
+
+    # Forecast model case to steady state initial condition before initialising ensemble
     state, t_ = ensemble.timeIntegrate(int(ensemble.t_CR / ensemble.dt))
     ensemble.updateHistory(state, t_)
 
-    ensemble.initEnsemble(**filter_p)  # TODO init ensemble after some forecast to have a proper IC
+    # =========================  INITIALISE ENSEMBLE & BIAS  =========================== #
+    ensemble.initEnsemble(**filter_p)
     ensemble.initBias(**bias_p)
 
     # =============================  CREATE OBSERVATIONS ============================== #
@@ -155,56 +164,62 @@ def create_ensemble(true_p, forecast_p, filter_p, bias_p=None):
     if not hasattr(ensemble, 't_max'):
         ensemble.t_max = truth['t'][-1]
 
-    # Add washout if needed -----------------------------------------------------------
-    if hasattr(ensemble.bias, 'N_wash') and ensemble.bias.N_wash > 0:
-        if hasattr(ensemble.bias, 't_init'):
-            raise 'continue here'
-
-        i1 = truth['t_obs'][0] - truth['dt_obs']  # MODIFY IF LONGER CLOSED-LOOP PRE-DA IS WANTED
-        i1 = np.argmin(abs(truth['t'] - i1))
-        i0 = i1 - ensemble.bias.N_wash * ensemble.bias.upsample
-
-        if i0 < 0:
-            min_Nt = (ensemble.bias.N_wash * ensemble.bias.upsample + truth['dt_obs']) * ensemble.dt
-            raise ValueError('increase t_start to > t_wash + dt_obs = {}'.format(min_Nt))
-        truth['wash_obs'] = truth['y'][i0:i1 + 1:ensemble.bias.upsample]
-        truth['wash_t'] = truth['t'][i0:i1 + 1:ensemble.bias.upsample]
+    # Add washout  -----------------------------------------------------------
+    if hasattr(ensemble.bias, 'N_wash'):
+        truth = create_washout(ensemble.bias, truth)
 
     return ensemble, truth
 
 
 def create_bias_model(filter_ens, y_true,
                       bias_params, bias_filename,
-                      esn_folder, plot_train_data=False):
-    if bias_params['biasType'].name == 'None':
-        return
-
-    # Create bias estimator if the class is not 'NoBias'
-    if os.path.isfile(esn_folder + bias_filename):
-        bias = load_from_pickle_file(esn_folder + bias_filename)
-        if check_valid_file(bias, bias_params) is False:
-            filter_ens.bias = bias
-            return bias
-
-    # print('Train and save bias case')
+                      bias_model_folder, plot_train_data=False):
     ensemble = filter_ens.copy()
-    ensemble.filename += '_L{}'.format(bias_params['L'])
-    ensemble.initBias(**bias_params)
 
-    # Create training data on a multi-parameter approach
-    train_data_filename = esn_folder + bias_filename + '_train_data'
-    train_data = create_bias_training_dataset(y_true, ensemble, bias_params,
-                                              train_data_filename, plot_=plot_train_data)
-    # Run bias model training
-    ensemble.bias.train_bias_model(train_data=train_data,
-                                   folder=esn_folder,
-                                   plot_training=True)
+    if bias_params['biasType'].name == 'None':
+        ensemble.initBias(**bias_params)
+    else:
+        # Create bias estimator if the class is not 'NoBias'
+        if os.path.isfile(bias_model_folder + bias_filename):
+            bias = load_from_pickle_file(bias_model_folder + bias_filename)
+            if check_valid_file(bias, bias_params) is False:
+                filter_ens.bias = bias
+                return bias
 
-    # Save
-    save_to_pickle_file(esn_folder + bias_filename, ensemble.bias)
-    filter_ens.bias = ensemble.bias
+        # print('Train and save bias case')
+        ensemble.filename += '_L{}'.format(bias_params['L'])
+        ensemble.initBias(**bias_params)
+
+        # Create training data on a multi-parameter approach
+        train_data_filename = bias_model_folder + bias_filename + '_train_data'
+        train_data = create_bias_training_dataset(y_true, ensemble, bias_params,
+                                                  train_data_filename, plot_=plot_train_data)
+        # Run bias model training
+        ensemble.bias.train_bias_model(train_data=train_data,
+                                       folder=bias_model_folder,
+                                       plot_training=True)
+        # Save
+        save_to_pickle_file(bias_model_folder + bias_filename, ensemble.bias)
 
     return ensemble.bias
+
+
+def create_washout(bias_model, true_data):
+    truth = dict(true_data)
+    if not hasattr(bias_model, 't_init'):
+        bias_model.t_init = truth['t_obs'][0] - truth['dt_obs']
+    if not hasattr(bias_model, 'upsample'):
+        bias_model.upsample = 1
+
+    i1 = np.argmin(abs(bias_model.t_init - truth['t']))
+    i0 = i1 - bias_model.N_wash * bias_model.upsample
+
+    if i0 < 0:
+        raise ValueError('increase bias.t_init > t_wash + dt_obs')
+    truth['wash_obs'] = truth['y'][i0:i1 + 1:bias_model.upsample]
+    truth['wash_t'] = truth['t'][i0:i1 + 1:bias_model.upsample]
+
+    return truth
 
 
 def create_bias_training_dataset(y_truth, ensemble, train_params, filename, plot_=False):

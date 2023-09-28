@@ -2,35 +2,39 @@ if __name__ == '__main__':
     import physical_models
     import bias_models
     from run import main
-    from create import create_ensemble, create_bias_model
+    from create import create_ensemble, create_bias_model, create_washout
     from plotResults import *
 
-    folder = 'results/test_ESN/'
+    os.chdir('../')  # set working directory to mscott
+    folder = 'results/test_ESN/Annular/'
     os.makedirs(folder, exist_ok=True)
 
     # %% ============================= SELECT TRUE AND FORECAST MODELS ================================= #
-    model = physical_models.VdP
+    model = physical_models.Annular
+
+    def model_bias(yy, tt):
+        return .1 * np.max(yy, 0) + .3 * yy
 
     true_params = {'model': model,
-                   'manual_bias': 'cosine',
+                   'manual_bias': model_bias,
                    'std_obs': 0.01,
-                   'beta': 50,
-                   'zeta': 25,
-                   'kappa': 9.0
+                   'nu': 17.,
+                   'beta_c2': 17.,
+                   'kappa': 1.2e-4
                    }
 
     forecast_params = {'model': model
                        }
 
     # ==================================== SELECT FILTER PARAMETERS =================================== #
-    parameters_IC = dict(beta=(40., 60.), zeta=(20., 30.), kappa=(8., 10.))
+    parameters_IC = dict(beta_c2=(10., 20.))
 
     filter_params = {'filter': 'rBA_EnKF',
                      'constrained_filter': False,
                      'regularization_factor': 2.,
                      'm': 10,
                      # # initial parameter and state uncertainty
-                     'est_a': ('beta', 'kappa'),
+                     'est_a': [*parameters_IC],
                      'std_a': parameters_IC,
                      'std_psi': 0.2,
                      'alpha_distr': 'uniform',
@@ -39,9 +43,15 @@ if __name__ == '__main__':
                      't_stop': 2.5,
                      'dt_obs': 60,
                      # Inflation
-                     'inflation': 1.002,
+                     'inflation': 1.001,
                      'reject_inflation': 1.001
                      }
+
+    # ============================ CREATE REFERENCE ENSEMBLE =================================== #
+    ensemble_og, truth_og = create_ensemble(true_params,
+                                            forecast_params,
+                                            filter_params)
+
     # ==================================== SELECT ESN PARAMETERS =================================== #
 
     bias_params = {'biasType': bias_models.ESN,  # Bias.ESN / Bias.NoBias
@@ -58,28 +68,27 @@ if __name__ == '__main__':
                    'std_psi': 2.,
                    'sigma_in_range': (np.log10(1e-5), np.log10(1e0)),
                    'tikh_range': [1e-12],
-                   'upsample': 2,
+                   'upsample': 5,
                    }
 
-    # ============================ CREATE REFERENCE ENSEMBLE =================================== #
-    ensemble, truth = create_ensemble(true_params,
-                                      forecast_params,
-                                      filter_params,
-                                      bias_params)
-    filter_ens = ensemble.copy()
+    for L in [10, 1]:
+        ensemble = ensemble_og.copy()
 
-    # ================================= START BIAS MODEL ======================================== #
+        bias_params['L'] = L
+        bias_filename = '{}_L{}'.format(bias_params['biasType'].name, bias_params['L'])
 
-    bias_filename = 'ESN_L{}'.format(bias_params['L'])
-    bias = create_bias_model(filter_ens, truth['y'], bias_params,
-                             bias_filename, folder, plot_train_data=True)
+        # START BIAS MODEL -----------------------------------------------------------
 
-    # ================================= START BIAS MODEL ======================================== #
+        bias = create_bias_model(ensemble, truth_og['y'], bias_params,
+                                 bias_filename, folder, plot_train_data=True)
+        ensemble.bias = bias
 
-    filtered_ens = main(filter_ens, truth)
+        # Add washout if needed ------------------------------------------------------
+        truth = create_washout(bias, truth_og)
 
-    # Plot results -------
-    # post_process_pdf(*out, reference_p=true_params, normalize=False)
-    post_process_single(filtered_ens, truth, reference_p=true_params)
+        filtered_ens = main(ensemble, truth)
 
-    plt.show()
+        # Plot results -------
+        # post_process_pdf(*out, reference_p=true_params, normalize=False)
+        post_process_single(filtered_ens, truth, reference_p=true_params)
+

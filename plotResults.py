@@ -228,8 +228,6 @@ def post_process_single(filter_ens, truth, filename=None, mic=0, reference_p=Non
 
     # y_unbiased = recover_unbiased_solution(t_b, b, t, y_mean, upsample=hasattr(filter_ens.bias, 'upsample'))
 
-
-
     # cut signals to interval of interest -----
     N_CR = int(filter_ens.t_CR // filter_ens.dt)  # Length of interval to compute correlation and RMS
 

@@ -45,11 +45,11 @@ class EchoStateNetwork:
                     wash_time=None,
                     # Default hyperparameters and optimization ranges
                     noise=0.2,
-                    noise_range=(0.05, 0.5),  # TODO: add noise to optimization. Same as Tikhonov
+                    noise_range=(0.05, 0.5),  # TODO: add noise to optimization?
                     optimize_hyperparams=['rho', 'sigma_in', 'tikh'],
                     rho=0.9,
                     rho_range=(.8, 1.05),
-                    sigma_in=-4,
+                    sigma_in=10**-3,
                     sigma_in_range=(-5, -1),
                     tikh=1e-12,
                     tikh_range=[1e-10, 1e-12, 1e-16],

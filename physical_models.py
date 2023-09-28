@@ -1,5 +1,5 @@
 from scipy.interpolate import splrep, splev
-import pylab as plt
+import matplotlib.pyplot as plt
 
 import bias_models
 from Util import Cheb, RK4
@@ -29,41 +29,43 @@ plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 class Model:
     """ Parent Class with the general model properties and methods definitions.
     """
-    attr_model: dict = dict(t=0., precision_t=6,
-                            psi0=np.empty(1), alpha0=np.empty(1), psi=None, alpha=None,
-                            ensemble=False, filename='', governing_eqns_params=dict())
-    attr_ens: dict = dict(filter='EnKF',
-                          constrained_filter=False,
-                          regularization_factor=1.,
-                          m=10,
-                          dt_obs=None,
-                          est_a=False,
-                          est_s=True,
-                          est_b=False,
-                          biasType=bias_models.NoBias,
-                          inflation=1.002,
-                          reject_inflation=1.002,
-                          std_psi=0.001,
-                          std_a=0.001,
-                          alpha_distr='normal',
-                          ensure_mean=False,
-                          num_DA_blind=0,
-                          num_SE_only=0,
-                          start_ensemble_forecast=0.,
-                          get_cost=False,
-                          Na=0
-                          )
-    __slots__ = list(attr_model.keys()) + list(attr_ens.keys()) + ['hist', 'hist_t', 'hist_J', '_pool', '_M', '_Ma']
+    defaults: dict = dict(t=0., precision_t=6,
+                          psi0=np.empty(1), alpha0=np.empty(1), psi=None, alpha=None, Nq=1,
+                          ensemble=False, filename='', governing_eqns_params=dict())
+    defaults_ens: dict = dict(filter='EnKF',
+                              constrained_filter=False,
+                              regularization_factor=1.,
+                              m=10,
+                              dt_obs=None,
+                              est_a=False,
+                              est_s=True,
+                              est_b=False,
+                              biasType=bias_models.NoBias,
+                              inflation=1.002,
+                              reject_inflation=1.002,
+                              std_psi=0.001,
+                              std_a=0.001,
+                              alpha_distr='normal',
+                              ensure_mean=False,
+                              num_DA_blind=0,
+                              num_SE_only=0,
+                              start_ensemble_forecast=0.,
+                              get_cost=False,
+                              Na=0
+                              )
+    __slots__ = list(defaults.keys()) + list(defaults_ens.keys()) + ['hist', 'hist_t', 'hist_J', '_pool', '_M', '_Ma']
 
-    def __init__(self, **model_dict):
+    def __init__(self, child_defaults, **model_dict):
         # ================= INITIALISE THERMOACOUSTIC MODEL ================== ##
-        for key, val in Model.attr_model.items():
+        default_values = {**child_defaults, **Model.defaults}
+        for key, val in default_values.items():
             if key in model_dict.keys():
                 setattr(self, key, model_dict[key])
                 del model_dict[key]
             else:
                 setattr(self, key, val)
-        for key, val in Model.attr_ens.items():
+
+        for key, val in Model.defaults_ens.items():
             if key in model_dict.keys():
                 setattr(self, key, model_dict[key])
 
@@ -76,14 +78,11 @@ class Model:
         self.hist_J = []
         # ========================== DEFINE LENGTHS ========================== ##
         self.precision_t = int(-np.log10(self.dt)) + 2
+        self.defaults_child = child_defaults.copy()
 
     @property
     def Nphi(self):
         return len(self.psi0)
-
-    @property
-    def Nq(self):
-        return np.shape(self.getObservables())[0]
 
     @property
     def N(self):
@@ -103,22 +102,30 @@ class Model:
         else:
             psi = model.addUncertainty(np.mean(psi, -1, keepdims=True), np.std(psi, -1, keepdims=True), m)
         model.updateHistory(psi=psi, t=0., reset=reset)
-        print(self.psi.shape, m)
         return model
+
+    def getObservables(self, Nt=1, **kwargs):
+        if Nt == 1:
+            return self.hist[-1, :self.Nq, :]
+        else:
+            return self.hist[-Nt:, :self.Nq, :]
 
     def getObservableHist(self, Nt=0, **kwargs):
         return self.getObservables(Nt, **kwargs)
 
     def print_model_parameters(self):
         print('\n ------------------ {} Model Parameters ------------------ '.format(self.name))
-        for k in self.attr.keys():
-            print('\t {} = {}'.format(k, getattr(self, k)))
+        for key in sorted(self.defaults_child.keys()):
+            try:
+                print('\t {} = {:.6}'.format(key, getattr(self, key)))
+            except ValueError:
+                print('\t {} = {}'.format(key, getattr(self, key)))
 
     # --------------------- DEFINE OBS-STATE MAP --------------------- ##
     @property
     def M(self):
         if not hasattr(self, '_M'):
-            setattr(self, '_M', np.hstack((np.zeros([self.Nq, self.Na+self.Nphi]),
+            setattr(self, '_M', np.hstack((np.zeros([self.Nq, self.Na + self.Nphi]),
                                            np.eye(self.Nq))))
         return self._M
 
@@ -167,7 +174,7 @@ class Model:
         DAdict = DAdict.copy()
         self.ensemble = True
 
-        for key, val in Model.attr_ens.items():
+        for key, val in Model.defaults_ens.items():
             if key in DAdict.keys():
                 setattr(self, key, DAdict[key])
             else:
@@ -199,11 +206,12 @@ class Model:
         if 'biasType' in Bdict.keys():
             self.biasType = Bdict['biasType']
 
-        # Assign some required items
-        for key, default_value in zip(['t_val', 't_train', 't_test'],
-                                      [self.t_CR, self.t_transient, self.t_CR]):
-            if key not in Bdict.keys():
-                Bdict[key] = default_value
+        if self.biasType.name == 'ESN':
+            # Assign some required items
+            for key, default_value in zip(['t_val', 't_train', 't_test'],
+                                          [self.t_CR, self.t_transient, self.t_CR]):
+                if key not in Bdict.keys():
+                    Bdict[key] = default_value
 
         # Initialise bias. Note: self.bias is now an instance of the bias class
         self.bias = self.biasType(y=self.getObservables(),
@@ -293,7 +301,7 @@ class Model:
                 t: time of the propagated psi
         """
 
-        t = np.round(self.t + np.arange(0, Nt+1) * self.dt, self.precision_t)
+        t = np.round(self.t + np.arange(0, Nt + 1) * self.dt, self.precision_t)
         args = self.governing_eqns_params
 
         if not self.ensemble:
@@ -305,7 +313,7 @@ class Model:
                 alpha = self.getAlpha()
                 forecast_part = partial(Model.forecast, fun=self.timeDerivative, t=t)
                 sol = [self.pool.apply_async(forecast_part,
-                                             kwds={'y0': self.psi[:, mi].T, 'params':{**args, **alpha[mi]}})
+                                             kwds={'y0': self.psi[:, mi].T, 'params': {**args, **alpha[mi]}})
                        for mi in range(self.m)]
                 psi = [s.get() for s in sol]
             else:
@@ -317,7 +325,7 @@ class Model:
                 psi_mean = Model.forecast(y0=psi_mean0[:, 0], fun=self.timeDerivative, t=t,
                                           params={**alpha, **args})
 
-                if np.mean(np.std(self.psi[:len(self.psi0)]/np.array([self.psi0]).T, axis=0)) < 2.:
+                if np.mean(np.std(self.psi[:len(self.psi0)] / np.array([self.psi0]).T, axis=0)) < 2.:
                     psi_deviation /= psi_mean0
                     psi = [psi_mean * (1 + psi_deviation[:, ii]) for ii in range(self.m)]
                 else:
@@ -337,9 +345,9 @@ class VdP(Model):
     """
 
     name: str = 'VdP'
-    attr: dict = dict(dt=1.0E-4, t_transient=1.5, t_CR=0.04,
-                      omega=2 * np.pi * 120., law='tan',
-                      zeta=60., beta=70., kappa=4.0, gamma=1.7)  # beta, zeta [rad/s]
+    defaults: dict = dict(dt=1.0E-4, t_transient=1.5, t_CR=0.04, Nq=1,
+                          omega=2 * np.pi * 120., law='tan',
+                          zeta=60., beta=70., kappa=4.0, gamma=1.7)  # beta, zeta [rad/s]
 
     params: list = ['beta', 'zeta', 'kappa']  # ,'omega', 'gamma']
     param_labels = dict(beta='$\\beta$', zeta='$\\zeta$', kappa='$\\kappa$')
@@ -347,19 +355,12 @@ class VdP(Model):
     fixed_params = ['law', 'omega']
 
     # __________________________ Init method ___________________________ #
-    def __init__(self, **TAdict):
-        model_dict = dict(TAdict)
-        for key, val in self.attr.items():
-            if key in TAdict.keys():
-                setattr(self, key, TAdict[key])
-                del model_dict[key]
-            else:
-                setattr(self, key, val)
+    def __init__(self, **model_dict):
 
-        super().__init__(**model_dict)
         if 'psi0' not in model_dict.keys():
-            self.psi0 = [0.1, 0.1]  # initialise eta and mu
-            self.updateHistory(reset=True)
+            model_dict['psi0'] = [0.1, 0.1]  # initialise eta and mu
+
+        super().__init__(child_defaults=VdP.defaults, **model_dict)
 
         # _________________________ Add fixed parameters  ________________________ #
         self.set_fixed_params()
@@ -379,13 +380,7 @@ class VdP(Model):
 
     @property
     def obsLabels(self):
-        return "$\\eta$"
-
-    def getObservables(self, Nt=1):
-        if Nt == 1:  # required to reduce from 3 to 2 dimensions
-            return self.hist[-1, :1, :]
-        else:
-            return self.hist[-Nt:, :1, :]
+        return ["$\\eta$"]
 
     @staticmethod
     def timeDerivative(t, psi, beta, zeta, kappa, law, omega):
@@ -404,52 +399,38 @@ class VdP(Model):
 class Rijke(Model):
     """
         Rijke tube model with Galerkin discretisation and gain-delay sqrt heat release law.
-        Args:
-            TAdict: dictionary with the model parameters. If not defined, the default value is used.
-                > Nm - Number of Galerkin modes
-                > Nc - Number of Chebyshev modes
-                > beta - Heat source strength [-]
-                > tau - Time delay [s]
-                > C1 - First damping constant [-]
-                > C2 - Second damping constant [-]
-                > xf - Flame location [m]
-                > L - Tube length [m]
     """
 
     name: str = 'Rijke'
-    attr: dict = dict(dt=1E-4, t_transient=1., t_CR=0.02,
-                      Nm=10, Nc=10, Nmic=6,
-                      beta=4.0, tau=1.5E-3, C1=.05, C2=.01, kappa=1E5,
-                      xf=0.2, L=1., law='sqrt')
+    defaults: dict = dict(dt=1E-4, t_transient=1., t_CR=0.02,
+                          Nm=10, Nc=10, Nq=6,
+                          beta=4.0, tau=1.5E-3,
+                          C1=.05, C2=.01, kappa=1E5,
+                          xf=0.2, L=1., law='sqrt')
     params: list = ['beta', 'tau', 'C1', 'C2', 'kappa']
     param_labels = dict(beta='$\\beta$', tau='$\\tau$', C1='$C_1$', C2='$C_2$', kappa='$\\kappa$')
 
-    fixed_params = ['cosomjxf', 'Dc',  'gc', 'jpiL', 'L', 'law', 'meanFlow', 'Na', 'Nm', 'tau_adv', 'sinomjxf']
+    fixed_params = ['cosomjxf', 'Dc', 'gc', 'jpiL', 'L', 'law', 'meanFlow', 'Nc', 'Nm', 'tau_adv', 'sinomjxf']
 
-    def __init__(self, **TAdict):
+    def __init__(self, **model_dict):
 
-        model_dict = dict(TAdict)
-        for key, val in self.attr.items():
-            if key in TAdict.keys():
-                setattr(self, key, TAdict[key])
-                del model_dict[key]
-            else:
-                setattr(self, key, val)
+        if 'psi0' not in model_dict.keys():
+            Nm, Nc = [Rijke.defaults[key] for key in ['Nm', 'Nc']]
+            if 'Nm' in model_dict.keys():
+                Nm = model_dict['Nm']
+            if 'Nc' in model_dict.keys():
+                Nc = model_dict['Nc']
+            model_dict['psi0'] = .05 * np.hstack([np.ones(2 * Nm), np.zeros(Nc)])
 
-        super().__init__(**model_dict)
+        super().__init__(child_defaults=Rijke.defaults, **model_dict)
 
         self.tau_adv = self.tau
-        if 'psi0' not in TAdict.keys():
-            self.psi0 = .05 * np.hstack([np.ones(2 * self.Nm), np.zeros(self.Nc)])
-            # self.resetInitialConditions()
-            self.updateHistory(reset=True)
+
         # Chebyshev modes
         self.Dc, self.gc = Cheb(self.Nc, getg=True)
 
-        # ------------------------------------------------------------------------------------- #
-
         # Microphone locations
-        self.x_mic = np.linspace(self.xf, self.L, self.Nmic + 1)[:-1]
+        self.x_mic = np.linspace(self.xf, self.L, self.Nq + 1)[:-1]
 
         # Define modes frequency of each mode and sin cos etc
         jj = np.arange(1, self.Nm + 1)
@@ -481,10 +462,10 @@ class Rijke(Model):
 
     def modify_settings(self):
         if self.est_a and 'tau' in self.est_a:
-            extra_Nc = self.Nc - 50
+            extra_Nc = 50 - self.Nc
             self.tau_adv, self.Nc = 1E-2, 50
-            self.psi0 = np.hstack([self.psi0, np.zeros(extra_Nc)])
-            # self.resetInitialConditions()
+            self.psi0 = np.hstack([np.mean(self.psi, -1), np.zeros(extra_Nc)])
+            self.Dc, self.gc = Cheb(self.Nc, getg=True)
             self.updateHistory(reset=True)
             self.set_fixed_params()
 
@@ -504,14 +485,10 @@ class Rijke(Model):
                     )
 
     @property
-    def obsLabels(self, loc=None, velocity=False):
+    def obsLabels(self, loc=None):
         if loc is None:
             loc = np.expand_dims(self.x_mic, axis=1)
-        if not velocity:
-            return ["$p'(x = {:.2f})$".format(x) for x in loc[:, 0].tolist()]
-        else:
-            return [["$p'(x = {:.2f})$".format(x) for x in loc[:, 0].tolist()],
-                    ["$u'(x = {:.2f})$".format(x) for x in loc[:, 0].tolist()]]
+        return ["$p'(x = {:.2f})$".format(x) for x in loc[:, 0]]
 
     def getObservables(self, Nt=1, loc=None):
         if loc is None:
@@ -527,11 +504,10 @@ class Rijke(Model):
             p_mic = p_mic[0]
         return p_mic
 
-
     @staticmethod
     def timeDerivative(t, psi,
                        C1, C2, beta, kappa, tau,  # Possibly-inferred parameters
-                       cosomjxf, Dc,  gc, jpiL, L, law, meanFlow, Na, Nm, tau_adv, sinomjxf  # fixed_params
+                       cosomjxf, Dc, gc, jpiL, L, law, meanFlow, Nc, Nm, tau_adv, sinomjxf  # fixed_params
                        ):
         """
             Governing equations of the model.
@@ -541,10 +517,9 @@ class Rijke(Model):
             Returns:
                 concatenation of the state vector time derivative
         """
-
         eta = psi[:Nm]
-        mu = psi[Nm:2 *Nm]
-        v = psi[2 * Nm:len(psi)-Na]
+        mu = psi[Nm: 2 * Nm]
+        v = psi[2 * Nm: 2 * Nm + Nc]
 
         # Advection equation boundary conditions
         v2 = np.hstack((np.dot(eta, cosomjxf), v))
@@ -564,7 +539,7 @@ class Rijke(Model):
 
         MF = meanFlow.copy()  # Physical properties
         if law == 'sqrt':
-            q_dot = MF['p'] * MF['u'] * beta * (np.sqrt(abs(1./3 + u_tau / MF['u'])) - np.sqrt(1./3))  # [W/m2]=[m/s3]
+            q_dot = MF['p'] * MF['u'] * beta * (np.sqrt(abs(1. / 3 + u_tau / MF['u'])) - np.sqrt(1. / 3))  # [W/m2]=[m/s3]
         elif law == 'tan':
             q_dot = beta * np.sqrt(beta / kappa) * np.arctan(np.sqrt(beta / kappa) * u_tau)  # [m / s3]
         else:
@@ -572,56 +547,40 @@ class Rijke(Model):
         q_dot *= -2. * (MF['gamma'] - 1.) / L * sinomjxf  # [Pa/s]
 
         # governing equations
-        deta_dt = jpiL/ MF['rho'] * mu
+        deta_dt = jpiL / MF['rho'] * mu
         dmu_dt = - jpiL * MF['gamma'] * MF['p'] * eta - MF['c'] / L * zeta * mu + q_dot
         dv_dt = - 2. / tau_adv * np.dot(Dc, v2)
 
-        return np.concatenate((deta_dt, dmu_dt, dv_dt[1:], np.zeros(Na)))
+        return np.concatenate((deta_dt, dmu_dt, dv_dt[1:], np.zeros(len(psi) - (2 * Nm + Nc))))
 
 
 # %% =================================== LORENZ 63 MODEL ============================================== %% #
 class Lorenz63(Model):
     """ Lorenz 63 Class
     """
-
     name: str = 'Lorenz63'
-    attr: dict = dict(rho=28., sigma=10., beta=8. / 3., dt=0.02, t_CR=5.)
-
+    defaults: dict = dict(rho=28., sigma=10., beta=8. / 3.,
+                          dt=0.02, t_transient=10., t_CR=5., Nq=3)
     params: list = ['rho', 'sigma', 'beta']
     param_labels = dict(rho='$\\rho$', sigma='$\\sigma$', beta='$\\beta$')
-
     fixed_params = []
 
     # __________________________ Init method ___________________________ #
-    def __init__(self, **TAdict):
+    def __init__(self, **model_dict):
+        if 'psi0' not in model_dict.keys():
+            model_dict['psi0'] = [1.0, 1.0, 1.0]  # initialise x, y, z
 
-        model_dict = dict(TAdict)
-        for key, val in self.attr.items():
-            if key in TAdict.keys():
-                setattr(self, key, TAdict[key])
-                del model_dict[key]
-            else:
-                setattr(self, key, val)
-
-        super().__init__(**model_dict)
-
-        if 'psi0' not in TAdict.keys():
-            self.psi0 = [1.0, 1.0, 1.0]  # initialise x, y, z
-            self.updateHistory(reset=True)
+        super().__init__(child_defaults=Lorenz63.defaults, **model_dict)
 
         # set limits for the parameters
-        self.param_lims = dict(rho=(None, None), beta=(None, None), sigma=(None, None))
+        self.param_lims = dict(rho=(None, None),
+                               beta=(None, None),
+                               sigma=(None, None))
 
     # _______________ Lorenz63 specific properties and methods ________________ #
     @property
     def obsLabels(self):
-        return ["$x$", '$y$', '$z$']
-
-    def getObservables(self, Nt=1):
-        if Nt == 1:
-            return self.hist[-1, :, :]
-        else:
-            return self.hist[-Nt:, :, :]
+        return ['$x$', '$y$', '$z$']
 
     @staticmethod
     def timeDerivative(t, psi, sigma, rho, beta):
@@ -634,19 +593,20 @@ class Lorenz63(Model):
 
 # %% =================================== 2X VAN DER POL MODEL ============================================== %% #
 class Annular(Model):
-    """ Annular combustor model, wich consists of two coupled oscillators
+    """ Annular combustor model, which consists of two coupled oscillators
     """
 
     name: str = 'Annular'
-    attr: dict = dict(dt=1 / 51.2E3, t_transient=0.5, t_CR=0.03,
-                      n=1., theta_b=0.63, theta_e=0.66, omega=1090., epsilon=0.0023,
-                      nu=17., beta_c2=17., kappa=1.2E-4)  # values in Fig.4
+    defaults: dict = dict(dt=1 / 51.2E3, t_transient=0.5, t_CR=0.03,
+                          n=1., theta_b=0.63, theta_e=0.66, omega=1090., epsilon=0.0023,
+                          nu=17., beta_c2=17., kappa=1.2E-4,  # values in Fig.4
+                          Nq=4)
 
-    # attr['nu'], attr['beta_c2'] = 30., 5.  # spin
-    # attr['nu'], attr['beta_c2'] = 1., 25.  # stand
-    attr['nu'], attr['beta_c2'] = 20., 18.  # mix
+    # defaults['nu'], defaults['beta_c2'] = 30., 5.  # spin
+    # defaults['nu'], defaults['beta_c2'] = 1., 25.  # stand
+    # defaults['nu'], defaults['beta_c2'] = 20., 18.  # mix
 
-    params: list = ['omega', 'nu', 'beta_c2', 'kappa', 'epsilon', 'theta_b', 'theta_e']
+    params: list = ['nu', 'beta_c2', 'kappa', 'epsilon', 'theta_b', 'theta_e', 'omega']
 
     param_labels = dict(omega='$\\omega$', nu='$\\nu$', beta_c2='$c_2\\beta $', kappa='$\\kappa$',
                         epsilon='$\\epsilon$', theta_b='$\\Theta_\\beta$', theta_e='$\\Theta_\\epsilon$')
@@ -654,29 +614,15 @@ class Annular(Model):
     fixed_params = []
 
     # __________________________ Init method ___________________________ #
-    def __init__(self, **TAdict):
+    def __init__(self, **model_dict):
+        if 'psi0' not in model_dict.keys():
+            model_dict['psi0'] = [100, -10, -100, 10]  # initialise \eta_a, \dot{\eta_a}, \eta_b, \dot{\eta_b}
 
-        model_dict = dict(TAdict)
-        for key, val in self.attr.items():
-            if key in TAdict.keys():
-                setattr(self, key, TAdict[key])
-                del model_dict[key]
-            else:
-                setattr(self, key, val)
-
-        super().__init__(**TAdict)
-
+        super().__init__(child_defaults=Annular.defaults, **model_dict)
         self.theta_mic = np.radians([0, 60, 120, 240])
 
-        if 'psi0' not in TAdict.keys():
-            self.psi0 = [100, -10, -100, 10]  # initialise \eta_a, \dot{\eta_a}, \eta_b, \dot{\eta_b}
-            # self.resetInitialConditions()
-            self.updateHistory(reset=True)
-
-    # set limits for the parameters
-    @property
-    def param_lims(self):
-        return dict(omega=(1000, 1300),
+        # set limits for the parameters
+        self.param_lims = dict(omega=(1000, 1300),
                     nu=(-40., 60.),
                     beta_c2=(1., 60.),
                     kappa=(None, None),
@@ -686,36 +632,37 @@ class Annular(Model):
                     )
 
     # _______________  Specific properties and methods ________________ #
-    # @property
-    # def obsLabels(self):
-    #     return ["\\eta_1", '\\eta_2']
+    @property
+    def obsLabels(self, loc=None, measure_modes=False):
+        if measure_modes:
+            return ["$\\eta_1$", '$\\eta_2$']
+        else:
+            if loc is None:
+                loc = self.theta_mic
+            return ["$p(\\theta={}^\\circ)$".format(int(np.round(np.degrees(th)))) for th in np.array(loc)][0]
 
-    def getObservables(self, Nt=1, loc=None, modes=False):
+    def getObservables(self, Nt=1, loc=None, measure_modes=False):
         """
-        :return: pressure measurements at theta = [0º, 60º, 120º, 240º`]
+        pressure measurements at theta = [0º, 60º, 120º, 240º`]
         p(θ, t) = η1(t) * cos(nθ) + η2(t) * sin(nθ).
         """
         if loc is None:
             loc = self.theta_mic
 
-        if modes:
-            self.obsLabels = ["$\\eta_1$", '$\\eta_2$']
+        if measure_modes:
             return self.hist[-Nt:, [0, 2], :]
-
-        self.obsLabels = ["$p(\\theta={})$".format(int(np.round(np.degrees(th)))) for th in loc]
-
-        loc = np.array(loc)
-        eta1, eta2 = self.hist[-Nt:, 0, :], self.hist[-Nt:, 2, :]
-
-        if max(loc) > 2 * np.pi:
-            raise ValueError('Theta must be in radians')
-
-        p_mics = np.array([eta1 * np.cos(th) + eta2 * np.sin(th) for th in loc]).transpose(1, 0, 2)
-
-        if Nt == 1:
-            return p_mics.squeeze(axis=0)
         else:
-            return p_mics
+            eta1, eta2 = self.hist[-Nt:, 0, :], self.hist[-Nt:, 2, :]
+
+            if max(loc) > 2 * np.pi:
+                raise ValueError('Theta must be in radians')
+
+            p_mics = np.array([eta1 * np.cos(th) + eta2 * np.sin(th)
+                               for th in np.array(loc)]).transpose(1, 0, 2)
+            if Nt == 1:
+                return p_mics.squeeze(axis=0)
+            else:
+                return p_mics
 
     @staticmethod
     def timeDerivative(t, psi, nu, kappa, beta_c2, theta_b, omega, epsilon, theta_e):
@@ -738,70 +685,72 @@ class Annular(Model):
 if __name__ == '__main__':
 
     t0 = time.time()
-    # Ensemble case =============================
-    case = VdP(beta=80)
-    DA_params = dict(m=10, est_a=['beta'], std_psi=0.1, std_a=dict(beta=(70, 90)), alpha_distr='uniform')
+
+    # Initialise model
+    case = Rijke()
+
+    # Forecast model and update
     state, t_ = case.timeIntegrate(int(case.t_transient / case.dt))
     case.updateHistory(state, t_)
 
+    # Generate ensemble
+    DA_params = dict(m=10, est_a=case.params[:2], std_psi=0.1, std_a=0.4, alpha_distr='uniform')
     case.initEnsemble(**DA_params)
 
     t1 = time.time()
-    for _ in range(5):
-        state, t_ = case.timeIntegrate(int(1. / case.dt))
+    for _ in range(2):
+        state, t_ = case.timeIntegrate(int(case.t_transient / case.dt))
         case.updateHistory(state, t_)
-    # for _ in range(5):
-    #     state, t_ = case.timeIntegrate(int(.1 / case.dt), averaged=True)
-    #     case.updateHistory(state, t_)
-
 
     print('Elapsed time = ', str(time.time() - t1))
 
     t_h = case.hist_t
-    t_zoom = min([len(t_h) - 1, int(0.05 / case.dt)])
+    t_zoom = min([len(t_h) - 1, int(case.t_CR / case.dt)])
 
-    _, ax = plt.subplots(1, 3, figsize=[15, 5])
-    plt.suptitle('Ensemble case')
+    fig = plt.figure(figsize=(12, 7.5), layout="constrained")
+    subfigs = fig.subfigures(1, 2, width_ratios=[2, 1])
+
+    axs = subfigs[0].subplots(2, 1, sharey='all')
+
     # State evolution
-    y, lbl = case.getObservableHist(), case.obsLabels
+    y, lbl = case.getObservableHist(), case.obsLabels[0]
 
-    ax[0].plot(t_h, y[:, 0], color='blue', label=lbl)
-    i, j = [0, 1]
-    ax[1].plot(t_h[-t_zoom:], y[-t_zoom:, 0], color='blue')
+    axs[0].plot(t_h, y[:, 0], color='blue', label=lbl)
+    axs[1].plot(t_h[-t_zoom:], y[-t_zoom:, 0], color='blue')
 
-    ax[0].set(xlabel='t', ylabel=lbl, xlim=[t_h[0], t_h[-1]])
-    ax[1].set(xlabel='t', xlim=[t_h[-t_zoom], t_h[-1]])
+    axs[0].set(xlabel='t', ylabel=lbl, xlim=[t_h[0], t_h[-1]])
+    axs[1].set(xlabel='t', xlim=[t_h[-t_zoom], t_h[-1]])
 
     # Params
-
     ai = -case.Na
     max_p, min_p = -1000, 1000
     c = ['g', 'sandybrown', 'mediumpurple', 'cyan']
     mean = np.mean(case.hist, -1, keepdims=True)
+
+    ii = case.Nphi
+    mean_p, hist_p, std_p, labels_p = [], [], [], []
     for p in case.est_a:
-        # reference_p = truth['true_params']
-        reference_p = case.alpha0
+        m = mean[:, ii].squeeze()
+        s = abs(np.std(case.hist[:, ii], axis=1))
+        labels_p.append(case.param_labels[p])
+        mean_p.append(m)
+        std_p.append(s)
+        hist_p.append(case.hist[:, ii, :])
+        ii += 1
 
-        mean_p = mean[:, ai].squeeze() / reference_p[p]
-        std = np.std(case.hist[:, ai] / reference_p[p], axis=1)
+    colors_alpha = ['green', 'sandybrown', [0.7, 0.7, 0.87], 'blue', 'red', 'gold', 'deepskyblue']
 
-        max_p = max(max_p, max(mean_p))
-        min_p = min(min_p, min(mean_p))
-
-        ax[2].plot(t_h, mean_p, color=c[-ai], label='$\\{0}/\\{0}^{1}$'.format(p, '\\mathrm{init}'))
-        ax[2].fill_between(t_h, mean_p + std, mean_p - std, alpha=0.2, color=c[-ai])
-        ax[2].plot(t_h, case.hist[:, ai] / reference_p[p], lw=.5, color=c[-ai])
-
-        ax[2].set(xlabel='$t$', xlim=[t_h[0], t_h[-1]])
-        ai += 1
-    ax[2].legend(bbox_to_anchor=(1., 1.), loc="upper left", ncol=1)
-    ax[2].plot(t_h[1:], t_h[1:] / t_h[1:], '-', color='k', linewidth=.5)
-    ax[2].set(ylim=[min_p - 0.1, max_p + 0.1])
-
-    plt.tight_layout()
-
-    # import pympler.asizeof
-
+    axs = subfigs[1].subplots(len(case.est_a), 1, sharex='col')
+    if type(axs) is not np.ndarray:
+        axs = [axs]
+    for ax, p, h, m, s, c, lbl in zip(axs, case.est_a, hist_p, mean_p, std_p, colors_alpha, labels_p):
+        max_p = np.max(h)
+        min_p = np.min(h)
+        ax.plot(case.hist_t, m, color=c, label='mean ' + lbl)
+        ax.plot(case.hist_t, h, color=c, lw=0.5)
+        ax.fill_between(case.hist_t, m + abs(s), m - abs(s), alpha=0.2, color=c, label='std ' + lbl)
+        ax.legend(loc='upper right', fontsize='small', ncol=2)
+        ax.set(ylabel='', ylim=[min_p, max_p])
 
     # print('time={}, size={}'.format(time.time() - t0, pympler.asizeof.asizeof(case)))
 
