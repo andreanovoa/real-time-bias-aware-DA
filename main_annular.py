@@ -1,3 +1,5 @@
+import numpy as np
+
 if __name__ == '__main__':
     import physical_models
     import bias_models
@@ -20,7 +22,7 @@ if __name__ == '__main__':
                    'beta_c2': 17.,
                    'nu': 17.,
                    'kappa': 1.2E-4,
-                   'omega': 1090,
+                   'omega': 1090.,
                    'epsilon': 0.0023,
                    'theta_b': 0.63,
                    'theta_e': 0.66,
@@ -36,12 +38,12 @@ if __name__ == '__main__':
                          epsilon=(0.001, 0.003),
                          omega=(1080, 1100),
                          theta_b=(0.2, 0.7),
-                         theta_e=(0.6, 0.7))
+                         theta_e=(0.5, 0.8))
 
     filter_params = {'filt': 'EnKF',  # 'rBA_EnKF' 'EnKF' 'EnSRKF'
                      'constrained_filter': 0,
                      'm': 50,
-                     'est_a': ['nu', 'beta_c2', 'kappa', 'epsilon', 'omega', 'theta_b', 'theta_e'],
+                     'est_a': [*parameters_IC],
                      'std_a': parameters_IC,
                      'alpha_distr': 'uniform',
                      'std_psi': 1.,
@@ -57,11 +59,14 @@ if __name__ == '__main__':
 
     # ======================= CREATE REFERENCE ENSEMBLE =================================
     ensemble, truth = create_ensemble(true_params, forecast_params, filter_params)
+
     filter_ens = ensemble.copy()
 
-    out = main(filter_ens, truth)
+    filter_ens = main(filter_ens, truth)
 
     # Plot results -------
-    post_process_single(*out, reference_p=true_params, plot_params=True)
+
+    plot_parameters(filter_ens, truth, reference_p=None)
+    # post_process_single(filter_ens, truth)
 
     plt.show()

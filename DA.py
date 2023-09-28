@@ -247,13 +247,8 @@ def analysisStep(case, d, Cdd):
 # =================================================================================================================== #
 def inflateEnsemble(A, rho, d=None, additive=False):
     if additive:
-        # y_pert = d * 1e-4
-        A[:len(d)] += d * (rho - 1)
-    #     print(A.shape, d.shape, np.mean(A, axis=-1))
-    #     raise ValueError
-    #
-    #     return A + pert
-    # else:
+        A[:len(d)] += np.array([d * (rho - 1)]).T
+
     A_m = np.mean(A, -1, keepdims=True)
     return A_m + rho * (A - A_m)
 
@@ -440,6 +435,7 @@ def EnKF(Af, d, Cdd, M, get_cost=False):
     Psi_f = Af - psi_f_m
 
     # Create an ensemble of observations
+
     D = rng.multivariate_normal(d, Cdd, m).transpose()
 
     # Mapped forecast matrix M(Af) and mapped deviations M(Af')

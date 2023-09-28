@@ -30,7 +30,7 @@ class Model:
     """ Parent Class with the general model properties and methods definitions.
     """
     defaults: dict = dict(t=0., precision_t=6,
-                          psi0=np.empty(1), alpha0=np.empty(1), psi=None, alpha=None, Nq=1,
+                          psi0=np.empty(1), alpha0=np.empty(1), psi=None, alpha=None,
                           ensemble=False, filename='', governing_eqns_params=dict())
     defaults_ens: dict = dict(filter='EnKF',
                               constrained_filter=False,
@@ -179,6 +179,7 @@ class Model:
                 setattr(self, key, DAdict[key])
             else:
                 setattr(self, key, val)
+
         self.filename += '{}_ensemble_m{}'.format(self.name, self.m)
         if hasattr(self, 'modify_settings'):
             self.modify_settings()
@@ -345,7 +346,7 @@ class VdP(Model):
     """
 
     name: str = 'VdP'
-    defaults: dict = dict(dt=1.0E-4, t_transient=1.5, t_CR=0.04, Nq=1,
+    defaults: dict = dict(dt=1.0E-4, Nq=1,
                           omega=2 * np.pi * 120., law='tan',
                           zeta=60., beta=70., kappa=4.0, gamma=1.7)  # beta, zeta [rad/s]
 
@@ -353,6 +354,9 @@ class VdP(Model):
     param_labels = dict(beta='$\\beta$', zeta='$\\zeta$', kappa='$\\kappa$')
 
     fixed_params = ['law', 'omega']
+
+    t_transient = 1.5
+    t_CR = 0.04
 
     # __________________________ Init method ___________________________ #
     def __init__(self, **model_dict):
@@ -364,19 +368,17 @@ class VdP(Model):
 
         # _________________________ Add fixed parameters  ________________________ #
         self.set_fixed_params()
+        self.param_lims = dict(zeta=(5, 120),
+                               kappa=(0.1, 20),
+                               beta=(5, 120),
+                               gamma=(0., 5.)
+                               )
 
     def set_fixed_params(self):
         for key in VdP.fixed_params:
             self.governing_eqns_params[key] = getattr(self, key)
 
     # _______________ VdP specific properties and methods ________________ #
-    @property
-    def param_lims(self):
-        return dict(zeta=(5, 120),
-                    kappa=(0.1, 20),
-                    beta=(5, 120),
-                    gamma=(0., 5.)
-                    )
 
     @property
     def obsLabels(self):
@@ -402,7 +404,7 @@ class Rijke(Model):
     """
 
     name: str = 'Rijke'
-    defaults: dict = dict(dt=1E-4, t_transient=1., t_CR=0.02,
+    defaults: dict = dict(dt=1E-4,
                           Nm=10, Nc=10, Nq=6,
                           beta=4.0, tau=1.5E-3,
                           C1=.05, C2=.01, kappa=1E5,
@@ -410,7 +412,11 @@ class Rijke(Model):
     params: list = ['beta', 'tau', 'C1', 'C2', 'kappa']
     param_labels = dict(beta='$\\beta$', tau='$\\tau$', C1='$C_1$', C2='$C_2$', kappa='$\\kappa$')
 
-    fixed_params = ['cosomjxf', 'Dc', 'gc', 'jpiL', 'L', 'law', 'meanFlow', 'Nc', 'Nm', 'tau_adv', 'sinomjxf']
+    fixed_params = ['cosomjxf', 'Dc', 'gc', 'jpiL', 'L', 'law',
+                    'meanFlow', 'Nc', 'Nm', 'tau_adv', 'sinomjxf']
+
+    t_transient = 1.
+    t_CR = 0.02
 
     def __init__(self, **model_dict):
 
@@ -539,7 +545,8 @@ class Rijke(Model):
 
         MF = meanFlow.copy()  # Physical properties
         if law == 'sqrt':
-            q_dot = MF['p'] * MF['u'] * beta * (np.sqrt(abs(1. / 3 + u_tau / MF['u'])) - np.sqrt(1. / 3))  # [W/m2]=[m/s3]
+            q_dot = MF['p'] * MF['u'] * beta * (
+                        np.sqrt(abs(1. / 3 + u_tau / MF['u'])) - np.sqrt(1. / 3))  # [W/m2]=[m/s3]
         elif law == 'tan':
             q_dot = beta * np.sqrt(beta / kappa) * np.arctan(np.sqrt(beta / kappa) * u_tau)  # [m / s3]
         else:
@@ -560,10 +567,13 @@ class Lorenz63(Model):
     """
     name: str = 'Lorenz63'
     defaults: dict = dict(rho=28., sigma=10., beta=8. / 3.,
-                          dt=0.02, t_transient=10., t_CR=5., Nq=3)
+                          dt=0.02, Nq=3)
     params: list = ['rho', 'sigma', 'beta']
     param_labels = dict(rho='$\\rho$', sigma='$\\sigma$', beta='$\\beta$')
     fixed_params = []
+
+    t_transient = 10.
+    t_CR = 5.
 
     # __________________________ Init method ___________________________ #
     def __init__(self, **model_dict):
@@ -597,10 +607,9 @@ class Annular(Model):
     """
 
     name: str = 'Annular'
-    defaults: dict = dict(dt=1 / 51.2E3, t_transient=0.5, t_CR=0.03,
+    defaults: dict = dict(dt=2. / 51.2E3,  Nq=4,
                           n=1., theta_b=0.63, theta_e=0.66, omega=1090., epsilon=0.0023,
-                          nu=17., beta_c2=17., kappa=1.2E-4,  # values in Fig.4
-                          Nq=4)
+                          nu=17., beta_c2=17., kappa=1.2E-4)  # values in Fig.4
 
     # defaults['nu'], defaults['beta_c2'] = 30., 5.  # spin
     # defaults['nu'], defaults['beta_c2'] = 1., 25.  # stand
@@ -613,6 +622,9 @@ class Annular(Model):
 
     fixed_params = []
 
+    t_transient = 0.5
+    t_CR = 0.03
+
     # __________________________ Init method ___________________________ #
     def __init__(self, **model_dict):
         if 'psi0' not in model_dict.keys():
@@ -623,13 +635,13 @@ class Annular(Model):
 
         # set limits for the parameters
         self.param_lims = dict(omega=(1000, 1300),
-                    nu=(-40., 60.),
-                    beta_c2=(1., 60.),
-                    kappa=(None, None),
-                    epsilon=(None, None),
-                    theta_b=(0, 2 * np.pi),
-                    theta_e=(0, 2 * np.pi)
-                    )
+                               nu=(-40., 60.),
+                               beta_c2=(1., 60.),
+                               kappa=(None, None),
+                               epsilon=(None, None),
+                               theta_b=(0, 2 * np.pi),
+                               theta_e=(0, 2 * np.pi)
+                               )
 
     # _______________  Specific properties and methods ________________ #
     @property

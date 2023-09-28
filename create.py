@@ -73,6 +73,7 @@ def create_observations(classParams=None):
 def create_truth(true_p, filter_p, noise_type):
     y_true, t_true, name_truth = create_observations(true_p)
 
+    # =========================== ADD BIAS TO THE TRUTH ================================ #
     if 'manual_bias' in true_p.keys():
         if type(true_p['manual_bias']) is str:
             if true_p['manual_bias'] == 'time':
@@ -87,14 +88,14 @@ def create_truth(true_p, filter_p, noise_type):
                 raise ValueError("Bias type not recognized choose: 'linear', 'periodic', 'time'")
         else:
             b_true = true_p['manual_bias'](y_true, t_true)
-
     else:
         b_true = np.zeros(1)
 
     y_true += b_true
+
+    # =========================== ADD NOISE TO THE TRUTH ================================ #
     dt_t = t_true[1] - t_true[0]
-    obs_idx = np.arange(round(filter_p['t_start'] / dt_t),
-                        round(filter_p['t_stop'] / dt_t) + 1, filter_p['dt_obs'])
+    obs_idx = np.arange(filter_p['t_start'] // dt_t, filter_p['t_stop'] // dt_t + 1, filter_p['dt_obs'], dtype=int)
 
     Nt, q = y_true.shape[:2]
     if 'std_obs' not in true_p.keys():
@@ -119,19 +120,13 @@ def create_truth(true_p, filter_p, noise_type):
         mean_y = np.mean(abs(y_true))
         y_noise = y_true + noise * mean_y
 
-    # Select obs_idx only
-    y_obs, t_obs = y_noise[obs_idx], t_true[obs_idx]
+    # ================================ SAVE DATA TO DICT ==================================== #
 
-    # Compute signal-to-noise ratio
-    P_signal = np.mean(y_true ** 2, axis=0)
-    P_noise = np.mean((y_noise - y_true) ** 2, axis=0)
-
-    # Save as a dict
     truth = dict(y=y_true, t=t_true, b=b_true, dt=dt_t,
-                 t_obs=t_obs, y_obs=y_obs, dt_obs=t_obs[1] - t_obs[0],
+                 t_obs=t_true[obs_idx], y_obs=y_noise[obs_idx], dt_obs=filter_p['dt_obs'] * dt_t,
                  true_params=true_p, name=name_truth,
                  model=true_p['model'], std_obs=true_p['std_obs'],
-                 SNR=P_signal / P_noise, noise=noise, noise_type=noise_type)
+                 noise=noise, noise_type=noise_type)
     return truth
 
 
@@ -161,14 +156,33 @@ def create_ensemble(true_p, forecast_p, filter_p, bias_p=None):
 
     truth = create_truth(true_p, filter_p, noise_type)
 
-    if not hasattr(ensemble, 't_max'):
-        ensemble.t_max = truth['t'][-1]
-
-    # Add washout  -----------------------------------------------------------
+    # =================================  ADD WASHOUT ================================== #
     if hasattr(ensemble.bias, 'N_wash'):
         truth = create_washout(ensemble.bias, truth)
 
+    if not hasattr(ensemble, 't_max'):
+        ensemble.t_max = truth['t'][-1]
+
     return ensemble, truth
+
+
+def create_washout(bias_model, true_data):
+    truth = dict(true_data)
+    if not hasattr(bias_model, 't_init'):
+        bias_model.t_init = truth['t_obs'][0] - truth['dt_obs']
+    if not hasattr(bias_model, 'upsample'):
+        bias_model.upsample = 1
+
+    i1 = np.argmin(abs(bias_model.t_init - truth['t']))
+    i0 = i1 - bias_model.N_wash * bias_model.upsample
+
+    if i0 < 0:
+        print('\n', i0, i1, bias_model.t_init, bias_model.N_wash * bias_model.dt, truth['t_obs'][0], truth['dt_obs'])
+        raise ValueError('increase bias.t_init > t_wash + dt_obs')
+    truth['wash_obs'] = truth['y'][i0:i1 + 1:bias_model.upsample]
+    truth['wash_t'] = truth['t'][i0:i1 + 1:bias_model.upsample]
+
+    return truth
 
 
 def create_bias_model(filter_ens, y_true,
@@ -204,24 +218,6 @@ def create_bias_model(filter_ens, y_true,
     return ensemble.bias
 
 
-def create_washout(bias_model, true_data):
-    truth = dict(true_data)
-    if not hasattr(bias_model, 't_init'):
-        bias_model.t_init = truth['t_obs'][0] - truth['dt_obs']
-    if not hasattr(bias_model, 'upsample'):
-        bias_model.upsample = 1
-
-    i1 = np.argmin(abs(bias_model.t_init - truth['t']))
-    i0 = i1 - bias_model.N_wash * bias_model.upsample
-
-    if i0 < 0:
-        raise ValueError('increase bias.t_init > t_wash + dt_obs')
-    truth['wash_obs'] = truth['y'][i0:i1 + 1:bias_model.upsample]
-    truth['wash_t'] = truth['t'][i0:i1 + 1:bias_model.upsample]
-
-    return truth
-
-
 def create_bias_training_dataset(y_truth, ensemble, train_params, filename, plot_=False):
     try:
         train_data = load_from_pickle_file(filename)
@@ -245,6 +241,7 @@ def create_bias_training_dataset(y_truth, ensemble, train_params, filename, plot
     state, t_ = train_ens.timeIntegrate(int(train_ens.t_transient / train_ens.dt))
     train_ens.updateHistory(state, t_)
 
+    train_params['m'] = train_params['L']
     train_ens.initEnsemble(**train_params)
 
     # Forecast one member to transient ------------------------------------------------------

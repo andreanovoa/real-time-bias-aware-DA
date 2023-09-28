@@ -13,7 +13,7 @@ if __name__ == '__main__':
     model = physical_models.Annular
 
     def model_bias(yy, tt):
-        return .1 * np.max(yy, 0) + .3 * yy
+        return .3 * np.max(yy, 0) + .3 * yy
 
     true_params = {'model': model,
                    'manual_bias': model_bias,
@@ -27,11 +27,11 @@ if __name__ == '__main__':
                        }
 
     # ==================================== SELECT FILTER PARAMETERS =================================== #
-    parameters_IC = dict(beta_c2=(10., 20.))
+    parameters_IC = dict(beta_c2=(10., 20.),  kappa=(0.2e-5, 2.4e-4))
 
-    filter_params = {'filter': 'rBA_EnKF',
+    filter_params = {'filter': 'EnKF',
                      'constrained_filter': False,
-                     'regularization_factor': 2.,
+                     'regularization_factor': 10.,
                      'm': 10,
                      # # initial parameter and state uncertainty
                      'est_a': [*parameters_IC],
@@ -39,8 +39,8 @@ if __name__ == '__main__':
                      'std_psi': 0.2,
                      'alpha_distr': 'uniform',
                      # Define the observation time window
-                     't_start': 1.0,
-                     't_stop': 2.5,
+                     't_start': model.t_transient * 1.5,
+                     't_stop': model.t_transient * 3.,
                      'dt_obs': 60,
                      # Inflation
                      'inflation': 1.001,
@@ -57,7 +57,7 @@ if __name__ == '__main__':
     bias_params = {'biasType': bias_models.ESN,  # Bias.ESN / Bias.NoBias
                    'augment_data': True,
                    'alpha_distr': 'uniform',
-                   'L': 10,  # ESN training specs
+                   'L': 2,  # ESN training specs
                    'ensure_mean': True,
                    'est_a': filter_params['est_a'],
                    'N_wash': 30,
@@ -71,7 +71,7 @@ if __name__ == '__main__':
                    'upsample': 5,
                    }
 
-    for L in [10, 1]:
+    for L in [20]:
         ensemble = ensemble_og.copy()
 
         bias_params['L'] = L
@@ -89,6 +89,7 @@ if __name__ == '__main__':
         filtered_ens = main(ensemble, truth)
 
         # Plot results -------
-        # post_process_pdf(*out, reference_p=true_params, normalize=False)
         post_process_single(filtered_ens, truth, reference_p=true_params)
+        plot_parameters(filtered_ens, truth, reference_p=None)
+        plt.show()
 

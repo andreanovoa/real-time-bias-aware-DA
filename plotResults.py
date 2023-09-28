@@ -243,9 +243,9 @@ def post_process_single(filter_ens, truth, filename=None, mic=0, reference_p=Non
 
     norm = np.max(abs(y_truth), axis=0)  # normalizing constant
     if int(norm) == 1:
-        ylbls = [["$p(x_\mathrm{f})$ [Pa]", "$b(x_\mathrm{f})$ [Pa]"], ['', '']]
+        ylbls = [["$p(x_\\mathrm{f})$ [Pa]", "$b(x_\\mathrm{f})$ [Pa]"], ['', '']]
     else:
-        ylbls = [["$p(x_\mathrm{f})$ norm.", "$b(x_\mathrm{f})$ norm."], ['', '']]
+        ylbls = [["$p(x_\\mathrm{f})$ norm.", "$b(x_\\mathrm{f})$ norm."], ['', '']]
 
 
     fig1 = plt.figure(figsize=[9, 5.5], layout="constrained")
@@ -273,10 +273,10 @@ def post_process_single(filter_ens, truth, filename=None, mic=0, reference_p=Non
 
         if reference_p is None:
             twin, reference_p = False, filter_ens.alpha0
-            norm_lbl = lambda x: x[:-1] + '/\\bar{' + x[1:-1] + '}^\mathrm{0}$'
+            norm_lbl = lambda x: '/' + x + '$^0$'
         else:
             twin = True
-            norm_lbl = lambda x:  x[:-1] + '/' + x[1:-1] + '^\mathrm{true}$'
+            norm_lbl = lambda x: '/' + x + '$^\\mathrm{true}$'
 
         ii = filter_ens.Nphi
         for p in filter_ens.est_a:
@@ -305,13 +305,6 @@ def post_process_single(filter_ens, truth, filename=None, mic=0, reference_p=Non
             axs[0].plot(t_wash, wash / norm, '.', color=color_obs, markersize=6)
         axs[1].plot(t, b_obs / norm, color=color_b, label='O', alpha=0.4, linewidth=3)
         axs[1].plot(t_b, b / norm, color=color_b, label=filter_ens.bias.name, linewidth=.8)
-
-        # PARAMS ---------------------------------------------------------------------
-        # if filter_ens.est_a:
-        #     for m, s, c, lbl in zip(mean_p, std_p, colors_alpha, labels_p):
-        #         axs[2].plot(hist_t, m, color=c, label=lbl)
-        #         axs[2].set(xlabel='$t$')
-        #         axs[2].fill_between(hist_t, m + s, m - s, alpha=0.2, color=c)
 
     for axs in [ax_all]:
         axs[0].plot(t, b_obs / norm, color=color_b, label='O', alpha=0.4, linewidth=3)
@@ -356,32 +349,12 @@ def post_process_single(filter_ens, truth, filename=None, mic=0, reference_p=Non
     for ax_ in ax_zoom[:, 1]:
         ax_.legend(loc='upper left', bbox_to_anchor=(1., 1.), ncol=1, fontsize='xx-small')
 
-    # # PLOT RMS ERROR-------------------------------------------------------------------
-    # Psi = (hist_mean - hist)[:-Nt_extra]
-    # Cpp = [np.dot(Psi[ti], Psi[ti].T) / (filter_ens.m - 1.) for ti in range(len(Psi))]
-    # RMS = [np.sqrt(np.trace(Cpp[i])) for i in range(len(Cpp))]
-    # RMS_ax.plot(hist_t[:-Nt_extra], RMS, color='firebrick')
-    # RMS_ax.set(ylabel='RMS error', xlabel='$t$', xlim=x_lims, yscale='log')
-    #
-    # # PLOT COST FUNCTION-------------------------------------------------------------------
-    # J = np.array(filter_ens.hist_J).squeeze()
-    # J_ax.plot(t_obs, J[:, :-1])
-    # dJ_ax.plot(t_obs, J[:, -1], color='tab:red')
-    #
-    # dJ_ax.set(ylabel='$d\\mathcal{J}/d\\psi$', xlabel='$t$', xlim=x_lims, yscale='log')
-    # J_ax.set(ylabel='$\\mathcal{J}$', xlabel='$t$', xlim=x_lims, yscale='log')
-    # J_ax.legend(['$\\mathcal{J}_{\\psi}$', '$\\mathcal{J}_{d}$',
-    #              '$\\mathcal{J}_{b}$'], bbox_to_anchor=(0., 1.),
-    #             loc="lower left", ncol=3)
-
     if plot_params:
         plot_parameters(filter_ens, truth, filename=filename, reference_p=reference_p)
 
     if filename is not None:
         plt.savefig(filename + '.svg', dpi=350)
         plt.close()
-    else:
-        plt.show()
 
 
 # ==================================================================================================================
@@ -436,8 +409,8 @@ def post_process_multiple(folder, filename=None, k_max=100., L_plot=None, refere
                                 color=cmap.to_rgba(kval), lw=.9)
                 ax.set(xlabel='$t$ [s]', xlim=[out['t_interp'][0], out['t_interp'][-1]])
 
-            mean_ax[0].set(ylim=[0, 60], ylabel='Biased signal error [\%]')
-            mean_ax[1].set(ylim=[0, 10], ylabel='Unbiased signal error [\%]')
+            mean_ax[0].set(ylim=[0, 60], ylabel='Biased signal error [\\%]')
+            mean_ax[1].set(ylim=[0, 10], ylabel='Unbiased signal error [\\%]')
             mean_ax[1].set_yticks([0., 3., 6., 9.])
 
         clb = fig.colorbar(cmap, ax=mean_ax.ravel().tolist(), orientation='horizontal', shrink=0.5)
@@ -464,21 +437,19 @@ def post_process_multiple(folder, filename=None, k_max=100., L_plot=None, refere
                         ii += 1
                         if p in ['C1', 'C2']:
                             lbl0.append('$' + p)
-                            lbl1.append('/\\bar{' + p + '}' + '^0$')
+                            lbl1.append('/' + p + '$^0$')
                         else:
                             lbl0.append('$\\' + p)
-                            lbl1.append('/\\bar{\\' + p + '}' + '^0$')
+                            lbl1.append('/' + p + '$^0$')
 
                 if reference_p is None:
                     reference_p = filter_ens.alpha0
 
                 for pj, p in enumerate(filter_ens.est_a):
                     for idx, a, tt, mk in zip([-1, 0], [1., .2],
-                                              ['(t_\mathrm{end})', '^0'], ['x', '+']):
+                                              ['(t_\\mathrm{end})', '^0'], ['x', '+']):
                         hist_p = filter_ens.hist[idx, N_psi + pj] / reference_p[p]
                         lbl = lbl0[pj] + tt + lbl1[pj]
-
-                        # print(pj, p, filter_ens.alpha0[p], np.mean(hist_p) * filter_ens.alpha0[p], np.mean(hist_p))
 
                         axCRP[2].errorbar(k, np.mean(hist_p).squeeze(), yerr=np.std(hist_p), alpha=a, mew=.8, fmt=mk,
                                           color=colors_alpha[pj], label=lbl, capsize=4, markersize=4, linewidth=.8)
@@ -527,7 +498,7 @@ def post_process_pdf(filter_ens, truth, params, filename=None, reference_p=None,
     if normalize:
         if reference_p is None:
             reference_p = filter_ens.alpha0
-            norm_lbl = lambda x: '/\\bar{' + x + '}^0'
+            norm_lbl = lambda x: x + '/' + x + '$^0$'
             twin = False
         else:
             norm_lbl = lambda x: '/{' + x + '}^\mathrm{true}'
@@ -611,13 +582,14 @@ def plot_violins(ax, values, location, widths=None, color='b', label=None):
     #     ax.legend([violins['bodies'][0]], [label])
 
 
-def plot_parameters(filter_ens, truth, filename=None, reference_p=None):
+def plot_parameters(filter_ens, truth, filename=None, reference_p=None, twin=False):
 
-        t_obs = truth['t_obs']
 
         if len(filter_ens.est_a) < 4:
             fig1 = plt.figure(figsize=[6, 1.5*len(filter_ens.est_a)], layout="constrained")
             axs = fig1.subplots(len(filter_ens.est_a), 1, sharex='col')
+            if len(filter_ens.est_a) == 1:
+                axs = [axs]
         else:
             fig1 = plt.figure(figsize=[12, 1.5*int(round(len(filter_ens.est_a)/2))], layout="constrained")
             axs = fig1.subplots(int(round(len(filter_ens.est_a)/2)), 2, sharex='all')
@@ -626,19 +598,18 @@ def plot_parameters(filter_ens, truth, filename=None, reference_p=None):
         hist, hist_t = filter_ens.hist, filter_ens.hist_t
         hist_mean = np.mean(hist, -1, keepdims=True)
 
+        t_obs = truth['t_obs']
+
         x_lims = [t_obs[0], t_obs[-1]]
         mean_p, std_p, labels_p = [], [], []
+
         if reference_p is None:
-            twin, reference_p = False, filter_ens.alpha0
-            reference_p_OG = reference_p.copy()
-            norm_lbl = lambda x: '/\\bar{' + x + '}^0'
-        else:
-            twin = True
             norm_lbl = lambda x:  x
-            reference_p_OG = dict()
-            for key, val in reference_p.items():
+            reference_p = {**filter_ens.alpha0}
+            for key in filter_ens.est_a:
                 reference_p[key] = 1.
-                reference_p_OG[key] = val
+        else:
+            norm_lbl = lambda x: x + '/' + x + '$^\\mathrm{ref}$'
 
         ii = filter_ens.Nphi
         for p in filter_ens.est_a:
@@ -660,7 +631,7 @@ def plot_parameters(filter_ens, truth, filename=None, reference_p=None):
                     ax.plot([hist_t[0], hist_t[-1]], [lim, lim], '--', color=c, lw=2, alpha=0.5)
 
             if twin:
-                val = reference_p_OG[p]
+                val = reference_p[p]
                 min_p, max_p = min(min_p, val)-min(s), max(max_p, val)+max(s)
                 ax.plot((hist_t[0], hist_t[-1]), (val, val), '-', color='k', linewidth=.6, label='truth')
 
