@@ -12,58 +12,27 @@ from scipy import linalg
 rng = np.random.default_rng(6)
 
 
-def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, wash_obs=None, wash_t=None):
+def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
     dt, ti = ensemble.dt, 0
-    dt_obs = t_obs[-1] - t_obs[-2]
 
     # -----------------------------  Print simulation parameters ----------------------------- ##
     ensemble.print_model_parameters()
     ensemble.bias.print_bias_parameters()
     print_DA_parameters(ensemble, t_obs)
 
-    # ----------------------------- FORECAST UNTIL FIRST OBS ----------------------------- ## TODO: clean up this first stage
+    # ----------------------------- FORECAST UNTIL FIRST OBS ----------------------------- ##
     time1 = time.time()
-    if wash_t is not None:
-        # t0 = wash_t[0] - dt_obs * ensemble.start_ensemble_forecast
-        setattr(ensemble.bias, 'wash_obs', wash_obs)
-        setattr(ensemble.bias, 'wash_time', wash_t)
-    # else:
-    #     t0 = t_obs[ti] - dt_obs * ensemble.start_ensemble_forecast
-    #
-    # if t0 < t_obs[ti]:
-    #     Nt = int(np.round((t0 - ensemble.t) / dt))
-    #     ensemble = forecastStep(ensemble, Nt, averaged=True, alpha=ensemble.alpha0)
-
-    # actual_std = abs(np.std(ensemble.psi, axis=-1) / np.mean(ensemble.psi, axis=-1))
-    # prefix = ''
-    # mean = np.mean(ensemble.psi, axis=-1)
-    # if any(abs(actual_std[:ensemble.Nphi] - ensemble.std_psi) > 0.05):
-    #     prefix = '(Inflated phi)'
-    #     psi_inflated = ensemble.addUncertainty(mean[:ensemble.Nphi], ensemble.std_psi, ensemble.m, method='normal')
-    #     ensemble.psi[:ensemble.Nphi] = psi_inflated
-    #     ensemble.hist[-1] = ensemble.psi
-    #     actual_std = abs(np.std(ensemble.psi, axis=-1) / np.mean(ensemble.psi, axis=-1))
-
-    # print('Ensemble initial spread: {:.3f}, {} {}'.format(np.mean(actual_std[:ensemble.Nphi]),
-    #                                                       actual_std[ensemble.Nphi:], prefix))
-
     Nt = int(np.round((t_obs[ti] - ensemble.t) / dt))
-    ensemble = forecastStep(ensemble, Nt, averaged=False)
+
+    ensemble = forecastStep(ensemble, Nt, averaged=False, **kwargs)
     print('Elapsed time to first observation: ' + str(time.time() - time1) + ' s')
 
     assert ensemble.t == t_obs[ti]
 
-    # # ---------------------------------- REMOVE TRANSIENT -------------------------------- ##
-    # i_transient = np.argmin(abs(ensemble.hist_t - ensemble.t_transient))
-    # for structure in [ensemble, ensemble.bias]:
-    #     if hasattr(structure, 'upsample'):
-    #         i_transient = int(i_transient / structure.upsample)
-    #     for key in ['hist', 'hist_t']:
-    #         setattr(structure, key, getattr(structure, key)[i_transient:])
     # --------------------------------- ASSIMILATION LOOP -------------------------------- ##
-    num_obs = len(t_obs)
     ensemble.activate_bias_aware, ensemble.activate_parameter_estimation = False, False
-    time1, print_i = time.time(), int(len(t_obs) / 10) * np.array([range(10)])
+    time1 = time.time()
+    print_i = int(len(t_obs) / 10) * np.array([range(10)])
 
     # Define observation covariance matrix
     Cdd_norm = np.diag((std_obs * np.ones(ensemble.Nq)))
@@ -77,8 +46,6 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, wash_obs=None, wash_t=
             ensemble.activate_parameter_estimation = True
         # ------------------------------  PERFORM ASSIMILATION ------------------------------ #
         # Analysis step
-        # Cdd = Cdd_norm * abs(obs[ti]) # ????????? think this geometrically
-
         Aa, J = analysisStep(ensemble, y_obs[ti], Cdd)
 
         # Update state with analysis
@@ -95,9 +62,8 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, wash_obs=None, wash_t=
         assert ensemble.hist_t[-1] == ensemble.bias.hist_t[-1]
 
         # ------------------------------ FORECAST TO NEXT OBSERVATION ---------------------- #
-        # next observation index
         ti += 1
-        if ti >= num_obs:
+        if ti >= len(t_obs):
             print('100% ----------------\n')
             break
         elif ti in print_i:
@@ -113,7 +79,7 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, wash_obs=None, wash_t=
 # =================================================================================================================== #
 
 
-def forecastStep(case, Nt, averaged=False, alpha=None):
+def forecastStep(case, Nt, averaged=False, alpha=None, **kwargs):
     """ Forecast step in the data assimilation algorithm. The state vector of
         one of the ensemble members is integrated in time
         Inputs:
@@ -133,7 +99,7 @@ def forecastStep(case, Nt, averaged=False, alpha=None):
     # Forecast ensemble bias and update its history
     if case.bias is not None:
         y = case.getObservableHist(Nt)
-        b, t_b = case.bias.timeIntegrate(t=t, y=y)
+        b, t_b = case.bias.timeIntegrate(t=t, y=y, **kwargs)
         case.bias.updateHistory(b, t_b)
 
     if case.hist_t[-1] != case.bias.hist_t[-1]:

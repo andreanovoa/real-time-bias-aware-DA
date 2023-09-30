@@ -5,7 +5,8 @@ from Util import interpolate
 
 class Bias:
     attrs = dict(augment_data=False,
-                 est_b=False)
+                 est_b=False,
+                 bias_form='None')
 
     def __init__(self, b, t, dt, **kwargs):
         self.b = b
@@ -86,6 +87,8 @@ class ESN(Bias, EchoStateNetwork):
         EchoStateNetwork.__init__(self, y=np.zeros(len(y)), dt=dt, **kwargs)
         self.initialised = False
         self.trained = False
+        if hasattr(self, 'L'):
+            self.name += '_L{}'.format(self.L)
 
     def resetBias(self, value):
         self.b = value
@@ -94,7 +97,7 @@ class ESN(Bias, EchoStateNetwork):
     def stateDerivative(self):
         return -self.Jacobian(open_loop_J=True)  # Compute ESN Jacobian
 
-    def timeIntegrate(self, t, y=None):
+    def timeIntegrate(self, t, y=None, wash_t=None, wash_obs=None):
         interp_flag = False
         Nt = len(t) // self.upsample
         if len(t) % self.upsample:
@@ -103,20 +106,21 @@ class ESN(Bias, EchoStateNetwork):
         t_b = np.round(self.t + np.arange(0, Nt+1) * self.dt_ESN, self.precision_t)
 
         # If the time is before the washout initialization, return zeros
-        if t[-1] <= self.wash_time[-1]:
+        if self.initialised:
+            b, r = self.closedLoop(Nt)
+        elif wash_t is None:
             b = np.zeros((Nt + 1, self.N_dim))
             r = np.zeros((Nt + 1, self.N_units))
-        elif not self.initialised:
+        else:
             b = np.zeros((Nt + 1, self.N_dim))
-            t1 = np.argmin(abs(t_b - self.wash_time[0]))
+            t1 = np.argmin(abs(t_b - wash_t[0]))
             Nt -= t1
-
             # Flag initialised
             self.initialised = True
+
             # Run washout phase in open-loop
-            wash_model = interpolate(t, np.mean(y, -1),
-                                     self.wash_time, bound=False)
-            b_open, r = self.openLoop(self.wash_obs - wash_model)
+            wash_model = interpolate(t, np.mean(y, -1), wash_t)
+            b_open, r = self.openLoop(wash_obs - wash_model)
             b[t1:t1+self.N_wash+1] = b_open
             Nt -= self.N_wash
             # Run the rest of the time window in closed-loop
@@ -125,9 +129,6 @@ class ESN(Bias, EchoStateNetwork):
                 self.reset_state(u=b[-1], r=r[-1])
                 b_close, r = self.closedLoop(Nt)
                 b[t1 + self.N_wash + 1:] = b_close[1:]
-        else:
-            # Run closed-loop
-            b, r = self.closedLoop(Nt)
 
         if interp_flag:
             b[-1] = interpolate(t_b[-Nt:], b[-Nt:], t[-1])

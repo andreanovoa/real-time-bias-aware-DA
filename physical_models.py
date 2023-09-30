@@ -651,7 +651,7 @@ class Annular(Model):
         else:
             if loc is None:
                 loc = self.theta_mic
-            return ["$p(\\theta={}^\\circ)$".format(int(np.round(np.degrees(th)))) for th in np.array(loc)][0]
+            return ["$p(\\theta={}^\\circ)$".format(int(np.round(np.degrees(th)))) for th in np.array(loc)]
 
     def getObservables(self, Nt=1, loc=None, measure_modes=False):
         """

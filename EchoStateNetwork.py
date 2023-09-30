@@ -88,7 +88,7 @@ class EchoStateNetwork:
     def len_train_data(self):
         val = self.N_train + self.N_val + self.N_wash
         if self.perform_test:
-            val += self.N_test * 10
+            val += self.N_test * 5
         return val
 
     @property

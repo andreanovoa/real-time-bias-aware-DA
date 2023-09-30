@@ -76,19 +76,22 @@ def create_truth(true_p, filter_p, noise_type):
     # =========================== ADD BIAS TO THE TRUTH ================================ #
     if 'manual_bias' in true_p.keys():
         if type(true_p['manual_bias']) is str:
-            if true_p['manual_bias'] == 'time':
+            name_bias = true_p['manual_bias']
+            if name_bias == 'time':
                 b_true = .4 * y_true * np.sin((np.expand_dims(t_true, -1) * np.pi * 2) ** 2)
-            elif true_p['manual_bias'] == 'periodic':
+            elif name_bias == 'periodic':
                 b_true = 0.2 * np.max(y_true, 0) * np.cos(2 * y_true / np.max(y_true, 0))
-            elif true_p['manual_bias'] == 'linear':
+            elif name_bias == 'linear':
                 b_true = .1 * np.max(y_true, 0) + .3 * y_true
-            elif true_p['manual_bias'] == 'cosine':
+            elif name_bias == 'cosine':
                 b_true = np.cos(y_true)
             else:
-                raise ValueError("Bias type not recognized choose: 'linear', 'periodic', 'time'")
+                raise ValueError("Bias type {} not recognized choose: 'linear', 'periodic', 'time'".format(name_bias))
         else:
-            b_true = true_p['manual_bias'](y_true, t_true)
+            # The manual bias is a function of state and/or time
+            b_true, name_bias = true_p['manual_bias'](y_true, t_true)
     else:
+        name_bias = 'None'
         b_true = np.zeros(1)
 
     y_true += b_true
@@ -126,7 +129,7 @@ def create_truth(true_p, filter_p, noise_type):
                  t_obs=t_true[obs_idx], y_obs=y_noise[obs_idx], dt_obs=filter_p['dt_obs'] * dt_t,
                  true_params=true_p, name=name_truth,
                  model=true_p['model'], std_obs=true_p['std_obs'],
-                 noise=noise, noise_type=noise_type)
+                 noise=noise, noise_type=noise_type, name_bias=name_bias)
     return truth
 
 
@@ -168,19 +171,20 @@ def create_ensemble(true_p, forecast_p, filter_p, bias_p=None):
 
 def create_washout(bias_model, true_data):
     truth = dict(true_data)
-    if not hasattr(bias_model, 't_init'):
-        bias_model.t_init = truth['t_obs'][0] - truth['dt_obs']
-    if not hasattr(bias_model, 'upsample'):
-        bias_model.upsample = 1
+    if hasattr(bias_model, 'N_wash'):
+        if not hasattr(bias_model, 't_init'):
+            bias_model.t_init = truth['t_obs'][0] - truth['dt_obs']
+        if not hasattr(bias_model, 'upsample'):
+            bias_model.upsample = 1
 
-    i1 = np.argmin(abs(bias_model.t_init - truth['t']))
-    i0 = i1 - bias_model.N_wash * bias_model.upsample
+        i1 = np.argmin(abs(bias_model.t_init - truth['t']))
+        i0 = i1 - bias_model.N_wash * bias_model.upsample
 
-    if i0 < 0:
-        print('\n', i0, i1, bias_model.t_init, bias_model.N_wash * bias_model.dt, truth['t_obs'][0], truth['dt_obs'])
-        raise ValueError('increase bias.t_init > t_wash + dt_obs')
-    truth['wash_obs'] = truth['y'][i0:i1 + 1:bias_model.upsample]
-    truth['wash_t'] = truth['t'][i0:i1 + 1:bias_model.upsample]
+        if i0 < 0:
+            print('\n', i0, i1, bias_model.t_init, bias_model.N_wash * bias_model.dt, truth['t_obs'][0], truth['dt_obs'])
+            raise ValueError('increase bias.t_init > t_wash + dt_obs')
+        truth['wash_obs'] = truth['y'][i0:i1 + 1:bias_model.upsample]
+        truth['wash_t'] = truth['t'][i0:i1 + 1:bias_model.upsample]
 
     return truth
 
@@ -281,25 +285,22 @@ def create_bias_training_dataset(y_truth, ensemble, train_params, filename, plot
         y_true = np.expand_dims(y_true, -1)
 
     # Create the synthetic bias as innovations ------------------------------------
-    # train_data = y_true - y_train[-Nt:]
-
     if train_params['augment_data']:
         # Compute correlated signals --------------
         yy_true = y_true[:N_corr, :, 0]
-        lags = np.linspace(0, N_corr, N_corr // 2, dtype=int)
+
+        lags = np.linspace(0, N_corr, N_corr, dtype=int)
         y_corr = np.zeros([Nt, y_train.shape[1], y_train.shape[2]])
 
         for ii in range(train_ens.m):
             yy = y_train[:, :, ii]
-            RS = [CR(yy_true, yy[:N_corr])[1]]
-            for lag in lags[1:]:
-                RS.append(CR(yy_true[:N_corr], yy[lag:N_corr + lag])[1])
+            RS = []
+            for lag in lags:
+                RS.append(CR(yy_true, yy[lag:N_corr + lag] / np.max(yy[lag:N_corr + lag]))[1])
             best_lag = lags[np.argmin(RS)]
             y_corr[:, :, ii] = yy[best_lag:Nt + best_lag]
-
         # Augment train data with correlated signals and a fraction --------------
         train_data = y_true - np.concatenate([y_train[-Nt:],
-                                              y_train[-Nt:] * -.5,
                                               y_corr],
                                              axis=-1)
     else:
@@ -323,23 +324,32 @@ def create_bias_training_dataset(y_truth, ensemble, train_params, filename, plot
         # Create the synthetic bias as innovations ------------------------------------
 
         fig1 = plt.figure(figsize=[12, 6], layout="constrained")
-        sub_figs = fig1.subfigures(1, 2, width_ratios=[1.2, 1])
+        # sub_figs = fig1.subfigures(1, 2, width_ratios=[1.2, 1])
+
         norm = mpl.colors.Normalize(vmin=0, vmax=max(RS))
         cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.viridis)
-        ax1, ax2 = [sf.subplots(3, 1) for sf in sub_figs]
 
+        axss = fig1.subplots(y_train.shape[1], 2, sharey='all', sharex='all')
+        ax01, ax02 = axss[:, 0], axss[:, 1]
+
+        if y_train.shape[1] == 1:
+            ax02, ax01 = [ax02], [ax01]
+        # ax11, ax12 = [sf.subplots(1, 1) for sf in sub_figs[1]]
+        norm_y = np.max(y_true[:N_corr])
         for yy, RR, axs, title in zip([y_train, y_corr], [RS, RS_corr],
-                                      [ax1, ax2], ['Original', 'Correlated']):
+                                      [ax01, ax02], ['Original', 'Correlated']):
             axs[0].set_title(title)
             for ll in range(yy.shape[-1]):
                 clr = cmap.to_rgba(RR[ll])
-                axs[0].plot(tt[:N_corr], yy[:N_corr, 0, ll], color=clr)
-                axs[-1].plot(tt[:N_corr], yy[:N_corr, 0, ll] - y_true[:N_corr, 0, 0], color=clr)
-            axs[0].plot(tt[:N_corr], y_true[:N_corr, 0], 'darkgrey')
-            for ll in range(yy.shape[-1]):
-                clr = cmap.to_rgba(RR[ll])
-                axs[1].plot(ll, RR[ll], 'o', color=clr)
-
+                for qq in range(yy.shape[1]):
+                    axs[qq].plot(tt[:N_corr], yy[:N_corr, qq, ll]/norm_y, color=clr)
+                    axs[qq].plot(tt[:N_corr], y_true[:N_corr, qq]/norm_y, '--r')
+        print(ensemble.obsLabels)
+        for qq, lbl in enumerate(ensemble.obsLabels):
+            ax01[qq].set(ylabel=lbl)
+        for ax in axss[-1]:
+            ax.set(xlabel='$t$')
+        fig1.colorbar(cmap, ax=axss.ravel().tolist(), orientation='vertical', label='total RMS')
         plt.show()
 
     # Save training data ------------------------------------

@@ -222,48 +222,45 @@ def post_process_single(filter_ens, truth, filename=None, mic=0, reference_p=Non
     y_filter, b, obs = [yy[:, mic] for yy in [y_filter, b, obs]]
     y_mean = np.mean(y_filter, -1)
 
-    b = interpolate(t_b, b, t)
-    t_b = t
-    y_unbiased = y_mean + b
-
-    # y_unbiased = recover_unbiased_solution(t_b, b, t, y_mean, upsample=hasattr(filter_ens.bias, 'upsample'))
 
     # cut signals to interval of interest -----
     N_CR = int(filter_ens.t_CR // filter_ens.dt)  # Length of interval to compute correlation and RMS
 
     i0 = np.argmin(abs(t - truth['t_obs'][0]))  # start of assimilation
     i1 = np.argmin(abs(t - truth['t_obs'][-1]))  # end of assimilation
-    y_filter, y_mean, t, y_unbiased = (yy[i0 - N_CR:i1 + N_CR] for yy in [y_filter, y_mean, t, y_unbiased])
+
+
+    y_unbiased = recover_unbiased_solution(t_b, b, t, y_mean, upsample=hasattr(filter_ens.bias, 'upsample'))
+
+    y_filter, y_mean, y_unbiased, t = (yy[i0 - N_CR:i1 + N_CR] for yy in [y_filter, y_mean, y_unbiased, t])
+
+    # t_b = t
+    # y_unbiased = y_mean + b
 
     y_truth = interpolate(truth['t'], truth['y'][:, mic], t)
 
     std = abs(np.std(y_filter[:, :], axis=1))
 
     # %% PLOT time series ------------------------------------------------------------------------------------------
-
-    norm = np.max(abs(y_truth), axis=0)  # normalizing constant
+    norm = np.max(y_truth, axis=0)  # normalizing constant
     if int(norm) == 1:
         ylbls = [["$p(x_\\mathrm{f})$ [Pa]", "$b(x_\\mathrm{f})$ [Pa]"], ['', '']]
     else:
         ylbls = [["$p(x_\\mathrm{f})$ norm.", "$b(x_\\mathrm{f})$ norm."], ['', '']]
-
 
     fig1 = plt.figure(figsize=[9, 5.5], layout="constrained")
     subfigs = fig1.subfigures(2, 1, height_ratios=[1, 1.1])
     ax_zoom = subfigs[0].subplots(2, 2, sharex='col', sharey='row')
     ax_all = subfigs[1].subplots(2, 1, sharex='col')
 
-    y_lims = [np.min(y_truth[:N_CR]) * 1.1, np.max(y_truth[:N_CR]) * 1.1] / norm
+    margin = 0.5
+    y_lims = [np.min(y_truth[:N_CR]) / norm - margin, np.max(y_truth[:N_CR]) / norm + margin]
     x_lims = [[t[0], t[0] + 2 * filter_ens.t_CR],
               [t[-1] - 2 * filter_ens.t_CR, t[-1]],
               [t[0], t[-1]]]
 
-    if filter_ens.bias.name != 'None' and hasattr(filter_ens.bias, 'N_wash'):
-        t_wash, wash = filter_ens.bias.wash_time, filter_ens.bias.wash_obs[:, mic]
 
     b_obs = y_truth - y_mean
-    y_lims_b = [np.min(b_obs[:N_CR]) * 1.1, np.max(b_obs[:N_CR]) * 1.1] / norm
-
     if filter_ens.est_a:
         hist, hist_t = filter_ens.hist, filter_ens.hist_t
         hist_mean = np.mean(hist, -1, keepdims=True)
@@ -301,7 +298,8 @@ def post_process_single(filter_ens, truth, filename=None, mic=0, reference_p=Non
         axs[0].set(ylim=y_lims)
 
         # BIAS ---------------------------------------------------------------------
-        if 'wash' in locals().keys():
+        if 'wash_t' in truth.keys():
+            t_wash, wash = truth['wash_t'], truth['wash_obs'][:, mic]
             axs[0].plot(t_wash, wash / norm, '.', color=color_obs, markersize=6)
         axs[1].plot(t, b_obs / norm, color=color_b, label='O', alpha=0.4, linewidth=3)
         axs[1].plot(t_b, b / norm, color=color_b, label=filter_ens.bias.name, linewidth=.8)
@@ -309,7 +307,7 @@ def post_process_single(filter_ens, truth, filename=None, mic=0, reference_p=Non
     for axs in [ax_all]:
         axs[0].plot(t, b_obs / norm, color=color_b, label='O', alpha=0.4, linewidth=3)
         axs[0].plot(t_b, b / norm, color=color_b, label=filter_ens.bias.name, linewidth=.8)
-        axs[0].set(ylabel=ylbls[0][1], xlim=x_lims[-1], ylim=y_lims_b)
+        axs[0].set(ylabel=ylbls[0][1], xlim=x_lims[-1], ylim=y_lims)
         # PARAMS-----------------------
         if filter_ens.est_a:
             for p, m, s, c, lbl in zip(filter_ens.est_a, mean_p, std_p, colors_alpha, labels_p):
@@ -338,7 +336,7 @@ def post_process_single(filter_ens, truth, filename=None, mic=0, reference_p=Non
     # axis labels and limits
     for axs, xl, ylbl in zip([ax_zoom[:, 0], ax_zoom[:, 1]], x_lims, ylbls):
         axs[0].set(ylabel=ylbl[0], xlim=xl)
-        axs[1].set(ylabel=ylbl[1], xlim=xl, ylim=y_lims_b, xlabel='$t$ [s]')
+        axs[1].set(ylabel=ylbl[1], xlim=xl, ylim=y_lims, xlabel='$t$ [s]')
         for ax_ in axs:
             ax_.plot((t_obs[0], t_obs[0]), (-1E6, 1E6), '--', color='k', linewidth=.8)  # DA window
             ax_.plot((t_obs[-1], t_obs[-1]), (-1E6, 1E6), '--', color='k', linewidth=.8)  # DA window
