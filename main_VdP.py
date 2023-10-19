@@ -25,7 +25,7 @@ if __name__ == '__main__':
                    'beta': 75.,  # forcing
                    'zeta': 55.,  # damping
                    'kappa': 3.4,  # nonlinearity
-                   'std_obs': 0.01,
+                   'std_obs': 0.2,
                    }
 
     forecast_params = {'model': VdP
@@ -38,7 +38,7 @@ if __name__ == '__main__':
     # ==================================== SELECT FILTER PARAMETERS =================================== #
     filter_params = {'filter': 'rBA_EnKF',  # 'rBA_EnKF' 'EnKF' 'EnSRKF'
                      'constrained_filter': False,
-                     'regularization_factor': 2.,
+                     'regularization_factor': 10.,
                      'm': 10,
                      'std_psi': 0.2,
                      'est_a': [*params_IC],
@@ -47,26 +47,24 @@ if __name__ == '__main__':
                      # Define the observation time window
                      't_start': 2.0,
                      't_stop': 3.0,
-                     'dt_obs': 50,
+                     'dt_obs': 30,
                      # Inflation
                      'inflation': 1.001,
                      }
 
     # using default TA parameters for ESN training
     bias_params = {'biasType': ESN,  # Bias.ESN  # None
-                   'std_a': 0.3,
+                   'std_a': filter_params['std_a'],
                    'est_a': filter_params['est_a'],
-                   'alpha_distr': 'uniform',
-                   'ensure_mean': True,
                    'N_wash': 30,
-                   'upsample': 5,
-                   'noise': 0.3,
-                   't_train': VdP.t_transient * 2,
-                   't_val': VdP.t_CR * 2,
+                   'upsample': 3,
+                   'noise': 0.01,
+                   't_train': VdP.t_transient,
+                   't_val': VdP.t_CR,
                    'L': 10,
                    'augment_data': True,
-                   'tikh_range': [1e-10, 1e-16],
-                   'sigma_in_range': [np.log10(1e-7), np.log10(1e-2)],
+                   'tikh_range': [1e-12, 1e-16],
+                   'sigma_in_range': [np.log10(1e-6), np.log10(1e0)],
                    'rho_range': [0.5, 1.0]
                    }
 

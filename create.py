@@ -318,7 +318,7 @@ def create_bias_training_dataset(y_truth, ensemble, train_params, filename, plot
     psi0 = psi[-1, :, ~idx_FP]
     if len(np.flatnonzero(idx_FP)) > 1:
         idx_FP[np.flatnonzero(idx_FP)[0]] = 0
-        psi0 = psi[-1, :, ~idx_FP]  # non-fixed point ICs (keep 1)
+        psi0 = psi[-1, :, ~idx_FP]  # non-fixed point ICs (keeping one)
         print('There are {}/{} fixed points'.format(len(np.flatnonzero(idx_FP)), len(idx_FP)))
         mean_psi = np.mean(psi0, axis=0)
         cov_psi = np.cov(psi0.T)
@@ -327,8 +327,6 @@ def create_bias_training_dataset(y_truth, ensemble, train_params, filename, plot
 
     # Reset ensemble with post-transient ICs
     train_ens.updateHistory(psi=psi0.T, reset=True)
-
-    print(train_ens.psi.shape)
 
     # Forcast training ensemble and correlate to the truth
     Nt = train_ens.bias.len_train_data * train_ens.bias.upsample
@@ -348,26 +346,26 @@ def create_bias_training_dataset(y_truth, ensemble, train_params, filename, plot
     # Create the synthetic bias as innovations ------------------------------------
     if train_params['augment_data']:
         # Compute correlated signals
-        # yy_true = y_true[:N_corr, :, 0]
-        # lags = np.linspace(0, N_corr, N_corr, dtype=int)
-        # y_corr, y_uncorr, y_midcorr = [np.zeros([Nt, y_train.shape[1], y_train.shape[2]]) for _ in range(3)]
-        #
-        # for ii in range(train_ens.m):
-        #     yy = y_train[:, :, ii]
-        #     RS = []
-        #     for lag in lags:
-        #         RS.append(CR(yy_true, yy[lag:N_corr + lag] / np.max(yy[lag:N_corr + lag]))[1])
-        #     best_lag = lags[np.argmin(RS)]
-        #     worst_lag = lags[np.argmax(RS)]
-        #     mid_lag = int(np.mean([best_lag, worst_lag]))
-        #     y_corr[:, :, ii] = yy[best_lag:Nt + best_lag]
-        #     y_uncorr[:, :, ii] = yy[worst_lag:Nt + worst_lag]
-        #     y_midcorr[:, :, ii] = yy[mid_lag:Nt + mid_lag]
-        # # Augment train data with correlated signals
-        # train_data = y_true - np.concatenate([y_uncorr, y_midcorr, y_corr], axis=-1)
+        yy_true = y_true[:N_corr, :, 0]
+        lags = np.linspace(0, N_corr, N_corr, dtype=int)
+        y_corr, y_uncorr, y_midcorr = [np.zeros([Nt, y_train.shape[1], y_train.shape[2]]) for _ in range(3)]
 
-        train_data = y_true - y_train[-Nt:]
-        train_data = np.concatenate([train_data, train_data*.1, train_data*.01], axis=-1)
+        for ii in range(train_ens.m):
+            yy = y_train[:, :, ii]
+            RS = []
+            for lag in lags:
+                RS.append(CR(yy_true, yy[lag:N_corr + lag] / np.max(yy[lag:N_corr + lag]))[1])
+            best_lag = lags[np.argmin(RS)]
+            worst_lag = lags[np.argmax(RS)]
+            mid_lag = int(np.mean([best_lag, worst_lag]))
+            y_corr[:, :, ii] = yy[best_lag:Nt + best_lag]
+            y_uncorr[:, :, ii] = yy[worst_lag:Nt + worst_lag]
+            y_midcorr[:, :, ii] = yy[mid_lag:Nt + mid_lag]
+        # Augment train data with correlated signals
+        train_data = y_true - np.concatenate([y_midcorr, y_corr], axis=-1)
+
+        # train_data = y_true - y_train[-Nt:]
+        train_data = np.concatenate([train_data, train_data*.1], axis=-1)
     else:
         train_data = y_true - y_train[-Nt:]
 
