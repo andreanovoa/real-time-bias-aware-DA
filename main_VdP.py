@@ -25,7 +25,7 @@ if __name__ == '__main__':
                    'beta': 75.,  # forcing
                    'zeta': 55.,  # damping
                    'kappa': 3.4,  # nonlinearity
-                   'std_obs': 0.5,
+                   'std_obs': 0.01,
                    }
 
     forecast_params = {'model': VdP
@@ -59,8 +59,8 @@ if __name__ == '__main__':
                    'alpha_distr': 'uniform',
                    'ensure_mean': True,
                    'N_wash': 30,
-                   'upsample': 2,
-                   'noise': 0.0001,
+                   'upsample': 5,
+                   'noise': 0.3,
                    't_train': VdP.t_transient * 2,
                    't_val': VdP.t_CR * 2,
                    'L': 10,

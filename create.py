@@ -54,6 +54,7 @@ def create_truth(true_params: dict, filter_params: dict):
             noise_type = 'gauss, add'
         else:
             noise_type = true_params['noise_type']
+        noise_type += ', ' + str(true_params['std_obs'])
 
         # Create noise to add to the truth
         if 'gauss' in noise_type.lower():
