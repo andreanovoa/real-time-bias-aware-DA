@@ -6,7 +6,8 @@ from Util import interpolate
 class Bias:
     attrs = dict(augment_data=False,
                  est_b=False,
-                 bias_form='None')
+                 bias_form='None',
+                 upsample=1)
 
     def __init__(self, b, t, dt, **kwargs):
         self.b = b
@@ -34,14 +35,6 @@ class Bias:
             self.hist_t = np.array([self.t])
         self.b = self.hist[-1]
         self.t = self.hist_t[-1]
-
-    def getOutputs(self):
-        out = dict(name=self.name,
-                   hist=self.hist,
-                   hist_t=self.hist_t)
-        for key in self.attrs.keys():
-            out[key] = getattr(self, key)
-        return out
 
     def updateCurrentState(self, b, t):
         self.b = b
@@ -87,8 +80,6 @@ class ESN(Bias, EchoStateNetwork):
         EchoStateNetwork.__init__(self, y=np.zeros(len(y)), dt=dt, **kwargs)
         self.initialised = False
         self.trained = False
-        if hasattr(self, 'L'):
-            self.name += '_L{}'.format(self.L)
 
     def resetBias(self, value):
         self.b = value
@@ -98,6 +89,9 @@ class ESN(Bias, EchoStateNetwork):
         return -self.Jacobian(open_loop_J=True)  # Compute ESN Jacobian
 
     def timeIntegrate(self, t, y=None, wash_t=None, wash_obs=None):
+        if not self.trained:
+            raise NotImplementedError('ESN model not trained')
+
         interp_flag = False
         Nt = len(t) // self.upsample
         if len(t) % self.upsample:
@@ -117,7 +111,6 @@ class ESN(Bias, EchoStateNetwork):
             Nt -= t1
             # Flag initialised
             self.initialised = True
-
             # Run washout phase in open-loop
             wash_model = interpolate(t, np.mean(y, -1), wash_t)
             b_open, r = self.openLoop(wash_obs - wash_model)
@@ -141,16 +134,14 @@ class ESN(Bias, EchoStateNetwork):
         return b[1:], t_b[1:]
 
     def print_bias_parameters(self):
-        print('\n -----------------------  Bias model parameters -------------------- ',
-              '\n Bias model: {}'.format(self.name),
-              '\n Data filename: {}'.format(self.filename),
-              '\n Training time: {:.6} s, \t Validation time: {:.6} s'.format(self.t_train, self.t_val),
-              '\n Washout steps: {}, \t Upsample: {}'.format(self.N_wash, self.upsample),
-              '\n Num of neurones: {}, \t Run test?: {}'.format(self.N_units, self.perform_test),
-              '\n Augment data?: {}, \t Num of training datasets: {}'.format(self.augment_data, self.L),
-              '\n Connectivity: {}, \t\t Tikhonov parameter: {}'.format(self.connect, self.tikh),
-              '\n Spectral radius: {:.6}, \t Input scaling: {:.6}'.format(self.rho, self.sigma_in)
-              )
+        print('\n ---------------- {} bias model parameters --------------- '.format(self.name))
+        keys_to_print = sorted(['filename', 't_train', 't_val', 'N_wash', 'rho', 'sigma_in',
+                                'upsample', 'N_units', 'perform_test', 'augment_data', 'L', 'connect', 'tikh'])
+        for key in keys_to_print:
+            try:
+                print('\t {} = {:.6}'.format(key, getattr(self, key)))
+            except ValueError:
+                print('\t {} = {}'.format(key, getattr(self, key)))
 
     def train_bias_model(self, train_data, val_strategy=EchoStateNetwork.RVC_Noise,
                          plot_training=True, folder='./'):

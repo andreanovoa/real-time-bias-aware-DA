@@ -44,8 +44,9 @@ class EchoStateNetwork:
                     wash_obs=None,
                     wash_time=None,
                     # Default hyperparameters and optimization ranges
-                    noise=0.2,
-                    noise_range=(0.05, 0.5),  # TODO: add noise to optimization?
+                    noise=1e-10,
+                    noise_type='gauss',
+                    # noise_range=(0.05, 0.5),  # add noise to optimization?
                     optimize_hyperparams=['rho', 'sigma_in', 'tikh'],
                     rho=0.9,
                     rho_range=(.8, 1.05),
@@ -67,7 +68,7 @@ class EchoStateNetwork:
                 val = kwargs[key]
             setattr(self, key, val)
 
-        self.filename = 'ESN_L_{}'.format(self.L)
+        self.filename = 'ESN'
 
         # -------------------------- Define time windows ----------------------------- #
         self.N_train = int(round(self.t_train / self.dt_ESN))
@@ -206,7 +207,7 @@ class EchoStateNetwork:
         # Format training data and divide into wash-train-validate, and test sets
         U_wtv, Y_tv, U_test = self.format_training_data(train_data)
 
-        #  ==================== ADD NOISE TO TRAINING INPUT ====================== ## TODO: add this to the optimization
+        #  ==================== ADD NOISE TO TRAINING INPUT ====================== ## TODO: remove noise?
         # Add noise to inputs during training. Larger noise level
         # promotes stability in long term, but hinders time accuracy
         U_std = np.std(U_wtv, axis=1)
@@ -483,7 +484,7 @@ class EchoStateNetwork:
                 U_wash = U_l[p:p + case.N_wash]
                 Y_val = U_l[p + case.N_wash:p + case.N_wash + case.N_val]
 
-                # Perform washout
+                # Perform washout (open-loop without extra forecast step)
                 u_open, r_open = case.openLoop(U_wash, extra_closed=False)
 
                 for tik_j in range(N_tikh):  # cloop for each tikh_-noise combination

@@ -4,7 +4,6 @@ import os as os
 from Util import save_to_pickle_file
 from DA import dataAssimilation
 
-from create import create_ensemble
 
 rng = np.random.default_rng(6)
 path_dir = '/'.join(os.path.realpath(__file__).split('/')[:-1]) + '/'
@@ -25,17 +24,20 @@ def main(filter_ens, truth):
     filter_ens.is_not_physical(print_=True)
 
     # Integrate further without assimilation as ensemble mean (if truth very long, integrate only .2s more)
-    if filter_ens.hist_t[-1] < filter_ens.t_max:
+    if hasattr(filter_ens, 't_max'):
         Nt_extra = int(min((filter_ens.t_max - filter_ens.hist_t[-1]), filter_ens.t_CR) / filter_ens.dt) + 1
-        psi, t = filter_ens.timeIntegrate(Nt_extra, averaged=True)
-        filter_ens.updateHistory(psi, t)
-        if filter_ens.bias is not None:
-            y = filter_ens.getObservableHist(Nt_extra)
-            b, t_b = filter_ens.bias.timeIntegrate(t=t, y=y)
-            filter_ens.bias.updateHistory(b, t_b)
-    filter_ens.close()
+    else:
+        Nt_extra = int(filter_ens.t_CR / filter_ens.dt) + 1
 
-    # =============================== SAVE SIMULATION  =============================== #
+    psi, t = filter_ens.timeIntegrate(Nt_extra, averaged=True)
+    filter_ens.updateHistory(psi, t)
+    if filter_ens.bias is not None:
+        y = filter_ens.getObservableHist(Nt_extra)
+        b, t_b = filter_ens.bias.timeIntegrate(t=t, y=y)
+        filter_ens.bias.updateHistory(b, t_b)
+
+    # =============================== CLOSE SIMULATION  =============================== #
+    filter_ens.close()
 
     return filter_ens
 
@@ -64,17 +66,11 @@ def main(filter_ens, truth):
 #
 
 
-
-
-def save_simulation(filter_ens, truth, extra_parameters, results_dir="results/"):
+def save_simulation(filter_ens, truth, extra_parameters=None, results_dir="results/"):
     os.makedirs(results_dir, exist_ok=True)
 
-    Nt_extra = 0
-    if filter_ens.hist_t[-1] < filter_ens.t_max:
-        Nt_extra = int(min((filter_ens.t_max - filter_ens.hist_t[-1]), filter_ens.t_CR) / filter_ens.dt) + 1
-
     parameters = dict(biasType=filter_ens.biasType, forecast_model=filter_ens.name,
-                      true_model=truth['model'], num_DA=len(truth['t_obs']), Nt_extra=Nt_extra)
+                      true_model=truth['model'], num_DA=len(truth['t_obs']))
 
     if extra_parameters is not None:
         for key, val in extra_parameters.items():
@@ -82,8 +78,8 @@ def save_simulation(filter_ens, truth, extra_parameters, results_dir="results/")
     # =============================== SAVE SIMULATION  =============================== #
 
     filename = '{}{}-{}_F-{}'.format(results_dir, filter_ens.filter, truth['name'], filter_ens.name)
-    if filter_ens.bias.name == 'ESN':
-        filename += '_k{}'.format(filter_ens.bias.k)
+    if hasattr(filter_ens, 'regularization_factor'):
+        filename += '_k{}'.format(filter_ens.regularization_factor)
     # save simulation
     save_to_pickle_file(filename, parameters, truth, filter_ens)
 

@@ -1,92 +1,86 @@
-import physical_models
-import bias_models
-from run import main, create_ESN_train_dataset, create_ensemble
+from physical_models import Lorenz63
+from bias_models import ESN, NoBias
+from run import main
+from create import create_truth, create_ensemble, create_bias_model
 from plotResults import *
 
-folder = 'results/Lorenz_0131_good/'
-# psi0 = [-7.72733655, -6.74391408, 22.38752501]  # LC
-psi0 = [3.41862453, 2.01878628, 25.73177281]  # CH
+folder = 'results/Lorenz/'
+figs_dir = folder + 'figs/'
+
+os.makedirs(figs_dir, exist_ok=True)
+
 
 # %% ============================= SELECT TRUE AND FORECAST MODELS ================================= #
-true_params = {'model': TAModels.Lorenz63,
+
+
+def model_bias(yy, tt):
+    return 0 * yy, 'nobias'
+    # return .3 * np.max(yy, axis=0) + .3 * yy, 'linear'   # Linear bias
+    # return .3 * np.max(yy, axis=0) * (np.cos((yy / np.max(yy, axis=0))**2) + 1), 'nonlinear+offset'  # Non-linear bias
+
+
+true_params = {'model': Lorenz63,
                't_max': 100.,
-               'std_obs': 0.15,
-               'manual_bias': True,
-               'psi0': psi0
+               'std_obs': 0.01,
+               'manual_bias': model_bias,
+               'rho': 28.,
+               'sigma': 10.,
+               'beta': 8. / 3.,
                }
 
-forecast_params = {'model': TAModels.Lorenz63,
-                   't_max': 100.,
-                   'psi0': np.array(psi0)
+forecast_params = {'model': Lorenz63,
+                   'rho': 28.,
+                   'sigma': 10.,
+                   'beta': 8. / 3.,
                    }
 
 # ==================================== SELECT FILTER PARAMETERS =================================== #
-filter_params = {'filt': 'EnKFbias',  # 'EnKFbias' 'EnKF' 'EnSRKF'
-                 'm': 100,
-                 'est_p': [],
-                 'biasType': Bias.ESN,  # Bias.ESN
-                 'std_psi': 0.3,
+params_IC = dict(rho=(27.5, 32), sigma=(9.5, 12.5))
+
+filter_params = {'filter': 'EnKF',
+                 'constrained_filter': False,
+                 'regularization_factor': 0.,
+                 'm': 10,
+                 'est_a': [*params_IC],
+                 'std_psi': 0.1,
+                 'std_a': params_IC,
+                 'alpha_distr': 'uniform',
                  # Define the observation time-window
-                 't_start': 2.,
-                 't_stop': 60.,
-                 'kmeas': 30,
+                 't_start': 5.,
+                 't_stop': 30.,
+                 'dt_obs': 25,
                  # Inflation
                  'inflation': 1.0,
-                 # Ensemble forecast
-                 'start_ensemble_forecast': .20
                  }
 
-if filter_params['biasType'].name == 'ESN':
-    # using default TA parameters for ESN training
-    train_params = {'model': forecast_params['model'],
-                    'est_p': filter_params['est_p'],
-                    'psi0': forecast_params['psi0'],
-                    'std_psi': 0.001,  # 0.1 LC
-                    }
-    t_lyap = 0.906 ** (-1)
-    bias_params = {'N_wash': 10,
-                   'upsample': 5,
-                   'N_units': 200,
-                   't_train': t_lyap * 10,  # 10 LC
-                   't_val': t_lyap * 2,  # 2 LC
-                   'connect': 3,
-                   'L': 10,
-                   'noise_level': 1E-1,
-                   'rho_': [0.5, 1.1],
-                   'sigin_': [np.log10(1e-5), np.log10(.5)],
-                   'tikh_': np.array([1e-6, 1e-9, 1e-12]),
-                   # 'N_fo': 10,
-                   'augment_data': True,
-                   'train_params': train_params
-                   }
-else:
-    bias_params = None
-# ================================== CREATE REFERENCE ENSEMBLE =================================
-results_folder = folder + '{}_{}/'.format(filter_params['biasType'].name, filter_params['filt'])  #'L{}_m{}/'.format(bias_params['L'], filter_params['m'])
-figs_folder = results_folder + 'figs/'
+bias_params = {'biasType': ESN,
+               'N_wash': 30,
+               'upsample': 3,
+               'N_units': 600,
+               'est_a': filter_params['est_a'],
+               'ensure_mean': True,
+               'connect': 3,
+               # 't_train': Lorenz63.t_transient * 2,
+               # 't_val': Lorenz63.t_CR * 2,
+               'L': 10,
+               'rho_range': [0.5, 1.1],
+               'sigma_in_range': [np.log10(1e-5), np.log10(.5)],
+               'tikh_range': np.array([1e-6, 1e-9, 1e-12]),
+               'augment_data': True,
+               }
 
 if __name__ == '__main__':
-    ensemble, truth, b_args = create_ensemble(true_params, forecast_params, filter_params, bias_params)
-
-    # ================================================================================== #
     # ================================================================================== #
 
-    blank_ens = ensemble.copy()
-    ks =[0., 1., 5.] #np.linspace(0, 5, 11)
-    for k in ks:  # Reset gamma value
-        filter_ens = blank_ens.copy()
+    ensemble = create_ensemble(forecast_params, filter_params)
+    truth = create_truth(true_params, filter_params)
 
-        filter_ens.bias.k = k
-        out = main(filter_ens, truth, filter_params,
-                   results_folder=results_folder, figs_folder=figs_folder, save_=True)
+    bias_name = 'ESN_{}_L{}'.format(truth['name_bias'], bias_params['L'])
+    create_bias_model(ensemble, truth, bias_params, bias_name, bias_model_folder=folder, plot_train_data=True)
 
-        filename = '{}time_k{}'.format(figs_folder, k)
-        # filename = None
-        # post_process_single_SE_Zooms(*out[:2], filename=filename)
-        post_process_single(*out, filename=filename)
-        plt.close()
-    # filename = '{}CR__results'.format(figs_folder)
-    post_process_multiple(results_folder, filename)
-    # plt.show()
+    # ================================================================================== #
 
+    out = main(ensemble, truth)
+    post_process_single(ensemble, truth, reference_p=Lorenz63.defaults, reference_t=Lorenz63.t_lyap)
 
+    plt.show()

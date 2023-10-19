@@ -15,12 +15,13 @@ if __name__ == '__main__':
 
     def model_bias(yy, tt):
         # return .3 * np.max(yy, axis=0) + .3 * yy, 'linear'   # Linear bias
-        return .3 * np.max(yy, axis=0) * (np.cos((yy / np.max(yy, axis=0))**2) + 1), 'nonlinear_offset'  # Non-linear bias
+        return .3 * np.max(yy, axis=0) * (np.cos((yy / np.max(yy, axis=0))**2) + 1), 'nonlinear+offset'  # Non-linear bias
 
 
     true_params = {'model': model,
                    'manual_bias': model_bias,
-                   'std_obs': 0.2,
+                   'noise_type': 'white',
+                   'std_obs': 0.1,
                    'nu': 17.,
                    'beta_c2': 17.,
                    'kappa': 1.2e-4
@@ -35,7 +36,7 @@ if __name__ == '__main__':
 
     filter_params = {'filter': 'rBA_EnKF',
                      'constrained_filter': False,
-                     'regularization_factor': 10.,
+                     'regularization_factor': 5.,
                      'm': 10,
                      # # initial parameter and state uncertainty
                      'est_a': [*parameters_IC],
@@ -45,16 +46,14 @@ if __name__ == '__main__':
                      # Define the observation time window
                      't_start': model.t_transient * 1.5,
                      't_stop': model.t_transient * 3.,
-                     'dt_obs': 200,
+                     'dt_obs': 180,
                      # Inflation
                      'inflation': 1.001,
                      'reject_inflation': 1.001
                      }
 
     # ============================ CREATE REFERENCE ENSEMBLE =================================== #
-    ensemble_og, truth_og = create_ensemble(true_params,
-                                            forecast_params,
-                                            filter_params)
+    ensemble_og, truth_og = create_ensemble(true_params, forecast_params, filter_params)
 
     # ==================================== SELECT ESN PARAMETERS =================================== #
 
@@ -85,7 +84,7 @@ if __name__ == '__main__':
 
         # START BIAS MODEL -----------------------------------------------------------
 
-        bias = create_bias_model(ensemble, truth_og['y'], bias_params,
+        bias = create_bias_model(ensemble, truth_og, bias_params,
                                  bias_filename, folder, plot_train_data=True)
         ensemble.bias = bias
 

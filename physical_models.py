@@ -40,7 +40,6 @@ class Model:
                               est_a=False,
                               est_s=True,
                               est_b=False,
-                              biasType=bias_models.NoBias,
                               inflation=1.002,
                               reject_inflation=1.002,
                               std_psi=0.001,
@@ -53,7 +52,7 @@ class Model:
                               get_cost=False,
                               Na=0
                               )
-    __slots__ = list(defaults.keys()) + list(defaults_ens.keys()) + ['hist', 'hist_t', 'hist_J', '_pool', '_M', '_Ma']
+    # __slots__ = list(defaults.keys()) + list(defaults_ens.keys()) + ['hist', 'hist_t', 'hist_J', '_pool', '_M', '_Ma']
 
     def __init__(self, child_defaults, **model_dict):
         # ================= INITIALISE THERMOACOUSTIC MODEL ================== ##
@@ -78,7 +77,8 @@ class Model:
         self.hist_J = []
         # ========================== DEFINE LENGTHS ========================== ##
         self.precision_t = int(-np.log10(self.dt)) + 2
-        self.defaults_child = child_defaults.copy()
+        self.bias = None
+        # self.defaults_child = child_defaults.copy()
 
     @property
     def Nphi(self):
@@ -87,6 +87,13 @@ class Model:
     @property
     def N(self):
         return self.Nphi + self.Na + self.Nq
+
+    @property
+    def biasType(self):
+        if hasattr(self, 'bias'):
+            return type(self.bias)
+        else:
+            return bias_models.NoBias
 
     def copy(self):
         return deepcopy(self)
@@ -115,7 +122,7 @@ class Model:
 
     def print_model_parameters(self):
         print('\n ------------------ {} Model Parameters ------------------ '.format(self.name))
-        for key in sorted(self.defaults_child.keys()):
+        for key in sorted(self.defaults.keys()):
             try:
                 print('\t {} = {:.6}'.format(key, getattr(self, key)))
             except ValueError:
@@ -125,8 +132,7 @@ class Model:
     @property
     def M(self):
         if not hasattr(self, '_M'):
-            setattr(self, '_M', np.hstack((np.zeros([self.Nq, self.Na + self.Nphi]),
-                                           np.eye(self.Nq))))
+            setattr(self, '_M', np.hstack((np.zeros([self.Nq, self.Na + self.Nphi]), np.eye(self.Nq))))
         return self._M
 
     @property
@@ -149,18 +155,18 @@ class Model:
         elif method == 'uniform':
             ens = np.zeros((len(mean), m))
             if isinstance(std, float):
-                for ii, pp in enumerate(mean):
+                for pi, pp in enumerate(mean):
                     if abs(std) <= .5:
-                        ens[ii, :] = pp * (1. + rng.uniform(-std, std, m))
+                        ens[pi, :] = pp * (1. + rng.uniform(-std, std, m))
                     else:
-                        ens[ii, :] = rng.uniform(pp - std, pp + std, m)
+                        ens[pi, :] = rng.uniform(pp - std, pp + std, m)
             elif isinstance(std, dict):
                 if param_names is not None:
-                    for ii, key in enumerate(param_names):
-                        ens[ii, :] = rng.uniform(std[key][0], std[key][1], m)
+                    for pi, key in enumerate(param_names):
+                        ens[pi, :] = rng.uniform(std[key][0], std[key][1], m)
                 else:
-                    for ii, _ in enumerate(mean):
-                        ens[ii, :] = rng.uniform(std[ii][0], std[ii][1], m)
+                    for pi, _ in enumerate(mean):
+                        ens[pi, :] = rng.uniform(std[pi][0], std[pi][1], m)
             else:
                 raise TypeError('std in normal distribution must be float or dict')
         else:
@@ -201,22 +207,18 @@ class Model:
 
         # RESET ENSEMBLE HISTORY
         self.updateHistory(psi=new_psi0, t=0., reset=True)
+        if self.bias is None:
+            self.initBias()
 
     def initBias(self, **Bdict):
 
         if 'biasType' in Bdict.keys():
-            self.biasType = Bdict['biasType']
-
-        if self.biasType.name == 'ESN':
-            # Assign some required items
-            for key, default_value in zip(['t_val', 't_train', 't_test'],
-                                          [self.t_CR, self.t_transient, self.t_CR]):
-                if key not in Bdict.keys():
-                    Bdict[key] = default_value
+            biasType = Bdict['biasType']
+        else:
+            biasType = bias_models.NoBias
 
         # Initialise bias. Note: self.bias is now an instance of the bias class
-        self.bias = self.biasType(y=self.getObservables(),
-                                  t=self.t, dt=self.dt, **Bdict)
+        self.bias = biasType(y=self.getObservables(), t=self.t, dt=self.dt, **Bdict)
         # Create bias history
         b = self.bias.getBias
         self.bias.updateHistory(b, self.t, reset=True)
@@ -346,17 +348,19 @@ class VdP(Model):
     """
 
     name: str = 'VdP'
-    defaults: dict = dict(dt=1.0E-4, Nq=1,
+    defaults: dict = dict(Nq=1,
                           omega=2 * np.pi * 120., law='tan',
                           zeta=60., beta=70., kappa=4.0, gamma=1.7)  # beta, zeta [rad/s]
 
-    params: list = ['beta', 'zeta', 'kappa']  # ,'omega', 'gamma']
-    param_labels = dict(beta='$\\beta$', zeta='$\\zeta$', kappa='$\\kappa$')
+    params_labels = dict(beta='$\\beta$', zeta='$\\zeta$', kappa='$\\kappa$')
+    params_lims = dict(zeta=(5, 120), kappa=(0.1, 20), beta=(5, 120))
+    params: list = [*params_labels]  # ,'omega', 'gamma']
 
     fixed_params = ['law', 'omega']
 
     t_transient = 1.5
     t_CR = 0.04
+    dt = 1.0E-4
 
     # __________________________ Init method ___________________________ #
     def __init__(self, **model_dict):
@@ -368,11 +372,6 @@ class VdP(Model):
 
         # _________________________ Add fixed parameters  ________________________ #
         self.set_fixed_params()
-        self.param_lims = dict(zeta=(5, 120),
-                               kappa=(0.1, 20),
-                               beta=(5, 120),
-                               gamma=(0., 5.)
-                               )
 
     def set_fixed_params(self):
         for key in VdP.fixed_params:
@@ -404,19 +403,19 @@ class Rijke(Model):
     """
 
     name: str = 'Rijke'
-    defaults: dict = dict(dt=1E-4,
-                          Nm=10, Nc=10, Nq=6,
+    defaults: dict = dict(Nm=10, Nc=10, Nq=6,
                           beta=4.0, tau=1.5E-3,
                           C1=.05, C2=.01, kappa=1E5,
                           xf=0.2, L=1., law='sqrt')
-    params: list = ['beta', 'tau', 'C1', 'C2', 'kappa']
-    param_labels = dict(beta='$\\beta$', tau='$\\tau$', C1='$C_1$', C2='$C_2$', kappa='$\\kappa$')
+    params_labels = dict(beta='$\\beta$', tau='$\\tau$', C1='$C_1$', C2='$C_2$', kappa='$\\kappa$')
+    params_lims = dict(beta=(0.01, 5), tau=[1E-6, None], C1=(0., 1.), C2=(0., 1.), kappa=(1E3, 1E8))
+    params: list = list([*params_labels])
 
-    fixed_params = ['cosomjxf', 'Dc', 'gc', 'jpiL', 'L', 'law',
-                    'meanFlow', 'Nc', 'Nm', 'tau_adv', 'sinomjxf']
+    fixed_params = ['cosomjxf', 'Dc', 'gc', 'jpiL', 'L', 'law', 'meanFlow', 'Nc', 'Nm', 'tau_adv', 'sinomjxf']
 
     t_transient = 1.
     t_CR = 0.02
+    dt = 1E-4
 
     def __init__(self, **model_dict):
 
@@ -431,6 +430,7 @@ class Rijke(Model):
         super().__init__(child_defaults=Rijke.defaults, **model_dict)
 
         self.tau_adv = self.tau
+        self.params_lims['tau'][-1] = self.tau_adv
 
         # Chebyshev modes
         self.Dc, self.gc = Cheb(self.Nc, getg=True)
@@ -448,12 +448,8 @@ class Rijke(Model):
         def weight_avg(y1, y2):
             return self.xf / self.L * y1 + (1. - self.xf / self.L) * y2
 
-        self.meanFlow = dict(u=weight_avg(10, 11.1643),
-                             p=101300.,
-                             gamma=1.4,
-                             T=weight_avg(300, 446.5282),
-                             R=287.1
-                             )
+        self.meanFlow = dict(u=weight_avg(10, 11.1643), p=101300.,
+                             gamma=1.4, T=weight_avg(300, 446.5282), R=287.1)
         self.meanFlow['rho'] = self.meanFlow['p'] / (self.meanFlow['R'] * self.meanFlow['T'])
         self.meanFlow['c'] = np.sqrt(self.meanFlow['gamma'] * self.meanFlow['R'] * self.meanFlow['T'])
 
@@ -481,14 +477,6 @@ class Rijke(Model):
             self.governing_eqns_params[key] = getattr(self, key)
 
     # _______________ Rijke specific properties and methods ________________ #
-    @property
-    def param_lims(self):
-        return dict(beta=(0.01, 5),
-                    tau=(1E-6, self.tau_adv),
-                    C1=(0., 1.),
-                    C2=(0., 1.),
-                    kappa=(1E3, 1E8)
-                    )
 
     @property
     def obsLabels(self, loc=None):
@@ -512,14 +500,15 @@ class Rijke(Model):
 
     @staticmethod
     def timeDerivative(t, psi,
-                       C1, C2, beta, kappa, tau,  # Possibly-inferred parameters
-                       cosomjxf, Dc, gc, jpiL, L, law, meanFlow, Nc, Nm, tau_adv, sinomjxf  # fixed_params
-                       ):
+                       C1, C2, beta, kappa, tau,
+                       cosomjxf, Dc, gc, jpiL, L, law, meanFlow, Nc, Nm, tau_adv, sinomjxf):
         """
             Governing equations of the model.
             Args:
                 psi: current state vector
                 t: current time
+                C1, C2, beta, kappa, tau: Possibly-inferred parameters
+                cosomjxf, Dc, gc, jpiL, L, law, meanFlow, Nc, Nm, tau_adv, sinomjxf:  fixed parameters
             Returns:
                 concatenation of the state vector time derivative
         """
@@ -566,14 +555,19 @@ class Lorenz63(Model):
     """ Lorenz 63 Class
     """
     name: str = 'Lorenz63'
-    defaults: dict = dict(rho=28., sigma=10., beta=8. / 3.,
-                          dt=0.02, Nq=3)
-    params: list = ['rho', 'sigma', 'beta']
-    param_labels = dict(rho='$\\rho$', sigma='$\\sigma$', beta='$\\beta$')
+    defaults: dict = dict(rho=28., sigma=10., beta=8. / 3., Nq=3)
+
+    params_labels = dict(rho='$\\rho$', sigma='$\\sigma$', beta='$\\beta$')
+    params_lims = dict(rho=(None, None), sigma=(None, None), beta=(None, None))
+    params = list([*params_labels])
+
     fixed_params = []
 
-    t_transient = 10.
-    t_CR = 5.
+    t_lyap = 0.906 ** (-1)
+    dt = 0.02
+
+    t_transient = t_lyap * 20.
+    t_CR = t_lyap * 4
 
     # __________________________ Init method ___________________________ #
     def __init__(self, **model_dict):
@@ -581,11 +575,6 @@ class Lorenz63(Model):
             model_dict['psi0'] = [1.0, 1.0, 1.0]  # initialise x, y, z
 
         super().__init__(child_defaults=Lorenz63.defaults, **model_dict)
-
-        # set limits for the parameters
-        self.param_lims = dict(rho=(None, None),
-                               beta=(None, None),
-                               sigma=(None, None))
 
     # _______________ Lorenz63 specific properties and methods ________________ #
     @property
@@ -607,23 +596,28 @@ class Annular(Model):
     """
 
     name: str = 'Annular'
-    defaults: dict = dict(dt=2. / 51.2E3,  Nq=4,
-                          n=1., theta_b=0.63, theta_e=0.66, omega=1090., epsilon=0.0023,
+    defaults: dict = dict(Nq=4,
+                          n=1., theta_b=0.63, theta_e=0.66, omega=1099.3, epsilon=0.0023,
                           nu=17., beta_c2=17., kappa=1.2E-4)  # values in Fig.4
 
     # defaults['nu'], defaults['beta_c2'] = 30., 5.  # spin
     # defaults['nu'], defaults['beta_c2'] = 1., 25.  # stand
     # defaults['nu'], defaults['beta_c2'] = 20., 18.  # mix
 
-    params: list = ['nu', 'beta_c2', 'kappa', 'epsilon', 'theta_b', 'theta_e', 'omega']
+    params_labels = dict(omega='$\\omega$', nu='$\\nu$', beta_c2='$c_2\\beta $', kappa='$\\kappa$',
+                         epsilon='$\\epsilon$', theta_b='$\\Theta_\\beta$', theta_e='$\\Theta_\\epsilon$')
 
-    param_labels = dict(omega='$\\omega$', nu='$\\nu$', beta_c2='$c_2\\beta $', kappa='$\\kappa$',
-                        epsilon='$\\epsilon$', theta_b='$\\Theta_\\beta$', theta_e='$\\Theta_\\epsilon$')
+    params_lims = dict(omega=(1000, 1300), nu=(-40., 60.), beta_c2=(1., 60.), kappa=(None, None),
+                       epsilon=(None, None), theta_b=(0, 2 * np.pi), theta_e=(0, 2 * np.pi))
+
+    params = list([*params_labels])
 
     fixed_params = []
 
+    dt = 1. / 51200
     t_transient = 0.5
     t_CR = 0.03
+    Nq = 4
 
     # __________________________ Init method ___________________________ #
     def __init__(self, **model_dict):
@@ -632,16 +626,6 @@ class Annular(Model):
 
         super().__init__(child_defaults=Annular.defaults, **model_dict)
         self.theta_mic = np.radians([0, 60, 120, 240])
-
-        # set limits for the parameters
-        self.param_lims = dict(omega=(1000, 1300),
-                               nu=(-40., 60.),
-                               beta_c2=(1., 60.),
-                               kappa=(None, None),
-                               epsilon=(None, None),
-                               theta_b=(0, 2 * np.pi),
-                               theta_e=(0, 2 * np.pi)
-                               )
 
     # _______________  Specific properties and methods ________________ #
     @property
@@ -678,19 +662,26 @@ class Annular(Model):
 
     @staticmethod
     def timeDerivative(t, psi, nu, kappa, beta_c2, theta_b, omega, epsilon, theta_e):
+        # y_a, z_a, y_b, z_b, zeta_a, zeta_b = psi[:6]  # y = η, and z = dη/dt
         y_a, z_a, y_b, z_b = psi[:4]  # y = η, and z = dη/dt
 
         def k1(y1, y2, sign):
-            return 2 * nu - 3. / 4 * kappa * (3 * y1 ** 2 + y2 ** 2) + sign / 2. * beta_c2 * np.cos(2. * theta_b)
+            return (2 * nu - 3. / 4 * kappa * (3 * y1 ** 2 + y2 ** 2) +
+                    sign * beta_c2 / 2. * np.cos(2. * theta_b))
 
-        k2 = 0.5 * beta_c2 * np.sin(2. * theta_b) - 3. / 2 * kappa * y_a * y_b
+        k2 = beta_c2 / 2. * np.sin(2. * theta_b) - 3. / 2 * kappa * y_a * y_b
 
         def k3(y1, y2, sign):
-            return omega ** 2 * (y1 + epsilon / 2. * (sign * y1 * np.cos(2. * theta_e) + y2 * np.sin(2. * theta_e)))
+            return omega ** 2 * (y1 * (1 + sign * epsilon / 2. * np.cos(2. * theta_e)) +
+                                 y2 * epsilon / 2. * np.sin(2. * theta_e))
 
-        dz_a = z_a * k1(y_a, y_b, 1) + z_b * k2 - k3(y_a, y_b, 1)
-        dz_b = z_b * k1(y_b, y_a, -1) + z_a * k2 - k3(y_b, y_a, -1)
+        # dzeta_a = - zeta_a
+        # dzeta_b = - zeta_b
 
+        dz_a = z_a * k1(y_a, y_b, 1) + z_b * k2 - k3(y_a, y_b, 1)  #+ zeta_a
+        dz_b = z_b * k1(y_b, y_a, -1) + z_a * k2 - k3(y_b, y_a, -1)  #+ zeta_b
+
+        # return (z_a, dz_a, z_b, dz_b, dzeta_a, dzeta_b) + (0,) * (len(psi) - 6)
         return (z_a, dz_a, z_b, dz_b) + (0,) * (len(psi) - 4)
 
 
@@ -699,7 +690,7 @@ if __name__ == '__main__':
     t0 = time.time()
 
     # Initialise model
-    case = Rijke()
+    case = Annular()
 
     # Forecast model and update
     state, t_ = case.timeIntegrate(int(case.t_transient / case.dt))
@@ -744,7 +735,7 @@ if __name__ == '__main__':
     for p in case.est_a:
         m = mean[:, ii].squeeze()
         s = abs(np.std(case.hist[:, ii], axis=1))
-        labels_p.append(case.param_labels[p])
+        labels_p.append(case.params_labels[p])
         mean_p.append(m)
         std_p.append(s)
         hist_p.append(case.hist[:, ii, :])

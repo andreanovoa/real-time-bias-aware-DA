@@ -154,11 +154,10 @@ def post_process_WhyAugment(results_dir, k_plot=None, J_plot=None, figs_dir=None
             barData[ii].append((np.mean(CU), np.mean(RU), np.std(CU), np.std(RU)))
             barData[ii + 1].append((np.mean(CB), np.mean(RB), np.std(CB), np.std(RB)))
 
-            if filter_ens.bias.k in J_plot:
-                filename = '{}WhyAugment_L{}_augment{}_k{}'.format(figs_dir, L, augment, filter_ens.bias.k)
-                # print(filename)
-                # post_process_single_SE_Zooms(filter_ens, truth, filename=filename)
-                post_process_single(filter_ens, truth, params, filename=filename + '_J')
+            if filter_ens.regularization_factor in J_plot:
+                filename = '{}WhyAugment_L{}_augment{}_k{}'.format(figs_dir, L, augment,
+                                                                   filter_ens.regularization_factor)
+                post_process_single(filter_ens, truth, filename=filename + '_J')
 
         flag = False
 
@@ -210,7 +209,8 @@ def recover_unbiased_solution(t_b, b, t, y, upsample=True):
     return y_unbiased
 
 
-def post_process_single(filter_ens, truth, filename=None, mic=0, reference_p=None, plot_params=False):
+def post_process_single(filter_ens, truth, filename=None, mic=0,
+                        reference_p=None, reference_t=1., plot_params=False):
     t_obs, obs = truth['t_obs'], truth['y_obs']
 
     num_DA_blind = filter_ens.num_DA_blind
@@ -222,22 +222,24 @@ def post_process_single(filter_ens, truth, filename=None, mic=0, reference_p=Non
     y_filter, b, obs = [yy[:, mic] for yy in [y_filter, b, obs]]
     y_mean = np.mean(y_filter, -1)
 
-
     # cut signals to interval of interest -----
     N_CR = int(filter_ens.t_CR // filter_ens.dt)  # Length of interval to compute correlation and RMS
-
-    i0 = np.argmin(abs(t - truth['t_obs'][0]))  # start of assimilation
-    i1 = np.argmin(abs(t - truth['t_obs'][-1]))  # end of assimilation
-
+    i0, i1 = [np.argmin(abs(t - truth['t_obs'][idx])) for idx in [0, -1]]  # start/end of assimilation
 
     y_unbiased = recover_unbiased_solution(t_b, b, t, y_mean, upsample=hasattr(filter_ens.bias, 'upsample'))
-
     y_filter, y_mean, y_unbiased, t = (yy[i0 - N_CR:i1 + N_CR] for yy in [y_filter, y_mean, y_unbiased, t])
-
-    # t_b = t
-    # y_unbiased = y_mean + b
-
     y_truth = interpolate(truth['t'], truth['y'][:, mic], t)
+
+
+    if reference_t == 1.:
+        t_label = '$t$ [s]'
+        if 'wash_t' in truth.keys():
+            t_wash, wash = truth['wash_t'], truth['wash_obs'][:, mic]
+    else:
+        t_label = '$t/T$'
+        t, t_b, t_obs = [tt / reference_t for tt in [t, t_b, t_obs]]
+        if 'wash_t' in truth.keys():
+            t_wash, wash = truth['wash_t'] / reference_t, truth['wash_obs'][:, mic]
 
     std = abs(np.std(y_filter[:, :], axis=1))
 
@@ -280,7 +282,7 @@ def post_process_single(filter_ens, truth, filename=None, mic=0, reference_p=Non
             m = hist_mean[:, ii].squeeze() / reference_p[p]
             s = abs(np.std(hist[:, ii] / reference_p[p], axis=1))
             max_p, min_p = max(max_p, max(m + 2 * s)), min(min_p, min(m - 2 * s))
-            labels_p.append(norm_lbl(filter_ens.param_labels[p]))
+            labels_p.append(norm_lbl(filter_ens.params_labels[p]))
             mean_p.append(m)
             std_p.append(s)
             ii += 1
@@ -299,7 +301,6 @@ def post_process_single(filter_ens, truth, filename=None, mic=0, reference_p=Non
 
         # BIAS ---------------------------------------------------------------------
         if 'wash_t' in truth.keys():
-            t_wash, wash = truth['wash_t'], truth['wash_obs'][:, mic]
             axs[0].plot(t_wash, wash / norm, '.', color=color_obs, markersize=6)
         axs[1].plot(t, b_obs / norm, color=color_b, label='O', alpha=0.4, linewidth=3)
         axs[1].plot(t_b, b / norm, color=color_b, label=filter_ens.bias.name, linewidth=.8)
@@ -312,10 +313,10 @@ def post_process_single(filter_ens, truth, filename=None, mic=0, reference_p=Non
         if filter_ens.est_a:
             for p, m, s, c, lbl in zip(filter_ens.est_a, mean_p, std_p, colors_alpha, labels_p):
                 axs[1].plot(hist_t, m, color=c, label=lbl)
-                axs[1].set(xlabel='$t$')
+                axs[1].set(xlabel=t_label)
                 axs[1].fill_between(hist_t, m + s, m - s, alpha=0.2, color=c)
 
-            axs[1].set(xlabel='$t$ [s]', ylabel="", xlim=x_lims[-1], ylim=[min_p, max_p])
+            axs[1].set(xlabel=t_label, ylabel="", xlim=x_lims[-1], ylim=[min_p, max_p])
             axs[1].plot((t_obs[0], t_obs[0]), (min_p, max_p), '--', color='k', linewidth=.8)  # DA window
             axs[1].plot((t_obs[-1], t_obs[-1]), (min_p, max_p), '--', color='k', linewidth=.8)  # DA window
             if twin:
@@ -336,7 +337,7 @@ def post_process_single(filter_ens, truth, filename=None, mic=0, reference_p=Non
     # axis labels and limits
     for axs, xl, ylbl in zip([ax_zoom[:, 0], ax_zoom[:, 1]], x_lims, ylbls):
         axs[0].set(ylabel=ylbl[0], xlim=xl)
-        axs[1].set(ylabel=ylbl[1], xlim=xl, ylim=y_lims, xlabel='$t$ [s]')
+        axs[1].set(ylabel=ylbl[1], xlim=xl, ylim=y_lims, xlabel=t_label)
         for ax_ in axs:
             ax_.plot((t_obs[0], t_obs[0]), (-1E6, 1E6), '--', color='k', linewidth=.8)  # DA window
             ax_.plot((t_obs[-1], t_obs[-1]), (-1E6, 1E6), '--', color='k', linewidth=.8)  # DA window
@@ -582,15 +583,18 @@ def plot_violins(ax, values, location, widths=None, color='b', label=None):
 
 def plot_parameters(filter_ens, truth, filename=None, reference_p=None, twin=False):
 
-
         if len(filter_ens.est_a) < 4:
             fig1 = plt.figure(figsize=[6, 1.5*len(filter_ens.est_a)], layout="constrained")
             axs = fig1.subplots(len(filter_ens.est_a), 1, sharex='col')
             if len(filter_ens.est_a) == 1:
                 axs = [axs]
         else:
-            fig1 = plt.figure(figsize=[12, 1.5*int(round(len(filter_ens.est_a)/2))], layout="constrained")
-            axs = fig1.subplots(int(round(len(filter_ens.est_a)/2)), 2, sharex='all')
+            rows = len(filter_ens.est_a) // 2
+            if len(filter_ens.est_a) % 2:
+                rows += 1
+
+            fig1 = plt.figure(figsize=[12, 1.5*rows], layout="constrained")
+            axs = fig1.subplots(rows, 2, sharex='all')
             axs = axs.ravel()
 
         hist, hist_t = filter_ens.hist, filter_ens.hist_t
@@ -613,7 +617,7 @@ def plot_parameters(filter_ens, truth, filename=None, reference_p=None, twin=Fal
         for p in filter_ens.est_a:
             m = hist_mean[:, ii].squeeze() / reference_p[p]
             s = abs(np.std(hist[:, ii] / reference_p[p], axis=1))
-            labels_p.append(norm_lbl(filter_ens.param_labels[p]))
+            labels_p.append(norm_lbl(filter_ens.params_labels[p]))
             mean_p.append(m)
             std_p.append(s)
             ii += 1

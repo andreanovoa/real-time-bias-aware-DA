@@ -43,10 +43,15 @@ def check_valid_file(load_case, params_dict):
     for key, val in params_dict.items():
         if hasattr(load_case, key):
             print('\n\t', key, val, getattr(load_case, key), end='')
-            if getattr(load_case, key) != val:
-                print('\t <--- Re-init model!')
-                return True
-    return False
+            if len(np.shape([val])) == 1:
+                if getattr(load_case, key) != val:
+                    print('\t <--- Re-init model!')
+                    return False
+            else:
+                if any([x1 != x2 for x1, x2 in zip(getattr(load_case, key), val)]):
+                    print('\t <--- Re-init model!')
+                    return False
+    return True
 
 
 @lru_cache(maxsize=10)

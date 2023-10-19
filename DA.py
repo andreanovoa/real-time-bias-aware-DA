@@ -13,53 +13,43 @@ rng = np.random.default_rng(6)
 
 
 def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
-    dt, ti = ensemble.dt, 0
 
-    # -----------------------------  Print simulation parameters ----------------------------- ##
+    # Print simulation parameters ##
     ensemble.print_model_parameters()
     ensemble.bias.print_bias_parameters()
     print_DA_parameters(ensemble, t_obs)
 
-    # ----------------------------- FORECAST UNTIL FIRST OBS ----------------------------- ##
+    # FORECAST UNTIL FIRST OBS ##
     time1 = time.time()
-    Nt = int(np.round((t_obs[ti] - ensemble.t) / dt))
-
+    Nt = int(np.round((t_obs[0] - ensemble.t) / ensemble.dt))
     ensemble = forecastStep(ensemble, Nt, averaged=False, **kwargs)
+
     print('Elapsed time to first observation: ' + str(time.time() - time1) + ' s')
 
-    assert ensemble.t == t_obs[ti]
-
-    # --------------------------------- ASSIMILATION LOOP -------------------------------- ##
-    ensemble.activate_bias_aware, ensemble.activate_parameter_estimation = False, False
+    #  ASSIMILATION LOOP ##
+    ti, ensemble.activate_bias_aware, ensemble.activate_parameter_estimation = 0, False, False
     time1 = time.time()
     print_i = int(len(t_obs) / 10) * np.array([range(10)])
 
     # Define observation covariance matrix
-    Cdd_norm = np.diag((std_obs * np.ones(ensemble.Nq)))
-    Cdd = Cdd_norm * np.max(abs(y_obs), axis=0) ** 2
+    Cdd = np.diag((std_obs * np.ones(ensemble.Nq))) * np.max(abs(y_obs), axis=0) ** 2
 
     print('Assimilation progress: \n\t0 % ', end="")
     while True:
-        if ti >= ensemble.num_DA_blind:
-            ensemble.activate_bias_aware = True
-        if ti >= ensemble.num_SE_only:
-            ensemble.activate_parameter_estimation = True
-        # ------------------------------  PERFORM ASSIMILATION ------------------------------ #
-        # Analysis step
-        Aa, J = analysisStep(ensemble, y_obs[ti], Cdd)
+        ensemble.activate_bias_aware = ti >= ensemble.num_DA_blind
+        ensemble.activate_parameter_estimation = ti >= ensemble.num_SE_only
 
-        # Update state with analysis
+        # ------------------------------  PERFORM ASSIMILATION ------------------------------ #
+        Aa, J = analysisStep(ensemble, y_obs[ti], Cdd)  # Analysis step
+        ensemble.hist_J.append(J)  # Store cost function
+
+        # ------------------------------  UPDATE STATE AND BIAS ------------------------------ #
         ensemble.psi = Aa
         ensemble.hist[-1] = Aa
 
-        # Update bias as d - y^a  # TODO: Bayesian framework
+        # Update bias with the analysis innovation d - y^a
         y = ensemble.getObservables()
         ensemble.bias.resetBias(y_obs[ti] - np.mean(y, -1))
-
-        # Store cost function
-        ensemble.hist_J.append(J)
-
-        assert ensemble.hist_t[-1] == ensemble.bias.hist_t[-1]
 
         # ------------------------------ FORECAST TO NEXT OBSERVATION ---------------------- #
         ti += 1
@@ -69,9 +59,10 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
         elif ti in print_i:
             print(int(np.round(ti / len(t_obs) * 100, decimals=0)), end="% ")
 
-        Nt = int(np.round((t_obs[ti] - ensemble.t) / dt))
+        Nt = int(np.round((t_obs[ti] - ensemble.t) / ensemble.dt))
         ensemble = forecastStep(ensemble, Nt)  # Parallel forecast
 
+        assert ensemble.hist_t[-1] == ensemble.bias.hist_t[-1]
     print('Elapsed time during assimilation: ' + str(time.time() - time1) + ' s')
     return ensemble
 
@@ -92,7 +83,6 @@ def forecastStep(case, Nt, averaged=False, alpha=None, **kwargs):
     """
 
     # Forecast ensemble and update the history
-
     psi, t = case.timeIntegrate(Nt=Nt, averaged=averaged, alpha=alpha)
     case.updateHistory(psi, t)
 
@@ -222,7 +212,7 @@ def inflateEnsemble(A, rho, d=None, additive=False):
 def checkParams(Aa, case):
     alphas, lower_bounds, upper_bounds, ii = [], [], [], 0
     for param in case.est_a:
-        lims = case.param_lims[param]
+        lims = case.params_lims[param]
         vals = Aa[case.Nphi + ii, :]
         lower_bounds.append(lims[0])
         upper_bounds.append(lims[1])
