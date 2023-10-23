@@ -83,11 +83,11 @@ def create_truth(true_params: dict, filter_params: dict):
 
     # ================================ SAVE DATA TO DICT ==================================== #
 
-    truth = dict(y=y_true, t=t_true, b=b_true, dt=dt_t, y_noise=y_noise,
+    truth = dict(y=y_true, t=t_true, b=b_true, dt=dt_t,
+                 noise_type=noise_type, y_noise=y_noise,
                  t_obs=t_true[obs_idx], y_obs=y_noise[obs_idx], dt_obs=filter_params['dt_obs'] * dt_t,
-                 true_params=true_params, name=name_truth,
-                 model=true_params['model'], std_obs=true_params['std_obs'],
-                 noise_type=noise_type, name_bias=name_bias)
+                 true_params=true_params, name=name_truth, name_bias=name_bias,
+                 model=true_params['model'], std_obs=true_params['std_obs'])
 
     # # =================================  ADD WASHOUT ================================== #
     # if bias_model is not None:
@@ -135,7 +135,7 @@ def create_observations_from_file(filename):
     if y_noise.shape[0] != len(t_obs):
         y_noise = y_noise.transpose()
 
-    return y_true, y_noise, t_obs, filename
+    return y_noise, y_noise, t_obs, filename
 
 
 def create_observations(true_parameters=None):
@@ -470,7 +470,7 @@ def create_bias_training_dataset(y_truth, ensemble, train_params, filename, plot
         fig2.colorbar(cmap, ax=axss.ravel().tolist(), orientation='vertical', label='total RMS')
         plt.savefig(filename + '_bias.svg', dpi=350)
         # plt.show()
-        plt.close()
+        plt.close('all')
 
     # ================================== SAVE TRAINING DATA ================================
     save_to_pickle_file(filename, train_data)

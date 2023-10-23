@@ -135,7 +135,7 @@ class ESN(Bias, EchoStateNetwork):
 
     def print_bias_parameters(self):
         print('\n ---------------- {} bias model parameters --------------- '.format(self.name))
-        keys_to_print = sorted(['filename', 't_train', 't_val', 'N_wash', 'rho', 'sigma_in',
+        keys_to_print = sorted(['t_train', 't_val', 'N_wash', 'rho', 'sigma_in',
                                 'upsample', 'N_units', 'perform_test', 'augment_data', 'L', 'connect', 'tikh'])
         for key in keys_to_print:
             try:

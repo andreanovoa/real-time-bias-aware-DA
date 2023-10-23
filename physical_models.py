@@ -597,8 +597,8 @@ class Annular(Model):
 
     name: str = 'Annular'
     defaults: dict = dict(Nq=4,
-                          n=1., theta_b=0.63, theta_e=0.66, omega=1099.3, epsilon=0.0023,
-                          nu=17., beta_c2=17., kappa=1.2E-4)  # values in Fig.4
+                          n=1., theta_b=0.63, theta_e=0.66, omega=1099.3*2*np.pi, epsilon=2.3E-3,
+                          nu=48.872, beta_c2=46.7, kappa=1.2E-4)  # values in Matlab codes
 
     # defaults['nu'], defaults['beta_c2'] = 30., 5.  # spin
     # defaults['nu'], defaults['beta_c2'] = 1., 25.  # stand
@@ -606,17 +606,14 @@ class Annular(Model):
 
     params_labels = dict(omega='$\\omega$', nu='$\\nu$', beta_c2='$c_2\\beta $', kappa='$\\kappa$',
                          epsilon='$\\epsilon$', theta_b='$\\Theta_\\beta$', theta_e='$\\Theta_\\epsilon$')
-
-    params_lims = dict(omega=(1000, 1300), nu=(-40., 60.), beta_c2=(1., 60.), kappa=(None, None),
+    params_lims = dict(omega=(1000*2*np.pi, 1300*2*np.pi), nu=(1., 60.), beta_c2=(1., 60.), kappa=(None, None),
                        epsilon=(None, None), theta_b=(0, 2 * np.pi), theta_e=(0, 2 * np.pi))
-
     params = list([*params_labels])
-
     fixed_params = []
 
     dt = 1. / 51200
     t_transient = 0.5
-    t_CR = 0.03
+    t_CR = 0.01
     Nq = 4
 
     # __________________________ Init method ___________________________ #
@@ -662,7 +659,6 @@ class Annular(Model):
 
     @staticmethod
     def timeDerivative(t, psi, nu, kappa, beta_c2, theta_b, omega, epsilon, theta_e):
-        # y_a, z_a, y_b, z_b, zeta_a, zeta_b = psi[:6]  # y = η, and z = dη/dt
         y_a, z_a, y_b, z_b = psi[:4]  # y = η, and z = dη/dt
 
         def k1(y1, y2, sign):
@@ -675,13 +671,9 @@ class Annular(Model):
             return omega ** 2 * (y1 * (1 + sign * epsilon / 2. * np.cos(2. * theta_e)) +
                                  y2 * epsilon / 2. * np.sin(2. * theta_e))
 
-        # dzeta_a = - zeta_a
-        # dzeta_b = - zeta_b
+        dz_a = z_a * k1(y_a, y_b, 1) + z_b * k2 - k3(y_a, y_b, 1)
+        dz_b = z_b * k1(y_b, y_a, -1) + z_a * k2 - k3(y_b, y_a, -1)
 
-        dz_a = z_a * k1(y_a, y_b, 1) + z_b * k2 - k3(y_a, y_b, 1)  #+ zeta_a
-        dz_b = z_b * k1(y_b, y_a, -1) + z_a * k2 - k3(y_b, y_a, -1)  #+ zeta_b
-
-        # return (z_a, dz_a, z_b, dz_b, dzeta_a, dzeta_b) + (0,) * (len(psi) - 6)
         return (z_a, dz_a, z_b, dz_b) + (0,) * (len(psi) - 4)
 
 

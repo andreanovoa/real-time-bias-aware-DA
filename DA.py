@@ -141,11 +141,14 @@ def analysisStep(case, d, Cdd):
 
     # ============================ CHECK PARAMETERS AND INFLATE =========================== #
     if not case.est_a:
+        Aa = inflateEnsemble(Af, case.inflation, d=d, additive=True)
         return Aa[:-case.Nq, :], cost
     else:
         if not case.activate_parameter_estimation:
             Af_params = Af[-case.Na:, :]
-            Aa = inflateEnsemble(Aa, case.inflation)
+
+            Aa = inflateEnsemble(Af, case.inflation, d=d, additive=True)
+            # Aa = inflateEnsemble(Aa, case.inflation)
             return np.concatenate((Aa[:-case.Nq, :], Af_params)), cost
         else:
             is_physical, idx_alpha, d_alpha = checkParams(Aa, case)
@@ -167,15 +170,13 @@ def analysisStep(case, d, Cdd):
                 # Try assimilating the parameters themselves
                 Alphas = np.dot(case.Ma, Af)[idx_alpha]
                 M_alpha = np.vstack([M, case.Ma[idx_alpha]])
-
                 Caa = np.eye(len(idx_alpha)) * np.var(Alphas, axis=-1)  # ** 2
                 # Store
                 case.rejected_analysis.append([(case.t, np.dot(case.Ma, Aa),
                                                 np.dot(case.Ma, Af), (d_alpha, Caa))])
 
                 C_zeros = np.zeros([case.Nq, len(idx_alpha)])
-                Cdd_alpha = np.block([[Cdd, C_zeros],
-                                      [C_zeros.T, Caa]])
+                Cdd_alpha = np.block([[Cdd, C_zeros], [C_zeros.T, Caa]])
                 d_alpha = np.concatenate([d, d_alpha])
 
                 if case.filter == 'EnSRKF':
@@ -188,21 +189,19 @@ def analysisStep(case, d, Cdd):
                     else:
                         Aa, cost = EnKF(Af, d_alpha, Cdd_alpha, M_alpha, get_cost=case.get_cost)
 
-                # # double check point in case the inflation takes the ensemble out of parameter range
+                # double check point in case the inflation takes the ensemble out of parameter range
                 if checkParams(Aa, case)[0]:
                     print('\t ok c-filter case')
                     Aa = inflateEnsemble(Aa, case.inflation)
-                    return Aa[:-case.Nq, :], cost
-
-                print('!', end="")
-                print('not ok c-filter case')
-                Aa = inflateEnsemble(Af, case.inflation)
+                else:
+                    print('! not ok c-filter case')
+                    Aa = inflateEnsemble(Af, case.inflation)
                 return Aa[:-case.Nq, :], cost
 
 
 # =================================================================================================================== #
 def inflateEnsemble(A, rho, d=None, additive=False):
-    if additive:
+    if type(additive) is str and 'add' in additive:
         A[:len(d)] += np.array([d * (rho - 1)]).T
 
     A_m = np.mean(A, -1, keepdims=True)
@@ -237,12 +236,11 @@ def checkParams(Aa, case):
                 mean_, min_ = np.mean(alpha_), np.min(alpha_)
                 bound_ = lower_bounds[idx_]
                 if mean_ >= bound_:
-                    print('t = {:.3f} reject-inflate: min {} = {:.2f} < {:.2f}'.format(case.t,
-                                                                                       case.est_a[idx_], min_, bound_))
+                    print('t = {:.3f} reject-inflate: min {} = {:.2f} < {:.2f}'.format(case.t, case.est_a[idx_],
+                                                                                       min_, bound_))
                 else:
-                    print('t = {:.3f} reject-inflate: mean {} = {:.2f} < {:.2f}'.format(case.t,
-                                                                                        case.est_a[idx_], mean_,
-                                                                                        bound_))
+                    print('t = {:.3f} reject-inflate: mean {} = {:.2f} < {:.2f}'.format(case.t, case.est_a[idx_],
+                                                                                        mean_, bound_))
         if any(break_up):
             idx = np.argwhere(break_up)
             if len(idx.shape) > 1:
@@ -252,12 +250,11 @@ def checkParams(Aa, case):
                 mean_, max_ = np.mean(alpha_), np.max(alpha_)
                 bound_ = upper_bounds[idx_]
                 if mean_ <= bound_:
-                    print('t = {:.3f} reject-inflate: max {} = {:.2f} > {:.2f}'.format(case.t,
-                                                                                       case.est_a[idx_], max_, bound_))
+                    print('t = {:.3f} reject-inflate: max {} = {:.2f} > {:.2f}'.format(case.t, case.est_a[idx_],
+                                                                                       mean_, bound_))
                 else:
-                    print('t = {:.3f} reject-inflate: mean {} = {:.2f} > {:.2f}'.format(case.t,
-                                                                                        case.est_a[idx_], mean_,
-                                                                                        bound_))
+                    print('t = {:.3f} reject-inflate: mean {} = {:.2f} > {:.2f}'.format(case.t, case.est_a[idx_],
+                                                                                        mean_, bound_))
         return is_physical, None, None
 
     #  -----------------------------------------------------------------
@@ -391,7 +388,6 @@ def EnKF(Af, d, Cdd, M, get_cost=False):
     Psi_f = Af - psi_f_m
 
     # Create an ensemble of observations
-
     D = rng.multivariate_normal(d, Cdd, m).transpose()
 
     # Mapped forecast matrix M(Af) and mapped deviations M(Af')
