@@ -276,7 +276,6 @@ def get_error_metrics(results_folder):
     print(out['Ls'])
     print(out['ks'])
 
-    from plotResults import post_process_single
     ii = -1
     for Ldir in out['L_dirs']:
         ii += 1
@@ -288,7 +287,7 @@ def get_error_metrics(results_folder):
             truth, filter_ens = load_from_pickle_file(Ldir + ff)[1:]
             truth = truth.copy()
 
-            print('\t k = ', out['ks'][jj], '({}, {})'.format(filter_ens.bias.L, filter_ens.bias.k))
+            print('\t k = ', out['ks'][jj], '({}, {})'.format(filter_ens.bias.L, filter_ens.regularization_factor))
             # Compute biased and unbiased signals
             y, t = filter_ens.getObservableHist(), filter_ens.hist_t
             b, t_b = filter_ens.bias.hist, filter_ens.bias.hist_t
@@ -296,7 +295,7 @@ def get_error_metrics(results_folder):
 
             # Unbiased signal error
             if hasattr(filter_ens.bias, 'upsample'):
-                y_unbiased = y_mean[::filter_ens.bias.upsample] + b
+                y_unbiased = interpolate(t, y_mean, t_b) + b
                 y_unbiased = interpolate(t_b, y_unbiased, t)
             else:
                 y_unbiased = y_mean + b

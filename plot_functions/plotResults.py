@@ -17,12 +17,23 @@ plt.rc('mathtext', rm='times', bf='times:bold')
 plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 
 # Figures colors
-color_true = 'lightgray'
+color_true = 'gray'
 color_unbias = '#000080ff'
 color_bias = '#20b2aae5'
 color_obs = 'r'
-color_b = 'darkorchid'
+color_b = 'indigo'
 colors_alpha = ['green', 'sandybrown', [0.7, 0.7, 0.87], 'blue', 'red', 'gold', 'deepskyblue']
+
+y_unbias_props = dict(marker='none', linestyle='--', dashes=(10, 1), lw=.5, color=color_unbias)
+y_biased_props = dict(marker='none', linestyle='-', lw=.2, color=color_bias, alpha=.7)
+y_biased_mean_props = dict(marker='none', linestyle='--', dashes=(2, .5), lw=.5, color='teal')
+
+true_noisy_props = dict(marker='none', linestyle='-', lw=1.2, color=color_true, alpha=.3)
+true_props = dict(marker='none', linestyle='-', lw=1.2, color=color_true, alpha=.8)
+obs_props = dict(marker='.', linestyle='none', color=color_obs, markersize=5, markeredgecolor='none')
+bias_props = dict(marker='none', linestyle='--', dashes=(10, 1), lw=.5, color=color_b)
+bias_obs_props = dict(lw=1.5, color='mediumorchid', alpha=0.7)
+bias_obs_noisy_props = dict(lw=1.5, color='k', alpha=0.2)
 
 
 def post_process_loopParams(results_dir, k_plot=(None,), figs_dir=None, k_max=100.):
@@ -66,7 +77,7 @@ def post_process_loopParams(results_dir, k_plot=(None,), figs_dir=None, k_max=10
                                     truth = pickle.load(f)
                                     filter_ens = pickle.load(f)
                                 filename = '{}L{}_std{}_k{}_J'.format(figs_dir, L, std, kval)
-                                post_process_single(filter_ens, truth, params, filename=filename)
+                                post_process_single(filter_ens, truth, filename=filename)
 
 
 def post_process_WhyAugment(results_dir, k_plot=None, J_plot=None, figs_dir=None):
@@ -227,7 +238,12 @@ def post_process_single(filter_ens, truth, filename=None, mic=0,
 
     y_unbiased = recover_unbiased_solution(t_b, b, t, y_mean, upsample=hasattr(filter_ens.bias, 'upsample'))
     y_filter, y_mean, y_unbiased, t = (yy[i0 - N_CR:i1 + N_CR] for yy in [y_filter, y_mean, y_unbiased, t])
+    
     y_truth = interpolate(truth['t'], truth['y_noise'][:, mic], t)
+
+    y_truth_no_noise = interpolate(truth['t'], truth['y'][:, mic], t)
+    b_obs = y_truth_no_noise - y_mean
+    b_obs_noisy = y_truth - y_mean
 
     if reference_t == 1.:
         t_label = '$t$ [s]'
@@ -239,8 +255,6 @@ def post_process_single(filter_ens, truth, filename=None, mic=0,
         if 'wash_t' in truth.keys():
             t_wash, wash = truth['wash_t'] / reference_t, truth['wash_obs'][:, mic]
 
-    std = abs(np.std(y_filter[:, :], axis=1))
-
     # %% PLOT time series ------------------------------------------------------------------------------------------
     norm = np.max(y_truth, axis=0)  # normalizing constant
     if int(norm) == 1:
@@ -248,18 +262,17 @@ def post_process_single(filter_ens, truth, filename=None, mic=0,
     else:
         ylbls = [["$p(x_\\mathrm{f})$ norm.", "$b(x_\\mathrm{f})$ norm."], ['', '']]
 
-    fig1 = plt.figure(figsize=[9, 5.5], layout="constrained")
+    fig1 = plt.figure(figsize=[8, 5], layout="constrained")
     subfigs = fig1.subfigures(2, 1, height_ratios=[1, 1.1])
     ax_zoom = subfigs[0].subplots(2, 2, sharex='col', sharey='row')
     ax_all = subfigs[1].subplots(2, 1, sharex='col')
 
     margin = 0.5
     y_lims = [np.min(y_truth[:N_CR]) / norm - margin, np.max(y_truth[:N_CR]) / norm + margin]
-    x_lims = [[t[0], t[0] + 2 * filter_ens.t_CR],
-              [t[-1] - 2 * filter_ens.t_CR, t[-1]],
-              [t[0], t[-1]]]
+    x_lims = [[t_obs[0] - .5 * filter_ens.t_CR, t_obs[0] + filter_ens.t_CR],
+              [t_obs[-1] - .5 * filter_ens.t_CR, t_obs[-1] + filter_ens.t_CR],
+              [t_obs[0]- .5 * filter_ens.t_CR, t[-1]]]
 
-    b_obs = y_truth - y_mean
     if filter_ens.est_a:
         hist, hist_t = filter_ens.hist, filter_ens.hist_t
         hist_mean = np.mean(hist, -1, keepdims=True)
@@ -286,36 +299,42 @@ def post_process_single(filter_ens, truth, filename=None, mic=0,
 
     for axs in [ax_zoom[:, 0], ax_zoom[:, 1]]:
         # Observables ---------------------------------------------------------------------
-        axs[0].plot(t, y_truth / norm, color=color_true, linewidth=5, label='t')
-        axs[0].plot(t, y_unbiased / norm, '-', color=color_unbias, linewidth=1., label='u')
-        axs[0].plot(t, y_mean / norm, '--', color=color_bias, linewidth=1., alpha=0.9, label='b')
-        axs[0].fill_between(t, (y_mean + std) / norm, (y_mean - std) / norm, alpha=0.2, color='lightseagreen')
+        # axs[0].plot(t, y_mean / norm, '--', color=color_bias, lw=.7, alpha=0.9, label='b')
+        # axs[0].fill_between(t, (y_mean + std) / norm, (y_mean - std) / norm, alpha=0.2, color='lightseagreen')
+        axs[0].plot(t, y_truth / norm, label='t-N', **true_noisy_props)
         for mi in range(y_filter.shape[1]):
-            axs[0].plot(t, y_filter[:, mi] / norm, lw=.5, color='lightseagreen')
+            axs[0].plot(t, y_filter[:, mi] / norm, **y_biased_props)
 
-        axs[0].plot(t_obs, obs / norm, '.', color=color_obs, markersize=6, label='o')
+        for yyy, lbl, kwargs in zip([y_truth_no_noise, y_mean, y_unbiased], ['t', 'b', 'u'],
+                                    [true_props, y_biased_mean_props, y_unbias_props]):
+            axs[0].plot(t, yyy / norm, label=lbl, **kwargs)
+
+        axs[0].plot(t_obs, obs / norm, **obs_props)
         axs[0].set(ylim=y_lims)
 
         # BIAS ---------------------------------------------------------------------
+        for bbb, lbl, kwargs in zip([b_obs_noisy, b_obs], ['o-N', 'o'], [bias_obs_noisy_props, bias_obs_props]):
+            axs[1].plot(t, bbb / norm, label=lbl, **kwargs)
+        axs[1].plot(t_b, b / norm, label=filter_ens.bias.name, **bias_props)
         if 'wash_t' in truth.keys():
-            axs[0].plot(t_wash, wash / norm, '.', color=color_obs, markersize=6)
-        axs[1].plot(t, b_obs / norm, color=color_b, label='O', alpha=0.4, linewidth=3)
-        axs[1].plot(t_b, b / norm, color=color_b, label=filter_ens.bias.name, linewidth=.8)
+            axs[0].plot(t_wash, wash / norm, **obs_props)
 
     for axs in [ax_all]:
-        axs[0].plot(t, b_obs / norm, color=color_b, label='O', alpha=0.4, linewidth=3)
-        axs[0].plot(t_b, b / norm, color=color_b, label=filter_ens.bias.name, linewidth=.8)
+        for bbb, lbl, kwargs in zip([b_obs_noisy, b_obs], ['o-N', 'o'], [bias_obs_noisy_props, bias_obs_props]):
+            axs[0].plot(t, bbb / norm, label=lbl, **kwargs)
+
+        axs[0].plot(t_b, b / norm, label=filter_ens.bias.name, **bias_props)
         axs[0].set(ylabel=ylbls[0][1], xlim=x_lims[-1], ylim=y_lims)
         # PARAMS-----------------------
         if filter_ens.est_a:
             for p, m, s, c, lbl in zip(filter_ens.est_a, mean_p, std_p, colors_alpha, labels_p):
-                axs[1].plot(hist_t, m, color=c, label=lbl)
+                axs[1].plot(hist_t, m, lw=1., color=c, label=lbl)
                 axs[1].set(xlabel=t_label)
                 axs[1].fill_between(hist_t, m + s, m - s, alpha=0.2, color=c)
 
             axs[1].set(xlabel=t_label, ylabel="", xlim=x_lims[-1], ylim=[min_p, max_p])
-            axs[1].plot((t_obs[0], t_obs[0]), (min_p, max_p), '--', color='k', linewidth=.8)  # DA window
-            axs[1].plot((t_obs[-1], t_obs[-1]), (min_p, max_p), '--', color='k', linewidth=.8)  # DA window
+            axs[1].plot((t_obs[0], t_obs[0]), (min_p, max_p), '--', color='k', linewidth=.6)  # DA window
+            axs[1].plot((t_obs[-1], t_obs[-1]), (min_p, max_p), '--', color='k', linewidth=.6)  # DA window
             if twin:
                 axs[1].plot((x_lims[-1][0], x_lims[-1][-1]), (1, 1), '-', color='k', linewidth=.6)  # DA window
             if num_DA_blind > 0:
@@ -336,8 +355,8 @@ def post_process_single(filter_ens, truth, filename=None, mic=0,
         axs[0].set(ylabel=ylbl[0], xlim=xl)
         axs[1].set(ylabel=ylbl[1], xlim=xl, ylim=y_lims, xlabel=t_label)
         for ax_ in axs:
-            ax_.plot((t_obs[0], t_obs[0]), (-1E6, 1E6), '--', color='k', linewidth=.8)  # DA window
-            ax_.plot((t_obs[-1], t_obs[-1]), (-1E6, 1E6), '--', color='k', linewidth=.8)  # DA window
+            ax_.plot((t_obs[0], t_obs[0]), (-1E6, 1E6), '--', color='k', linewidth=.6)  # DA window
+            ax_.plot((t_obs[-1], t_obs[-1]), (-1E6, 1E6), '--', color='k', linewidth=.6)  # DA window
 
     for axs_ in [ax_zoom[:, 0], ax_all]:
         for ax_ in axs_:
@@ -419,36 +438,27 @@ def post_process_multiple(folder, filename=None, k_max=100., L_plot=None, refere
                 _ = pickle.load(f)
                 truth = pickle.load(f)
                 filter_ens = pickle.load(f)
-            k = filter_ens.bias.k
+            k = filter_ens.regularization_factor
             if k > k_max:
                 continue
             if filter_ens.est_a:
                 if flag:
                     N_psi = filter_ens.Nphi
-                    i0 = np.argmin(abs(filter_ens.hist_t - truth['t_obs'][0]))  # start of assimilation
-                    i1 = np.argmin(abs(filter_ens.hist_t - truth['t_obs'][-1]))  # end of assimilation
-                    lbl0, lbl1 = [], []
-                    ii = filter_ens.Nphi - 1
-                    for p in filter_ens.est_a:
-                        ii += 1
-                        if p in ['C1', 'C2']:
-                            lbl0.append('$' + p)
-                            lbl1.append('/' + p + '$^0$')
-                        else:
-                            lbl0.append('$\\' + p)
-                            lbl1.append('/' + p + '$^0$')
 
                 if reference_p is None:
                     reference_p = filter_ens.alpha0
 
                 for pj, p in enumerate(filter_ens.est_a):
+                    p_lbl = filter_ens.params_labels[p]
                     for idx, a, tt, mk in zip([-1, 0], [1., .2],
-                                              ['(t_\\mathrm{end})', '^0'], ['x', '+']):
+                                              ['$(t_\\mathrm{end})/$', '$^0/$'], ['x', '+']):
                         hist_p = filter_ens.hist[idx, N_psi + pj] / reference_p[p]
-                        lbl = lbl0[pj] + tt + lbl1[pj]
+                        lbl = p_lbl + tt + p_lbl
+
+
 
                         axCRP[2].errorbar(k, np.mean(hist_p).squeeze(), yerr=np.std(hist_p), alpha=a, mew=.8, fmt=mk,
-                                          color=colors_alpha[pj], label=lbl, capsize=4, markersize=4, linewidth=.8)
+                                          color=colors_alpha[pj], label=lbl, capsize=4, markersize=6, linewidth=.6)
                 if flag:
                     axCRP[2].legend()
                     for ax1 in axCRP[1:]:
@@ -462,8 +472,8 @@ def post_process_multiple(folder, filename=None, k_max=100., L_plot=None, refere
         t_obs = truth['t_obs']
         for ax1 in mean_ax[:]:
             ax1.set_aspect(0.8 / ax1.get_data_ratio())
-            ax1.plot((t_obs[0], t_obs[0]), (-1E6, 1E6), '--', color='k', linewidth=.8, alpha=.5)  # DA window
-            ax1.plot((t_obs[-1], t_obs[-1]), (-1E6, 1E6), '--', color='k', linewidth=.8, alpha=.5)  # DA window
+            ax1.plot((t_obs[0], t_obs[0]), (-1E6, 1E6), '--', color='k', linewidth=.6, alpha=.5)  # DA window
+            ax1.plot((t_obs[-1], t_obs[-1]), (-1E6, 1E6), '--', color='k', linewidth=.6, alpha=.5)  # DA window
 
         # SAVE PLOT -------------------------------------------------------------------
         if filename is not None:
@@ -534,7 +544,7 @@ def post_process_pdf(filter_ens, truth, params, filename=None, reference_p=None,
         max_p, min_p = max(max_p, np.max(m)), min(min_p, np.min(m))
         if p not in ['C1', 'C2']:
             p = '\\' + p
-        labels_p.append('$' + p + norm_lbl(p) + '$')
+        labels_p.append('$' + p + norm_lbl(filter_ens.params_labels[p]) + '$')
         hist_alpha.append(m)
         ii += 1
 
@@ -642,8 +652,8 @@ def plot_parameters(filter_ens, truth, filename=None, reference_p=None, twin=Fal
                 ax.plot((t_obs[idx], t_obs[idx]), (min_p, max_p), '-.', color=cl)
                 ax.plot((t_obs[idx], t_obs[idx]), (min_p, max_p), '-.', color=cl, label='Start ' + ll)
 
-        ax.plot((t_obs[0], t_obs[0]), (min_p, max_p), '--', color='k', linewidth=.8)  # DA window
-        ax.plot((t_obs[-1], t_obs[-1]), (min_p, max_p), '--', color='k', linewidth=.8)  # DA window
+        ax.plot((t_obs[0], t_obs[0]), (min_p, max_p), '--', color='k', linewidth=.6)  # DA window
+        ax.plot((t_obs[-1], t_obs[-1]), (min_p, max_p), '--', color='k', linewidth=.6)  # DA window
         ax.legend(loc='upper right', fontsize='small', ncol=2)
         ax.set(ylabel='', ylim=[min_p, max_p])
 
@@ -699,18 +709,18 @@ def plot_timeseries(filter_ens, truth, filename=None, reference_y=1., reference_
         for ax, xl in zip([ax_zoom[qi, 0], ax_zoom[qi, 1], ax_all[qi]], x_lims):
 
             # Observables ---------------------------------------------------------------------
-            ax.plot(t, y_truth[:, qi], color=color_true, linewidth=5, label='t')
-            ax.plot(t, y_unbiased[:, qi], '-', color=color_unbias, linewidth=1., label='u')
+            ax.plot(t, y_truth[:, qi], color=color_true, linewidth=.8, label='t')
+            ax.plot(t, y_unbiased[:, qi], '-', **y_unbias_props)
             for mi in range(y_filter.shape[-1]):
-                ax.plot(t, y_filter[:, qi, mi], lw=.5, color='lightseagreen', alpha=0.2)
-            ax.plot(t, y_mean[:, qi], '--', color=color_bias, linewidth=1, label='b')
+                ax.plot(t, y_filter[:, qi, mi], lw=.3, color=color_bias, alpha=0.2)
+            # ax.plot(t, y_mean[:, qi], '--', color=color_bias, linewidth=.7, label='b')
             ax.plot(t_obs, obs[:, qi], '.', color=color_obs, markersize=6, label='o')
             ax.set(ylim=y_lims, xlim=xl)
 
             if 'wash_t' in truth.keys():
                 ax.plot(t_wash, wash[:, qi], '.', color=color_obs, markersize=6)
-            ax.plot((t_obs[0], t_obs[0]), (-1E6, 1E6), '--', color='k', linewidth=.8)  # DA window
-            ax.plot((t_obs[-1], t_obs[-1]), (-1E6, 1E6), '--', color='k', linewidth=.8)  # DA window
+            ax.plot((t_obs[0], t_obs[0]), (-1E6, 1E6), '--', color='k', linewidth=.6)  # DA window
+            ax.plot((t_obs[-1], t_obs[-1]), (-1E6, 1E6), '--', color='k', linewidth=.6)  # DA window
             ax.set(xlim=xl)
 
         ylbl = '$y_{}$'.format(qi)
@@ -833,7 +843,7 @@ def plot_Lk_contours(folder, filename='contour'):
         truth = pickle.load(f)
         filter_ens = pickle.load(f)
 
-    post_process_single(filter_ens, truth, params, filename=filename + '_optimal_solution_J')
+    post_process_single(filter_ens, truth, filename=filename + '_optimal_solution_J')
 
     filename = filename + '_optimal_solution_CR'
     post_process_multiple(folder, filename, k_max=20., L_plot=[70])
@@ -954,7 +964,7 @@ def plot_Rijke_animation(folder, figs_dir):
         ax1.clear()
         ax1.set(ylim=[-max_v, max_v], xlim=[0, 1], title='$t={:.4}$'.format(t_gif[ai]),
                 xlabel='$x/L$', ylabel="$p'$ [Pa]")
-        ax1.plot(locs, y_t[ai], color=color_true, linewidth=3)
+        ax1.plot(locs, y_t[ai], color=color_true, linewidth=1.5)
         for loc in filter_ens.x_mic:
             ax1.plot([loc, loc], [0.7 * max_v, max_v], '.-', color='black', linewidth=2)
         ax1.plot([filter_ens.x_mic[0], filter_ens.x_mic[0]], [-max_v, max_v], '--',
@@ -966,7 +976,7 @@ def plot_Rijke_animation(folder, figs_dir):
         # # Plot observables
         # if any(abs(t_gif[ii] - truth['t_obs']) < 1E-6):
         #     jj = np.argmin(abs(t_gif[ai] - truth['t_obs']))
-        #     ax1.plot(locs_obs, truth['p_obs'][jj], 'o', color='red', markersize=4,
+        #     ax1.plot(locs_obs, truth['p_obs'][jj], 'o', color='red', markersize=6,
         #              markerfacecolor=None, markeredgewidth=2)
         #     # for yy, c in zip([y_BA_obs[ai], y_BB_obs[ai]], ['lightseagreen', 'orange']):
         #     #     y_mean, y_std = np.mean(yy, -1), np.std(yy, -1)
@@ -983,7 +993,7 @@ def plot_Rijke_animation(folder, figs_dir):
             ax_.set(xlim=[tt_[0], tt_[-1] + filter_ens.t_CR * .05], xlabel='$t$ [s]')
         ax2[0].set(ylim=[-max_v, max_v], ylabel="$p'(x/L=0.2)$ [Pa]")
         yy = interpolate(truth['t'], y_t_tt, tt_)
-        ax2[0].plot(tt_, yy, color=color_true, linewidth=3)
+        ax2[0].plot(tt_, yy, color=color_true, linewidth=1.5)
         ax2[0].plot(truth['t_obs'][0], y_obs_tt[0], 'o', color=color_obs, markersize=3,
                     markerfacecolor=None, markeredgewidth=2)
         yy = interpolate(filter_ens_BA.bias.hist_t, np.mean(y_BA_tt_u, -1), tt_)

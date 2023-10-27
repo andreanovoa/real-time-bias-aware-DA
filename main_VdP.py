@@ -3,7 +3,7 @@ if __name__ == '__main__':
     from bias_models import *
     from run import main, save_simulation
     from create import *
-    from plotResults import *
+    from plot_functions.plotResults import *
     import os as os
 
     path_dir = os.path.realpath(__file__).split('main')[0]
@@ -15,8 +15,8 @@ if __name__ == '__main__':
 
     # %% ============================= SELECT TRUE AND FORECAST MODELS ================================= #
     run_whyAugment, run_loopParams = 0, 0
-    plot_whyAugment, plot_loopParams = 0, 0
-    test = 1
+    plot_whyAugment, plot_loopParams = 0, 1
+    test = 0
 
     # %% ============================= SELECT TRUE AND FORECAST MODELS ================================= #
     true_params = {'model': VdP,
@@ -40,7 +40,7 @@ if __name__ == '__main__':
                      'constrained_filter': False,
                      'regularization_factor': 10.,
                      'm': 10,
-                     'std_psi': 0.2,
+                     'std_psi': 0.25,
                      'est_a': [*params_IC],
                      'std_a': params_IC,
                      'alpha_distr': 'uniform',
@@ -69,12 +69,14 @@ if __name__ == '__main__':
                    }
 
     whyAug_params = [(1, False), (1, True), (10, True), (50, True)]
+
     loop_Ls = [1, 10, 50, 100]
     loop_stds = [.25]
 
     whyAug_ks = [0., 1., 5., 10., 20.]
     plot_ks = (0., 1., 5., 10., 20.)
-    loop_ks = np.linspace(0., 20., 21)
+    # loop_ks = np.linspace(0., 20., 11)
+    loop_ks = np.linspace(1., 21., 11)[:-1]
 
     # ------------------------------------------------------------------------------------------------ #
     if test:
@@ -112,8 +114,6 @@ if __name__ == '__main__':
                 filter_ens = blank_ens.copy()
                 filter_ens.regularization_factor = k
 
-                print(filter_ens.est_a)
-
                 # ======================= RUN DATA ASSIMILATION  =================================
                 folder_name = whyAugment_folder + '{}_L{}_Augment{}/'.format(order, L, augment)
                 filter_ens = main(filter_ens, truth)
@@ -122,28 +122,26 @@ if __name__ == '__main__':
 
     if run_loopParams:
         # ======================= CREATE REFERENCE ENSEMBLE =================================
-        ensemble = create_ensemble(forecast_params, filter_params)
         truth_og = create_truth(true_params, filter_params)
         for std in loop_stds:
-            blank_ens = ensemble.copy()
-            # Reset std
-            blank_ens.psi = blank_ens.addUncertainty(np.mean(blank_ens.psi, 1), std, blank_ens.m, method='normal')
-            blank_ens.hist[-1] = blank_ens.psi
-            blank_ens.std_psi, blank_ens.std_a = std, std
+            filter_params['std_psi'] = std
+            ensemble = create_ensemble(forecast_params, filter_params)
             std_folder = loopParams_folder + 'std{}/'.format(std)
             for L in loop_Ls:
+                blank_ens = ensemble.copy()
+                truth = truth_og.copy()
                 # Reset ESN
-                if bias_params is not None:
-                    bias_params['L'] = L
-                    filter_params['Bdict'] = create_ESN_train_dataset(*esn_args, bias_param=bias_params)
-                    blank_ens.initBias(filter_params['Bdict'])
+                bias_params['L'] = L
+                bias_name = 'ESN_L{}'.format(bias_params['L'])
+                create_bias_model(blank_ens, truth, bias_params, bias_name,
+                                  bias_model_folder=std_folder, plot_train_data=False)
                 results_folder = std_folder + 'L{}/'.format(L)
                 for k in loop_ks:
                     filter_ens = blank_ens.copy()
-                    # Reset gamma value
-                    filter_ens.regularization_factor = k
-                    # Run main ---------------------
-                    main(filter_ens, truth, results_dir=results_folder, save_=True)
+                    filter_ens.regularization_factor = k  # Reset gamma value
+                    filter_ens = main(filter_ens, truth)
+                    # ======================= SAVE SIMULATION  =================================
+                    save_simulation(filter_ens, truth, results_dir=results_folder)
     # ------------------------------------------------------------------------------------------------ #
     if plot_whyAugment:
         if not os.path.isdir(whyAugment_folder):
@@ -151,9 +149,6 @@ if __name__ == '__main__':
         else:
             post_process_WhyAugment(whyAugment_folder, k_plot=plot_ks,
                                     J_plot=plot_ks, figs_dir=whyAugment_folder + 'figs/')
-
-    # ------------------------------------------------------------------------------------------------ #
-    # ------------------------------------------------------------------------------------------------ #
 
     # ------------------------------------------------------------------------------------------------ #
     if plot_loopParams:
