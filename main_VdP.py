@@ -24,7 +24,7 @@ if __name__ == '__main__':
                    'law': 'tan',
                    'beta': 75.,  # forcing
                    'zeta': 55.,  # damping
-                   'kappa': 3.4,  # nonlinearity
+                   'kappa': 3.4,  # nonlinear
                    'std_obs': 0.2,
                    }
 
@@ -75,8 +75,7 @@ if __name__ == '__main__':
 
     whyAug_ks = [0., 1., 5., 10., 20.]
     plot_ks = (0., 1., 5., 10., 20.)
-    # loop_ks = np.linspace(0., 20., 11)
-    loop_ks = np.linspace(1., 21., 11)[:-1]
+    loop_ks = np.linspace(0., 20., 21)
 
     # ------------------------------------------------------------------------------------------------ #
     if test:

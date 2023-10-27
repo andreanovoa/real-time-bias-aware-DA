@@ -1070,11 +1070,12 @@ def plot_annular_model(animate=False, anim_name=None):
 
         y, lbl = case.getObservableHist(), case.obsLabels
         y = np.mean(y, axis=-1)
+
         # print(np.min(y, axis=0))
-        # sorted_id = np.argsort(np.max(abs(y[-1000:]), axis=0))
-        # print(sorted_id)
-        # y = y[:, sorted_id]
-        # lbl = [lbl[idx] for idx in sorted_id]
+        sorted_id = np.argsort(np.max(abs(y[-1000:]), axis=0))
+        print(sorted_id)
+        y = y[:, sorted_id]
+        lbl = [lbl[idx] for idx in sorted_id]
 
         for ax in ax2:
             ax.plot(t_h, y / 1E3)
