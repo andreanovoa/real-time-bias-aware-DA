@@ -89,23 +89,6 @@ def create_truth(true_params: dict, filter_params: dict):
                  true_params=true_params, name=name_truth, name_bias=name_bias,
                  model=true_params['model'], std_obs=true_params['std_obs'])
 
-    # # =================================  ADD WASHOUT ================================== #
-    # if bias_model is not None:
-    #     if hasattr(bias_model, 'N_wash'):
-    #         if not hasattr(bias_model, 't_init'):
-    #             bias_model.t_init = truth['t_obs'][0] - truth['dt_obs']
-    #         if not hasattr(bias_model, 'upsample'):
-    #             bias_model.upsample = 1
-    #
-    #         i1 = np.argmin(abs(bias_model.t_init - truth['t']))
-    #         i0 = i1 - bias_model.N_wash * bias_model.upsample
-    #
-    #         if i0 < 0:
-    #             print('\n', i0, i1, bias_model.t_init, bias_model.N_wash * bias_model.dt, truth['t_obs'][0],
-    #                   truth['dt_obs'])
-    #             raise ValueError('increase bias.t_init > t_wash + dt_obs')
-    #         truth['wash_obs'] = truth['y'][i0:i1 + 1:bias_model.upsample]
-    #         truth['wash_t'] = truth['t'][i0:i1 + 1:bias_model.upsample]
     return truth
 
 
