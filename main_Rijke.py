@@ -40,7 +40,7 @@ if __name__ == '__main__':
                        't_max': 2.5
                        }
     # %% ============================ SELECT FILTER PARAMETERS ============================ #
-    filter_params = {'filter44444': 'rBA_EnKF',  # 'rBA_EnKF' 'EnKF' 'EnSRKF'
+    filter_params = {'filter': 'rBA_EnKF',  # 'rBA_EnKF' 'EnKF' 'EnSRKF'
                      'est_a': ['beta', 'tau'],
                      # Define the observation time window
                      't_start': 1.5,  # ensure SS

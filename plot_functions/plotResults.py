@@ -1022,6 +1022,7 @@ def plot_annular_model(animate=False, anim_name=None):
     from matplotlib.animation import FuncAnimation
     from physical_models import Annular
     import datetime
+    import time
 
     paramsTA = dict(dt=1 / 51.2E3)
 
