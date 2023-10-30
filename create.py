@@ -9,7 +9,7 @@ from Util import load_from_pickle_file, save_to_pickle_file, CR, colour_noise, c
 rng = np.random.default_rng(6)
 
 
-def create_truth(true_params: dict, filter_params: dict):
+def create_truth(true_params: dict, filter_params: dict, post_processed=False):
     name_bias, noise_type = 'None', 'None'
     b_true = np.zeros(1)
 
@@ -18,7 +18,7 @@ def create_truth(true_params: dict, filter_params: dict):
 
     if type(true_params['model']) is str:
         # Load experimental data
-        y_noise, y_true, t_true, name_truth = create_observations_from_file(true_params['model'])
+        y_noise, y_true, t_true, name_truth = create_observations_from_file(true_params['model'], post_processed=post_processed)
         case_name = true_params['model'].split('/')[-1]
         name_bias = 'Exp_' + case_name
         noise_type = 'Exp_' + case_name
@@ -92,7 +92,7 @@ def create_truth(true_params: dict, filter_params: dict):
     return truth
 
 
-def create_observations_from_file(filename):
+def create_observations_from_file(filename, post_processed=False):
     name = os.path.join(os.getcwd() + '/data/' + filename)
     # Wave case: load .mat file ====================================
     if 'rijke' in filename:
@@ -104,7 +104,10 @@ def create_observations_from_file(filename):
     elif 'annular' in filename:
         try:
             mat = sio.loadmat(name + '.mat')
-            y_noise, y_true, t_obs = [mat[key] for key in ['y_raw', 'y_filtered', 't']]
+            if not post_processed:
+                y_noise, y_true, t_obs = [mat[key] for key in ['y_raw', 'y_filtered', 't']]
+            else:
+                y_noise, y_true, t_obs = [mat[key] for key in ['y_filtered', 'y_filtered', 't']]
         except FileNotFoundError:
             raise 'File ' + name + ' not defined'
     else:
