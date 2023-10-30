@@ -10,13 +10,13 @@ if __name__ == '__main__':
     bias_form = 'periodic'  # linear, periodic, time
     run_multiple_ensemble_sizes = False
 
-    run_loopParams, plot_loopParams = 1, 1
+    run_loopParams, plot_loopParams = 0, 1
     run_optimal, plot_optimal = 0, 0
 
     # %% ========================== SELECT WORKING PATHS ================================= #
-    folder = 'results/Rijke_final_{}/'.format(bias_form)
+    folder = 'results/new_arch/Rijke_{}/'.format(bias_form)
     path_dir = os.path.realpath(__file__).split('main')[0]
-    # os.chdir('/mscott/an553/')  # set working directory to mscott
+    os.chdir('/mscott/an553/')  # set working directory to mscott
 
     # %% ======================= SELECT RANGE OF PARAMETERS ============================== #
     ms = [50]
@@ -146,8 +146,7 @@ if __name__ == '__main__':
             # Run reference solution with bias-blind EnKF -----------------------------
             filter_ens = blank_ens.copy()
 
-
-        # ========================================================================================================
+        # -------------------------------------------------------------------------------------------------------------
         if plot_optimal:
             if not os.path.isdir(optimal_folder):
                 raise ValueError('results_loopParams not run')

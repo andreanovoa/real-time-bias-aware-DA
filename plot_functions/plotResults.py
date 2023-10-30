@@ -238,7 +238,7 @@ def post_process_single(filter_ens, truth, filename=None, mic=0,
 
     y_unbiased = recover_unbiased_solution(t_b, b, t, y_mean, upsample=hasattr(filter_ens.bias, 'upsample'))
     y_filter, y_mean, y_unbiased, t = (yy[i0 - N_CR:i1 + N_CR] for yy in [y_filter, y_mean, y_unbiased, t])
-    
+
     y_truth = interpolate(truth['t'], truth['y_noise'][:, mic], t)
 
     y_truth_no_noise = interpolate(truth['t'], truth['y'][:, mic], t)
@@ -271,7 +271,7 @@ def post_process_single(filter_ens, truth, filename=None, mic=0,
     y_lims = [np.min(y_truth[:N_CR]) / norm - margin, np.max(y_truth[:N_CR]) / norm + margin]
     x_lims = [[t_obs[0] - .5 * filter_ens.t_CR, t_obs[0] + filter_ens.t_CR],
               [t_obs[-1] - .5 * filter_ens.t_CR, t_obs[-1] + filter_ens.t_CR],
-              [t_obs[0]- .5 * filter_ens.t_CR, t[-1]]]
+              [t_obs[0] - .5 * filter_ens.t_CR, t[-1]]]
 
     if filter_ens.est_a:
         hist, hist_t = filter_ens.hist, filter_ens.hist_t
@@ -333,10 +333,8 @@ def post_process_single(filter_ens, truth, filename=None, mic=0,
                 axs[1].fill_between(hist_t, m + s, m - s, alpha=0.2, color=c)
 
             axs[1].set(xlabel=t_label, ylabel="", xlim=x_lims[-1], ylim=[min_p, max_p])
-            axs[1].plot((t_obs[0], t_obs[0]), (min_p, max_p), '--', color='k', linewidth=.6)  # DA window
-            axs[1].plot((t_obs[-1], t_obs[-1]), (min_p, max_p), '--', color='k', linewidth=.6)  # DA window
-            if twin:
-                axs[1].plot((x_lims[-1][0], x_lims[-1][-1]), (1, 1), '-', color='k', linewidth=.6)  # DA window
+
+            plot_DA_window(t_obs, axs[1], twin=twin)
             if num_DA_blind > 0:
                 axs[1].plot((t_obs[num_DA_blind], t_obs[num_DA_blind]), (-1E6, 1E6), '-.', color='darkblue')
                 axs[1].plot((t_obs[num_DA_blind], t_obs[num_DA_blind]), (-1E6, 1E6), '-.', color='darkblue',
@@ -354,9 +352,9 @@ def post_process_single(filter_ens, truth, filename=None, mic=0,
     for axs, xl, ylbl in zip([ax_zoom[:, 0], ax_zoom[:, 1]], x_lims, ylbls):
         axs[0].set(ylabel=ylbl[0], xlim=xl)
         axs[1].set(ylabel=ylbl[1], xlim=xl, ylim=y_lims, xlabel=t_label)
+
         for ax_ in axs:
-            ax_.plot((t_obs[0], t_obs[0]), (-1E6, 1E6), '--', color='k', linewidth=.6)  # DA window
-            ax_.plot((t_obs[-1], t_obs[-1]), (-1E6, 1E6), '--', color='k', linewidth=.6)  # DA window
+            plot_DA_window(t_obs, ax=ax_)
 
     for axs_ in [ax_zoom[:, 0], ax_all]:
         for ax_ in axs_:
@@ -455,8 +453,6 @@ def post_process_multiple(folder, filename=None, k_max=100., L_plot=None, refere
                         hist_p = filter_ens.hist[idx, N_psi + pj] / reference_p[p]
                         lbl = p_lbl + tt + p_lbl
 
-
-
                         axCRP[2].errorbar(k, np.mean(hist_p).squeeze(), yerr=np.std(hist_p), alpha=a, mew=.8, fmt=mk,
                                           color=colors_alpha[pj], label=lbl, capsize=4, markersize=6, linewidth=.6)
                 if flag:
@@ -472,8 +468,7 @@ def post_process_multiple(folder, filename=None, k_max=100., L_plot=None, refere
         t_obs = truth['t_obs']
         for ax1 in mean_ax[:]:
             ax1.set_aspect(0.8 / ax1.get_data_ratio())
-            ax1.plot((t_obs[0], t_obs[0]), (-1E6, 1E6), '--', color='k', linewidth=.6, alpha=.5)  # DA window
-            ax1.plot((t_obs[-1], t_obs[-1]), (-1E6, 1E6), '--', color='k', linewidth=.6, alpha=.5)  # DA window
+            plot_DA_window(t_obs, ax=ax1)
 
         # SAVE PLOT -------------------------------------------------------------------
         if filename is not None:
@@ -555,7 +550,7 @@ def post_process_pdf(filter_ens, truth, params, filename=None, reference_p=None,
         for lim in alpha_lims:
             ax.plot([hist_t[0], hist_t[-1]], [lim, lim], '--', color=c, lw=0.8)
         if twin:
-            ax.plot((x_lims[0], x_lims[-1]), (k_twin[p], k_twin[p]), '-', color='k', linewidth=.6)  # DA window
+            ax.plot((x_lims[0], x_lims[-1]), (k_twin[p], k_twin[p]), '-', color='k', linewidth=.6)
         ax.set(xlabel='$t$ [s]', ylabel=lbl, xlim=x_lims,
                ylim=[alpha_lims[0] - 0.1 * abs(alpha_lims[1]), alpha_lims[1] + 0.1 * abs(alpha_lims[1])])
 
@@ -652,8 +647,8 @@ def plot_parameters(filter_ens, truth, filename=None, reference_p=None, twin=Fal
                 ax.plot((t_obs[idx], t_obs[idx]), (min_p, max_p), '-.', color=cl)
                 ax.plot((t_obs[idx], t_obs[idx]), (min_p, max_p), '-.', color=cl, label='Start ' + ll)
 
-        ax.plot((t_obs[0], t_obs[0]), (min_p, max_p), '--', color='k', linewidth=.6)  # DA window
-        ax.plot((t_obs[-1], t_obs[-1]), (min_p, max_p), '--', color='k', linewidth=.6)  # DA window
+        plot_DA_window(t_obs, ax=ax)
+
         ax.legend(loc='upper right', fontsize='small', ncol=2)
         ax.set(ylabel='', ylim=[min_p, max_p])
 
@@ -689,17 +684,18 @@ def plot_timeseries(filter_ens, truth, filename=None, reference_y=1., reference_
             t_wash, wash = truth['wash_t'] / reference_t, truth['wash_obs']
 
     # %% PLOT time series ------------------------------------------------------------------------------------------
-    # norm = np.max(y_truth, axis=0)  # normalizing constant
     Nq = filter_ens.Nq
-
-    fig1 = plt.figure(figsize=[9, 5.5], layout="constrained")
+    fig1 = plt.figure(figsize=(9, 5.5), layout="constrained")
     subfigs = fig1.subfigures(1, 2, width_ratios=[1.1, 1])
 
     ax_zoom = subfigs[0].subplots(Nq, 2, sharex='col', sharey='row')
     ax_all = subfigs[1].subplots(Nq, 1, sharex='col')
 
+    y_truth, y_unbiased, y_filter, y_mean, obs = [yy / reference_y for yy in
+                                                  [y_truth, y_unbiased, y_filter, y_mean, obs]]
+
     margin = 0.5
-    y_lims = [np.min(y_truth[:N_CR]) / reference_y - margin, np.max(y_truth[:N_CR]) / reference_y + margin]
+    y_lims = [np.min(y_truth[:N_CR]) - margin, np.max(y_truth[:N_CR]) + margin]
     x_lims = [[t[0], t[0] + .5 * filter_ens.t_CR],
               [t[-1] - .5 * filter_ens.t_CR, t[-1]],
               [t[0], t[-1]]]
@@ -709,19 +705,16 @@ def plot_timeseries(filter_ens, truth, filename=None, reference_y=1., reference_
         for ax, xl in zip([ax_zoom[qi, 0], ax_zoom[qi, 1], ax_all[qi]], x_lims):
 
             # Observables ---------------------------------------------------------------------
-            ax.plot(t, y_truth[:, qi], color=color_true, linewidth=.8, label='t')
-            ax.plot(t, y_unbiased[:, qi], '-', **y_unbias_props)
+            ax.plot(t, y_truth[:, qi], label='t', **true_noisy_props)
+            ax.plot(t, y_unbiased[:, qi], label='u', **y_unbias_props)
             for mi in range(y_filter.shape[-1]):
-                ax.plot(t, y_filter[:, qi, mi], lw=.3, color=color_bias, alpha=0.2)
-            # ax.plot(t, y_mean[:, qi], '--', color=color_bias, linewidth=.7, label='b')
-            ax.plot(t_obs, obs[:, qi], '.', color=color_obs, markersize=6, label='o')
-            ax.set(ylim=y_lims, xlim=xl)
-
+                ax.plot(t, y_filter[:, qi, mi], **y_biased_props)
+            ax.plot(t, y_mean[:, qi], **y_biased_mean_props)
+            ax.plot(t_obs, obs[:, qi], label='o', **obs_props)
             if 'wash_t' in truth.keys():
-                ax.plot(t_wash, wash[:, qi], '.', color=color_obs, markersize=6)
-            ax.plot((t_obs[0], t_obs[0]), (-1E6, 1E6), '--', color='k', linewidth=.6)  # DA window
-            ax.plot((t_obs[-1], t_obs[-1]), (-1E6, 1E6), '--', color='k', linewidth=.6)  # DA window
-            ax.set(xlim=xl)
+                ax.plot(t_wash, wash[:, qi], **obs_props)
+            plot_DA_window(t_obs, ax)
+            ax.set(ylim=y_lims, xlim=xl)
 
         ylbl = '$y_{}$'.format(qi)
         if reference_y != 1.:
@@ -737,7 +730,14 @@ def plot_timeseries(filter_ens, truth, filename=None, reference_y=1., reference_
         plt.close()
 
 
-# ==================================================================================================================
+def plot_DA_window(t_obs, ax=None, twin=False):
+    if ax is None:
+        ax = plt.gca()
+    tt = (t_obs[-1], t_obs[-1])
+    ax.plot(tt, (-1E6, 1E6), '--', color='k', linewidth=.8)  # DA window
+    ax.plot(tt, (-1E6, 1E6), '--', color='k', linewidth=.8)  # DA window
+    if twin:
+        ax.plot(tt, (1, 1), '-', color='k', linewidth=.6)  # DA window
 
 
 def plot_Lk_contours(folder, filename='contour'):
@@ -797,7 +797,7 @@ def plot_Lk_contours(folder, filename='contour'):
     for axs, metrics, lbls, ttls, txts in zip([axs_0, axs_1], [R_metrics, log_metrics], [R_lbls, log_lbls],
                                               [R_titles, log_titles], [R_text, log_text]):
         max_v = min(0.1, max([np.max(metric) for metric in metrics]))
-        min_v = min([np.min(metric) for metric in metrics])
+        min_v = min(np.log(0.4), min([np.min(metric) for metric in metrics]))
         if lbls[0] == log_lbls[0]:
             # min_v, max_v = np.log(data['R_true']), np.log(data['R_pre'])
             min_v, max_v = -1.5, 0.2
@@ -806,6 +806,7 @@ def plot_Lk_contours(folder, filename='contour'):
         # norm = mpl.colors.Normalize(vmin=min_v, vmax=max_v)
         norm = mpl.colors.TwoSlopeNorm(vmin=min_v, vcenter=np.log(0.5), vmax=max_v)
         # norm = mpl.colors.TwoSlopeNorm(vmin=np.exp(min_v), vcenter=0.5, vmax=np.exp(max_v))
+
         mylevs = np.linspace(min_v, max_v, 11)
 
         # Create subplots ----------------------------
@@ -847,6 +848,82 @@ def plot_Lk_contours(folder, filename='contour'):
 
     filename = filename + '_optimal_solution_CR'
     post_process_multiple(folder, filename, k_max=20., L_plot=[70])
+
+
+# ==================================================================================================================
+
+def plot_truth(truth_dict, plot_time=False, Nq=None):
+    from Util import interpolate, fun_PSD
+    if Nq is None:
+        Nq = truth_dict['y_obs'].shape[-1]
+    dt = truth_dict['dt']
+
+    t_obs, y_obs = truth_dict['t_obs'], truth_dict['y_obs']
+
+    t0 = int(t_obs[0] // dt)
+    y_raw, y_pp, t = [truth_dict[key][t0:] for key in ['y_noise', 'y', 't']]
+    noise = y_raw - y_pp
+
+    t1 = int((t_obs[-1] + 1.5) // dt)
+
+    max_y = np.max(abs(y_raw[:t1 - t0]))
+
+    y_obs_pp = interpolate(t, y_pp, t_obs)
+
+    fig1 = plt.figure(figsize=(15, 2 * Nq), layout="constrained")
+    subfigs = fig1.subfigures(nrows=1, ncols=5, width_ratios=[1, 1, 0.5, 1, 1])
+    labels = ['Raw', 'Post-processed', 'Noise']
+    y_labels = ['$\\tilde{y}$', '$y$', '$(\\tilde{y}-y)$']
+    cols = ['tab:blue', 'tab:green', 'tab:purple']
+    # Plot zoomed timeseries of raw, post-processed and noise
+    for sf, yy, ttle, lbl, c in zip([subfigs[0], subfigs[1], subfigs[-1]], [y_raw, y_pp, noise],
+                                    labels, y_labels, cols):
+        ax = sf.subplots(Nq, 1, sharex='all')
+        ax[0].set(title=ttle)
+        ax[-1].set(xlabel='$t$', xlim=[t_obs[0], t_obs[10]])
+        for qi in range(Nq):
+            ax[qi].plot(t, yy[:, qi], color=c)
+            ax[qi].plot([t_obs[0], t_obs[10]], np.mean(yy[:, qi]) * np.array([1, 1]), color=c)
+            ax[qi].set(ylim=[-max_y, max_y])
+            if ttle != 'Noise':
+                ax[qi].plot(t_obs, y_obs[:, qi], 'ro')
+                if ttle != 'Raw':
+                    ax[qi].plot(t_obs, y_obs_pp[:, qi], 'go', markerfacecolor='none')
+            ax[qi].set(ylabel=lbl + '$_{}$'.format(qi))
+
+    # Plot probability density functions and power spectral densities
+    ax_pdf = subfigs[2].subplots(Nq, 1, sharey='all')
+    ax_PSD = subfigs[3].subplots(Nq, 1, sharex='all', sharey='all')
+    binwidth = 0.01 * max_y
+    bins = np.arange(-max_y, max_y + binwidth, binwidth)
+    for yy, ttle, lbl, c in zip([y_raw, y_pp], labels[:2], y_labels[:2], cols[:2]):
+        ax_pdf[0].set(title='pdf', ylim=[-max_y, max_y])
+        ax_pdf[-1].set(xlabel='p')
+        for qi in range(Nq):
+            ax_pdf[qi].hist(yy[:, qi], bins=bins, density=True, orientation='horizontal',
+                            color=c, label=lbl + '$_{}$'.format(qi), alpha=0.8)
+        f, PSD = fun_PSD(dt, yy)
+        for qi in range(Nq):
+            ax_PSD[qi].semilogy(f, PSD[qi], color=c, label=lbl + '$_{}$'.format(qi), alpha=0.8)
+            ax_PSD[qi].set(ylabel='PSD', xlim=[100, 2e3])
+
+    # Plot full timeseries if requested
+    if plot_time:
+        for y_key, name, c in zip(['y_noise', 'y'], ['Raw', 'Post-processed'], ['tab:blue', 'tab:green']):
+            y_pp, t = [truth_dict[key][t0:] for key in [y_key, 't']]
+            max_y = np.max(abs(y_pp))
+            fig2 = plt.figure(figsize=(12, 2 * Nq), layout="constrained")
+            subfigs = fig2.subfigures(nrows=1, ncols=2, width_ratios=[1, 0.5])
+            for sf, xlims in zip(subfigs, [(t[0], t[-1]), (t[-1000], t[-1])]):
+                ax = sf.subplots(Nq, 1, sharex='all')
+                if Nq == 1:
+                    ax = [ax]
+                ax[0].set(title=name)
+                ax[-1].set(xlabel='$t$', xlim=xlims)
+                for qi in range(Nq):
+                    ax[qi].plot(t, y_pp[:, qi], color=c)
+                    ax[qi].set(ylim=[-max_y, max_y])
+    plt.show()
 
 
 def plot_Rijke_animation(folder, figs_dir):
@@ -1018,14 +1095,16 @@ def plot_Rijke_animation(folder, figs_dir):
     ani2.save(figs_dir + 'ani_timeseries.gif', writer=writergif)
 
 
-def plot_annular_model(animate=False, anim_name=None):
+def plot_annular_model(forecast_params=None, animate=False, anim_name=None):
     from matplotlib.animation import FuncAnimation
     from physical_models import Annular
     import datetime
     import time
 
-    paramsTA = dict(dt=1 / 51.2E3)
-
+    if forecast_params is None:
+        paramsTA = dict(dt=1 / 51.2E3)
+    else:
+        paramsTA = forecast_params.copy()
     if anim_name is None:
         anim_name = '{}_Annulat_mov_mix_epsilon.gif'.format(datetime.date.today())
 
@@ -1056,8 +1135,6 @@ def plot_annular_model(animate=False, anim_name=None):
     i, j = [0, 1]
 
     if len(lbl) > 1:
-        # ax[1].scatter(y[:, 0]/np.max(y[:,0]), y[:, 1]/np.max(y[:,1]), c=t_h, s=3, marker='.', cmap='Blues')
-        # ax[1].set(xlabel='$'+lbl[0]+'/'+lbl[0]+'^\mathrm{max}$', ylabel='$'+lbl[1]+'/'+lbl[1]+'^\mathrm{max}$')
         ax[1].scatter(y[:, 0], y[:, 1], c=t_h, s=3, marker='.', cmap='Blues')
         ax[1].set(xlabel=lbl[0], ylabel=lbl[1])
     else:
@@ -1072,8 +1149,7 @@ def plot_annular_model(animate=False, anim_name=None):
         y = np.mean(y, axis=-1)
 
         # print(np.min(y, axis=0))
-        sorted_id = np.argsort(np.max(abs(y[-1000:]), axis=0))
-        print(sorted_id)
+        sorted_id = np.argsort(np.max(abs(y[-1000:]), axis=0))[::-1]
         y = y[:, sorted_id]
         lbl = [lbl[idx] for idx in sorted_id]
 
@@ -1093,8 +1169,8 @@ def plot_annular_model(animate=False, anim_name=None):
         theta, r = np.meshgrid(angles, radius)
 
         # Remove radial tick labels
-        ax2.set_yticklabels([])
-        ax2.grid(False)
+        ax2.set(yticklabels=[], theta_zero_location='S', title='Acoustic Pressure',
+                theta_direction=1, rgrids=[], thetagrids=[])
 
         # Add a white concentric circle
         circle_radius = 0.5
@@ -1103,38 +1179,26 @@ def plot_annular_model(animate=False, anim_name=None):
         idx_max = np.argmax(y[:, 0])
         polar_mesh = ax2.pcolormesh(theta, r, [y[idx_max].T] * len(radius), shading='auto', cmap='RdBu')
 
-        ax2.set_theta_zero_location('S')  # Set zero angle to the north (top)
-        ax2.set_title('Acoustic Pressure')
-        ax2.set_theta_direction(1)  # Set clockwise rotation
-
-        start_i = np.argmin(abs(t_h[-1] - (t_h[-1] - case.t_CR)))
-
-        print((t_h[-1]))
         start_i = int((t_h[-1] - .03) // case.dt)
-
-        print(start_i, t_h[start_i])
-
         dt_gif = 10
-
         t_gif = t_h[start_i::dt_gif]
-
         y_gif = y[start_i::dt_gif]
-
 
         def update(frame):
             ax2.fill(angles, [circle_radius] * len(angles), color='white')
             polar_mesh.set_array([y_gif[frame].T] * len(radius))
             ax2.set_title('Acoustic Pressure $t$ = {:.3f}'.format(t_gif[frame]))  # , fontsize='small')#, labelpad=50)
 
-
         plt.colorbar(polar_mesh, label='Pressure', shrink=0.75)
         anim = FuncAnimation(fig1, update, frames=len(t_gif))
-        dt = t_gif[1] - t_gif[0]
         anim.save(anim_name, fps=dt_gif * 10)
 
     plt.show()
 
+
 if __name__ == '__main__':
+
+    # plot_annular_model(animate=True)
 
     myfolder = 'results/VdP_final_.3/'
     loop_folder = myfolder + 'results_loopParams/'

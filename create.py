@@ -104,7 +104,7 @@ def create_observations_from_file(filename):
     elif 'annular' in filename:
         try:
             mat = sio.loadmat(name + '.mat')
-            y_true, y_noise, t_obs = [mat[key] for key in ['y_raw', 'y_filtered', 't']]
+            y_noise, y_true, t_obs = [mat[key] for key in ['y_raw', 'y_filtered', 't']]
         except FileNotFoundError:
             raise 'File ' + name + ' not defined'
     else:
@@ -118,7 +118,7 @@ def create_observations_from_file(filename):
     if y_noise.shape[0] != len(t_obs):
         y_noise = y_noise.transpose()
 
-    return y_noise, y_noise, t_obs, filename
+    return y_noise, y_true, t_obs, filename
 
 
 def create_observations(true_parameters=None):
@@ -151,7 +151,7 @@ def create_observations(true_parameters=None):
     try:
         case = load_from_pickle_file(name)
         print('Load true data: ' + name)
-    except FileNotFoundError:
+    except ModuleNotFoundError or FileNotFoundError:
         case = classType(**TA_params)
         psi, t = case.timeIntegrate(Nt=int(t_max / case.dt))
         case.updateHistory(psi, t)

@@ -7,16 +7,15 @@ if __name__ == '__main__':
     import os as os
 
     path_dir = os.path.realpath(__file__).split('main')[0]
-    # os.chdir('/mscott/an553/')  # set working directory to mscott
-    folder = 'results/VdP/'
+    os.chdir('/mscott/an553/')  # set working directory to mscott
+    folder = 'results/new_arch/VdP/'
 
     whyAugment_folder = folder + 'results_whyAugment/'
     loopParams_folder = folder + 'results_loopParams/'
 
     # %% ============================= SELECT TRUE AND FORECAST MODELS ================================= #
-    run_whyAugment, run_loopParams = 0, 0
-    plot_whyAugment, plot_loopParams = 0, 1
-    test = 0
+    run_whyAugment, run_loopParams = 1, 1
+    plot_whyAugment, plot_loopParams = 1, 1
 
     # %% ============================= SELECT TRUE AND FORECAST MODELS ================================= #
     true_params = {'model': VdP,
@@ -77,21 +76,6 @@ if __name__ == '__main__':
     plot_ks = (0., 1., 5., 10., 20.)
     loop_ks = np.linspace(0., 20., 21)
 
-    # ------------------------------------------------------------------------------------------------ #
-    if test:
-        ensemble = create_ensemble(forecast_params, filter_params)
-        truth = create_truth(true_params, filter_params)
-
-        bias_name = 'ESN_{}_L{}'.format(truth['name_bias'], bias_params['L'])
-        create_bias_model(ensemble, truth, bias_params, bias_name,
-                          bias_model_folder=folder, plot_train_data=False)
-
-        # ================================================================================== #
-
-        out = main(ensemble, truth)
-        post_process_single(ensemble, truth, reference_p=true_params)
-
-        plt.show()
     # ------------------------------------------------------------------------------------------------ #
 
     if run_whyAugment:

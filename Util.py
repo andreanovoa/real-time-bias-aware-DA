@@ -124,6 +124,32 @@ def load_from_pickle_file(filename):
         return args
 
 
+def fun_PSD(dt, X):
+    # Function that computes the Power Spectral Density.
+    # - Inputs:
+    #       - dt: sampling time
+    #       - X: signal(s) to compute the PSD (Nq x Nt)
+    # - Outputs:
+    #       - f: corresponding frequencies
+    #       - PSD: Power Spectral Density (Nq list)
+    if len(X.shape) > 1:
+        if X.shape[0] > X.shape[1]:
+            X = X.T
+    else:
+        X = np.expand_dims(X, axis=0)
+
+    len_x = X.shape[-1]
+    f = np.linspace(0.0, 1.0 / (2.0 * dt), len_x // 2)
+    PSD = []
+    for x in X:
+        yt = np.fft.fft(x)
+        PSD.append(2.0 / len_x * np.abs(yt[0:len_x // 2]))
+
+    return f, PSD
+
+
+
+
 def Jacobian_numerical_test(J_analytical, step_function, y_init, epsilons=np.arange(-10, 3, 0.1), y_out_idx=None):
     """
     Function that computes numerically the Jacobian of a given step function and
