@@ -3,11 +3,12 @@ import os
 from matplotlib import colors
 import matplotlib.pyplot as plt
 import matplotlib.animation
-from Util import interpolate, CR, getEnvelope, get_error_metrics
-from scipy.interpolate import CubicSpline, interp1d, interp2d
+from Util import interpolate, CR, get_error_metrics
+from scipy.interpolate import interp2d
 import numpy as np
 import matplotlib as mpl
 from matplotlib.ticker import FormatStrFormatter
+import matplotlib.backends.backend_pdf as plt_pdf
 
 XDG_RUNTIME_DIR = 'tmp/'
 
@@ -29,7 +30,7 @@ y_biased_props = dict(marker='none', linestyle='-', lw=.2, color=color_bias, alp
 y_biased_mean_props = dict(marker='none', linestyle='--', dashes=(2, .5), lw=.5, color='teal')
 
 true_noisy_props = dict(marker='none', linestyle='-', lw=1.2, color=color_true, alpha=.3)
-true_props = dict(marker='none', linestyle='-', lw=1.2, color=color_true, alpha=.8)
+true_props = dict(marker='none', linestyle='-', lw=1.2, color=color_true, alpha=.6)
 obs_props = dict(marker='.', linestyle='none', color=color_obs, markersize=5, markeredgecolor='none')
 bias_props = dict(marker='none', linestyle='--', dashes=(10, 1), lw=.5, color=color_b)
 bias_obs_props = dict(lw=1.5, color='mediumorchid', alpha=0.7)
@@ -149,7 +150,7 @@ def post_process_WhyAugment(results_dir, k_plot=None, J_plot=None, figs_dir=None
             if flag and ii == 0:
                 i0_t = np.argmin(abs(truth['t'] - truth['t_obs'][0]))  # start of assimilation
                 i1_t = np.argmin(abs(truth['t'] - truth['t_obs'][-1]))  # end of assimilation
-                y_truth, t_truth = truth['y_noise'][i0_t - N_CR:i1_t + N_CR], truth['t'][i0_t - N_CR:i1_t + N_CR]
+                y_truth, t_truth = truth['y_raw'][i0_t - N_CR:i1_t + N_CR], truth['t'][i0_t - N_CR:i1_t + N_CR]
                 y_truth_b = y_truth - truth['b'][i0_t - N_CR:i1_t + N_CR]
 
                 Ct, Rt = CR(y_truth[-N_CR:], y_truth_b[-N_CR:])
@@ -219,7 +220,7 @@ def recover_unbiased_solution(t_b, b, t, y, upsample=True):
     return y_unbiased
 
 
-def post_process_single(filter_ens, truth, filename=None, mic=0,
+def post_process_single(filter_ens, truth, filename=None, mic=0, reference_y=1.,
                         reference_p=None, reference_t=1., plot_params=False):
     t_obs, obs = truth['t_obs'], truth['y_obs']
 
@@ -239,11 +240,11 @@ def post_process_single(filter_ens, truth, filename=None, mic=0,
     y_unbiased = recover_unbiased_solution(t_b, b, t, y_mean, upsample=hasattr(filter_ens.bias, 'upsample'))
     y_filter, y_mean, y_unbiased, t = (yy[i0 - N_CR:i1 + N_CR] for yy in [y_filter, y_mean, y_unbiased, t])
 
-    y_truth = interpolate(truth['t'], truth['y_noise'][:, mic], t)
+    y_raw = interpolate(truth['t'], truth['y_raw'][:, mic], t)
 
-    y_truth_no_noise = interpolate(truth['t'], truth['y'][:, mic], t)
+    y_truth_no_noise = interpolate(truth['t'], truth['y_true'][:, mic], t)
     b_obs = y_truth_no_noise - y_mean
-    b_obs_noisy = y_truth - y_mean
+    b_obs_noisy = y_raw - y_mean
 
     if reference_t == 1.:
         t_label = '$t$ [s]'
@@ -256,8 +257,8 @@ def post_process_single(filter_ens, truth, filename=None, mic=0,
             t_wash, wash = truth['wash_t'] / reference_t, truth['wash_obs'][:, mic]
 
     # %% PLOT time series ------------------------------------------------------------------------------------------
-    norm = np.max(y_truth, axis=0)  # normalizing constant
-    if int(norm) == 1:
+    # norm = np.max(y_raw, axis=0)  # normalizing constant
+    if int(reference_y) == 1:
         ylbls = [["$p(x_\\mathrm{f})$ [Pa]", "$b(x_\\mathrm{f})$ [Pa]"], ['', '']]
     else:
         ylbls = [["$p(x_\\mathrm{f})$ norm.", "$b(x_\\mathrm{f})$ norm."], ['', '']]
@@ -268,7 +269,9 @@ def post_process_single(filter_ens, truth, filename=None, mic=0,
     ax_all = subfigs[1].subplots(2, 1, sharex='col')
 
     margin = 0.5
-    y_lims = [np.min(y_truth[:N_CR]) / norm - margin, np.max(y_truth[:N_CR]) / norm + margin]
+    max_y = np.max(abs(y_raw[:N_CR]))
+    # y_lims = [np.min(y_raw[:N_CR]) - margin, np.max(y_raw[:N_CR]) + margin]
+    y_lims = [(-max_y - margin)/reference_y, (max_y + margin)/reference_y]
     x_lims = [[t_obs[0] - .5 * filter_ens.t_CR, t_obs[0] + filter_ens.t_CR],
               [t_obs[-1] - .5 * filter_ens.t_CR, t_obs[-1] + filter_ens.t_CR],
               [t_obs[0] - .5 * filter_ens.t_CR, t[-1]]]
@@ -301,29 +304,29 @@ def post_process_single(filter_ens, truth, filename=None, mic=0,
         # Observables ---------------------------------------------------------------------
         # axs[0].plot(t, y_mean / norm, '--', color=color_bias, lw=.7, alpha=0.9, label='b')
         # axs[0].fill_between(t, (y_mean + std) / norm, (y_mean - std) / norm, alpha=0.2, color='lightseagreen')
-        axs[0].plot(t, y_truth / norm, label='t-N', **true_noisy_props)
+        axs[0].plot(t, y_raw / reference_y, label='t-N', **true_noisy_props)
         for mi in range(y_filter.shape[1]):
-            axs[0].plot(t, y_filter[:, mi] / norm, **y_biased_props)
+            axs[0].plot(t, y_filter[:, mi] / reference_y, **y_biased_props)
 
         for yyy, lbl, kwargs in zip([y_truth_no_noise, y_mean, y_unbiased], ['t', 'b', 'u'],
                                     [true_props, y_biased_mean_props, y_unbias_props]):
-            axs[0].plot(t, yyy / norm, label=lbl, **kwargs)
+            axs[0].plot(t, yyy / reference_y, label=lbl, **kwargs)
 
-        axs[0].plot(t_obs, obs / norm, **obs_props)
+        axs[0].plot(t_obs, obs / reference_y, **obs_props)
         axs[0].set(ylim=y_lims)
 
         # BIAS ---------------------------------------------------------------------
         for bbb, lbl, kwargs in zip([b_obs_noisy, b_obs], ['o-N', 'o'], [bias_obs_noisy_props, bias_obs_props]):
-            axs[1].plot(t, bbb / norm, label=lbl, **kwargs)
-        axs[1].plot(t_b, b / norm, label=filter_ens.bias.name, **bias_props)
+            axs[1].plot(t, bbb / reference_y, label=lbl, **kwargs)
+        axs[1].plot(t_b, b / reference_y, label=filter_ens.bias.name, **bias_props)
         if 'wash_t' in truth.keys():
-            axs[0].plot(t_wash, wash / norm, **obs_props)
+            axs[0].plot(t_wash, wash / reference_y, **obs_props)
 
     for axs in [ax_all]:
         for bbb, lbl, kwargs in zip([b_obs_noisy, b_obs], ['o-N', 'o'], [bias_obs_noisy_props, bias_obs_props]):
-            axs[0].plot(t, bbb / norm, label=lbl, **kwargs)
+            axs[0].plot(t, bbb / reference_y, label=lbl, **kwargs)
 
-        axs[0].plot(t_b, b / norm, label=filter_ens.bias.name, **bias_props)
+        axs[0].plot(t_b, b / reference_y, label=filter_ens.bias.name, **bias_props)
         axs[0].set(ylabel=ylbls[0][1], xlim=x_lims[-1], ylim=y_lims)
         # PARAMS-----------------------
         if filter_ens.est_a:
@@ -671,7 +674,10 @@ def plot_timeseries(filter_ens, truth, filename=None, reference_y=1., reference_
 
     y_unbiased = recover_unbiased_solution(t_b, b, t, y_mean, upsample=hasattr(filter_ens.bias, 'upsample'))
     y_filter, y_mean, y_unbiased, t = (yy[i0 - N_CR:i1 + N_CR] for yy in [y_filter, y_mean, y_unbiased, t])
-    y_truth = interpolate(truth['t'], truth['y_noise'], t)
+
+    # y_truth = interpolate(truth['t'], truth['y_tue'], t)
+    y_raw = interpolate(truth['t'], truth['y_raw'], t)
+    y_truth_no_noise = interpolate(truth['t'], truth['y_true'], t)
 
     if reference_t == 1.:
         t_label = '$t$ [s]'
@@ -691,13 +697,15 @@ def plot_timeseries(filter_ens, truth, filename=None, reference_y=1., reference_
     ax_zoom = subfigs[0].subplots(Nq, 2, sharex='col', sharey='row')
     ax_all = subfigs[1].subplots(Nq, 1, sharex='col')
 
-    y_truth, y_unbiased, y_filter, y_mean, obs = [yy / reference_y for yy in
-                                                  [y_truth, y_unbiased, y_filter, y_mean, obs]]
-
+    y_raw, y_unbiased, y_filter, y_mean, obs, y_truth_no_noise = [yy / reference_y for yy in
+                                                                  [y_raw, y_unbiased, y_filter,
+                                                                   y_mean, obs, y_truth_no_noise]]
     margin = 0.5
-    y_lims = [np.min(y_truth[:N_CR]) - margin, np.max(y_truth[:N_CR]) + margin]
-    x_lims = [[t[0], t[0] + .5 * filter_ens.t_CR],
-              [t[-1] - .5 * filter_ens.t_CR, t[-1]],
+    max_y = np.max(abs(y_raw[:N_CR]))
+    # y_lims = [np.min(y_raw[:N_CR]) - margin, np.max(y_raw[:N_CR]) + margin]
+    y_lims = [-max_y - margin, max_y + margin]
+    x_lims = [[t_obs[0] - .25 * filter_ens.t_CR, t_obs[0] + .25 * filter_ens.t_CR],
+              [t_obs[-1] - .25 * filter_ens.t_CR, t_obs[-1] + .25 * filter_ens.t_CR],
               [t[0], t[-1]]]
 
     for qi in range(Nq):
@@ -705,7 +713,8 @@ def plot_timeseries(filter_ens, truth, filename=None, reference_y=1., reference_
         for ax, xl in zip([ax_zoom[qi, 0], ax_zoom[qi, 1], ax_all[qi]], x_lims):
 
             # Observables ---------------------------------------------------------------------
-            ax.plot(t, y_truth[:, qi], label='t', **true_noisy_props)
+            ax.plot(t, y_raw[:, qi], label='t', **true_noisy_props)
+            ax.plot(t, y_truth_no_noise[:, qi], label='t', **true_props)
             ax.plot(t, y_unbiased[:, qi], label='u', **y_unbias_props)
             for mi in range(y_filter.shape[-1]):
                 ax.plot(t, y_filter[:, qi, mi], **y_biased_props)
@@ -729,9 +738,11 @@ def plot_timeseries(filter_ens, truth, filename=None, reference_y=1., reference_
         plt.savefig(filename + '.svg', dpi=350)
         plt.close()
 
-
 def plot_DA_window(t_obs, ax=None, twin=False):
     if ax is None:
+
+
+
         ax = plt.gca()
     tt = (t_obs[-1], t_obs[-1])
     ax.plot(tt, (-1E6, 1E6), '--', color='k', linewidth=.8)  # DA window
@@ -852,64 +863,68 @@ def plot_Lk_contours(folder, filename='contour'):
 
 # ==================================================================================================================
 
-def plot_truth(truth_dict, plot_time=False, Nq=None):
+def plot_truth(truth_dict, plot_time=False, Nq=None, filename=None):
     from Util import interpolate, fun_PSD
+    from scipy.signal import find_peaks
     if Nq is None:
         Nq = truth_dict['y_obs'].shape[-1]
-    dt = truth_dict['dt']
 
-    t_obs, y_obs = truth_dict['t_obs'], truth_dict['y_obs']
-
+    dt, t_obs, y_obs = [truth_dict[key] for key in ['dt', 't_obs', 'y_obs']]
     t0 = int(t_obs[0] // dt)
-    y_raw, y_pp, t = [truth_dict[key][t0:] for key in ['y_noise', 'y', 't']]
+    y_raw, y_pp, t = [truth_dict[key][t0:] for key in ['y_raw', 'y_true', 't']]
+    y_obs_pp = interpolate(t, y_pp, t_obs)
     noise = y_raw - y_pp
 
     t1 = int((t_obs[-1] + 1.5) // dt)
-
     max_y = np.max(abs(y_raw[:t1 - t0]))
-
-    y_obs_pp = interpolate(t, y_pp, t_obs)
 
     fig1 = plt.figure(figsize=(15, 2 * Nq), layout="constrained")
     subfigs = fig1.subfigures(nrows=1, ncols=5, width_ratios=[1, 1, 0.5, 1, 1])
     labels = ['Raw', 'Post-processed', 'Noise']
     y_labels = ['$\\tilde{y}$', '$y$', '$(\\tilde{y}-y)$']
-    cols = ['tab:blue', 'tab:green', 'tab:purple']
+    cols = ['tab:blue', 'mediumseagreen', 'tab:purple']
+
     # Plot zoomed timeseries of raw, post-processed and noise
-    for sf, yy, ttle, lbl, c in zip([subfigs[0], subfigs[1], subfigs[-1]], [y_raw, y_pp, noise],
-                                    labels, y_labels, cols):
-        ax = sf.subplots(Nq, 1, sharex='all')
-        ax[0].set(title=ttle)
+    for sf, yy, ttl, lbl, c in zip([0, 1, -1], [y_raw, y_pp, noise], labels, y_labels, cols):
+        ax = subfigs[sf].subplots(Nq, 1, sharex='all')
+        if Nq == 1:
+            ax = [ax]
+        ax[0].set(title=ttl)
         ax[-1].set(xlabel='$t$', xlim=[t_obs[0], t_obs[10]])
         for qi in range(Nq):
             ax[qi].plot(t, yy[:, qi], color=c)
             ax[qi].plot([t_obs[0], t_obs[10]], np.mean(yy[:, qi]) * np.array([1, 1]), color=c)
             ax[qi].set(ylim=[-max_y, max_y])
-            if ttle != 'Noise':
+            if ttl != 'Noise':
                 ax[qi].plot(t_obs, y_obs[:, qi], 'ro')
-                if ttle != 'Raw':
-                    ax[qi].plot(t_obs, y_obs_pp[:, qi], 'go', markerfacecolor='none')
+                if ttl != 'Raw':
+                    ax[qi].plot(t_obs, y_obs_pp[:, qi], 'o',color=cols[1],  markerfacecolor='none')
             ax[qi].set(ylabel=lbl + '$_{}$'.format(qi))
 
     # Plot probability density functions and power spectral densities
     ax_pdf = subfigs[2].subplots(Nq, 1, sharey='all')
     ax_PSD = subfigs[3].subplots(Nq, 1, sharex='all', sharey='all')
+    if Nq == 1:
+        ax_pdf = [ax_pdf]
+        ax_PSD = [ax_PSD]
     binwidth = 0.01 * max_y
     bins = np.arange(-max_y, max_y + binwidth, binwidth)
-    for yy, ttle, lbl, c in zip([y_raw, y_pp], labels[:2], y_labels[:2], cols[:2]):
+    for yy, ttl, lbl, c in zip([y_raw, y_pp], labels[:2], y_labels[:2], cols[:2]):
         ax_pdf[0].set(title='pdf', ylim=[-max_y, max_y])
-        ax_pdf[-1].set(xlabel='p')
+        ax_pdf[-1].set(xlabel='$p$')
         for qi in range(Nq):
-            ax_pdf[qi].hist(yy[:, qi], bins=bins, density=True, orientation='horizontal',
-                            color=c, label=lbl + '$_{}$'.format(qi), alpha=0.8)
+            peaks = find_peaks(abs(yy[:, qi]))[0]
+            ax_pdf[qi].hist(yy[peaks, qi], bins=bins, density=True, orientation='horizontal',
+                            color=c, label=lbl + '$_{}$'.format(qi))
         f, PSD = fun_PSD(dt, yy)
         for qi in range(Nq):
-            ax_PSD[qi].semilogy(f, PSD[qi], color=c, label=lbl + '$_{}$'.format(qi), alpha=0.8)
+            ax_PSD[qi].semilogy(f, PSD[qi], color=c, label=lbl + '$_{}$'.format(qi))
             ax_PSD[qi].set(ylabel='PSD', xlim=[100, 2e3])
 
     # Plot full timeseries if requested
+    figs2 = []
     if plot_time:
-        for y_key, name, c in zip(['y_noise', 'y'], ['Raw', 'Post-processed'], ['tab:blue', 'tab:green']):
+        for y_key, name, c in zip(['y_raw', 'y_true'], labels[:2], cols[:2]):
             y_pp, t = [truth_dict[key][t0:] for key in [y_key, 't']]
             max_y = np.max(abs(y_pp))
             fig2 = plt.figure(figsize=(12, 2 * Nq), layout="constrained")
@@ -923,8 +938,21 @@ def plot_truth(truth_dict, plot_time=False, Nq=None):
                 for qi in range(Nq):
                     ax[qi].plot(t, y_pp[:, qi], color=c)
                     ax[qi].set(ylim=[-max_y, max_y])
-    plt.show()
-
+            figs2.append(fig2)
+    # Show or save plots
+    if filename is None:
+        plt.show()
+    else:
+        if filename[-len('.pdf'):] != '.pdf':
+            filename += '.pdf'
+        os.makedirs('/'.join(filename.split('/')[:-1]), exist_ok=True)
+        pdf_file = plt_pdf.PdfPages(filename)
+        pdf_file.savefig(fig1)
+        plt.close(fig1)
+        for fig in figs2:
+            pdf_file.savefig(fig)
+            plt.close(fig)
+        pdf_file.close()  # Close results pdf
 
 def plot_Rijke_animation(folder, figs_dir):
     files = os.listdir(folder)
@@ -1025,7 +1053,7 @@ def plot_Rijke_animation(folder, figs_dir):
     y_BA_tt_u = y_BA_tt + interpolate(filter_ens_BA.bias.hist_t, filter_ens_BA.bias.hist, filter_ens_BA.hist_t)
 
     y_BB_tt = filter_ens_BB.getObservableHist()[:, 0]
-    y_t_tt = truth['y_noise'][:, 0]
+    y_t_tt = truth['y_raw'][:, 0]
     y_obs_tt = truth['p_obs'][:, 0]
     pressure_legend = ['Truth', 'Data', 'State + bias  BA', 'State est. BA', 'State est.']
 

@@ -1,28 +1,34 @@
+
+
+
+from physical_models import Annular
+from bias_models import *
+from run import main
+from create import *
+import numpy as np
+from plot_functions.plotResults import *
+
+# path_dir = os.path.realpath(__file__).split('main')[0]
+# os.chdir('/mscott/an553/')  # set working directory to mscott
+
+folder = 'results/Annular/'
+figs_dir = folder + 'figs/'
+
+os.makedirs(figs_dir, exist_ok=True)
+
 if __name__ == '__main__':
-    from physical_models import Annular
-    from bias_models import *
-    from run import main
-    from create import *
-    from plot_functions.plotResults import *
-
-    # path_dir = os.path.realpath(__file__).split('main')[0]
-    # os.chdir('/mscott/an553/')  # set working directory to mscott
-
-    folder = 'results/Annular/'
-    figs_dir = folder + 'figs/'
-
-    os.makedirs(figs_dir, exist_ok=True)
     # %% ==================================== SELECT TRUE MODEL ======================================= #
 
     ERs = 0.4875 + np.arange(0, 8) * 0.0125  # equivalence ratios 0.4875-0.575 (by steps of 0.0125)}
 
-    ER = ERs[-3]
+    ER = ERs[-1]
 
     true_params = {'model': 'annular/ER_{}'.format(ER),
-                   'std_obs': 0.01
+                   'std_obs': 0.1
                    }
 
     # ==================================== SELECT FILTER PARAMETERS =================================== #
+
     parameters_IC = dict(
         nu=(40., 50.),
         beta_c2=(40., 50.),
@@ -33,7 +39,7 @@ if __name__ == '__main__':
         theta_e=(0.4, 0.8),
     )
 
-    filter_params = {'filter': 'rBA_EnKF',  # 'rBA_EnKF' 'EnKF' 'EnSRKF'
+    filter_params = {'filter': 'EnKF',  # 'rBA_EnKF' 'EnKF' 'EnSRKF'
                      'constrained_filter': False,
                      'regularization_factor': 0.,
                      'm': 10,
@@ -43,15 +49,22 @@ if __name__ == '__main__':
                      'alpha_distr': 'uniform',
                      'std_psi': .5,
                      # Define the observation time window
-                     't_start': 1.0,
-                     't_stop': 1.1,
+                     't_start': 5.0,
+                     't_stop': 5.1,
                      'dt_obs': 60,
                      # Inflation
                      'inflation': 1.00,
                      'reject_inflation': 1.00
                      }
 
-    truth = create_truth(true_params, filter_params)
+    truth_og = create_truth(true_params, filter_params, post_processed=False)
+    # for ER in ERs:
+    #     true_params['model'] = 'annular/ER_{}'.format(ER)
+    #     truth = create_truth(true_params, filter_params, post_processed=False)
+    #
+    #     print(true_params['model'])
+    #     # Plot true data
+    #     plot_truth(truth.copy(), plot_time=True, Nq=4, filename=figs_dir + 'truth_ER_{}.pdf'.format(ER))
 
     # %% ================================= SELECT  FORECAST MODEL ===================================== #
 
@@ -71,8 +84,8 @@ if __name__ == '__main__':
 
     # %Conversion of the initial conditions from the quaternion formalism to the AB
     # %formalism
-    Ai = C0 * np.sqrt(np.cos(th0)**2 * np.cos(X0)**2 + np.sin(th0)**2 * np.sin(X0)**2)
-    Bi = C0 * np.sqrt(np.sin(th0)**2 * np.cos(X0)**2 + np.cos(th0)**2 * np.sin(X0)**2)
+    Ai = C0 * np.sqrt(np.cos(th0) ** 2 * np.cos(X0) ** 2 + np.sin(th0) ** 2 * np.sin(X0) ** 2)
+    Bi = C0 * np.sqrt(np.sin(th0) ** 2 * np.cos(X0) ** 2 + np.cos(th0) ** 2 * np.sin(X0) ** 2)
     phai = ph0 + np.arctan2(np.sin(th0) * np.sin(X0), np.cos(th0) * np.cos(X0))
     phbi = ph0 - np.arctan2(np.cos(th0) * np.sin(X0), np.sin(th0) * np.cos(X0))
 
@@ -82,15 +95,12 @@ if __name__ == '__main__':
 
     ebi = Bi * np.cos(phbi)
     dtebi = -omega * Bi * np.sin(phbi)
-
     psi0 = [eai, dteai, ebi, dtebi]
 
-    print(psi0)
-
     forecast_params = {'model': Annular,
-                       'dt': truth['dt'],
-                       'nu': nu_1*ER + nu_2,
-                       'beta_c2': c2b_1*ER + c2b_2,
+                       'dt': truth_og['dt'],
+                       'nu': nu_1 * ER + nu_2,
+                       'beta_c2': c2b_1 * ER + c2b_2,
                        'omega': omega,
                        'psi0': psi0
                        }
@@ -112,7 +122,7 @@ if __name__ == '__main__':
     ensemble = create_ensemble(forecast_params, filter_params)
     filter_ens = ensemble.copy()
 
-    truth = create_truth(true_params, filter_params)
+    truth = create_truth(true_params, filter_params, post_processed=True)
 
     # from plot_functions.plot_annular_model import *
     # plot_annular_model()
@@ -126,13 +136,16 @@ if __name__ == '__main__':
 
     filter_ens = main(filter_ens, truth)
 
-    # Plot results -------
+    #%%  Plot results -------
     if filter_ens.est_a:
         reference_p = dict(omega=2 * np.pi,
                            kappa=1e-4,
                            epsilon=1e-3)
 
-        plot_parameters(filter_ens, truth, reference_p=reference_p)
+        plot_parameters(filter_ens, truth, reference_p=dict())
 
     post_process_single(filter_ens, truth, reference_p=Annular.defaults)
+
+    #%%
+    plot_timeseries(filter_ens, truth, reference_y=1.)
     plt.show()

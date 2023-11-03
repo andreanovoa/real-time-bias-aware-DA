@@ -18,7 +18,7 @@ def create_truth(true_params: dict, filter_params: dict, post_processed=False):
 
     if type(true_params['model']) is str:
         # Load experimental data
-        y_noise, y_true, t_true, name_truth = create_observations_from_file(true_params['model'], post_processed=post_processed)
+        y_raw, y_true, t_true, name_truth = create_observations_from_file(true_params['model'])
         case_name = true_params['model'].split('/')[-1]
         name_bias = 'Exp_' + case_name
         noise_type = 'Exp_' + case_name
@@ -45,7 +45,8 @@ def create_truth(true_params: dict, filter_params: dict, post_processed=False):
                 b_true, name_bias = true_params['manual_bias'](y_true, t_true)
         y_true += b_true
 
-        # =========================== ADD NOISE TO THE TRUTH ================================ #
+    # =========================== ADD NOISE TO THE TRUTH ================================ #
+    if type(true_params['model']) is not str or post_processed:
         Nt, q = y_true.shape[:2]
         if 'std_obs' not in true_params.keys():
             true_params['std_obs'] = 0.01
@@ -70,29 +71,26 @@ def create_truth(true_params: dict, filter_params: dict, post_processed=False):
                 noise[:, ii] = np.fft.irfft(S)[1:]  # transform back into time domain
 
         if 'multi' in noise_type.lower():
-            y_noise = y_true * (1 + noise)
+            y_raw = y_true * (1 + noise)
         else:
             mean_y = np.mean(abs(y_true))
-            y_noise = y_true + noise * mean_y
+            y_raw = y_true + noise * mean_y
 
     # =========================== COMPUTE OBSERVATIONS AT DESIRED TIME =========================== #
     dt_t = t_true[1] - t_true[0]
-
     obs_idx = np.arange(filter_params['t_start'] // dt_t,
                         filter_params['t_stop'] // dt_t + 1, filter_params['dt_obs'], dtype=int)
 
     # ================================ SAVE DATA TO DICT ==================================== #
 
-    truth = dict(y=y_true, t=t_true, b=b_true, dt=dt_t,
-                 noise_type=noise_type, y_noise=y_noise,
-                 t_obs=t_true[obs_idx], y_obs=y_noise[obs_idx], dt_obs=filter_params['dt_obs'] * dt_t,
-                 true_params=true_params, name=name_truth, name_bias=name_bias,
+    truth = dict(y_raw=y_raw, y_true=y_true, t=t_true, b=b_true, dt=dt_t,
+                 t_obs=t_true[obs_idx], y_obs=y_raw[obs_idx], dt_obs=filter_params['dt_obs'] * dt_t,
+                 true_params=true_params, name=name_truth, name_bias=name_bias, noise_type=noise_type,
                  model=true_params['model'], std_obs=true_params['std_obs'])
-
     return truth
 
 
-def create_observations_from_file(filename, post_processed=False):
+def create_observations_from_file(filename):
     name = os.path.join(os.getcwd() + '/data/' + filename)
     # Wave case: load .mat file ====================================
     if 'rijke' in filename:
@@ -100,14 +98,11 @@ def create_observations_from_file(filename, post_processed=False):
             mat = sio.loadmat(name + '.mat')
         except FileNotFoundError:
             raise 'File ' + name + ' not defined'
-        y_true, y_noise, t_obs = [mat[key].transpose() for key in ['p_mic', 'p_mic', 't_mic']]
+        y_raw, y_true, t_obs = [mat[key].transpose() for key in ['p_mic', 'p_mic', 't_mic']]
     elif 'annular' in filename:
         try:
             mat = sio.loadmat(name + '.mat')
-            if not post_processed:
-                y_noise, y_true, t_obs = [mat[key] for key in ['y_raw', 'y_filtered', 't']]
-            else:
-                y_noise, y_true, t_obs = [mat[key] for key in ['y_filtered', 'y_filtered', 't']]
+            y_raw, y_true, t_obs = [mat[key] for key in ['y_raw', 'y_filtered', 't']]
         except FileNotFoundError:
             raise 'File ' + name + ' not defined'
     else:
@@ -116,12 +111,12 @@ def create_observations_from_file(filename, post_processed=False):
     if len(np.shape(t_obs)) > 1:
         t_obs = np.squeeze(t_obs)
 
-    if y_true.shape[0] != len(t_obs):
+    if y_raw.shape[0] != len(t_obs):
         y_true = y_true.transpose()
-    if y_noise.shape[0] != len(t_obs):
-        y_noise = y_noise.transpose()
+    if y_raw.shape[0] != len(t_obs):
+        y_raw = y_raw.transpose()
 
-    return y_noise, y_true, t_obs, filename
+    return y_raw, y_true, t_obs, filename
 
 
 def create_observations(true_parameters=None):
@@ -201,7 +196,7 @@ def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name: str,
 
     os.makedirs(bias_model_folder, exist_ok=True)
 
-    y_true = truth['y'].copy()
+    y_true = truth['y_raw'].copy()
     bias_params['noise_type'] = truth['noise_type']
 
     run_bias = True
@@ -257,7 +252,7 @@ def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name: str,
             raise ValueError('increase bias.t_init > t_wash + dt_obs')
 
         # Add washout to the truth
-        truth['wash_obs'] = truth['y'][i0:i1 + 1:ensemble.bias.upsample]
+        truth['wash_obs'] = truth['y_raw'][i0:i1 + 1:ensemble.bias.upsample]
         truth['wash_t'] = truth['t'][i0:i1 + 1:ensemble.bias.upsample]
 
 
