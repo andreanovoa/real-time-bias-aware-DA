@@ -76,7 +76,6 @@ def save_simulation(filter_ens, truth, extra_parameters=None, results_dir="resul
         for key, val in extra_parameters.items():
             parameters[key] = val
     # =============================== SAVE SIMULATION  =============================== #
-
     filename = '{}{}-{}_F-{}'.format(results_dir, filter_ens.filter, truth['name'], filter_ens.name)
     if hasattr(filter_ens, 'regularization_factor'):
         filename += '_k{}'.format(filter_ens.regularization_factor)

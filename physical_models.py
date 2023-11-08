@@ -596,9 +596,14 @@ class Annular(Model):
     """
 
     name: str = 'Annular'
-    defaults: dict = dict(Nq=4,
-                          n=1., theta_b=0.63, theta_e=0.66, omega=1099.3*2*np.pi, epsilon=2.3E-3,
-                          nu=48.872, beta_c2=46.7, kappa=1.2E-4)  # values in Matlab codes
+
+    ER_0 = 0.5
+    nu_1, nu_2 = 633.77, -331.39
+    c2b_1, c2b_2 = 258.3, -108.27
+
+    defaults: dict = dict(Nq=4, n=1., ER=ER_0,
+                          theta_b=0.63, theta_e=0.66, omega=1090*2*np.pi, epsilon=2.3E-3,
+                          nu=nu_1 * ER_0 + nu_2, beta_c2=c2b_1 * ER_0 + c2b_2, kappa=1.2E-4)  # values in Matlab codes
 
     # defaults['nu'], defaults['beta_c2'] = 30., 5.  # spin
     # defaults['nu'], defaults['beta_c2'] = 1., 25.  # stand
@@ -618,10 +623,29 @@ class Annular(Model):
 
     # __________________________ Init method ___________________________ #
     def __init__(self, **model_dict):
+
         if 'psi0' not in model_dict.keys():
-            model_dict['psi0'] = [100, -10, -100, 10]  # initialise \eta_a, \dot{\eta_a}, \eta_b, \dot{\eta_b}
+            if 'omega' not in model_dict.keys():
+                omega = Annular.defaults['omega']
+            else:
+                omega = model_dict['omega']
+
+            C0, X0, th0, ph0 = 10, 0, 0.63, 0  # %initial values
+            # %Conversion of the initial conditions from the quaternion formalism to the AB formalism
+            Ai = C0 * np.sqrt(np.cos(th0) ** 2 * np.cos(X0) ** 2 + np.sin(th0) ** 2 * np.sin(X0) ** 2)
+            Bi = C0 * np.sqrt(np.sin(th0) ** 2 * np.cos(X0) ** 2 + np.cos(th0) ** 2 * np.sin(X0) ** 2)
+            phai = ph0 + np.arctan2(np.sin(th0) * np.sin(X0), np.cos(th0) * np.cos(X0))
+            phbi = ph0 - np.arctan2(np.cos(th0) * np.sin(X0), np.sin(th0) * np.cos(X0))
+            # %initial conditions for the fast oscillator equations
+            psi0 = [Ai * np.cos(phai),
+                    -omega * Ai * np.sin(phai),
+                    Bi * np.cos(phbi),
+                    -omega * Bi * np.sin(phbi)]
+
+            model_dict['psi0'] = psi0  # initialise \eta_a, \dot{\eta_a}, \eta_b, \dot{\eta_b}
 
         super().__init__(child_defaults=Annular.defaults, **model_dict)
+
         self.theta_mic = np.radians([0, 60, 120, 240])
 
     # _______________  Specific properties and methods ________________ #

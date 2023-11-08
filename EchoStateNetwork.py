@@ -366,7 +366,6 @@ class EchoStateNetwork:
     def format_training_data(self, train_data):
         """
         :param train_data:  dimensions L x Nt x Ndim
-        :return:
         """
 
         #   APPLY UPSAMPLE ________________________
@@ -577,6 +576,8 @@ def add_pdf_page(pdf, fig):
     plt.close(fig)
 
 
+
+# ======================================== other tests ===========================================
 def run_ESN_test(dim=3,  # Number of dimensions the ESN predicts
                  upsample=5,  # to increase the dt of the ESN wrt the numerical integrator
                  num_tests=0, **kwargs):
@@ -595,8 +596,6 @@ def run_ESN_test(dim=3,  # Number of dimensions the ESN predicts
 
     model = Lorenz63(**{'dt': dt_model,
                         'psi0': rnd.random(3)})
-
-    print(model.dt)
 
     params_ESN = {'upsample': upsample,
                   't_train': N_train * dt_ESN,
@@ -623,8 +622,6 @@ def run_ESN_test(dim=3,  # Number of dimensions the ESN predicts
     for Nt in [int(N_transient), N_wtv]:
         state1, t1 = model.timeIntegrate(Nt * upsample)
         model.updateHistory(state1, t1, reset=False)
-
-    print(model.t)
 
     # number of time steps for washout, train, validation, test
     yy = model.getObservableHist(N_wtv * upsample)

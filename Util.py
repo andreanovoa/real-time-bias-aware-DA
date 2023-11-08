@@ -29,10 +29,11 @@ def colour_noise(Nt, noise_colour='pink', beta=2):
     elif 'pink' in noise_colour.lower():
         number_ids = [int(xx) for xx in noise_colour if xx.isdigit()]
         if any(number_ids):
-            beta = number_ids[0]
-        return 1 / np.where(ff == 0, float('inf'), ff ** (1 / beta))
+            from re import findall
+            beta = float(findall(r'\d+\.*\d*', noise_colour)[0])
+        return 1 / np.where(ff == 0., float('inf'), ff ** (1 / beta))
     elif 'brown' in noise_colour.lower():
-        return 1 / np.where(ff == 0, float('inf'), ff)
+        return 1 / np.where(ff == 0., float('inf'), ff)
     else:
         raise ValueError('{} noise type not defined'.format(noise_colour))
 

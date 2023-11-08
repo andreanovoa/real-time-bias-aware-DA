@@ -62,13 +62,14 @@ def create_truth(true_params: dict, filter_params: dict, post_processed=False):
             Cdd = np.eye(q) * true_params['std_obs'] ** 2
             noise = rng.multivariate_normal(np.zeros(q), Cdd, Nt)
         else:
-            noise = np.zeros([Nt, q])
+            i0 = Nt % 2 != 0
+            noise = np.zeros([Nt+i0, q])
             for ii in range(q):
-                noise_white = np.fft.rfft(rng.standard_normal(Nt + 1) * true_params['std_obs'])
+                noise_white = np.fft.rfft(rng.standard_normal(Nt+i0) * true_params['std_obs'])
                 # Generate the noise signal
-                S = colour_noise(Nt + 1, noise_colour=noise_type)
+                S = colour_noise(Nt+i0, noise_colour=noise_type)
                 S = noise_white * S / np.sqrt(np.mean(S ** 2))  # Normalize S
-                noise[:, ii] = np.fft.irfft(S)[1:]  # transform back into time domain
+                noise[:, ii] = np.fft.irfft(S)[i0:]  # transform back into time domain
 
         if 'multi' in noise_type.lower():
             y_raw = y_true * (1 + noise)
@@ -82,6 +83,8 @@ def create_truth(true_params: dict, filter_params: dict, post_processed=False):
                         filter_params['t_stop'] // dt_t + 1, filter_params['dt_obs'], dtype=int)
 
     # ================================ SAVE DATA TO DICT ==================================== #
+    if '/' in name_truth:
+        name_truth = '_'.join(name_truth.split('/'))
 
     truth = dict(y_raw=y_raw, y_true=y_true, t=t_true, b=b_true, dt=dt_t,
                  t_obs=t_true[obs_idx], y_obs=y_raw[obs_idx], dt_obs=filter_params['dt_obs'] * dt_t,

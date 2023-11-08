@@ -640,9 +640,9 @@ def plot_parameters(filter_ens, truth, filename=None, reference_p=None, twin=Fal
                 ax.plot([hist_t[0], hist_t[-1]], [lim, lim], '--', color=c, lw=2, alpha=0.5)
 
         if twin:
-            val = ref_p[p]
-            min_p, max_p = min(min_p, val) - min(s), max(max_p, val) + max(s)
-            ax.plot((hist_t[0], hist_t[-1]), (val, val), '-', color='k', linewidth=.6, label='truth')
+            # val = ref_p[p]
+            # min_p, max_p = min(min_p, val) - min(s), max(max_p, val) + max(s)
+            ax.plot((hist_t[0], hist_t[-1]), (1, 1), '-', color='k', linewidth=.6, label='truth')
 
         for idx, cl, ll in zip(['num_DA_blind', 'num_SE_only'], ['darkblue', 'darkviolet'], ['BE', 'PE']):
             idx = getattr(filter_ens, idx)
@@ -740,15 +740,11 @@ def plot_timeseries(filter_ens, truth, filename=None, reference_y=1., reference_
 
 def plot_DA_window(t_obs, ax=None, twin=False):
     if ax is None:
-
-
-
         ax = plt.gca()
-    tt = (t_obs[-1], t_obs[-1])
-    ax.plot(tt, (-1E6, 1E6), '--', color='k', linewidth=.8)  # DA window
-    ax.plot(tt, (-1E6, 1E6), '--', color='k', linewidth=.8)  # DA window
+    ax.plot((t_obs[-1], t_obs[-1]), (-1E6, 1E6), '--', color='k', linewidth=.8)  # DA window
+    ax.plot((t_obs[0], t_obs[0]), (-1E6, 1E6), '--', color='k', linewidth=.8)  # DA window
     if twin:
-        ax.plot(tt, (1, 1), '-', color='k', linewidth=.6)  # DA window
+        ax.plot((t_obs[0], t_obs[-1]), (1, 1), '-', color='k', linewidth=.6)  # DA window
 
 
 def plot_Lk_contours(folder, filename='contour'):
