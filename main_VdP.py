@@ -1,7 +1,7 @@
 if __name__ == '__main__':
     from physical_models import *
     from bias_models import *
-    from run import main, save_simulation
+    from run import main, save_simulation, run_Lk_loop
     from create import *
     from plot_functions.plotResults import *
     import os as os
@@ -110,21 +110,8 @@ if __name__ == '__main__':
             filter_params['std_psi'] = std
             ensemble = create_ensemble(forecast_params, filter_params)
             std_folder = loopParams_folder + 'std{}/'.format(std)
-            for L in loop_Ls:
-                blank_ens = ensemble.copy()
-                truth = truth_og.copy()
-                # Reset ESN
-                bias_params['L'] = L
-                bias_name = 'ESN_L{}'.format(bias_params['L'])
-                create_bias_model(blank_ens, truth, bias_params, bias_name,
-                                  bias_model_folder=std_folder, plot_train_data=False)
-                results_folder = std_folder + 'L{}/'.format(L)
-                for k in loop_ks:
-                    filter_ens = blank_ens.copy()
-                    filter_ens.regularization_factor = k  # Reset gamma value
-                    filter_ens = main(filter_ens, truth)
-                    # ======================= SAVE SIMULATION  =================================
-                    save_simulation(filter_ens, truth, results_dir=results_folder)
+            run_Lk_loop(ensemble, truth_og, bias_params, Ls=loop_Ls, ks=loop_ks, folder=std_folder)
+
     # ------------------------------------------------------------------------------------------------ #
     if plot_whyAugment:
         if not os.path.isdir(whyAugment_folder):

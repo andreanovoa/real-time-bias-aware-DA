@@ -3,6 +3,7 @@ import os as os
 
 from Util import save_to_pickle_file
 from DA import dataAssimilation
+from create import create_bias_model
 
 
 rng = np.random.default_rng(6)
@@ -10,7 +11,6 @@ path_dir = '/'.join(os.path.realpath(__file__).split('/')[:-1]) + '/'
 
 
 def main(filter_ens, truth):
-
     observations = dict()
     for key in ['y_obs', 't_obs', 'std_obs']:
         observations[key] = truth[key]
@@ -43,28 +43,36 @@ def main(filter_ens, truth):
 
 
 # ------------------------------------------------------------------------------------------------------------------- #
-# ------------------------------------------------------------------------------------------------------------------- #
 #
-#
-# def run_Lk_loop(ensemble,  Ls, ks, folder):
-#
-#     for L in Ls:
-#         results_folder = folder + 'L{}/'.format(L)
-#         blank_ens = ensemble.copy()
-#
-#         # Reset ESN -------------------------------------------------------------
-#         bias_paramsL = bias_params.copy()
-#         bias_paramsL['L'] = L
-#         Bdict = create_ESN_train_dataset(*args, bias_param=bias_paramsL)
-#         blank_ens.initBias(Bdict)
-#
-#         for k in ks:  # Reset gamma value
-#             filter_ens = blank_ens.copy()
-#             filter_ens.bias.k = k
-#             # Run simulation------------------------------------------------------------
-#             main(filter_ens, truth, method='rBA_EnKF', results_dir=results_folder, save_=True)
 #
 
+def run_Lk_loop(ensemble, truth, bias_params, Ls=10, ks=1., folder=''):
+    truth = truth.copy()
+    bias_params = bias_params.copy()
+    if type(Ls) is not list:
+        Ls = [Ls]
+    if type(ks) is not list:
+        ks = [ks]
+
+    for L in Ls:  # LOOP OVER Ls
+        blank_ens = ensemble.copy()
+        # Reset ESN
+        bias_params['L'] = L
+        bias_name = 'ESN_L{}'.format(bias_params['L'])
+        create_bias_model(blank_ens, truth, bias_params, bias_name,
+                          bias_model_folder=folder, plot_train_data=False)
+        results_folder = folder + 'L{}/'.format(L)
+        for k in ks:
+            filter_ens = blank_ens.copy()
+            filter_ens.regularization_factor = k  # Reset gamma value
+            # ------------------ RUN & SAVE SIMULATION  -------------------
+            filter_ens = main(filter_ens, truth)
+            save_simulation(filter_ens, truth, results_dir=results_folder)
+
+
+#
+
+# ------------------------------------------------------------------------------------------------------------------- #
 
 def save_simulation(filter_ens, truth, extra_parameters=None, results_dir="results/"):
     os.makedirs(results_dir, exist_ok=True)
@@ -81,4 +89,3 @@ def save_simulation(filter_ens, truth, extra_parameters=None, results_dir="resul
         filename += '_k{}'.format(filter_ens.regularization_factor)
     # save simulation
     save_to_pickle_file(filename, parameters, truth, filter_ens)
-
