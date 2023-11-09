@@ -49,9 +49,9 @@ def main(filter_ens, truth):
 def run_Lk_loop(ensemble, truth, bias_params, Ls=10, ks=1., folder=''):
     truth = truth.copy()
     bias_params = bias_params.copy()
-    if type(Ls) is not list:
+    if type(Ls) is int:
         Ls = [Ls]
-    if type(ks) is not list:
+    if type(ks) is float:
         ks = [ks]
 
     for L in Ls:  # LOOP OVER Ls
@@ -64,7 +64,7 @@ def run_Lk_loop(ensemble, truth, bias_params, Ls=10, ks=1., folder=''):
         results_folder = folder + 'L{}/'.format(L)
         for k in ks:
             filter_ens = blank_ens.copy()
-            filter_ens.regularization_factor = k  # Reset gamma value
+            filter_ens.regularization_factor = k  # Reset regularization value
             # ------------------ RUN & SAVE SIMULATION  -------------------
             filter_ens = main(filter_ens, truth)
             save_simulation(filter_ens, truth, results_dir=results_folder)

@@ -93,16 +93,16 @@ def create_truth(true_params: dict, filter_params: dict, post_processed=False):
     return truth
 
 
-def create_observations_from_file(filename):
-    name = os.path.join(os.getcwd() + '/data/' + filename)
+def create_observations_from_file(name):
+    # name = os.path.join(os.getcwd() + '/data/' + filename)
     # Wave case: load .mat file ====================================
-    if 'rijke' in filename:
+    if 'rijke' in name:
         try:
             mat = sio.loadmat(name + '.mat')
         except FileNotFoundError:
             raise 'File ' + name + ' not defined'
         y_raw, y_true, t_obs = [mat[key].transpose() for key in ['p_mic', 'p_mic', 't_mic']]
-    elif 'annular' in filename:
+    elif 'annular' in name:
         try:
             mat = sio.loadmat(name + '.mat')
             y_raw, y_true, t_obs = [mat[key] for key in ['y_raw', 'y_filtered', 't']]
@@ -119,7 +119,7 @@ def create_observations_from_file(filename):
     if y_raw.shape[0] != len(t_obs):
         y_raw = y_raw.transpose()
 
-    return y_raw, y_true, t_obs, filename
+    return y_raw, y_true, t_obs, name.split('data/')[-1]
 
 
 def create_observations(true_parameters=None):

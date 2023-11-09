@@ -5,6 +5,9 @@ from run import *
 from plot_functions.plotResults import *
 import os as os
 
+path_dir = os.path.realpath(__file__).split('main')[0]
+os.chdir('/mscott/an553/')  # set working directory to mscott
+
 if __name__ == '__main__':
 
     bias_form = 'linear'  # linear, periodic, time
@@ -15,14 +18,12 @@ if __name__ == '__main__':
 
     # %% ========================== SELECT WORKING PATHS ================================= #
     folder = 'results/new_arch/Rijke_{}/'.format(bias_form)
-    path_dir = os.path.realpath(__file__).split('main')[0]
-    os.chdir('/mscott/an553/')  # set working directory to mscott
 
     # %% ======================= SELECT RANGE OF PARAMETERS ============================== #
     ms = [50]
-    stds = [.25]
     Ls = np.linspace(10, 100, 10, dtype=int)
     ks = np.linspace(0., 10., 41)
+
     # Special cases
     if bias_form == 'time':
         ks = np.linspace(0.25, 4.75, 10)
@@ -30,60 +31,62 @@ if __name__ == '__main__':
         ms = [10, 50, 80]
 
     # %% ====================== SELECT TRUE AND FORECAST MODELS ========================== #
-    true_params = {'model':       Rijke,
-                   't_max':       2.5,
-                   'beta':        4.2,
-                   'tau':         1.4E-3,
-                   'manual_bias': bias_form
-                   }
-    forecast_params = {'model': Rijke,
-                       't_max': 2.5
-                       }
+    true_params = dict(model=Rijke,
+                       std_obs=0.05,
+                       t_max=2.5,
+                       beta=4.2,
+                       tau=1.4E-3,
+                       manual_bias=bias_form
+                       )
+    forecast_params = dict(model=Rijke,
+                           t_max=2.5
+                           )
     # %% ============================ SELECT FILTER PARAMETERS ============================ #
-    filter_params = {'filter':                  'rBA_EnKF',  # 'rBA_EnKF' 'EnKF' 'EnSRKF'
-                     'est_a':                   ['beta', 'tau'],
-                     # Define the observation time window
-                     't_start':                 1.5,  # ensure SS
-                     't_stop':                  2.0,
-                     'dt_obs':                  20,
-                     # Inflation
-                     'inflation':               1.002,
-                     'start_ensemble_forecast': 1
-                     }
-    bias_params = {'biasType':       ESN,
-                   'est_a':          filter_params['est_a'],
-                   'std_a':          0.3,
-                   'N_wash':         50,
-                   'upsample':       2,
-                   'N_units':        500,
-                   'augment_data':   True,
-                   't_val':          0.02,
-                   't_train':        0.5,
-                   'rho_range':      [0.5, 1.0],
-                   'tikh_range':     np.array([1e-16]),
-                   'sigma_in_range': [np.log10(1e-5), np.log10(1e-2)],
-                   }
+    filter_params = dict(filter='rBA_EnKF',  # 'rBA_EnKF' 'EnKF' 'EnSRKF'
+                         est_a=['beta', 'tau'],
+                         std_a=0.25,
+                         std_psi=0.25,
+                         t_start=1.5,
+                         t_stop=2.0,
+                         dt_obs=20,
+                         inflation=1.002,
+                         start_ensemble_forecast=1)
+
+    bias_params = dict(biasType=ESN,  # ESN / NoBias
+                       N_units=500,
+                       upsample=2,
+                       # Training data generation  options
+                       augment_data=True,
+                       L=10,
+                       est_a=filter_params['est_a'],
+                       std_a=0.3,
+                       # Training, val and wash times
+                       t_val=0.02,
+                       t_train=0.5,
+                       N_wash=50,
+                       # Hyperparameter search ranges
+                       rho_range=[0.5, 1.0],
+                       tikh_range=np.array([1e-16]),
+                       sigma_in_range=[np.log10(1e-5), np.log10(1e-2)]
+                       )
     if bias_form == 'time':
         bias_params['t_train'] = 1.5
         filter_params['dt_obs'] = 10
     # %% ============================ RUN SIMULATIONS ================================= #
 
+    truth_og = create_truth(true_params, filter_params)
+
     for m in ms:  # LOOP OVER ENSEMBLE SIZES
         loopParams_folder = folder + 'm{}/results_loopParams/'.format(m)
         optimal_folder = folder + 'm{}/results_optimal/'.format(m)
 
-        truth_og = create_truth(true_params, filter_params)
-
         filter_params['m'] = m
 
-        for std in stds:  # LOOP OVER STDs
-            filter_params['std_psi'] = std
-            filter_params['std_a'] = std
-            # --------------------- CREATE REFERENCE ENSEMBLE ------------------
-            ensemble = create_ensemble(forecast_params, filter_params)
-            std_folder = loopParams_folder + 'std{}/'.format(std)
+        #  CREATE REFERENCE ENSEMBLE
+        ensemble = create_ensemble(forecast_params, filter_params)
 
-            run_Lk_loop(ensemble, truth_og, bias_params, Ls=Ls, ks=ks, folder=std_folder)
+        # LOOP OVER Ls AND ks
+        run_Lk_loop(ensemble, truth_og, bias_params, Ls=Ls, ks=ks, folder=loopParams_folder)
 
         if plot_loopParams:
             if not os.path.isdir(loopParams_folder):
@@ -95,14 +98,12 @@ if __name__ == '__main__':
         if run_optimal:
             filter_params['m'] = m
             truth_og = create_truth(true_params, filter_params)
-            std = 0.25
-            filter_params['std_psi'] = std
-            filter_params['std_a'] = std
 
-            # --------------------- CREATE REFERENCE ENSEMBLE ------------------
-            ensemble = create_ensemble(forecast_params, filter_params)
-            std_folder = loopParams_folder + 'std{}/'.format(std)
+            # --------------------- REFERENCE BIAS-BLIND SOLUTION ------------------
+            filter_ens = main(ensemble, truth_og)
+            save_simulation(filter_ens, truth_og, results_dir=optimal_folder)
 
+            # ------------------ BIAS-AWARE SIMULATION  -------------------
             # These are manually defined after running the loops
             if bias_form == 'linear':
                 L, k = 100, 1.75
@@ -113,18 +114,15 @@ if __name__ == '__main__':
             else:
                 raise ValueError("Select 'linear', 'periodic' or 'time' bias form")
 
-            # ------------------ RUN & SAVE SIMULATION  -------------------
-            filter_ens = main(filter_ens, truth)
-            save_simulation(filter_ens, truth, results_dir=optimal_folder)
-
             blank_ens = ensemble.copy()
             truth = truth_og.copy()
-            # Reset ESN
+            # Set ESN model
             bias_params['L'] = L
             bias_name = 'ESN_L{}'.format(bias_params['L'])
             create_bias_model(blank_ens, truth, bias_params, bias_name,
-                              bias_model_folder=std_folder, plot_train_data=False)
-            results_folder = std_folder + 'L{}/'.format(L)
+                              bias_model_folder=loopParams_folder, plot_train_data=False)
+
+            results_folder = loopParams_folder + 'L{}/'.format(L)
             for k in ks:
                 filter_ens = blank_ens.copy()
                 filter_ens.regularization_factor = k  # Reset gamma value
