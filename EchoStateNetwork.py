@@ -1,5 +1,4 @@
 import numpy as np
-import scipy.linalg as la
 import time
 import os
 import matplotlib.pyplot as plt
@@ -16,8 +15,10 @@ from skopt.plots import plot_convergence
 
 from scipy.sparse import csr_matrix, lil_matrix
 from scipy.sparse.linalg import eigs as sparse_eigs
-import scipy.sparse.linalg as sla
+from Util import add_pdf_page
 
+
+XDG_RUNTIME_DIR = 'tmp/'
 
 class EchoStateNetwork:
     defaults = dict(augment_data=False,
@@ -37,6 +38,7 @@ class EchoStateNetwork:
                     N_wash=50,
                     perform_test=True,
                     seed_W=1,
+                    seed_noise=0,
                     t_val=0.1,
                     t_train=1.0,
                     t_test=0.5,
@@ -62,12 +64,14 @@ class EchoStateNetwork:
     def __init__(self, y, dt, **kwargs):  # TODO: add noise to optimization. Same as Tikhonov):
         self.u = np.zeros(y.shape)
         self.dt = dt
-        #
         for key, val in self.defaults.items():
             if key in kwargs.keys():
                 val = kwargs[key]
             setattr(self, key, val)
 
+        # initially, assume full observability. This may change when providing input data
+        self.N_dim = len(y)
+        self.observed_idx = np.arange(self.N_dim)
         self.filename = 'ESN'
 
         # -------------------------- Define time windows ----------------------------- #
@@ -79,11 +83,7 @@ class EchoStateNetwork:
         self.r = np.zeros(self.N_units)
         self.norm = None
         self._WCout = None
-        self.Wout = np.zeros([self.N_units + 1, self.N_dim])
-
-    @property
-    def N_dim(self):
-        return len(self.u)
+        self.trained = False
 
     @property
     def len_train_data(self):
@@ -96,6 +96,13 @@ class EchoStateNetwork:
     def dt_ESN(self):
         return self.dt * self.upsample
 
+    def outputs_to_inputs(self, full_state):
+        return full_state[self.observed_idx]
+
+    @property
+    def N_dim_in(self):
+        return len(self.observed_idx)
+
     @property
     def WCout(self):
         if self._WCout is None:
@@ -103,7 +110,7 @@ class EchoStateNetwork:
         return self._WCout
 
     @property
-    def sparse(self):
+    def sparsity(self):
         return 1 - self.connect / (self.N_units - 1)
 
     def reset_hyperparams(self, params, names, tikhonov=None):
@@ -117,7 +124,11 @@ class EchoStateNetwork:
 
     def reset_state(self, u=None, r=None):
         if u is not None:
-            self.u = u
+            if len(u) != len(self.u):
+                # print('Changing size of input from {} to {}'.format(len(self.u), len(u)))
+                self.u = u[self.observed_idx]
+            else:
+                self.u = u
         if r is not None:
             self.r = r
 
@@ -134,9 +145,9 @@ class EchoStateNetwork:
             rout = self.step(u_in, r_in)[1]
             dr_di = self.sigma_in * Win_1 / self.norm
         else:
-            u_aug = np.concatenate((u_in / self.norm, self.bias_in))
-            rout = np.tanh(self.sigma_in * self.Win.dot(u_aug) + self.rho * np.dot(self.WCout.T, u_in))
-            dr_di = self.sigma_in * Win_1 / self.norm + self.rho * self.WCout.T
+            # u_aug = np.concatenate((u_in / self.norm, self.bias_in))
+            # rout = np.tanh(self.sigma_in * self.Win.dot(u_aug) + self.rho * np.dot(self.WCout.T, u_in))
+            # dr_di = self.sigma_in * Win_1 / self.norm + self.rho * self.WCout.T
             raise NotImplementedError('Numerical test of closed-loop Jacobian did not pass')
 
         # Compute Jacobian
@@ -194,10 +205,11 @@ class EchoStateNetwork:
         r = np.empty((Nt + 1, self.N_units))
         u = np.empty((Nt + 1, self.N_dim))
 
-        u[0], r[0] = self.getReservoirState()
+        u[0, self.observed_idx], r[0] = self.getReservoirState()
 
         for i in range(Nt):
-            u[i + 1], r[i + 1] = self.step(u[i], r[i])
+            u_input = self.outputs_to_inputs(full_state=u[i])
+            u[i + 1], r[i + 1] = self.step(u_input, r[i])
         return u, r
 
     # _______________________________________________________________________________________ TRAIN & VALIDATE THE ESN
@@ -205,17 +217,10 @@ class EchoStateNetwork:
               plot_training=True, folder='./'):
 
         # Format training data and divide into wash-train-validate, and test sets
-        U_wtv, Y_tv, U_test = self.format_training_data(train_data)
+        U_wtv, Y_tv, U_test, Y_test = self.format_training_data(train_data)
 
-        #  ==================== ADD NOISE TO TRAINING INPUT ====================== ## TODO: remove noise?
-        # Add noise to inputs during training. Larger noise level
-        # promotes stability in long term, but hinders time accuracy
-        U_std = np.std(U_wtv, axis=1)
 
-        rnd = np.random.RandomState(0)
-        for ll in range(self.L):
-            for dd in range(self.N_dim):
-                U_wtv[ll, :, dd] += rnd.normal(0, self.noise * U_std[ll, dd], U_wtv.shape[1])
+        self.Wout = np.zeros([self.N_units + 1, self.N_dim])
 
         # ======================  Generate matrices W and Win ======================= ##
         self.generate_W_Win(seed=self.seed_W)
@@ -257,6 +262,9 @@ class EchoStateNetwork:
         for hp in self.optimize_hyperparams:
             print('\t {:.2e}'.format(getattr(self, hp)), end="")
         print(' f {:.4f}'.format(-res.fun))
+
+        self.trained = True
+
         # =============================  Plot result ================================ ##
         if plot_training or self.perform_test:
             os.makedirs(folder + 'figs_ESN', exist_ok=True)
@@ -308,24 +316,27 @@ class EchoStateNetwork:
                         pdf.savefig(fig)
                         plt.close(fig)
             if self.perform_test:
-                self.run_test(U_test, pdf_file=pdf)   # Run test
+                self.run_test(U_test, Y_test, pdf_file=pdf)   # Run test
             pdf.close()  # Close training results pdf
+
 
     def generate_W_Win(self, seed=1):
         rnd0 = np.random.RandomState(seed)
 
         # Input matrix: Sparse random matrix where only one element per row is different from zero
-        Win = lil_matrix((self.N_units, self.N_dim + 1))  # +1 accounts for input bias
+        Win = lil_matrix((self.N_units, self.N_dim_in + 1))  # +1 accounts for input bias
         for j in range(self.N_units):
-            Win[j, rnd0.randint(0, self.N_dim + 1)] = rnd0.uniform(-1, 1)
+            Win[j, rnd0.randint(0, self.N_dim_in + 1)] = rnd0.uniform(-1, 1)
+
         self.Win = Win.tocsr()
 
         # Reservoir state matrix: Erdos-Renyi network
         W = csr_matrix(rnd0.uniform(-1, 1, (self.N_units, self.N_units)) *
-                       (rnd0.rand(self.N_units, self.N_units) < (1 - self.sparse)))
+                       (rnd0.rand(self.N_units, self.N_units) < (1 - self.sparsity)))
         # scale W by the spectral radius to have unitary spectral radius
         spectral_radius = np.abs(sparse_eigs(W, k=1, which='LM', return_eigenvectors=False))[0]
         self.W = (1. / spectral_radius) * W
+
 
     def computeRRterms(self, U_wtv, Y_tv):
         LHS, RHS = 0., 0.
@@ -365,23 +376,38 @@ class EchoStateNetwork:
 
     def format_training_data(self, train_data):
         """
-        :param train_data:  dimensions L x Nt x Ndim
+        :param train_data:  dimensions L x Nt x Ndim .or. dict containing inputs and labels
         """
 
         #   APPLY UPSAMPLE ________________________
-        train_data = train_data[:, ::self.upsample].copy()
+        if type(train_data) is dict:
+            U = train_data['inputs'][:, ::self.upsample].copy()
+            Y = train_data['labels'][:, ::self.upsample].copy()
+
+            self.N_dim = Y.shape[-1]
+            self.observed_idx = train_data['observed_idx']
+            # self.reset_state(u=np.zeros(Y.shape[-1]))
+
+            assert Y.shape[-1] >= U.shape[-1]
+            assert U.shape[-1] == len(self.observed_idx)
+            add_noise = False
+        else:
+            U = train_data[:, ::self.upsample].copy()
+            Y = U.copy()
+            add_noise = True
 
         #   SEPARATE INTO WASH/TRAIN/VAL/TEST SETS _______________
         N_tv = self.N_train + self.N_val
         N_wtv = self.N_wash + N_tv  # useful for compact code later
 
-        if train_data.shape[1] < N_wtv:
-            print(train_data.shape, N_wtv)
+        if U.shape[1] < N_wtv:
+            print(U.shape, N_wtv)
             raise ValueError('Increase the length of the training data signal')
 
-        U_wtv = train_data[:, :N_wtv - 1].copy()
-        Y_tv = train_data[:, self.N_wash + 1:N_wtv].copy()
-        U_test = train_data[:, N_wtv:].copy()
+        U_wtv = U[:, :N_wtv - 1].copy()
+        Y_tv = Y[:, self.N_wash + 1:N_wtv].copy()
+        U_test = U[:, N_wtv:].copy()
+        Y_test = Y[:, N_wtv:].copy()
 
         # compute norm (normalize inputs by component range)
         m = np.mean(U_wtv.min(axis=1), axis=0)
@@ -393,7 +419,18 @@ class EchoStateNetwork:
             # setattr(self, 'bias_in', np.array([np.mean(np.abs((U_wtv - u_mean) / self.norm))]))
             setattr(self, 'bias_in', np.array([0.1]))
 
-        return U_wtv, Y_tv, U_test
+        if add_noise:
+            #  ==================== ADD NOISE TO TRAINING INPUT ====================== ##
+            # Add noise to the inputs if distinction inputs/labels is not given.
+            # Larger noise promotes stability in long term, but hinders time accuracy
+            U_std = np.std(U, axis=1)
+            rnd = np.random.RandomState(self.seed_noise)
+            for ll in range(self.L):
+                for dd in range(self.N_dim):
+                    U_wtv[ll, :, dd] += rnd.normal(0, self.noise * U_std[ll, dd], U_wtv.shape[1])
+                    U_test[ll, :, dd] += rnd.normal(0, self.noise * U_std[ll, dd], U_test.shape[1])
+
+        return U_wtv, Y_tv, U_test, Y_test
 
     # ___________________________________________________________________________________________ BAYESIAN OPTIMIZATION
     def hyperparameter_search(self):
@@ -474,20 +511,21 @@ class EchoStateNetwork:
             Wout_tik[tik_j] = np.linalg.solve(LHS_, RHS)
 
         # Perform Validation in different folds
-        for U_l in U_wtv:  # Each set of training data
+        for U_l, Y_l in zip(U_wtv, Y_tv):  # Each set of training data
             for fold in range(case.N_folds):
                 case.reset_state(u=case.u * 0, r=case.r * 0)
                 p = case.N_wash + fold * N_fw
 
                 # Select washout and validation data
                 U_wash = U_l[p:p + case.N_wash]
-                Y_val = U_l[p + case.N_wash:p + case.N_wash + case.N_val]
+                Y_val = Y_l[p:p + case.N_val]
 
                 # Perform washout (open-loop without extra forecast step)
                 u_open, r_open = case.openLoop(U_wash, extra_closed=False)
 
                 for tik_j in range(N_tikh):  # cloop for each tikh_-noise combination
                     case.reset_state(u=u_open[-1], r=r_open[-1])
+
                     case.Wout = Wout_tik[tik_j]
                     U_close = case.closedLoop(case.N_val)[0][1:]
 
@@ -512,7 +550,7 @@ class EchoStateNetwork:
         return n_MSE[a] / case.N_folds / case.L
 
     # ________________________________________________________________________________________________ TESTING FUNCTION
-    def run_test(self, U_test, pdf_file=None, folder='./'):
+    def run_test(self, U_test, Y_test, pdf_file=None, folder='./'):
 
         if pdf_file is None:
             os.makedirs(folder + 'figs_ESN', exist_ok=True)
@@ -529,13 +567,13 @@ class EchoStateNetwork:
             print('Test not performed. Not enough train_data')
         else:
             medians_alpha, max_alpha = [], -np.inf
-            for U_test_l in U_test:
+            for U_test_l, Y_test_l in zip(U_test, Y_test):
                 subplots = min(10, total_tests)  # number of plotted intervals
                 fig, _ = plt.subplots(subplots, 1, figsize=[10, 2 * subplots], sharex='all', layout='tight')
                 errors = np.zeros(total_tests)
                 # Different intervals in the test set
                 ti, dim_i = -N_test, -1
-                self.u, self.r = np.zeros(self.N_dim), np.zeros(self.N_units)
+                self.reset_state()
                 while True:
                     ti += N_test
                     dim_i += 1
@@ -545,13 +583,14 @@ class EchoStateNetwork:
 
                     # washout for each interval
                     u_open, r_open = self.openLoop(U_test_l[ti: ti + self.N_wash])
-                    self.u, self.r = u_open[-1], r_open[-1]
+                    self.reset_state(u=u_open[-1], r=r_open[-1])
 
-                    # Data to compare with
-                    Y_t = U_test_l[ti + self.N_wash: ti + self.N_wash + N_test]
+                    # Data to compare with, i.e., labels
+                    Y_t = Y_test_l[ti + self.N_wash: ti + self.N_wash + N_test]
 
                     # Closed-loop prediction
                     Yh_t = self.closedLoop(N_test)[0][1:]
+
                     # Do the multiple sub_loop inside each test interval
                     errors[test_i] = np.log10(np.mean((Yh_t - Y_t) ** 2) / np.mean(self.norm ** 2))
                     if test_i < subplots:
@@ -571,133 +610,141 @@ class EchoStateNetwork:
             print('Median and max error in', self.L, ' test:', np.median(medians_alpha), max_alpha)
 
 
-def add_pdf_page(pdf, fig):
-    pdf.savefig(fig)
-    plt.close(fig)
+def run_Lorenz_tests():
+    # Initialise ESN
+    y_wash = model.getObservableHist(ESN_case.N_wash * upsample)
+
+    u_wash_data = y_wash[::upsample, observe_idx, 0]
+    t_wash = model.hist_t[-ESN_case.N_wash * upsample::upsample]
+    for ii, idx in enumerate(ESN_case.observed_idx):
+        axs[idx, 0].plot(t_wash / t_ref, u_wash_data[:, ii], 'x-')
+
+    # run closed loops and initialize with observations every loop
+    Nt_tests = int(t_between_tests * t_lyap / dt_ESN)
+    Nt_tests_model = Nt_tests * upsample
+
+    u_wash, r_wash = ESN_case.openLoop(u_wash_data)
+    ESN_case.reset_state(u=u_wash[-1], r=r_wash[-1])
+    t_wash_end = t_wash[-1]
+
+    for _ in range(num_tests):
+
+        # Forecast model and ESN and compare
+        state2, t2 = model.timeIntegrate(Nt_tests_model)
+        model.updateHistory(state2, t2, reset=False)
+        t2_up = t2[::ESN_case.upsample]
+        u_closed, r_closed = ESN_case.closedLoop(len(t2_up))
+
+        for axs_col in [axs[:, 0], axs[:, 1]]:
+            yy = model.getObservableHist(Nt_tests_model)
+            for ii, ax in enumerate(axs_col):
+                ax.plot(t2 / t_ref, yy[:, ii], '.-', color='k', lw=2, alpha=.8)
+                ax.plot(t2[-2] / t_ref, yy[-1, ii], 'o-', color='k', markersize=10, alpha=.8, label='')
+                if ii < ESN_case.N_dim:
+                    ax.plot(t2_up / t_ref, u_closed[1:, ii], 'x--', color='r', markersize=4,)
+
+        ESN_case.reset_state(u=np.squeeze(yy[-1]))
+
+    for ax, xl in zip(axs[-1, :], [[0, t_wash_end / t_ref + .5],
+                                   [t_wash_end / t_ref - .1, t2_up[-1] / t_ref]]):
+        ax.set(xlabel='Lyapunov times', xlim=xl)
+    for ax, leg in zip(axs[0, :], [['transient', 'train+val set', 'ESN wash'],
+                                   ['test set', 'ESN prediction']]):
+        ax.legend(leg, ncols=3, loc='lower center', bbox_to_anchor=(0.5, 1.0))
+
+    plt.show()
 
 
 
-# ======================================== other tests ===========================================
-def run_ESN_test(dim=3,  # Number of dimensions the ESN predicts
-                 upsample=5,  # to increase the dt of the ESN wrt the numerical integrator
-                 num_tests=0, **kwargs):
-
+if __name__ == '__main__':
+    from Util import Jacobian_numerical_test
     from physical_models import Lorenz63
+
     rnd = np.random.RandomState(6)
+    test_Jacobian = False
+    plot_training_and_tests = True
+    num_tests = 12
+    t_between_tests = 1.5
+
+    # ============================= TEST ESN BY FORECASTING LORENZ63 =================================== #
+
+    observe_idx = np.array([0, 2])  # Number of dimensions the ESN predicts
+    upsample = 5  # to increase the dt of the ESN wrt the numerical integrator
+
     # Create signal to predict ---------------------------------
     # Note: Does not need to be a class. Any signal can be used as U
     dt_model = 0.015
     dt_ESN = dt_model * upsample  # time step
     t_lyap = 0.906 ** (-1)  # Lyapunov Time (inverse of largest Lyapunov exponent
-    N_lyap = t_lyap / dt_ESN  # number of time steps in one Lyapunov time
 
     # number of time steps for washout, train, validation, test
-    N_transient, N_train, N_val, N_washout, N_test = [n * N_lyap for n in (20, 100, 5, 1, 10)]
+    t_transient, t_train, t_val, t_wash, t_test = [n * t_lyap for n in (10, 40, 2, 1, 0)]
 
     model = Lorenz63(**{'dt': dt_model,
-                        'psi0': rnd.random(3)})
+                        'psi0': rnd.random(3),
+                        't_transient': t_transient,
+                        't_lyap': t_lyap
+                        })
 
-    params_ESN = {'upsample': upsample,
-                  't_train': N_train * dt_ESN,
-                  't_val': N_val * dt_ESN,
-                  't_test': N_test * dt_ESN,
-                  'N_wash': int(N_washout),
-                  'N_units': 200,
-                  'N_folds': 8,
-                  'N_split': 4,
-                  'connect': 3,
-                  'plot_training': True,
-                  'rho_range': (.1, 1.),
-                  'sigma_in_range': (np.log10(0.05), np.log10(10.)),
-                  'tikh_range': [1E-6, 1E-9, 1E-12, 1E-16],
-                  'N_func_evals': 20,
-                  'N_grid': 4,
-                  'noise': 1e-5,
-                  }
-    for key, val in kwargs.items():
-        params_ESN[key] = val
+    params_ESN = dict(upsample=upsample,
+                      t_train=t_train,
+                      t_val=t_val,
+                      t_test=t_test,
+                      N_wash=2,
+                      N_units=80,
+                      N_folds=8,
+                      N_split=5,
+                      connect=6,
+                      plot_training=True,
+                      rho_range=(.1, 1.),
+                      tikh_range=[1E-6, 1E-9, 1E-12, 1E-16],
+                      N_func_evals=40,
+                      sigma_in_range=(np.log10(0.5), np.log10(50.)),
+                      N_grid=4,
+                      noise=1e-3,
+                      perform_test=False)
 
-    N_wtv = int(N_washout + N_train + N_val + N_test * (num_tests + 1))
+    t_wtv = t_wash + t_train + t_val + t_test
+    N_wtv = int(t_wtv / dt_ESN)
+    N_wtv_model = int(t_wtv / dt_model)
+    N_transient_model = int(t_transient / dt_model)
 
-    for Nt in [int(N_transient), N_wtv]:
-        state1, t1 = model.timeIntegrate(Nt * upsample)
+    fig1 = plt.figure(figsize=[12, 9], layout="tight")
+    axs = fig1.subplots(3, 2, sharex='col', sharey='row')
+
+    t_ref = t_lyap ** 1
+
+    for Nt in [N_transient_model, N_wtv_model]:
+        state1, t1 = model.timeIntegrate(Nt)
         model.updateHistory(state1, t1, reset=False)
+        yy = model.getObservableHist(Nt)
+        for ii, ax in enumerate(axs[:, 0]):
+            ax.plot(t1 / t_ref, yy[:, ii], '.-')
+            ax.set(ylabel=model.obsLabels[ii])
 
     # number of time steps for washout, train, validation, test
-    yy = model.getObservableHist(N_wtv * upsample)
-    U = yy[:, :dim].transpose(2, 0, 1)
+    yy = model.getObservableHist(N_wtv_model)
+    Y = yy.transpose(2, 0, 1)
+    U = Y[:, :, observe_idx]
 
-    ESN_case = EchoStateNetwork(U[0, 0], dt=dt_ESN / upsample, **params_ESN)
-    ESN_case.train(U, validation_strategy=EchoStateNetwork.RVC_Noise)
+    ESN_train_data = dict(inputs=U,
+                          labels=Y,
+                          observed_idx=observe_idx)
 
-    # Initialise ESN
-    y_wash = model.getObservableHist(int(N_washout) * upsample)
-    u_wash_data = y_wash[::upsample, :dim, 0]
-    u_wash, r_wash = ESN_case.openLoop(u_wash_data)
-    for key, val in zip(['u', 'r'], [u_wash[-1], r_wash[-1]]):
-        setattr(ESN_case, key, val)
+    ESN_case = EchoStateNetwork(U[0, 0], dt=dt_model, **params_ESN)
+    ESN_case.train(ESN_train_data, validation_strategy=EchoStateNetwork.RVC_Noise)
 
-    # Forecast model and ESN and compare
-    state2, t2 = model.timeIntegrate(int(N_test) * upsample)
-    model.updateHistory(state2, t2, reset=False)
-    t2_up = t2[::ESN_case.upsample]
-    u_closed, r_closed = ESN_case.closedLoop(len(t2_up))
-
-    print(model.t)
-    if num_tests:
-        fig1 = plt.figure(figsize=[12, 9], layout="tight")
-        axs = fig1.subplots(3, 2, sharex='col', sharey='row')
-        y_hist = model.getObservableHist()
-        i0 = 0
-        for i1 in [int(N_transient), N_wtv]:
-            t1 = model.hist_t[i0:i0 + i1 * upsample]
-            yy = y_hist[i0:i0 + i1 * upsample]
-            for ii, ax in enumerate(axs[:, 0]):
-                ax.plot(t1 / t_lyap, yy[:, ii], '.-')
-                ax.set(ylabel=model.obsLabels[ii])
-            i0 = i1 * upsample
-
-        t_wash = t1[-int(N_washout) * upsample::upsample]
-        for ii, ax in enumerate(axs[:, 0]):
-            if ii < ESN_case.N_dim:
-                ax.plot(t_wash / t_lyap, u_wash_data[:, ii], 'x-')
-
-        for axs_col in [axs[:, 0], axs[:, 1]]:
-            t1 = model.hist_t[-int(N_test) * upsample:]
-            yy = y_hist[-int(N_test) * upsample:]
-            for ii, ax in enumerate(axs_col):
-                ax.plot(t1 / t_lyap, yy[:, ii], '.-', color='k', lw=2, alpha=.8)
-                # ax.set(ylim=[min(yy[:, ii]), max(yy[:, ii])])
-                if ii < ESN_case.N_dim:
-                    ax.plot(t1[::upsample] / t_lyap, u_closed[1:, ii], 'x--', color='r')
-
-        for ax, xl in zip(axs[-1, :], [[0, t2_up[0]/t_lyap + .5], [t2_up[0] / t_lyap - .1, t2_up[-1] / t_lyap]]):
-            ax.set(xlabel='Lyapunov times', xlim=xl)
-        for ax, leg in zip(axs[0, :], [['transient', 'training + val set', 'ESN washout'],
-                                       ['test set', 'ESN prediction']]):
-            ax.legend(leg, ncols=3, loc='lower center', bbox_to_anchor=(0.5, 1.0))
-
-    ESN_case.reset_state(u=u_closed[-1], r=r_closed[-1])
-    return ESN_case, model
-
-
-if __name__ == '__main__':
-    from Util import Jacobian_numerical_test
-
-    # ============================= TEST ESN BY FORECASTING LORENZ63 =================================== #
-
-    params = dict(N_folds=20,
-                  sigma_in_range=(np.log10(0.5), np.log10(50.)),
-                  N_func_evals=40,
-                  N_grid=6)
-    ESN_case, forecast_model = run_ESN_test(dim=3, num_tests=5, **params)
+    # # ============================= RUN LORENTZ TEST =================================== #
+    if plot_training_and_tests:
+        run_Lorenz_tests()
 
     # # ============================= TEST IF JACOBIAN PROPERLY DEFINED =================================== #
-    J_ESN = ESN_case.Jacobian(open_loop_J=True)
+    if test_Jacobian:
+        J_ESN = ESN_case.Jacobian(open_loop_J=True)
 
-    u_init, r_init = ESN_case.getReservoirState()
-    fun = partial(ESN_case.step, r=r_init)
+        u_init, r_init = ESN_case.getReservoirState()
+        fun = partial(ESN_case.step, r=r_init)
 
-    Jacobian_numerical_test(J_ESN, step_function=fun, y_init=u_init, y_out_idx=0)
+        Jacobian_numerical_test(J_ESN, step_function=fun, y_init=u_init, y_out_idx=0)
 
     plt.show()

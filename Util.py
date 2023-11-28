@@ -11,7 +11,6 @@ from functools import lru_cache
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
-
 from scipy.interpolate import interp1d
 from scipy.signal import find_peaks
 
@@ -125,6 +124,11 @@ def load_from_pickle_file(filename):
         return args
 
 
+def add_pdf_page(pdf, fig_to_add):
+    pdf.savefig(fig_to_add)
+    plt.close(fig_to_add)
+
+
 def fun_PSD(dt, X):
     # Function that computes the Power Spectral Density.
     # - Inputs:
@@ -147,8 +151,6 @@ def fun_PSD(dt, X):
         PSD.append(2.0 / len_x * np.abs(yt[0:len_x // 2]))
 
     return f, PSD
-
-
 
 
 def Jacobian_numerical_test(J_analytical, step_function, y_init, epsilons=np.arange(-10, 3, 0.1), y_out_idx=None):
@@ -190,9 +192,7 @@ def Jacobian_numerical_test(J_analytical, step_function, y_init, epsilons=np.ara
     plt.xlabel('$-\\log_{10}(\\epsilon)$')
 
 
-
 def plot_train_data(truth, y_ref, t_ref, t_CR, folder):
-
     L = y_ref.shape[-1]
     y = y_ref[:len(truth['t'])]  # train_ens.getObservableHist(Nt=len(truth['t']))
     t = t_ref[:len(truth['t'])]

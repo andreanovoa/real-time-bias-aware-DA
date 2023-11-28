@@ -40,9 +40,6 @@ class Bias:
         self.b = b
         self.t = t
 
-    @property
-    def getBias(self):
-        return self.b
 
 
 # =================================================================================================================== #
@@ -66,6 +63,10 @@ class NoBias(Bias):
     def print_bias_parameters(self):
         print('\n ----------------  Bias model parameters ---------------- ',
               '\n Bias model: {}'.format(self.name))
+
+    @property
+    def getBias(self):
+        return self.b
 
 
 # =================================================================================================================== #
@@ -148,4 +149,8 @@ class ESN(Bias, EchoStateNetwork):
         self.train(train_data, validation_strategy=val_strategy,
                    plot_training=plot_training, folder=folder)
         self.trained = True
+
+    @property
+    def getBias(self):
+        return self.outputs_to_inputs(self.getReservoirState()[0])     # EDIT HERE
 # =================================================================================================================== #

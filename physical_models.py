@@ -17,8 +17,6 @@ num_proc = os.cpu_count()
 if num_proc > 1:
     num_proc = int(num_proc)
 
-rng = np.random.default_rng(6)
-
 plt.rc('text', usetex=True)
 plt.rc('font', family='times', size=14, serif='Times New Roman')
 plt.rc('mathtext', rm='times', bf='times:bold')
@@ -29,7 +27,7 @@ plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 class Model:
     """ Parent Class with the general model properties and methods definitions.
     """
-    defaults: dict = dict(t=0., precision_t=6,
+    defaults: dict = dict(t=0., seed=0,
                           psi0=np.empty(1), alpha0=np.empty(1), psi=None, alpha=None,
                           ensemble=False, filename='', governing_eqns_params=dict())
     defaults_ens: dict = dict(filter='EnKF',
@@ -52,9 +50,11 @@ class Model:
                               get_cost=False,
                               Na=0
                               )
+
     # __slots__ = list(defaults.keys()) + list(defaults_ens.keys()) + ['hist', 'hist_t', 'hist_J', '_pool', '_M', '_Ma']
 
     def __init__(self, child_defaults, **model_dict):
+
         # ================= INITIALISE THERMOACOUSTIC MODEL ================== ##
         default_values = {**child_defaults, **Model.defaults}
         for key, val in default_values.items():
@@ -67,7 +67,12 @@ class Model:
         for key, val in Model.defaults_ens.items():
             if key in model_dict.keys():
                 setattr(self, key, model_dict[key])
+                del model_dict[key]
 
+        if len(model_dict.keys()) != 0:
+            print('Model {} not assigned'.format(model_dict.keys()))
+
+        # ====================== SET INITIAL CONDITIONS ====================== ##
         self.alpha0 = {par: getattr(self, par) for par in self.params}
         self.alpha = self.alpha0.copy()
         self.psi = np.array([self.psi0]).T
@@ -78,7 +83,8 @@ class Model:
         # ========================== DEFINE LENGTHS ========================== ##
         self.precision_t = int(-np.log10(self.dt)) + 2
         self.bias = None
-        # self.defaults_child = child_defaults.copy()
+        # ======================== SET RNG ================================== ##
+        self.rng = np.random.default_rng(self.seed)
 
     @property
     def Nphi(self):
@@ -107,7 +113,7 @@ class Model:
             psi = np.mean(psi, -1, keepdims=True)
             model.ensemble = False
         else:
-            psi = model.addUncertainty(np.mean(psi, -1, keepdims=True), np.std(psi, -1, keepdims=True), m)
+            psi = model.addUncertainty(self.rng, np.mean(psi, -1, keepdims=True), np.std(psi, -1, keepdims=True), m)
         model.updateHistory(psi=psi, t=0., reset=reset)
         return model
 
@@ -145,7 +151,7 @@ class Model:
 
     # ------------------------- Functions for update/initialise the model --------------------------- #
     @staticmethod
-    def addUncertainty(mean, std, m, method='normal', param_names=None, ensure_mean=False):
+    def addUncertainty(rng, mean, std, m, method='normal', param_names=None, ensure_mean=False):
         if method == 'normal':
             if isinstance(std, float):
                 cov = np.diag((mean * std) ** 2)
@@ -192,15 +198,14 @@ class Model:
         # --------------- RESET INITIAL CONDITION AND HISTORY --------------- ##
         # Note: if est_a and est_b psi = [psi; alpha; biasWeights]
         ensure_mean = self.ensure_mean
-        self.psi0 = np.mean(self.psi, -1)
+        mean_psi0 = np.mean(self.psi, -1)
 
-        mean_psi = self.psi0 * rng.uniform(0.9, 1.1, len(self.psi0))
-        new_psi0 = self.addUncertainty(mean_psi, self.std_psi, self.m,
+        new_psi0 = self.addUncertainty(self.rng, mean_psi0, self.std_psi, self.m,
                                        method='normal', ensure_mean=ensure_mean)
 
         if self.est_a:  # Augment ensemble with estimated parameters
             mean_a = np.array([getattr(self, pp) for pp in self.est_a])
-            new_alpha0 = self.addUncertainty(mean_a, self.std_a, self.m, method=self.alpha_distr,
+            new_alpha0 = self.addUncertainty(self.rng, mean_a, self.std_a, self.m, method=self.alpha_distr,
                                              param_names=self.est_a, ensure_mean=ensure_mean)
             new_psi0 = np.vstack((new_psi0, new_alpha0))
             self.Na = len(self.est_a)
@@ -328,11 +333,11 @@ class Model:
                 psi_mean = Model.forecast(y0=psi_mean0[:, 0], fun=self.timeDerivative, t=t,
                                           params={**alpha, **args})
 
-                if np.mean(np.std(self.psi[:len(self.psi0)] / np.array([self.psi0]).T, axis=0)) < 2.:
-                    psi_deviation /= psi_mean0
-                    psi = [psi_mean * (1 + psi_deviation[:, ii]) for ii in range(self.m)]
-                else:
-                    psi = [psi_mean + psi_deviation[:, ii] for ii in range(self.m)]
+                # if np.mean(np.std(self.psi[:len(self.psi0)] / np.array([self.psi0]).T, axis=0)) < 2.:
+                # psi_deviation /= psi_mean0
+                # psi = [psi_mean * (1 + psi_deviation[:, ii]) for ii in range(self.m)]
+                # else:
+                psi = [psi_mean + psi_deviation[:, ii] for ii in range(self.m)]
 
         # Rearrange dimensions to be Nt x N x m and remove initial condition
         psi = np.array(psi).transpose((1, 2, 0))
@@ -348,7 +353,7 @@ class VdP(Model):
     """
 
     name: str = 'VdP'
-    defaults: dict = dict(Nq=1,
+    defaults: dict = dict(Nq=1, t_transient=1.5, t_CR=0.04, dt=1e-4,
                           omega=2 * np.pi * 120., law='tan',
                           zeta=60., beta=70., kappa=4.0, gamma=1.7)  # beta, zeta [rad/s]
 
@@ -357,10 +362,6 @@ class VdP(Model):
     params: list = [*params_labels]  # ,'omega', 'gamma']
 
     fixed_params = ['law', 'omega']
-
-    t_transient = 1.5
-    t_CR = 0.04
-    dt = 1.0E-4
 
     # __________________________ Init method ___________________________ #
     def __init__(self, **model_dict):
@@ -403,19 +404,13 @@ class Rijke(Model):
     """
 
     name: str = 'Rijke'
-    defaults: dict = dict(Nm=10, Nc=10, Nq=6,
-                          beta=4.0, tau=1.5E-3,
-                          C1=.05, C2=.01, kappa=1E5,
-                          xf=0.2, L=1., law='sqrt')
+    defaults: dict = dict(Nm=10, Nc=10, Nq=6, t_transient=1., t_CR=0.02, dt=1e-4,
+                          beta=4.0, tau=1.5E-3, C1=.05, C2=.01, kappa=1E5, xf=0.2, L=1., law='sqrt')
     params_labels = dict(beta='$\\beta$', tau='$\\tau$', C1='$C_1$', C2='$C_2$', kappa='$\\kappa$')
     params_lims = dict(beta=(0.01, 5), tau=[1E-6, None], C1=(0., 1.), C2=(0., 1.), kappa=(1E3, 1E8))
     params: list = list([*params_labels])
 
     fixed_params = ['cosomjxf', 'Dc', 'gc', 'jpiL', 'L', 'law', 'meanFlow', 'Nc', 'Nm', 'tau_adv', 'sinomjxf']
-
-    t_transient = 1.
-    t_CR = 0.02
-    dt = 1E-4
 
     def __init__(self, **model_dict):
 
@@ -535,7 +530,7 @@ class Rijke(Model):
         MF = meanFlow.copy()  # Physical properties
         if law == 'sqrt':
             q_dot = MF['p'] * MF['u'] * beta * (
-                        np.sqrt(abs(1. / 3 + u_tau / MF['u'])) - np.sqrt(1. / 3))  # [W/m2]=[m/s3]
+                    np.sqrt(abs(1. / 3 + u_tau / MF['u'])) - np.sqrt(1. / 3))  # [W/m2]=[m/s3]
         elif law == 'tan':
             q_dot = beta * np.sqrt(beta / kappa) * np.arctan(np.sqrt(beta / kappa) * u_tau)  # [m / s3]
         else:
@@ -555,19 +550,16 @@ class Lorenz63(Model):
     """ Lorenz 63 Class
     """
     name: str = 'Lorenz63'
-    defaults: dict = dict(rho=28., sigma=10., beta=8. / 3., Nq=3)
+
+    t_lyap = 0.906 ** (-1)
+    defaults: dict = dict(Nq=3, t_lyap=t_lyap, t_transient=t_lyap * 20., t_CR=t_lyap * 4., dt=0.02,
+                          rho=28., sigma=10., beta=8. / 3.)
 
     params_labels = dict(rho='$\\rho$', sigma='$\\sigma$', beta='$\\beta$')
     params_lims = dict(rho=(None, None), sigma=(None, None), beta=(None, None))
     params = list([*params_labels])
 
     fixed_params = []
-
-    t_lyap = 0.906 ** (-1)
-    dt = 0.02
-
-    t_transient = t_lyap * 20.
-    t_CR = t_lyap * 4
 
     # __________________________ Init method ___________________________ #
     def __init__(self, **model_dict):
@@ -601,8 +593,8 @@ class Annular(Model):
     nu_1, nu_2 = 633.77, -331.39
     c2b_1, c2b_2 = 258.3, -108.27
 
-    defaults: dict = dict(Nq=4, n=1., ER=ER_0,
-                          theta_b=0.63, theta_e=0.66, omega=1090*2*np.pi, epsilon=2.3E-3,
+    defaults: dict = dict(Nq=4, n=1., ER=ER_0, t_transient=0.5, t_CR=0.01, dt=1. / 51200,
+                          theta_b=0.63, theta_e=0.66, omega=1090 * 2 * np.pi, epsilon=2.3E-3,
                           nu=nu_1 * ER_0 + nu_2, beta_c2=c2b_1 * ER_0 + c2b_2, kappa=1.2E-4)  # values in Matlab codes
 
     # defaults['nu'], defaults['beta_c2'] = 30., 5.  # spin
@@ -611,15 +603,10 @@ class Annular(Model):
 
     params_labels = dict(omega='$\\omega$', nu='$\\nu$', beta_c2='$c_2\\beta $', kappa='$\\kappa$',
                          epsilon='$\\epsilon$', theta_b='$\\Theta_\\beta$', theta_e='$\\Theta_\\epsilon$')
-    params_lims = dict(omega=(1000*2*np.pi, 1300*2*np.pi), nu=(1., 60.), beta_c2=(1., 60.), kappa=(None, None),
+    params_lims = dict(omega=(1000 * 2 * np.pi, 1300 * 2 * np.pi), nu=(1., 60.), beta_c2=(1., 60.), kappa=(None, None),
                        epsilon=(None, None), theta_b=(0, 2 * np.pi), theta_e=(0, 2 * np.pi))
     params = list([*params_labels])
     fixed_params = []
-
-    dt = 1. / 51200
-    t_transient = 0.5
-    t_CR = 0.01
-    Nq = 4
 
     # __________________________ Init method ___________________________ #
     def __init__(self, **model_dict):
@@ -657,6 +644,14 @@ class Annular(Model):
             if loc is None:
                 loc = self.theta_mic
             return ["$p(\\theta={}^\\circ)$".format(int(np.round(np.degrees(th)))) for th in np.array(loc)]
+
+    @staticmethod
+    def nu_from_ER(ER):
+        return Annular.nu_1 * ER + Annular.nu_2
+
+    @staticmethod
+    def beta_c2_from_ER(ER):
+        return Annular.c2b_1 * ER + Annular.c2b_1
 
     def getObservables(self, Nt=1, loc=None, measure_modes=False):
         """
@@ -749,10 +744,10 @@ if __name__ == '__main__':
     ii = case.Nphi
     mean_p, hist_p, std_p, labels_p = [], [], [], []
     for p in case.est_a:
-        m = mean[:, ii].squeeze()
+        m_ = mean[:, ii].squeeze()
         s = abs(np.std(case.hist[:, ii], axis=1))
         labels_p.append(case.params_labels[p])
-        mean_p.append(m)
+        mean_p.append(m_)
         std_p.append(s)
         hist_p.append(case.hist[:, ii, :])
         ii += 1
@@ -762,12 +757,12 @@ if __name__ == '__main__':
     axs = subfigs[1].subplots(len(case.est_a), 1, sharex='col')
     if type(axs) is not np.ndarray:
         axs = [axs]
-    for ax, p, h, m, s, c, lbl in zip(axs, case.est_a, hist_p, mean_p, std_p, colors_alpha, labels_p):
+    for ax, p, h, avg, s, c, lbl in zip(axs, case.est_a, hist_p, mean_p, std_p, colors_alpha, labels_p):
         max_p = np.max(h)
         min_p = np.min(h)
-        ax.plot(case.hist_t, m, color=c, label='mean ' + lbl)
+        ax.plot(case.hist_t, avg, color=c, label='mean ' + lbl)
         ax.plot(case.hist_t, h, color=c, lw=0.5)
-        ax.fill_between(case.hist_t, m + abs(s), m - abs(s), alpha=0.2, color=c, label='std ' + lbl)
+        ax.fill_between(case.hist_t, avg + abs(s), avg - abs(s), alpha=0.2, color=c, label='std ' + lbl)
         ax.legend(loc='upper right', fontsize='small', ncol=2)
         ax.set(ylabel='', ylim=[min_p, max_p])
 

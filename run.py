@@ -21,9 +21,11 @@ def main(filter_ens, truth):
     # =========================  PERFORM DATA ASSIMILATION ========================== #
 
     filter_ens = dataAssimilation(filter_ens, **observations)
-    filter_ens.is_not_physical(print_=True)
 
-    # Integrate further without assimilation as ensemble mean (if truth very long, integrate only .2s more)
+    # =========================  EXTRA FORCAST POST-DA  ========================== #
+
+    filter_ens.is_not_physical(print_=True)
+    # If the true signal very long, integrate only one reference time more
     if hasattr(filter_ens, 't_max'):
         Nt_extra = int(min((filter_ens.t_max - filter_ens.hist_t[-1]), filter_ens.t_CR) / filter_ens.dt) + 1
     else:
