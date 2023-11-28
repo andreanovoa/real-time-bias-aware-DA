@@ -371,8 +371,8 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble, train_params, filename, 
     train_data_in = train_data_in.transpose((2, 0, 1))
 
     train_data = dict(inputs=train_data_in,
-                      labels=np.concatenate([train_data_in, train_data_out], axis=0),
-                      observed_idx=np.arange(y_L_model.shape[1]))
+                      labels=np.concatenate([train_data_out, train_data_in], axis=2),
+                      observed_idx=y_L_model.shape[1] + np.arange(y_L_model.shape[1]))
 
     assert len(train_data_in.shape) == 3
     assert train_data_in.shape[1] == Nt

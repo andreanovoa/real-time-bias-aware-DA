@@ -75,7 +75,7 @@ if __name__ == '__main__':
                        augment_data=True,
                        L=10,
                        # Training, val and wash times
-                       N_wash=20,
+                       N_wash=10,
                        # Hyperparameter search ranges
                        rho_range=(0.5, 1.1),
                        sigma_in_range=(np.log10(1e-5), np.log10(1e0)),
@@ -98,10 +98,7 @@ if __name__ == '__main__':
     print('\n\n', filter_ens.bias.name, filter_ens.bias.N_dim)
 
     # raise
-
-
     filter_ens = main(filter_ens, truth)
-
 
     print(filter_ens.bias.hist.shape)
 
@@ -116,7 +113,7 @@ if __name__ == '__main__':
                             epsilon=2.3E-3,
                             nu=Annular.nu_from_ER(ER),
                             beta_c2=Annular.beta_c2_from_ER(ER),
-                            kappa=1.2E-4)  # values in Matlab codes - I th negative in LCs ................ <=============================
+                            kappa=1.2E-4)  # values in Matlab codes
     if filter_ens.est_a:
         plot_parameters(filter_ens, truth, reference_p=reference_params, twin=True)
 

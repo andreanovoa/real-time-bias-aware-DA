@@ -27,7 +27,6 @@ class EchoStateNetwork:
                     connect=5,
                     initialised=False,
                     L=1,
-                    N_ensemble=1,  # TODO
                     N_folds=4,
                     N_func_evals=20,
                     N_grid=4,

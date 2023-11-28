@@ -152,5 +152,10 @@ class ESN(Bias, EchoStateNetwork):
 
     @property
     def getBias(self):
-        return self.outputs_to_inputs(self.getReservoirState()[0])     # EDIT HERE
+        full_state = self.getReservoirState()[0]
+        if len(self.observed_idx) != len(full_state):
+            not_observed_idx = [a for a in np.arange(len(full_state)) if a not in self.observed_idx]
+            return full_state[not_observed_idx]
+        else:
+            return full_state
 # =================================================================================================================== #
