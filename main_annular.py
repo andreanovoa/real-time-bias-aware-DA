@@ -95,7 +95,8 @@ if __name__ == '__main__':
     create_bias_model(filter_ens, truth, bias_params, ESN_name,
                       bias_model_folder=folder, plot_train_data=True)
 
-    print('\n\n', filter_ens.bias.name, filter_ens.bias.N_dim)
+    print('\n\n', filter_ens.bias.name, filter_ens.bias.N_dim,
+          filter_ens.bias.b, filter_ens.bias.hist.shape)
 
     # raise
     filter_ens = main(filter_ens, truth)

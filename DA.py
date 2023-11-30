@@ -126,7 +126,7 @@ def analysisStep(case, d, Cdd):
         Aa, cost = EnKF(Af, d, Cdd, M, get_cost=case.get_cost)
     elif case.filter == 'rBA_EnKF':
         # ----------------- Retrieve bias and its Jacobian ----------------- #
-        b = case.bias.getBias
+        b = case.bias.getBias()
         J = case.bias.stateDerivative()
         # -------------- Define bias Covariance and the weight -------------- #
         k = case.regularization_factor

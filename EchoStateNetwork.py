@@ -136,7 +136,7 @@ class EchoStateNetwork:
         # Get current state
         u_in, r_in = self.getReservoirState()
 
-        Win_1 = self.Win[:, :self.N_dim]
+        Win_1 = self.Win[:, :self.N_dim_in]
         Wout_1 = self.Wout[:self.N_units, :].T
 
         # # Option(i) rin function of bin:

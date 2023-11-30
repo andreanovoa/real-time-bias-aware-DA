@@ -31,7 +31,7 @@ class Bias:
             self.hist = np.concatenate((self.hist, b))
             self.hist_t = np.concatenate((self.hist_t, t))
         else:
-            self.hist = np.array([self.b])
+            self.hist = np.array([self.getBias])
             self.hist_t = np.array([self.t])
         self.b = self.hist[-1]
         self.t = self.hist_t[-1]
@@ -39,7 +39,6 @@ class Bias:
     def updateCurrentState(self, b, t):
         self.b = b
         self.t = t
-
 
 
 # =================================================================================================================== #
@@ -75,19 +74,34 @@ class ESN(Bias, EchoStateNetwork):
     name = 'ESN'
 
     def __init__(self, y, t, dt, **kwargs):
-        # --------------------------  Initialise parent Bias  ------------------------- #
-        Bias.__init__(self, b=np.zeros(len(y)), t=t, dt=dt, **kwargs)
-        # ---------------------  Initialise parent EchoStateNetwork  --------------------- #
+        # --------------------  Initialise parent EchoStateNetwork  ------------------- #
         EchoStateNetwork.__init__(self, y=np.zeros(len(y)), dt=dt, **kwargs)
+        # --------------------------  Initialise parent Bias  ------------------------- #
+        Bias.__init__(self, b=np.zeros(self.N_dim), t=t, dt=dt, **kwargs)
+        # Flags
         self.initialised = False
         self.trained = False
+        if 'store_ESN_history' in kwargs.keys():
+            self.store_ESN_history = kwargs['store_ESN_history']
+        else:
+            self.store_ESN_history = False
 
     def resetBias(self, value):
         self.b = value
         self.reset_state(u=value)
 
+    def update_reservoir_history(self, u, r, reset=False):
+        if not reset:
+            self.hist_u = np.concatenate((self.hist_u, u[1:]))
+            self.hist_r = np.concatenate((self.hist_r, r[1:]))
+        else:
+            self.hist_u = np.array([self.hist_u])
+            self.hist_r = np.array([self.hist_r])
+
     def stateDerivative(self):
-        return -self.Jacobian(open_loop_J=True)  # Compute ESN Jacobian
+        J = self.Jacobian(open_loop_J=True)  # Compute ESN Jacobian
+        db_dinput = J[self.observed_idx, :]
+        return -db_dinput
 
     def timeIntegrate(self, t, y=None, wash_t=None, wash_obs=None):
         if not self.trained:
@@ -102,42 +116,48 @@ class ESN(Bias, EchoStateNetwork):
 
         # If the time is before the washout initialization, return zeros
         if self.initialised:
-            b, r = self.closedLoop(Nt)
-        elif wash_t is None:
-            b = np.zeros((Nt + 1, self.N_dim))
-            r = np.zeros((Nt + 1, self.N_units))
+            u, r = self.closedLoop(Nt)
         else:
-            b = np.zeros((Nt + 1, self.N_dim))
-            t1 = np.argmin(abs(t_b - wash_t[0]))
-            Nt -= t1
-            # Flag initialised
-            self.initialised = True
-            # Run washout phase in open-loop
-            wash_model = interpolate(t, np.mean(y, -1), wash_t)
-            b_open, r = self.openLoop(wash_obs - wash_model)
-            b[t1:t1+self.N_wash+1] = b_open
-            Nt -= self.N_wash
-            # Run the rest of the time window in closed-loop
-            if Nt > 0:
-                # Store open-loop forecast
-                self.reset_state(u=b[-1], r=r[-1])
-                b_close, r = self.closedLoop(Nt)
-                b[t1 + self.N_wash + 1:] = b_close[1:]
-
+            u = np.zeros((Nt + 1, self.N_dim))
+            r = np.zeros((Nt + 1, self.N_units))
+            if wash_t is not None:
+                t1 = np.argmin(abs(t_b - wash_t[0]))
+                Nt -= t1
+                # Flag initialised
+                self.initialised = True
+                # Run washout phase in open-loop
+                wash_model = interpolate(t, np.mean(y, -1), wash_t)
+                u_open, r_open = self.openLoop(wash_obs - wash_model)
+                u[t1:t1+self.N_wash+1] = u_open
+                r[t1:t1+self.N_wash+1] = r_open
+                Nt -= self.N_wash
+                # Run the rest of the time window in closed-loop
+                if Nt > 0:
+                    # Store open-loop forecast
+                    self.reset_state(u=u[-1], r=r[-1])
+                    u_close, r_close = self.closedLoop(Nt)
+                    u[t1 + self.N_wash + 1:] = u_close[1:]
+                    r[t1 + self.N_wash + 1:] = r_close[1:]
+        # Interpolate the final point if the upsample is not multiple of dt
         if interp_flag:
-            b[-1] = interpolate(t_b[-Nt:], b[-Nt:], t[-1])
+            u[-1] = interpolate(t_b[-Nt:], u[-Nt:], t[-1])
             r[-1] = interpolate(t_b[-Nt:], r[-Nt:], t[-1])
             t_b[-1] = t[-1]
 
-        # update ESN physical and reservoir states
-        self.reset_state(u=b[-1], r=r[-1])
+        # update ESN physical and reservoir states, and store the history if requested
+        self.reset_state(u=u[-1], r=r[-1])
+        # if self.store_ESN_history:
+        #     self.update_reservoir_history(u=u, r=r)
 
+        # Transform u (full state) into b (bias - partially observed space)
+        b = self.getBias(full_state=u)
         return b[1:], t_b[1:]
+
 
     def print_bias_parameters(self):
         print('\n ---------------- {} bias model parameters --------------- '.format(self.name))
-        keys_to_print = sorted(['t_train', 't_val', 'N_wash', 'rho', 'sigma_in',
-                                'upsample', 'N_units', 'perform_test', 'augment_data', 'L', 'connect', 'tikh'])
+        keys_to_print = sorted(['t_train', 't_val', 'N_wash', 'rho', 'sigma_in', 'upsample',
+                                'N_units', 'perform_test', 'augment_data', 'L', 'connect', 'tikh'])
         for key in keys_to_print:
             try:
                 print('\t {} = {:.6}'.format(key, getattr(self, key)))
@@ -150,12 +170,16 @@ class ESN(Bias, EchoStateNetwork):
                    plot_training=plot_training, folder=folder)
         self.trained = True
 
-    @property
-    def getBias(self):
-        full_state = self.getReservoirState()[0]
-        if len(self.observed_idx) != len(full_state):
-            not_observed_idx = [a for a in np.arange(len(full_state)) if a not in self.observed_idx]
-            return full_state[not_observed_idx]
+    # @property
+    def getBias(self, full_state=None):
+        if len(self.observed_idx) != self.N_dim:
+            bias_idx = [a for a in np.arange(self.N_dim) if a not in self.observed_idx]
         else:
-            return full_state
+            bias_idx = np.arange(self.N_dim)
+
+        if full_state is None:
+            full_state = self.getReservoirState()[0]
+            return full_state[bias_idx]
+        else:  # i.e. input timeseries
+            return full_state[:, bias_idx]
 # =================================================================================================================== #
