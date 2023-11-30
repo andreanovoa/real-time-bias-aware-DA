@@ -31,7 +31,7 @@ class Bias:
             self.hist = np.concatenate((self.hist, b))
             self.hist_t = np.concatenate((self.hist_t, t))
         else:
-            self.hist = np.array([self.getBias])
+            self.hist = np.array([self.getBias()])
             self.hist_t = np.array([self.t])
         self.b = self.hist[-1]
         self.t = self.hist_t[-1]
@@ -48,7 +48,7 @@ class NoBias(Bias):
     name = 'None'
 
     def __init__(self, y, t, dt, **kwargs):
-        super().__init__(b=np.zeros(len(y)), t=t, dt=dt, **kwargs)
+        super().__init__(b=np.zeros(y.shape), t=t, dt=dt, **kwargs)
 
     def resetBias(self, value):
         self.b = value
@@ -63,7 +63,6 @@ class NoBias(Bias):
         print('\n ----------------  Bias model parameters ---------------- ',
               '\n Bias model: {}'.format(self.name))
 
-    @property
     def getBias(self):
         return self.b
 
@@ -77,7 +76,7 @@ class ESN(Bias, EchoStateNetwork):
         # --------------------  Initialise parent EchoStateNetwork  ------------------- #
         EchoStateNetwork.__init__(self, y=np.zeros(len(y)), dt=dt, **kwargs)
         # --------------------------  Initialise parent Bias  ------------------------- #
-        Bias.__init__(self, b=np.zeros(self.N_dim), t=t, dt=dt, **kwargs)
+        Bias.__init__(self, b=np.zeros(y.shape), t=t, dt=dt, **kwargs)
         # Flags
         self.initialised = False
         self.trained = False

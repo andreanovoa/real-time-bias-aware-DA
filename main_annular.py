@@ -75,7 +75,7 @@ if __name__ == '__main__':
                        augment_data=True,
                        L=10,
                        # Training, val and wash times
-                       N_wash=10,
+                       N_wash=5,
                        # Hyperparameter search ranges
                        rho_range=(0.5, 1.1),
                        sigma_in_range=(np.log10(1e-5), np.log10(1e0)),
@@ -95,13 +95,8 @@ if __name__ == '__main__':
     create_bias_model(filter_ens, truth, bias_params, ESN_name,
                       bias_model_folder=folder, plot_train_data=True)
 
-    print('\n\n', filter_ens.bias.name, filter_ens.bias.N_dim,
-          filter_ens.bias.b, filter_ens.bias.hist.shape)
-
-    # raise
     filter_ens = main(filter_ens, truth)
 
-    print(filter_ens.bias.hist.shape)
 
     #%%  Plot results -------
 
