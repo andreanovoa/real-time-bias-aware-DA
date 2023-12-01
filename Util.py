@@ -124,9 +124,10 @@ def load_from_pickle_file(filename):
         return args
 
 
-def add_pdf_page(pdf, fig_to_add):
+def add_pdf_page(pdf, fig_to_add, close_figs=True):
     pdf.savefig(fig_to_add)
-    plt.close(fig_to_add)
+    if close_figs:
+        plt.close(fig_to_add)
 
 
 def fun_PSD(dt, X):

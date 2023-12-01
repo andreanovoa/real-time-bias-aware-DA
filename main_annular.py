@@ -5,10 +5,10 @@ from create import *
 from plot_functions.plotResults import *
 
 path_dir = os.path.realpath(__file__).split('main')[0]
-
+#
 if os.path.isdir('/mscott/'):
     data_folder = '/mscott/an553/data/'  # set working directory to mscott
-    os.chdir(data_folder)  # set working directory to mscott
+    # os.chdir(data_folder)  # set working directory to mscott
 else:
     data_folder = "data/"
 
@@ -44,7 +44,7 @@ if __name__ == '__main__':
     filter_params = dict(filter='rBA_EnKF',  # 'rBA_EnKF' 'EnKF' 'EnSRKF'
                          constrained_filter=False,
                          m=10,
-                         regularization_factor=2.,
+                         regularization_factor=.5,
                          # Parameter estimation options
                          est_a=[*parameters_IC],
                          std_a=parameters_IC,
@@ -68,12 +68,12 @@ if __name__ == '__main__':
 
     bias_params = dict(biasType=ESN,   # ESN / NoBias
                        upsample=5,
-                       N_units=100,
+                       N_units=300,
                        std_a=filter_params['std_a'],
                        est_a=filter_params['est_a'],
                        # Training data generation  options
                        augment_data=True,
-                       L=10,
+                       L=100,
                        # Training, val and wash times
                        N_wash=5,
                        # Hyperparameter search ranges
@@ -95,8 +95,13 @@ if __name__ == '__main__':
     create_bias_model(filter_ens, truth, bias_params, ESN_name,
                       bias_model_folder=folder, plot_train_data=True)
 
+    # print('\n\n', filter_ens.bias.name, filter_ens.bias.N_dim,
+    #       filter_ens.bias.b, filter_ens.bias.hist.shape)
+
+    # raise
     filter_ens = main(filter_ens, truth)
 
+    # print(filter_ens.bias.hist.shape)
 
     #%%  Plot results -------
 
@@ -115,4 +120,29 @@ if __name__ == '__main__':
 
     # post_process_single(filter_ens, truth, reference_p=Annular.defaults)
     plot_timeseries(filter_ens, truth, reference_y=1.)
-    plt.show()
+
+
+    # Save results and plot
+    save_properties = ['N_wash', 'L', 'regularization_factor', 'N_units']
+    filename = ''
+    for key in save_properties:
+        filename += key
+        try:
+            filename += str(getattr(filter_ens.bias, key))
+        except:
+            filename += str(getattr(filter_ens, key))
+
+        if key != save_properties[-1]:
+            filename += '_'
+
+    print(figs_dir + filename)
+
+    from Util import add_pdf_page
+    pdf = plt_pdf.PdfPages(figs_dir + filename + '.pdf')
+    for fignum in plt.get_fignums():
+        current_fig = plt.figure(fignum)
+
+        pdf.savefig(current_fig)
+        # add_pdf_page(pdf, current_fig, close_figs=False)
+        # current_fig.savefig(filename + str(fignum))
+    pdf.close()
