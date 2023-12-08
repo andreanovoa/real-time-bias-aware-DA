@@ -17,8 +17,8 @@ from scipy.sparse import csr_matrix, lil_matrix
 from scipy.sparse.linalg import eigs as sparse_eigs
 from Util import add_pdf_page
 
-
 XDG_RUNTIME_DIR = 'tmp/'
+
 
 class EchoStateNetwork:
     defaults = dict(augment_data=False,
@@ -51,7 +51,7 @@ class EchoStateNetwork:
                     optimize_hyperparams=['rho', 'sigma_in', 'tikh'],
                     rho=0.9,
                     rho_range=(.8, 1.05),
-                    sigma_in=10**-3,
+                    sigma_in=10 ** -3,
                     sigma_in_range=(-5, -1),
                     tikh=1e-12,
                     tikh_range=[1e-10, 1e-12, 1e-16],
@@ -218,7 +218,6 @@ class EchoStateNetwork:
         # Format training data and divide into wash-train-validate, and test sets
         U_wtv, Y_tv, U_test, Y_test = self.format_training_data(train_data)
 
-
         self.Wout = np.zeros([self.N_units + 1, self.N_dim])
 
         # ======================  Generate matrices W and Win ======================= ##
@@ -307,7 +306,7 @@ class EchoStateNetwork:
                         plt.contour(xx, yy, y_pred, levels=20, colors='black', linewidths=1, linestyles='solid',
                                     alpha=0.3)
                         #   Plot the n_tot search points
-                        for rx, mk in zip([res_x[:self.N_grid**2], res_x[self.N_grid**2:]], ['v', 's']):
+                        for rx, mk in zip([res_x[:self.N_grid ** 2], res_x[self.N_grid ** 2:]], ['v', 's']):
                             plt.plot(rx[:, 0], rx[:, 1], mk, c='w', alpha=.8, mec='k', ms=8)
                         # Plot best point
                         best_idx = np.argmin(f_iters)
@@ -315,9 +314,8 @@ class EchoStateNetwork:
                         pdf.savefig(fig)
                         plt.close(fig)
             if self.perform_test:
-                self.run_test(U_test, Y_test, pdf_file=pdf)   # Run test
+                self.run_test(U_test, Y_test, pdf_file=pdf)  # Run test
             pdf.close()  # Close training results pdf
-
 
     def generate_W_Win(self, seed=1):
         rnd0 = np.random.RandomState(seed)
@@ -335,7 +333,6 @@ class EchoStateNetwork:
         # scale W by the spectral radius to have unitary spectral radius
         spectral_radius = np.abs(sparse_eigs(W, k=1, which='LM', return_eigenvectors=False))[0]
         self.W = (1. / spectral_radius) * W
-
 
     def computeRRterms(self, U_wtv, Y_tv):
         LHS, RHS = 0., 0.
@@ -640,7 +637,7 @@ def run_Lorenz_tests():
                 ax.plot(t2 / t_ref, yy[:, ii], '.-', color='k', lw=2, alpha=.8)
                 ax.plot(t2[-2] / t_ref, yy[-1, ii], 'o-', color='k', markersize=10, alpha=.8, label='')
                 if ii < ESN_case.N_dim:
-                    ax.plot(t2_up / t_ref, u_closed[1:, ii], 'x--', color='r', markersize=4,)
+                    ax.plot(t2_up / t_ref, u_closed[1:, ii], 'x--', color='r', markersize=4, )
 
         ESN_case.reset_state(u=np.squeeze(yy[-1]))
 
@@ -652,7 +649,6 @@ def run_Lorenz_tests():
         ax.legend(leg, ncols=3, loc='lower center', bbox_to_anchor=(0.5, 1.0))
 
     plt.show()
-
 
 
 if __name__ == '__main__':

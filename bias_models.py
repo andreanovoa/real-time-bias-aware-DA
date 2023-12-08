@@ -145,13 +145,9 @@ class ESN(Bias, EchoStateNetwork):
 
         # update ESN physical and reservoir states, and store the history if requested
         self.reset_state(u=u[-1], r=r[-1])
-        # if self.store_ESN_history:
-        #     self.update_reservoir_history(u=u, r=r)
-
         # Transform u (full state) into b (bias - partially observed space)
-        b = self.getBias(full_state=u)
+        b = self.getBias(u=u)
         return b[1:], t_b[1:]
-
 
     def print_bias_parameters(self):
         print('\n ---------------- {} bias model parameters --------------- '.format(self.name))
@@ -163,22 +159,34 @@ class ESN(Bias, EchoStateNetwork):
             except ValueError:
                 print('\t {} = {}'.format(key, getattr(self, key)))
 
-    def train_bias_model(self, train_data, val_strategy=EchoStateNetwork.RVC_Noise,
-                         plot_training=True, folder='./'):
-        self.train(train_data, validation_strategy=val_strategy,
-                   plot_training=plot_training, folder=folder)
+    def train_bias_model(self, train_data, val_strategy=None, plot_training=True, folder='./'):
+        if val_strategy is None:
+            val_strategy = EchoStateNetwork.RVC_Noise
+        self.train(train_data, validation_strategy=val_strategy, plot_training=plot_training, folder=folder)
         self.trained = True
 
-    # @property
-    def getBias(self, full_state=None):
-        if len(self.observed_idx) != self.N_dim:
-            bias_idx = [a for a in np.arange(self.N_dim) if a not in self.observed_idx]
+    def getBias(self, u=None, get_full_state=False):
+        if get_full_state:
+            return self.getReservoirState()[0]
         else:
-            bias_idx = np.arange(self.N_dim)
+            if len(self.observed_idx) != self.N_dim:
+                bias_idx = [a for a in np.arange(self.N_dim) if a not in self.observed_idx]
+            else:
+                bias_idx = np.arange(self.N_dim)
 
-        if full_state is None:
-            full_state = self.getReservoirState()[0]
-            return full_state[bias_idx]
-        else:  # i.e. input timeseries
-            return full_state[:, bias_idx]
+            if u is None:
+                u = self.getReservoirState()[0]
+                return u[bias_idx]
+            else:  # the input is a timeseries
+                return u[:, bias_idx]
 # =================================================================================================================== #
+
+
+if __name__ == '__main__':
+    # does the ESN work if I feed an ensemble of biases?
+    folder = 'C:/Users/an553/PycharmProjects/C-EnKF/results/Annular/'
+    ESN_case = np.load(folder+'ESN100_L20_Nw5_Exp_ER_0.575_extraL', allow_pickle=True)
+
+
+
+

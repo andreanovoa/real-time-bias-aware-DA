@@ -213,8 +213,8 @@ def post_process_WhyAugment(results_dir, k_plot=None, J_plot=None, figs_dir=None
 # ==================================================================================================================
 def recover_unbiased_solution(t_b, b, t, y, upsample=True):
     if upsample:
-        y_unbiased = interpolate(t, y, t_b) + b
-        y_unbiased = interpolate(t_b, y_unbiased, t)
+        y_unbiased = interpolate(t, y, t_b, method='linear') + b
+        y_unbiased = interpolate(t_b, y_unbiased, t, method='linear')
     else:
         y_unbiased = y + b
     return y_unbiased
@@ -271,7 +271,7 @@ def post_process_single(filter_ens, truth, filename=None, mic=0, reference_y=1.,
     margin = 0.5
     max_y = np.max(abs(y_raw[:N_CR]))
     # y_lims = [np.min(y_raw[:N_CR]) - margin, np.max(y_raw[:N_CR]) + margin]
-    y_lims = [(-max_y - margin)/reference_y, (max_y + margin)/reference_y]
+    y_lims = [(-max_y - margin) / reference_y, (max_y + margin) / reference_y]
     x_lims = [[t_obs[0] - .5 * filter_ens.t_CR, t_obs[0] + filter_ens.t_CR],
               [t_obs[-1] - .5 * filter_ens.t_CR, t_obs[-1] + filter_ens.t_CR],
               [t_obs[0] - .5 * filter_ens.t_CR, t[-1]]]
@@ -302,8 +302,6 @@ def post_process_single(filter_ens, truth, filename=None, mic=0, reference_y=1.,
 
     for axs in [ax_zoom[:, 0], ax_zoom[:, 1]]:
         # Observables ---------------------------------------------------------------------
-        # axs[0].plot(t, y_mean / norm, '--', color=color_bias, lw=.7, alpha=0.9, label='b')
-        # axs[0].fill_between(t, (y_mean + std) / norm, (y_mean - std) / norm, alpha=0.2, color='lightseagreen')
         axs[0].plot(t, y_raw / reference_y, label='t-N', **true_noisy_props)
         for mi in range(y_filter.shape[1]):
             axs[0].plot(t, y_filter[:, mi] / reference_y, **y_biased_props)
@@ -661,7 +659,8 @@ def plot_parameters(filter_ens, truth, filename=None, reference_p=None, twin=Fal
         plt.savefig(filename + '_params.svg', dpi=350)
 
 
-def plot_timeseries(filter_ens, truth, filename=None, reference_y=1., reference_t=1.):
+def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False,
+                    filename=None, reference_y=1., reference_t=1.):
     t_obs, obs = truth['t_obs'], truth['y_obs']
 
     y_filter, t = filter_ens.getObservableHist(), filter_ens.hist_t
@@ -675,7 +674,6 @@ def plot_timeseries(filter_ens, truth, filename=None, reference_y=1., reference_
     y_unbiased = recover_unbiased_solution(t_b, b, t, y_mean, upsample=hasattr(filter_ens.bias, 'upsample'))
     y_filter, y_mean, y_unbiased, t = (yy[i0 - N_CR:i1 + N_CR] for yy in [y_filter, y_mean, y_unbiased, t])
 
-    # y_truth = interpolate(truth['t'], truth['y_tue'], t)
     y_raw = interpolate(truth['t'], truth['y_raw'], t)
     y_truth_no_noise = interpolate(truth['t'], truth['y_true'], t)
 
@@ -691,52 +689,88 @@ def plot_timeseries(filter_ens, truth, filename=None, reference_y=1., reference_
 
     # %% PLOT time series ------------------------------------------------------------------------------------------
     Nq = filter_ens.Nq
-    fig1 = plt.figure(figsize=(9, 5.5), layout="constrained")
-    subfigs = fig1.subfigures(1, 2, width_ratios=[1.1, 1])
-
-    ax_zoom = subfigs[0].subplots(Nq, 2, sharex='col', sharey='row')
-    ax_all = subfigs[1].subplots(Nq, 1, sharex='col')
-
     y_raw, y_unbiased, y_filter, y_mean, obs, y_truth_no_noise = [yy / reference_y for yy in
                                                                   [y_raw, y_unbiased, y_filter,
                                                                    y_mean, obs, y_truth_no_noise]]
     margin = 0.5
     max_y = np.max(abs(y_raw[:N_CR]))
-    # y_lims = [np.min(y_raw[:N_CR]) - margin, np.max(y_raw[:N_CR]) + margin]
     y_lims = [-max_y - margin, max_y + margin]
     x_lims = [[t_obs[0] - .25 * filter_ens.t_CR, t_obs[0] + .25 * filter_ens.t_CR],
               [t_obs[-1] - .25 * filter_ens.t_CR, t_obs[-1] + .25 * filter_ens.t_CR],
               [t[0], t[-1]]]
 
-    for qi in range(Nq):
+    if plot_states:
+        fig1 = plt.figure(figsize=(9, 5.5), layout="constrained")
+        subfigs = fig1.subfigures(1, 2, width_ratios=[1.1, 1])
 
-        for ax, xl in zip([ax_zoom[qi, 0], ax_zoom[qi, 1], ax_all[qi]], x_lims):
+        ax_zoom = subfigs[0].subplots(Nq, 2, sharex='col', sharey='row')
+        ax_all = subfigs[1].subplots(Nq, 1, sharex='col')
+        for qi in range(Nq):
+            for ax, xl in zip([ax_zoom[qi, 0], ax_zoom[qi, 1], ax_all[qi]], x_lims):
 
-            # Observables ---------------------------------------------------------------------
-            ax.plot(t, y_raw[:, qi], label='t', **true_noisy_props)
-            ax.plot(t, y_truth_no_noise[:, qi], label='t', **true_props)
-            ax.plot(t, y_unbiased[:, qi], label='u', **y_unbias_props)
-            for mi in range(y_filter.shape[-1]):
-                ax.plot(t, y_filter[:, qi, mi], **y_biased_props)
-            ax.plot(t, y_mean[:, qi], **y_biased_mean_props)
-            ax.plot(t_obs, obs[:, qi], label='o', **obs_props)
-            if 'wash_t' in truth.keys():
-                ax.plot(t_wash, wash[:, qi], **obs_props)
-            plot_DA_window(t_obs, ax)
-            ax.set(ylim=y_lims, xlim=xl)
+                # Observables ---------------------------------------------------------------------
+                ax.plot(t, y_raw[:, qi], label='t', **true_noisy_props)
+                ax.plot(t, y_truth_no_noise[:, qi], label='t', **true_props)
+                ax.plot(t, y_unbiased[:, qi], label='u', **y_unbias_props)
+                for mi in range(y_filter.shape[-1]):
+                    ax.plot(t, y_filter[:, qi, mi], **y_biased_props)
+                ax.plot(t, y_mean[:, qi], **y_biased_mean_props)
+                ax.plot(t_obs, obs[:, qi], label='o', **obs_props)
+                if 'wash_t' in truth.keys():
+                    ax.plot(t_wash, wash[:, qi], **obs_props)
+                plot_DA_window(t_obs, ax)
+                ax.set(ylim=y_lims, xlim=xl)
 
-        ylbl = '$y_{}$'.format(qi)
-        if reference_y != 1.:
-            ylbl += ' norm.'
-        ax_zoom[qi, 0].set(ylabel=ylbl)
+            ylbl = '$y_{}$'.format(qi)
+            if reference_y != 1.:
+                ylbl += ' norm.'
+            ax_zoom[qi, 0].set(ylabel=ylbl)
 
-    ax_all[0].legend(loc='upper left', bbox_to_anchor=(0., 1.1), ncol=5, fontsize='xx-small')
-    for ax in [ax_zoom[-1, 0], ax_zoom[-1, 1], ax_all[-1]]:
-        ax.set(xlabel=t_label)
+        ax_all[0].legend(loc='upper left', bbox_to_anchor=(0., 1.1), ncol=5, fontsize='xx-small')
+        for ax in [ax_zoom[-1, 0], ax_zoom[-1, 1], ax_all[-1]]:
+            ax.set(xlabel=t_label)
 
-    if filename is not None:
-        plt.savefig(filename + '.svg', dpi=350)
-        plt.close()
+        if filename is not None:
+            plt.savefig(filename + '.svg', dpi=350)
+            plt.close()
+
+    if plot_bias:
+        fig1 = plt.figure(figsize=(9, 5.5), layout="constrained")
+        subfigs = fig1.subfigures(1, 2, width_ratios=[1.1, 1])
+        ax_zoom = subfigs[0].subplots(Nq, 2, sharex='col', sharey='row')
+        ax_all = subfigs[1].subplots(Nq, 1, sharex='col')
+
+        b_filter = b  #interpolate(t_b, b, t)
+        b_raw = interpolate(t, y_raw - y_mean, t_b)
+        b_truth_no_noise = interpolate(t, y_truth_no_noise - y_mean, t_b)
+        b_raw, b_filter, b_truth_no_noise = [yy / reference_y for yy in [b_raw, b_filter, b_truth_no_noise]]
+
+        max_y = np.max(abs(y_raw[:-N_CR]))
+        y_lims = [-max_y - margin, max_y + margin]
+        for qi in range(Nq):
+
+            for ax, xl in zip([ax_zoom[qi, 0], ax_zoom[qi, 1], ax_all[qi]], x_lims):
+
+                # Observables ---------------------------------------------------------------------
+                ax.plot(t_b, b_raw[:, qi], label='t', **bias_obs_noisy_props)
+                ax.plot(t_b, b_truth_no_noise[:, qi], label='t', **bias_obs_props)
+                ax.plot(t_b, b_filter[:, qi], label='u', **bias_props)
+                plot_DA_window(t_obs, ax)
+                ax.set(ylim=y_lims, xlim=xl)
+
+            ylbl = '$b_{}$'.format(qi)
+            if reference_y != 1.:
+                ylbl += ' norm.'
+            ax_zoom[qi, 0].set(ylabel=ylbl)
+
+        ax_all[0].legend(loc='upper left', bbox_to_anchor=(0., 1.1), ncol=5, fontsize='xx-small')
+        for ax in [ax_zoom[-1, 0], ax_zoom[-1, 1], ax_all[-1]]:
+            ax.set(xlabel=t_label)
+
+        if filename is not None:
+            plt.savefig(filename + '.svg', dpi=350)
+            plt.close()
+
 
 def plot_DA_window(t_obs, ax=None, twin=False):
     if ax is None:
@@ -894,7 +928,7 @@ def plot_truth(truth_dict, plot_time=False, Nq=None, filename=None):
             if ttl != 'Noise':
                 ax[qi].plot(t_obs, y_obs[:, qi], 'ro')
                 if ttl != 'Raw':
-                    ax[qi].plot(t_obs, y_obs_pp[:, qi], 'o',color=cols[1],  markerfacecolor='none')
+                    ax[qi].plot(t_obs, y_obs_pp[:, qi], 'o', color=cols[1], markerfacecolor='none')
             ax[qi].set(ylabel=lbl + '$_{}$'.format(qi))
 
     # Plot probability density functions and power spectral densities
@@ -949,6 +983,7 @@ def plot_truth(truth_dict, plot_time=False, Nq=None, filename=None):
             pdf_file.savefig(fig)
             plt.close(fig)
         pdf_file.close()  # Close results pdf
+
 
 def plot_Rijke_animation(folder, figs_dir):
     files = os.listdir(folder)

@@ -27,7 +27,8 @@ def main(filter_ens, truth):
     filter_ens.is_not_physical(print_=True)
     # If the true signal very long, integrate only one reference time more
     if hasattr(filter_ens, 't_max'):
-        Nt_extra = int(min((filter_ens.t_max - filter_ens.hist_t[-1]), filter_ens.t_CR) / filter_ens.dt) + 1
+        Nt_extra = int(min((filter_ens.t_max - filter_ens.hist_t[-1]),
+                           filter_ens.t_CR) / filter_ens.dt) + 1
     else:
         Nt_extra = int(filter_ens.t_CR / filter_ens.dt) + 1
 

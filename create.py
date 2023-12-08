@@ -233,7 +233,7 @@ def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name: str,
         ensemble.initBias(**train_params)
 
         # Create training data on a multi-parameter approach
-        train_data_filename = bias_model_folder + bias_name + '_train_data'
+        train_data_filename = 'Train_data_L{}_augment{}'.format(ensemble.bias.L, ensemble.bias.augment_data)
         train_data = create_bias_training_dataset(y_raw, y_pp, ensemble, train_params,
                                                   train_data_filename, plot_train_data=plot_train_data)
         # Run bias model training
@@ -262,7 +262,18 @@ def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name: str,
 
 def create_bias_training_dataset(y_raw, y_pp, ensemble, train_params, filename, plot_train_data=False):
 
-    # ======================== LOAD BIAS MODEL IF AVAILABLE ===========================
+    """
+    Multi-parameter data generation for ESN training
+
+    :param y_raw:
+    :param y_pp:
+    :param ensemble:
+    :param train_params:
+    :param filename:
+    :param plot_train_data:
+    :return:
+    """
+    # =========================== Load training data if available ============================== #
     try:
         train_data = load_from_pickle_file(filename)
         rerun = True
@@ -276,18 +287,19 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble, train_params, filename, 
         if train_params['augment_data'] and U.shape[0] == train_params['L']:
             print('Rerun multi-parameter training data: need data augment ')
             rerun = True
+        # Load training data if all the conditions are ok
         if not rerun:
             print('Loaded multi-parameter training data')
             return train_data
     except FileNotFoundError:
         print('Run multi-parameter training data: file not found')
 
-    # ========================  Multi-parameter training approach ================================ #
+    # =======================  Create ensemble of initial guesses ============================ #
 
     # Forecast one realization to t_transient
     train_ens = ensemble.reshape_ensemble(m=1, reset=True)
-    state, t_ = train_ens.timeIntegrate(int(train_ens.t_transient / train_ens.dt))
-    train_ens.updateHistory(state, t_)
+    out = train_ens.timeIntegrate(int(train_ens.t_transient / train_ens.dt))
+    train_ens.updateHistory(*out)
 
     # Create ensemble of training data
     train_params['m'] = train_params['L']
@@ -299,7 +311,7 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble, train_params, filename, 
     train_ens.updateHistory(psi, t)
     y_L_model = train_ens.getObservableHist(Nt=Nt_train)  # Nt x Nq x m
 
-    # Remove fixed points if there are too many  ----------------------------------
+    # =========================  Remove and replace fixed points =================================== #
     tol = 1e-1
     N_CR = int(round(train_ens.t_CR / train_ens.dt))
     range_y = np.max(np.max(y_L_model[-N_CR:], axis=0) - np.min(y_L_model[-N_CR:], axis=0), axis=0)
@@ -318,71 +330,78 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble, train_params, filename, 
     # Reset ensemble with post-transient ICs
     train_ens.updateHistory(psi=psi0.T, reset=True)
 
-    # Forcast training ensemble and correlate to the truth ------------------------
+    # =========================  Forcast fixed-point free ensemble ============================== #
     Nt = train_ens.bias.len_train_data * train_ens.bias.upsample
     N_corr = int(round(train_ens.t_CR / train_ens.dt))
-
     psi, tt = train_ens.timeIntegrate(Nt=Nt + N_corr)
-
     train_ens.updateHistory(psi, tt)
-    y_L_model = train_ens.getObservableHist()
     train_ens.close()
 
-    # Equivalent truth signals
+    # ===============  If data augmentation, correlate observations and estimates ================= #
+    y_L_model = train_ens.getObservableHist()
+    # Add the mean of batches of the ensemble size as options (might help short washout in DA)   < ======================= Test
+    if ensemble.m < train_ens.m:
+        batch_size = ensemble.m
+    else:
+        batch_size = ensemble.m - 1
+    # Select randomly m realizations of y_L_model
+    y_L_extra = []
+    for _ in range(3):
+        idx_to_avg = rng.integers(train_ens.m, size=batch_size)
+        y_L_extra.append(np.mean(y_L_model[:, :, idx_to_avg], axis=-1))
+
+    y_L_extra = np.array(y_L_extra).transpose(1, 2, 0)
+    y_L_model = np.concatenate([y_L_model, y_L_extra], axis=-1)
+
+    # Equivalent observation signals (raw and post-processed)
     y_raw = y_raw[-Nt:].copy()
     y_pp = y_pp[-Nt:].copy()
     if len(y_raw.shape) < 3:
         y_raw = np.expand_dims(y_raw, -1)
         y_pp = np.expand_dims(y_pp, -1)
 
-    # Create the synthetic bias as the difference between observations - model estimates ---------------
-    if train_params['augment_data']:
-        # Define the synthetic bias with the fully uncorrelated,
-        # mid-correlated and fully correlated differences
-        yy_pp = y_pp[:N_corr, :, 0]
+    if not train_params['augment_data']:
+        train_data_model = y_L_model[-Nt:]
+    else:
+        y_pp_corr = y_pp[:N_corr, :, 0]
         lags = np.linspace(0, N_corr, N_corr, dtype=int)
-
         train_data_model = np.zeros([y_pp.shape[0], y_pp.shape[1], train_ens.m * 3])
 
         for ii in range(train_ens.m):
             yy = y_L_model[:, :, ii]
             RS = []
             for lag in lags:
-                RS.append(CR(yy_pp, yy[lag:N_corr + lag] / np.max(yy[lag:N_corr + lag]))[1])
-            best_lag = lags[np.argmin(RS)]
-            worst_lag = lags[np.argmax(RS)]
-            mid_lag = int(np.mean([best_lag, worst_lag]))
-
+                RS.append(CR(y_pp_corr, yy[lag:N_corr + lag] / np.max(yy[lag:N_corr + lag]))[1])
+            best_lag = lags[np.argmin(RS)]                  # fully correlated
+            worst_lag = lags[np.argmax(RS)]                 # fully uncorrelated
+            mid_lag = int(np.mean([best_lag, worst_lag]))   # mid-correlated
+            # Store train data
             train_data_model[:, :, 3*ii] = yy[worst_lag:worst_lag + Nt]
             train_data_model[:, :, 3*ii+1] = yy[mid_lag:mid_lag + Nt]
             train_data_model[:, :, 3*ii+2] = yy[best_lag:best_lag + Nt]
 
-        # Augment train data with correlated signals
-        train_data_in = y_raw - train_data_model
-        train_data_out = y_pp - train_data_model
+    # ================ Create training biases as (observations - model estimates) ================= #
+    train_data_in = y_raw - train_data_model
+    train_data_out = y_pp - train_data_model
 
-
-    else:
-        train_data_out = y_pp - y_L_model[-Nt:]
-        train_data_in = y_raw - y_L_model[-Nt:]
-
-    # Force train_data shape to be (L x Nt x Ndim)
+    # =======================  Force train_data shape to be (L x Nt x Ndim) ======================= #
     train_data_out = train_data_out.transpose((2, 0, 1))
     train_data_in = train_data_in.transpose((2, 0, 1))
-
-    train_data = dict(inputs=train_data_in,
-                      labels=np.concatenate([train_data_out, train_data_in], axis=2),
-                      observed_idx=y_L_model.shape[1] + np.arange(y_L_model.shape[1]))
 
     assert len(train_data_in.shape) == 3
     assert train_data_in.shape[1] == Nt
     assert train_data_in.shape[2] == y_L_model.shape[1]
 
-    # ================================== PLOT TRAINING DATA ================================
+    # =============================== Store in dictionary and save ================================ #
+    train_data = dict(inputs=train_data_in,
+                      labels=np.concatenate([train_data_out, train_data_in], axis=2),
+                      observed_idx=y_L_model.shape[1] + np.arange(y_L_model.shape[1])
+                      )
+    save_to_pickle_file(filename, train_data)
+
+    # ====================================== Plot training data ================================== #
     # if plot_train_data:
-    #
     #     Nq = y_train.shape[1]
-    #
     #     if not train_params['augment_data']:
     #         # Compute the correlation of raw and processed data --------------------------
     #         RS, RS_corr, RS_mid, RS_un = [], [], [], []
@@ -473,8 +492,5 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble, train_params, filename, 
     #     plt.savefig(filename + '_bias.svg', dpi=350)
     #     # plt.show()
     #     plt.close('all')
-
-    # ================================== SAVE TRAINING DATA ================================
-    save_to_pickle_file(filename, train_data)
 
     return train_data
