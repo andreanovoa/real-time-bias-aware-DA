@@ -4,6 +4,8 @@ import os
 import matplotlib.pyplot as plt
 import matplotlib.backends.backend_pdf as plt_pdf
 
+from essentials.Util import *
+
 # Validation methods
 from functools import partial
 from itertools import product
@@ -15,7 +17,6 @@ from skopt.plots import plot_convergence
 
 from scipy.sparse import csr_matrix, lil_matrix
 from scipy.sparse.linalg import eigs as sparse_eigs
-from Util import add_pdf_page
 
 XDG_RUNTIME_DIR = 'tmp/'
 
@@ -23,10 +24,11 @@ XDG_RUNTIME_DIR = 'tmp/'
 class EchoStateNetwork:
     defaults = dict(augment_data=False,
                     bias_in=None,  # np.array([0.1]),
-                    bias_out=np.array([[1.0]]),
+                    bias_out=np.array([1.0]),
                     connect=5,
                     initialised=False,
                     L=1,
+                    N_ens=1,
                     N_folds=4,
                     N_func_evals=20,
                     N_grid=4,
@@ -60,7 +62,7 @@ class EchoStateNetwork:
     # Use slots rather than dict to save memory
     __slots__ = list(defaults.keys()) + ["Win", "Wout", "W", "__dict__"]
 
-    def __init__(self, y, dt, **kwargs):  # TODO: add noise to optimization. Same as Tikhonov):
+    def __init__(self, y, dt, **kwargs):
         self.u = np.zeros(y.shape)
         self.dt = dt
         for key, val in self.defaults.items():
@@ -83,7 +85,6 @@ class EchoStateNetwork:
         self.norm = None
         self._WCout = None
         self.trained = False
-        self.N_ens = 1
 
     @property
     def len_train_data(self):
@@ -130,7 +131,6 @@ class EchoStateNetwork:
                 self.u = u
         if r is not None:
             self.r = r
-        self.N_ens = self.u.shape[-1]
 
     # _______________________________________________________________________________________________________ JACOBIAN
     def Jacobian(self, open_loop_J=True):
@@ -174,13 +174,22 @@ class EchoStateNetwork:
         if r.ndim == 1:
             r = np.expand_dims(r, axis=-1)
 
-        u_aug = np.concatenate((u / self.norm, self.bias_in))
+
+        # print(u.shape, self.norm.shape, self.bias_in.shape, self.bias_out.shape)
+
+        norm = np.tile(self.norm, reps=(u.shape[-1], 1)).T
+        bias_in = np.tile(self.bias_in, reps=(1, u.shape[-1]))
+        bias_out = np.tile(self.bias_out, reps=(1, u.shape[-1]))
+
+        # print(u.shape, norm.shape, bias_in.shape, bias_out.shape)
+
+        u_aug = np.concatenate((u / norm, bias_in))
 
         # Forecast the reservoir state
         r_out = np.tanh(self.sigma_in * self.Win.dot(u_aug) + self.rho * self.W.dot(r))
 
         # output bias added
-        r_aug = np.concatenate((r_out, self.bias_out))
+        r_aug = np.concatenate((r_out, bias_out))
         # compute output from ESN if not during training
         u_out = np.dot(r_aug.T, self.Wout).T
         return u_out, r_out
@@ -194,11 +203,12 @@ class EchoStateNetwork:
                 - r: time series of reservoir states
         """
         Nt = u_wash.shape[0] - 1
+
         if extra_closed:
             Nt += extra_closed
 
-        r = np.empty((Nt + 1, self.N_units, 1))
-        u = np.empty((Nt + 1, self.N_dim, 1))
+        r = np.empty((Nt + 1, self.N_units, self.N_ens))
+        u = np.empty((Nt + 1, self.N_dim, self.N_ens))
 
         r[0] = self.getReservoirState()[-1]
 
@@ -428,7 +438,7 @@ class EchoStateNetwork:
         self.norm = M - m
 
         if self.bias_in is None:
-            setattr(self, 'bias_in', np.array([[0.1]]))
+            setattr(self, 'bias_in', np.array([0.1]))
 
         if add_noise:
             #  ==================== ADD NOISE TO TRAINING INPUT ====================== ##
@@ -597,13 +607,14 @@ class EchoStateNetwork:
                     self.reset_state(u=u_open[-1], r=r_open[-1])
 
                     # Data to compare with, i.e., labels
-                    Y_t = Y_test_l[ti + self.N_wash: ti + self.N_wash + N_test]
+                    Y_t = Y_test_l[ti + self.N_wash: ti + self.N_wash + N_test].squeeze()
 
                     # Closed-loop prediction
-                    Yh_t = self.closedLoop(N_test)[0][1:]
+                    Yh_t = self.closedLoop(N_test)[0][1:].squeeze()
 
                     # Do the multiple sub_loop inside each test interval
-                    errors[test_i] = np.log10(np.mean((Yh_t - Y_t) ** 2) / np.mean(self.norm ** 2))
+
+                    errors[test_i] = np.log10(np.mean((Yh_t - Y_t) ** 2) / np.mean(np.expand_dims(self.norm, -1) ** 2))
                     if test_i < subplots:
                         t_ = np.arange(len(Yh_t)) * self.dt_ESN
                         plt.subplot(subplots, 1, test_i + 1)
@@ -677,8 +688,8 @@ def run_Lorenz_tests():
 
 
 if __name__ == '__main__':
-    from Util import Jacobian_numerical_test
-    from physical_models import Lorenz63
+    from essentials.Util import Jacobian_numerical_test
+    from essentials.physical_models import Lorenz63
 
     rnd = np.random.RandomState(6)
     test_Jacobian = False

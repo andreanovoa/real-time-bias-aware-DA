@@ -3,7 +3,6 @@ import os
 from matplotlib import colors
 import matplotlib.pyplot as plt
 import matplotlib.animation
-from Util import interpolate, CR, get_error_metrics
 from scipy.interpolate import interp2d
 import numpy as np
 import matplotlib as mpl
@@ -894,7 +893,7 @@ def plot_Lk_contours(folder, filename='contour'):
 # ==================================================================================================================
 
 def plot_truth(truth_dict, plot_time=False, Nq=None, filename=None):
-    from Util import interpolate, fun_PSD
+    from functions.Util import interpolate, fun_PSD
     from scipy.signal import find_peaks
     if Nq is None:
         Nq = truth_dict['y_obs'].shape[-1]
@@ -931,7 +930,7 @@ def plot_truth(truth_dict, plot_time=False, Nq=None, filename=None):
                     ax[qi].plot(t_obs, y_obs_pp[:, qi], 'o', color=cols[1], markerfacecolor='none')
             ax[qi].set(ylabel=lbl + '$_{}$'.format(qi))
 
-    # Plot probability density functions and power spectral densities
+    # Plot probability density essentials and power spectral densities
     ax_pdf = subfigs[2].subplots(Nq, 1, sharey='all')
     ax_PSD = subfigs[3].subplots(Nq, 1, sharex='all', sharey='all')
     if Nq == 1:
@@ -1156,7 +1155,7 @@ def plot_Rijke_animation(folder, figs_dir):
 
 def plot_annular_model(forecast_params=None, animate=False, anim_name=None):
     from matplotlib.animation import FuncAnimation
-    from physical_models import Annular
+    from functions.physical_models import Annular
     import datetime
     import time
 

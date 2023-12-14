@@ -1,6 +1,6 @@
+from ML_models.EchoStateNetwork import EchoStateNetwork
+from essentials.Util import interpolate
 import numpy as np
-from EchoStateNetwork import EchoStateNetwork
-from Util import interpolate
 
 
 class Bias:
@@ -26,10 +26,6 @@ class Bias:
             else:
                 setattr(self, key, val)
 
-    def ensembleEstimator(self, variance=0.1**2):
-        self.updateHistory(b=b_ens, t=self.t, reset=True)
-
-
     def updateHistory(self, b, t, reset=False):
         if not reset:
             self.hist = np.concatenate((self.hist, b))
@@ -37,15 +33,22 @@ class Bias:
         else:
             self.hist = np.array([self.getBias()])
             self.hist_t = np.array([self.t])
-        self.b = self.hist[-1]
+
+        self.b = self.getBias(state=self.hist[-1])
         self.t = self.hist_t[-1]
 
     def updateCurrentState(self, b, t):
         self.b = b
         self.t = t
 
-    def getBias(self):
-        return self.b
+    def getBias(self, state=None):
+        if state is None:
+            return self.b
+        else:
+            return state
+
+    def resetBias(self, value):
+        self.b = value
 
 # =================================================================================================================== #
 
@@ -56,9 +59,6 @@ class NoBias(Bias):
     def __init__(self, y, t, dt, **kwargs):
         super().__init__(b=np.zeros(y.shape), t=t, dt=dt, **kwargs)
 
-    def resetBias(self, value):
-        self.b = value
-
     def stateDerivative(self):
         return np.zeros([len(self.b), len(self.b)])
 
@@ -68,7 +68,6 @@ class NoBias(Bias):
     def print_bias_parameters(self):
         print('\n ----------------  Bias model parameters ---------------- ',
               '\n Bias model: {}'.format(self.name))
-
 
 
 # =================================================================================================================== #
@@ -113,22 +112,19 @@ class ESN(Bias, EchoStateNetwork):
         if self.initialised:
             u, r = self.closedLoop(Nt)
         else:
-            u = np.zeros((Nt + 1, self.N_dim))
-            r = np.zeros((Nt + 1, self.N_units))
+            u = np.zeros((Nt + 1, self.N_dim, self.N_ens))
+            r = np.zeros((Nt + 1, self.N_units, self.N_ens))
             if wash_t is not None:
                 t1 = np.argmin(abs(t_b - wash_t[0]))
                 Nt -= t1
                 # Flag initialised
                 self.initialised = True
                 # Run washout phase in open-loop
-                if self.ensemble_estimator:
-                    wash_model = interpolate(t, y, wash_t)
-                    washout = np.expand_dims(wash_obs, axis=-1) - wash_model
-                    print('ensemble estimator', wash_model.shape)
-                else:
-                    wash_model = interpolate(t, np.mean(y, -1), wash_t)
-                    washout = wash_obs - wash_model
-                    print(wash_model.shape)
+                wash_model = interpolate(t, y, wash_t)
+                if wash_obs.ndim < wash_model.ndim:
+                    wash_obs = np.expand_dims(wash_obs, -1)
+                washout = wash_obs - wash_model
+
                 u_open, r_open = self.openLoop(washout)
                 u[t1:t1+self.N_wash+1] = u_open
                 r[t1:t1+self.N_wash+1] = r_open
@@ -136,7 +132,7 @@ class ESN(Bias, EchoStateNetwork):
                 # Run the rest of the time window in closed-loop
                 if Nt > 0:
                     # Store open-loop forecast
-                    self.reset_state(u=u[-1], r=r[-1])
+                    self.reset_state(u=u_open[-1], r=r_open[-1])
                     u_close, r_close = self.closedLoop(Nt)
                     u[t1 + self.N_wash + 1:] = u_close[1:]
                     r[t1 + self.N_wash + 1:] = r_close[1:]
@@ -148,9 +144,8 @@ class ESN(Bias, EchoStateNetwork):
 
         # update ESN physical and reservoir states, and store the history if requested
         self.reset_state(u=u[-1], r=r[-1])
-        # Transform u (full state) into b (bias - partially observed space)
-        b = self.getBias(u=u)
-        return b[1:], t_b[1:]
+
+        return u[1:], t_b[1:]
 
     def print_bias_parameters(self):
         print('\n ---------------- {} bias model parameters --------------- '.format(self.name))
@@ -168,7 +163,7 @@ class ESN(Bias, EchoStateNetwork):
         self.train(train_data, validation_strategy=val_strategy, plot_training=plot_training, folder=folder)
         self.trained = True
 
-    def getBias(self, u=None, get_full_state=False):
+    def getBias(self, state=None, get_full_state=False):
         if get_full_state:
             return self.getReservoirState()[0]
         else:
@@ -177,11 +172,14 @@ class ESN(Bias, EchoStateNetwork):
             else:
                 bias_idx = np.arange(self.N_dim)
 
-            if u is None:
-                u = self.getReservoirState()[0]
-                return u[bias_idx]
+            if state is None:
+                state = self.getReservoirState()[0]
+                return state[bias_idx]
             else:  # the input is a timeseries
-                return u[:, bias_idx]
+                if state.ndim > 1:
+                    return state[:, bias_idx]
+                else:
+                    return state[bias_idx]
 # =================================================================================================================== #
 
 

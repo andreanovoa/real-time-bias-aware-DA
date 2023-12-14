@@ -1,8 +1,8 @@
 
 if __name__ == '__main__':
-    from create import create_truth, create_ensemble
-    from plot_functions.plotResults import *
-    from physical_models import Annular
+    from functions.create import create_truth, create_ensemble
+    from functions.plotResults import *
+    from functions.physical_models import Annular
 
     # path_dir = os.path.realpath(__file__).split('main')[0]
     # os.chdir('/mscott/an553/')  # set working directory to mscott

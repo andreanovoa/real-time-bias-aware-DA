@@ -1,22 +1,21 @@
 if __name__ == '__main__':
-    import physical_models
-    import bias_models
+    from functions import bias_models, physical_models
     from run import main, create_ensemble
     from plotResults import *
 
     folder = 'results/test_Gaussians/'
     # %% ============================= SELECT TRUE AND FORECAST MODELS ================================= #
-    true_params = {'model': physical_models.VdP,
+    true_params = {'model':       physical_models.VdP,
                    'manual_bias': None,
-                   'std_obs': 0.05,
-                   'beta': 110,
-                   'zeta': 25,
-                   'kappa': 9.0
+                   'std_obs':     0.05,
+                   'beta':        110,
+                   'zeta':        25,
+                   'kappa':       9.0
                    }
 
     forecast_params = {'model': physical_models.VdP,
-                       'beta': 50,
-                       'zeta': 25,
+                       'beta':  50,
+                       'zeta':  25,
                        'kappa': 9.0
                        }
 

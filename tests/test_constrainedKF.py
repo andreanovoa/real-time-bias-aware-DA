@@ -1,6 +1,4 @@
 if __name__ == '__main__':
-    import physical_models
-    import bias_models
     from run import main, create_ensemble
     from plotResults import *
 

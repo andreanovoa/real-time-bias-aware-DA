@@ -1,9 +1,5 @@
-import numpy as np
-import os as os
-
-from Util import save_to_pickle_file
-from DA import dataAssimilation
-from create import create_bias_model
+from essentials.DA import dataAssimilation
+from essentials.create import *
 
 
 rng = np.random.default_rng(6)

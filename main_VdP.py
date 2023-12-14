@@ -1,9 +1,9 @@
 if __name__ == '__main__':
-    from physical_models import *
-    from bias_models import *
+    from functions.physical_models import *
+    from functions.bias_models import *
     from run import main, save_simulation, run_Lk_loop
-    from create import *
-    from plot_functions.plotResults import *
+    from functions.create import *
+    from functions.plotResults import *
     import os as os
 
     path_dir = os.path.realpath(__file__).split('main')[0]

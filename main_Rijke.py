@@ -1,16 +1,11 @@
-from physical_models import Rijke
-from bias_models import ESN, NoBias
-from create import *
-from run import *
-from plot_functions.plotResults import *
-import os as os
 
-path_dir = os.path.realpath(__file__).split('main')[0]
-os.chdir('/mscott/an553/')  # set working directory to mscott
+from default_parameters.rijke import *
 
 if __name__ == '__main__':
 
     bias_form = 'linear'  # linear, periodic, time
+
+    true_params['manual_bias'] = bias_form
     run_multiple_ensemble_sizes = False
 
     run_loopParams, plot_loopParams = 1, 1
@@ -18,6 +13,9 @@ if __name__ == '__main__':
 
     # %% ========================== SELECT WORKING PATHS ================================= #
     folder = 'results/new_arch/Rijke_{}/'.format(bias_form)
+
+    path_dir = os.path.realpath(__file__).split('main')[0]
+    os.chdir('/mscott/an553/')  # set working directory to mscott
 
     # %% ======================= SELECT RANGE OF PARAMETERS ============================== #
     ms = [50]
@@ -30,45 +28,6 @@ if __name__ == '__main__':
     if run_multiple_ensemble_sizes:
         ms = [10, 50, 80]
 
-    # %% ====================== SELECT TRUE AND FORECAST MODELS ========================== #
-    true_params = dict(model=Rijke,
-                       std_obs=0.05,
-                       t_max=2.5,
-                       beta=4.2,
-                       tau=1.4E-3,
-                       manual_bias=bias_form
-                       )
-    forecast_params = dict(model=Rijke,
-                           t_max=2.5
-                           )
-    # %% ============================ SELECT FILTER PARAMETERS ============================ #
-    filter_params = dict(filter='rBA_EnKF',  # 'rBA_EnKF' 'EnKF' 'EnSRKF'
-                         est_a=['beta', 'tau'],
-                         std_a=0.25,
-                         std_psi=0.25,
-                         t_start=1.5,
-                         t_stop=2.0,
-                         dt_obs=20,
-                         inflation=1.002,
-                         start_ensemble_forecast=1)
-
-    bias_params = dict(biasType=ESN,  # ESN / NoBias
-                       N_units=500,
-                       upsample=2,
-                       # Training data generation  options
-                       augment_data=True,
-                       L=10,
-                       est_a=filter_params['est_a'],
-                       std_a=0.3,
-                       # Training, val and wash times
-                       t_val=0.02,
-                       t_train=0.5,
-                       N_wash=50,
-                       # Hyperparameter search ranges
-                       rho_range=[0.5, 1.0],
-                       tikh_range=np.array([1e-16]),
-                       sigma_in_range=[np.log10(1e-5), np.log10(1e-2)]
-                       )
     if bias_form == 'time':
         bias_params['t_train'] = 1.5
         filter_params['dt_obs'] = 10

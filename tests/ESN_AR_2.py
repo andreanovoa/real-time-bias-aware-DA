@@ -3,18 +3,11 @@ import os
 from itertools import product
 os.environ["OMP_NUM_THREADS"] = '1'  # imposes cores
 import numpy as np
-import physical_models
+from functions import physical_models
 
 import matplotlib.pyplot as plt
-import h5py
-from scipy.sparse import csr_matrix, csc_matrix, lil_matrix
-from scipy.sparse.linalg import eigs as sparse_eigs
-import skopt
 from skopt.space import Real
-from skopt.learning import GaussianProcessRegressor as GPR
-from skopt.learning.gaussian_process.kernels import Matern, WhiteKernel, Product, ConstantKernel
 import matplotlib as mpl
-from scipy.io import loadmat, savemat
 import time
 from skopt.plots import plot_convergence
 
@@ -55,7 +48,7 @@ N_forecast = (N_transient+N_washout+N_train+N_val+N_test) * upsample
 #     ax.plot(T, u)
 
 
-model = physical_models.Lorenz63({'dt': dt/upsample,
+model = physical_models.Lorenz63({'dt':   dt / upsample,
                                   'psi0': u0})
 
 state1, t1 = model.timeIntegrate(N_forecast)

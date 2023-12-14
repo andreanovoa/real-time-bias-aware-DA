@@ -1,86 +1,12 @@
-from physical_models import Annular
-from bias_models import *
-from run import main, save_simulation
-from create import *
-from plot_functions.plotResults import *
+from default_parameters.annular import *
 
 
 if __name__ == '__main__':
-
-    if os.path.isdir('/mscott/'):
-        data_folder = '/mscott/an553/data/'  # set working directory to mscott
-        # os.chdir(data_folder)  # set working directory to mscott
-    else:
-        data_folder = "../data/"
-
-    folder = '../results/Annular/'
-    figs_dir = folder + 'figs/'
-    out_dir = folder+"/out/"
-
-
-
-    os.makedirs(figs_dir, exist_ok=True)
-
-    # %% ==================================== SELECT TRUE MODEL ======================================= #
-    ERs = 0.4875 + np.arange(0, 8) * 0.0125  # equivalence ratios 0.4875-0.575 (by steps of 0.0125)
-    ER = ERs[-1]
-    true_params = dict(model=data_folder + 'annular/ER_{}'.format(ER),
-                       std_obs=0.1,
-                       noise_type='white'
-                       )
-
-    # ==================================== SELECT FILTER PARAMETERS =================================== #
-
-    parameters_IC = dict(
-                        nu=(40., 50.),
-                        beta_c2=(40., 50.),
-                        kappa=(1.E-4, 1.3E-4),
-                        epsilon=(1E-3, 5E-3),
-                        theta_b=(0.5, 0.7),
-                        omega=(1085 * 2 * np.pi, 1092 * 2 * np.pi),
-                        theta_e=(0.4, 0.8),
-                        )
-
-    filter_params = dict(filter='rBA_EnKF',  # 'rBA_EnKF' 'EnKF' 'EnSRKF'
-                         constrained_filter=False,
-                         m=10,
-                         regularization_factor=2.0,
-                         # Parameter estimation options
-                         est_a=[*parameters_IC],
-                         std_a=parameters_IC,
-                         alpha_distr='uniform',
-                         std_psi=.5,
-                         # Define the observation time window
-                         t_start=2.0,
-                         t_stop=2.3,
-                         dt_obs=40,
-                         # Inflation parameters
-                         inflation=1.00,
-                         reject_inflation=1.00
-                         )
-
-    # %% ================================= SELECT  FORECAST MODEL ===================================== #
-
-    forecast_params = dict(model=Annular,
-                           nu=Annular.nu_from_ER(ER),
-                           beta_c2=Annular.beta_c2_from_ER(ER),
-                           )
-
-    bias_params = dict(biasType=ESN,   # ESN / NoBias
-                       upsample=5,
-                       N_units=100,
-                       std_a=filter_params['std_a'],
-                       est_a=filter_params['est_a'],
-                       # Training data generation  options
-                       augment_data=True,
-                       L=20,
-                       # Training, val and wash times
-                       N_wash=5,
-                       # Hyperparameter search ranges
-                       rho_range=(0.5, 1.1),
-                       sigma_in_range=(np.log10(1e-5), np.log10(1e1)),
-                       tikh_range=[1e-16]
-                       )
+    filter_params['m'] = 10
+    bias_params['L'] = 10
+    bias_params['N_units'] = 50
+    bias_params['N_wash'] = 5
+    bias_params['ensemble_prediction'] = True
 
     # ======================= CREATE TRUTH AND ENSEMBLE  =================================
     truth = create_truth(true_params, filter_params, post_processed=False)
@@ -96,28 +22,76 @@ if __name__ == '__main__':
     create_bias_model(filter_ens, truth, bias_params, ESN_name,
                       bias_model_folder=folder, plot_train_data=True)
 
-
-
-
     # %%
-
     # FORECAST UNTIL FIRST OBS ##
     Nt = int(np.round((truth['t_obs'][0] - filter_ens.t) / filter_ens.dt))
 
     # Forecast ensemble and update the history
     psi, t = filter_ens.timeIntegrate(Nt=Nt, averaged=False, alpha=None)
     filter_ens.updateHistory(psi, t)
+    filter_ens.close()
 
     # %%
+    import time
 
-    # Forecast ensemble bias and update its history
+    def get_cmap(n, name='viridis'):
+        cs = plt.get_cmap(name, n)
+        return [cs(j) for j in range(cs.N)]
+
+    t1 = time.time()
+    plt.figure(3)
+
+    plt.title('ensemble forecast')
+    ESN = deepcopy(filter_ens.bias)
+
+    bias_idx = ESN.observed_idx
+
     y = filter_ens.getObservableHist(Nt)
+    ESN.N_ens = y.shape[-1]
 
-    # %%
-    from copy import deepcopy
+    colors = get_cmap(y.shape[-1])
+
+    b2, t_b = ESN.timeIntegrate(t=t, y=y, wash_t=truth['wash_t'], wash_obs=truth['wash_obs'])
+
+    wash_model = interpolate(t, y, truth['wash_t'])
+    washout = np.expand_dims(truth['wash_obs'], -1) - wash_model
+    for ii in range(ESN.N_ens):
+        plt.plot(t_b[-100:], b2[-100:, bias_idx[0], ii], '--', lw=.8, c=colors[ii])
+        plt.plot(truth['wash_t'], washout[:, 0, ii], 'x-', lw=.8, c=colors[ii])
+
+    plt.ylim([np.min(washout) * 2, np.max(washout) * 2])
+    plt.xlim([truth['wash_t'][0], t_b[-1]])
+
+    print('\n\nEnsemble time: ', time.time()-t1)
+    plt.plot([t_b[-100], t_b[-1]], [0, 0], color='r')
+    xlims = plt.gca().get_xlim()
+    ylims = plt.gca().get_ylim()
+
+    ## %% Forecast ensemble bias and update its history
+    t1 = time.time()
+
+    plt.figure(2)
 
     ESN = deepcopy(filter_ens.bias)
-    ESN.ensemble_estimator = True
 
-    b, t_b = ESN.timeIntegrate(t=t, y=y,
-                               wash_t=truth['wash_t'], wash_obs=truth['wash_obs'])
+    bias_idx = [a for a in np.arange(ESN.N_dim) if a in ESN.observed_idx]
+
+    y = filter_ens.getObservableHist(Nt)
+    for ii in range(y.shape[-1]):
+        yy = y[:, :, ii]
+        ESN = deepcopy(filter_ens.bias)
+        b2, t_b = ESN.timeIntegrate(t=t, y=yy, wash_t=truth['wash_t'], wash_obs=truth['wash_obs'])
+        line = plt.plot(t_b[-100:], b2[-100:, bias_idx[0]], '--', lw=.8, color=colors[ii])
+        wash_model = interpolate(t, yy, truth['wash_t'])
+        washout = truth['wash_obs'] - wash_model
+        plt.plot(truth['wash_t'], washout[:, 0], 'x-', lw=.8, color=colors[ii])
+
+    plt.ylim(ylims)
+    plt.xlim(xlims)
+
+    print('Loop time: ', time.time()-t1)
+
+    plt.plot([t_b[-100], t_b[-1]], [0, 0], color='r')
+
+
+    plt.show()

@@ -1,8 +1,8 @@
-from physical_models import Lorenz63
-from bias_models import *
+from functions.physical_models import Lorenz63
+from functions.bias_models import *
 from run import main
-from create import create_truth, create_ensemble, create_bias_model
-from plot_functions.plotResults import *
+from functions.create import create_truth, create_ensemble, create_bias_model
+from functions.plotResults import *
 
 folder = 'results/Lorenz/'
 figs_dir = folder + 'figs/'
