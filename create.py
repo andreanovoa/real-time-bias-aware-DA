@@ -94,7 +94,6 @@ def create_truth(true_params: dict, filter_params: dict, post_processed=False):
 
 
 def create_observations_from_file(name):
-    # name = os.path.join(os.getcwd() + '/data/' + filename)
     # Wave case: load .mat file ====================================
     if 'rijke' in name:
         try:
@@ -364,7 +363,7 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble, train_params, filename, 
         train_data_model = y_L_model[-Nt:]
     else:
         y_pp_corr = y_pp[:N_corr, :, 0]
-        lags = np.linspace(0, N_corr, N_corr, dtype=int)
+        lags = np.linspace(start=0, stop=N_corr, num=N_corr, dtype=int)
         train_data_model = np.zeros([y_pp.shape[0], y_pp.shape[1], train_ens.m * 3])
 
         for ii in range(train_ens.m):

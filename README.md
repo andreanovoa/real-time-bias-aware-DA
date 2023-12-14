@@ -1,6 +1,4 @@
-# Bias-EnKF
-
-Data Assimilation codes in python
+# Bias-aware data assimilation
 
 Available filters:
 - EnKF
@@ -9,7 +7,10 @@ Available filters:
 
 Available models:
 - Rijke tube model (dimensional with Galerkin discretization)
-- Van der Pol
+- Van der Pols
+- Lorenz63
+- Annular combustor
  
 Available bias estimator:
 - Echo State Network
+- NoBias

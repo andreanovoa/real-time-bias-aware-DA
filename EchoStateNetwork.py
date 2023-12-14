@@ -23,7 +23,7 @@ XDG_RUNTIME_DIR = 'tmp/'
 class EchoStateNetwork:
     defaults = dict(augment_data=False,
                     bias_in=None,  # np.array([0.1]),
-                    bias_out=np.array([1.0]),
+                    bias_out=np.array([[1.0]]),
                     connect=5,
                     initialised=False,
                     L=1,
@@ -79,10 +79,11 @@ class EchoStateNetwork:
         self.N_test = int(round(self.t_test / self.dt_ESN))
 
         # -----------  Initialise reservoir state and its history to zeros ------------ #
-        self.r = np.zeros(self.N_units)
+        self.r = np.zeros((self.N_units, 1))
         self.norm = None
         self._WCout = None
         self.trained = False
+        self.N_ens = 1
 
     @property
     def len_train_data(self):
@@ -123,13 +124,13 @@ class EchoStateNetwork:
 
     def reset_state(self, u=None, r=None):
         if u is not None:
-            if len(u) != len(self.u):
-                # print('Changing size of input from {} to {}'.format(len(self.u), len(u)))
+            if u.shape[0] != self.u.shape[0]:
                 self.u = u[self.observed_idx]
             else:
                 self.u = u
         if r is not None:
             self.r = r
+        self.N_ens = self.u.shape[-1]
 
     # _______________________________________________________________________________________________________ JACOBIAN
     def Jacobian(self, open_loop_J=True):
@@ -156,6 +157,11 @@ class EchoStateNetwork:
     # ___________________________________________________________________________________ FUNCTIONS TO FORECAST THE ESN
     def getReservoirState(self):
         return self.u, self.r
+        # if u.ndim == 1:
+        #     u = np.expand_dims(u, axis=-1)
+        # if r.ndim == 1:
+        #    r = np.expand_dims(r, axis=-1)
+        # return u, r
 
     def step(self, u, r):
         """ Advances one ESN time step.
@@ -163,13 +169,20 @@ class EchoStateNetwork:
                 new reservoir state (without bias_out) and output state
         """
         # Normalise input data and augment with input bias (ESN symmetry parameter)
+        if u.ndim == 1:
+            u = np.expand_dims(u, axis=-1)
+        if r.ndim == 1:
+            r = np.expand_dims(r, axis=-1)
+
         u_aug = np.concatenate((u / self.norm, self.bias_in))
+
         # Forecast the reservoir state
         r_out = np.tanh(self.sigma_in * self.Win.dot(u_aug) + self.rho * self.W.dot(r))
+
         # output bias added
         r_aug = np.concatenate((r_out, self.bias_out))
         # compute output from ESN if not during training
-        u_out = np.dot(r_aug, self.Wout)
+        u_out = np.dot(r_aug.T, self.Wout).T
         return u_out, r_out
 
     def openLoop(self, u_wash, extra_closed=0):
@@ -184,8 +197,8 @@ class EchoStateNetwork:
         if extra_closed:
             Nt += extra_closed
 
-        r = np.empty((Nt + 1, self.N_units))
-        u = np.empty((Nt + 1, self.N_dim))
+        r = np.empty((Nt + 1, self.N_units, 1))
+        u = np.empty((Nt + 1, self.N_dim, 1))
 
         r[0] = self.getReservoirState()[-1]
 
@@ -201,10 +214,13 @@ class EchoStateNetwork:
                 - U:  forecast time series
                 - ra: time series of augmented reservoir states
         """
-        r = np.empty((Nt + 1, self.N_units))
-        u = np.empty((Nt + 1, self.N_dim))
+        r = np.empty((Nt + 1, self.N_units, self.N_ens))
+        u = np.empty((Nt + 1, self.N_dim, self.N_ens))
 
-        u[0, self.observed_idx], r[0] = self.getReservoirState()
+        u0, r0 = self.getReservoirState()
+
+
+        u[0, self.observed_idx], r[0] = u0, r0
 
         for i in range(Nt):
             u_input = self.outputs_to_inputs(full_state=u[i])
@@ -323,7 +339,7 @@ class EchoStateNetwork:
         # Input matrix: Sparse random matrix where only one element per row is different from zero
         Win = lil_matrix((self.N_units, self.N_dim_in + 1))  # +1 accounts for input bias
         for j in range(self.N_units):
-            Win[j, rnd0.randint(0, self.N_dim_in + 1)] = rnd0.uniform(-1, 1)
+            Win[j, rnd0.randint(low=0, high=self.N_dim_in + 1)] = rnd0.uniform(low=-1, high=1)
 
         self.Win = Win.tocsr()
 
@@ -350,9 +366,10 @@ class EchoStateNetwork:
             for U_t, Y_t in zip(U_train, Y_target):
                 # Open-loop train phase
                 u_open, r_open = self.openLoop(U_t, extra_closed=True)
-                u_open, r_open = u_open[1:], r_open[1:]
 
                 self.reset_state(u=u_open[-1], r=r_open[-1])
+
+                u_open, r_open = u_open[1:].squeeze(), r_open[1:].squeeze()
 
                 R_RR[ll] = np.append(R_RR[ll], r_open, axis=0)
                 U_RR[ll] = np.append(U_RR[ll], u_open, axis=0)
@@ -411,9 +428,7 @@ class EchoStateNetwork:
         self.norm = M - m
 
         if self.bias_in is None:
-            # u_mean = np.mean(np.mean(U_wtv, axis=1), axis=0)
-            # setattr(self, 'bias_in', np.array([np.mean(np.abs((U_wtv - u_mean) / self.norm))]))
-            setattr(self, 'bias_in', np.array([0.1]))
+            setattr(self, 'bias_in', np.array([[0.1]]))
 
         if add_noise:
             #  ==================== ADD NOISE TO TRAINING INPUT ====================== ##
@@ -423,8 +438,8 @@ class EchoStateNetwork:
             rnd = np.random.RandomState(self.seed_noise)
             for ll in range(self.L):
                 for dd in range(self.N_dim):
-                    U_wtv[ll, :, dd] += rnd.normal(0, self.noise * U_std[ll, dd], U_wtv.shape[1])
-                    U_test[ll, :, dd] += rnd.normal(0, self.noise * U_std[ll, dd], U_test.shape[1])
+                    U_wtv[ll, :, dd] += rnd.normal(loc=0, scale=self.noise * U_std[ll, dd], size=U_wtv.shape[1])
+                    U_test[ll, :, dd] += rnd.normal(loc=0, scale=self.noise * U_std[ll, dd], size=U_test.shape[1])
 
         return U_wtv, Y_tv, U_test, Y_test
 
@@ -523,7 +538,7 @@ class EchoStateNetwork:
                     case.reset_state(u=u_open[-1], r=r_open[-1])
 
                     case.Wout = Wout_tik[tik_j]
-                    U_close = case.closedLoop(case.N_val)[0][1:]
+                    U_close = case.closedLoop(case.N_val)[0][1:].squeeze()
 
                     # Compute normalized MSE
                     n_MSE[tik_j] += np.log10(np.mean((Y_val - U_close) ** 2) / np.mean(case.norm ** 2))
@@ -607,10 +622,11 @@ class EchoStateNetwork:
 
 
 def run_Lorenz_tests():
+    N_ensembles = 10
     # Initialise ESN
     y_wash = model.getObservableHist(ESN_case.N_wash * upsample)
-
     u_wash_data = y_wash[::upsample, observe_idx, 0]
+
     t_wash = model.hist_t[-ESN_case.N_wash * upsample::upsample]
     for ii, idx in enumerate(ESN_case.observed_idx):
         axs[idx, 0].plot(t_wash / t_ref, u_wash_data[:, ii], 'x-')
@@ -620,7 +636,13 @@ def run_Lorenz_tests():
     Nt_tests_model = Nt_tests * upsample
 
     u_wash, r_wash = ESN_case.openLoop(u_wash_data)
-    ESN_case.reset_state(u=u_wash[-1], r=r_wash[-1])
+
+
+    u = np.random.uniform(0.9, 1.1, [len(u_wash[-1]), N_ensembles]) * u_wash[-1]
+    r = np.random.uniform(0.9, 1.1, [len(r_wash[-1]), N_ensembles]) * r_wash[-1]
+
+    ESN_case.reset_state(u=u, r=r)
+
     t_wash_end = t_wash[-1]
 
     for _ in range(num_tests):
@@ -629,6 +651,9 @@ def run_Lorenz_tests():
         state2, t2 = model.timeIntegrate(Nt_tests_model)
         model.updateHistory(state2, t2, reset=False)
         t2_up = t2[::ESN_case.upsample]
+
+
+
         u_closed, r_closed = ESN_case.closedLoop(len(t2_up))
 
         for axs_col in [axs[:, 0], axs[:, 1]]:
@@ -639,7 +664,7 @@ def run_Lorenz_tests():
                 if ii < ESN_case.N_dim:
                     ax.plot(t2_up / t_ref, u_closed[1:, ii], 'x--', color='r', markersize=4, )
 
-        ESN_case.reset_state(u=np.squeeze(yy[-1]))
+        ESN_case.reset_state(u=yy[-1])
 
     for ax, xl in zip(axs[-1, :], [[0, t_wash_end / t_ref + .5],
                                    [t_wash_end / t_ref - .1, t2_up[-1] / t_ref]]):
@@ -705,7 +730,7 @@ if __name__ == '__main__':
     N_transient_model = int(t_transient / dt_model)
 
     fig1 = plt.figure(figsize=[12, 9], layout="tight")
-    axs = fig1.subplots(3, 2, sharex='col', sharey='row')
+    axs = fig1.subplots(nrows=3, ncols=2, sharex='col', sharey='row')
 
     t_ref = t_lyap ** 1
 

@@ -26,6 +26,10 @@ class Bias:
             else:
                 setattr(self, key, val)
 
+    def ensembleEstimator(self, variance=0.1**2):
+        self.updateHistory(b=b_ens, t=self.t, reset=True)
+
+
     def updateHistory(self, b, t, reset=False):
         if not reset:
             self.hist = np.concatenate((self.hist, b))
@@ -40,6 +44,8 @@ class Bias:
         self.b = b
         self.t = t
 
+    def getBias(self):
+        return self.b
 
 # =================================================================================================================== #
 
@@ -63,8 +69,6 @@ class NoBias(Bias):
         print('\n ----------------  Bias model parameters ---------------- ',
               '\n Bias model: {}'.format(self.name))
 
-    def getBias(self):
-        return self.b
 
 
 # =================================================================================================================== #
@@ -88,14 +92,6 @@ class ESN(Bias, EchoStateNetwork):
     def resetBias(self, value):
         self.b = value
         self.reset_state(u=value)
-
-    def update_reservoir_history(self, u, r, reset=False):
-        if not reset:
-            self.hist_u = np.concatenate((self.hist_u, u[1:]))
-            self.hist_r = np.concatenate((self.hist_r, r[1:]))
-        else:
-            self.hist_u = np.array([self.hist_u])
-            self.hist_r = np.array([self.hist_r])
 
     def stateDerivative(self):
         J = self.Jacobian(open_loop_J=True)  # Compute ESN Jacobian
@@ -125,8 +121,15 @@ class ESN(Bias, EchoStateNetwork):
                 # Flag initialised
                 self.initialised = True
                 # Run washout phase in open-loop
-                wash_model = interpolate(t, np.mean(y, -1), wash_t)
-                u_open, r_open = self.openLoop(wash_obs - wash_model)
+                if self.ensemble_estimator:
+                    wash_model = interpolate(t, y, wash_t)
+                    washout = np.expand_dims(wash_obs, axis=-1) - wash_model
+                    print('ensemble estimator', wash_model.shape)
+                else:
+                    wash_model = interpolate(t, np.mean(y, -1), wash_t)
+                    washout = wash_obs - wash_model
+                    print(wash_model.shape)
+                u_open, r_open = self.openLoop(washout)
                 u[t1:t1+self.N_wash+1] = u_open
                 r[t1:t1+self.N_wash+1] = r_open
                 Nt -= self.N_wash
@@ -180,13 +183,6 @@ class ESN(Bias, EchoStateNetwork):
             else:  # the input is a timeseries
                 return u[:, bias_idx]
 # =================================================================================================================== #
-
-
-if __name__ == '__main__':
-    # does the ESN work if I feed an ensemble of biases?
-    folder = 'C:/Users/an553/PycharmProjects/C-EnKF/results/Annular/'
-    ESN_case = np.load(folder+'ESN100_L20_Nw5_Exp_ER_0.575_extraL', allow_pickle=True)
-
 
 
 

@@ -4,19 +4,20 @@ from run import main, save_simulation
 from create import *
 from plot_functions.plotResults import *
 
+
 if __name__ == '__main__':
-    path_dir = os.path.realpath(__file__).split('main')[0]
-    #
+
     if os.path.isdir('/mscott/'):
         data_folder = '/mscott/an553/data/'  # set working directory to mscott
         # os.chdir(data_folder)  # set working directory to mscott
     else:
         data_folder = "../data/"
 
-
     folder = '../results/Annular/'
     figs_dir = folder + 'figs/'
     out_dir = folder+"/out/"
+
+
 
     os.makedirs(figs_dir, exist_ok=True)
 
@@ -42,7 +43,7 @@ if __name__ == '__main__':
 
     filter_params = dict(filter='rBA_EnKF',  # 'rBA_EnKF' 'EnKF' 'EnSRKF'
                          constrained_filter=False,
-                         m=50,
+                         m=10,
                          regularization_factor=2.0,
                          # Parameter estimation options
                          est_a=[*parameters_IC],
@@ -89,25 +90,34 @@ if __name__ == '__main__':
 
     # START BIAS MODEL -----------------------------------------------------------
     ESN_name = 'ESN{}_L{}_Nw{}_{}_extraL'.format(bias_params['N_units'], bias_params['L'],
-                                             bias_params['N_wash'], truth['name_bias'])
+                                                 bias_params['N_wash'], truth['name_bias'])
 
     filter_ens = ensemble.copy()
     create_bias_model(filter_ens, truth, bias_params, ESN_name,
                       bias_model_folder=folder, plot_train_data=True)
 
 
+
+
     # %%
 
-
     # FORECAST UNTIL FIRST OBS ##
-    Nt = int(np.round((truth['t_obs'][0] - ensemble.t) / ensemble.dt))
+    Nt = int(np.round((truth['t_obs'][0] - filter_ens.t) / filter_ens.dt))
 
     # Forecast ensemble and update the history
-    psi, t = ensemble.timeIntegrate(Nt=Nt, averaged=False, alpha=alpha)
-    ensemble.updateHistory(psi, t)
+    psi, t = filter_ens.timeIntegrate(Nt=Nt, averaged=False, alpha=None)
+    filter_ens.updateHistory(psi, t)
 
+    # %%
 
     # Forecast ensemble bias and update its history
-    y = ensemble.getObservableHist(Nt)
-    b, t_b = ensemble.bias.timeIntegrate(t=t, y=y, wash_t=None, wash_obs=None)
-    ensemble.bias.updateHistory(b, t_b)
+    y = filter_ens.getObservableHist(Nt)
+
+    # %%
+    from copy import deepcopy
+
+    ESN = deepcopy(filter_ens.bias)
+    ESN.ensemble_estimator = True
+
+    b, t_b = ESN.timeIntegrate(t=t, y=y,
+                               wash_t=truth['wash_t'], wash_obs=truth['wash_obs'])
