@@ -1,6 +1,11 @@
 from default_parameters.annular import *
 
 
+os.chdir('../')
+folder = 'results/tests/Annular/'
+figs_dir = folder + 'figs/'
+out_dir = folder+"/out/"
+
 if __name__ == '__main__':
     filter_params['m'] = 10
     bias_params['L'] = 10

@@ -229,7 +229,8 @@ def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name: str,
         ensemble.initBias(**train_params)
 
         # Create training data on a multi-parameter approach
-        train_data_filename = 'Train_data_L{}_augment{}'.format(ensemble.bias.L, ensemble.bias.augment_data)
+        train_data_filename = bias_model_folder
+        train_data_filename += 'Train_data_L{}_augment{}'.format(ensemble.bias.L, ensemble.bias.augment_data)
         train_data = create_bias_training_dataset(y_raw, y_pp, ensemble, train_params,
                                                   train_data_filename, plot_train_data=plot_train_data)
         # Run bias model training
