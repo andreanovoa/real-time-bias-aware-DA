@@ -105,7 +105,9 @@ class Model:
             psi = np.mean(psi, -1, keepdims=True)
             model.ensemble = False
         else:
-            psi = model.addUncertainty(self.rng, np.mean(psi, -1, keepdims=True), np.std(psi, -1, keepdims=True), m)
+            model.ensemble = True
+            psi = model.addUncertainty(self.rng, np.mean(psi, -1, keepdims=True),
+                                       np.std(psi, -1, keepdims=True), m)
         model.updateHistory(psi=psi, t=0., reset=reset)
         return model
 
@@ -316,7 +318,7 @@ class Model:
                        for mi in range(self.m)]
                 psi = [s.get() for s in sol]
             else:
-                psi_mean0 = np.mean(self.psi, 1, keepdims=True)
+                psi_mean0 = np.mean(self.psi, axis=1, keepdims=True)
                 psi_deviation = self.psi - psi_mean0
 
                 if alpha is None:
@@ -661,7 +663,9 @@ class Annular(Model):
                 raise ValueError('Theta must be in radians')
 
             p_mics = np.array([eta1 * np.cos(th) + eta2 * np.sin(th)
-                               for th in np.array(loc)]).transpose(1, 0, 2)
+                               for th in np.array(loc)])
+
+            p_mics = p_mics.transpose(1, 0, 2)
             if Nt == 1:
                 return p_mics.squeeze(axis=0)
             else:
@@ -685,3 +689,4 @@ class Annular(Model):
         dz_b = z_b * k1(y_b, y_a, -1) + z_a * k2 - k3(y_b, y_a, -1)
 
         return (z_a, dz_a, z_b, dz_b) + (0,) * (len(psi) - 4)
+

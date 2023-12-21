@@ -153,46 +153,6 @@ def fun_PSD(dt, X):
 
     return f, PSD
 
-
-def Jacobian_numerical_test(J_analytical, step_function, y_init, epsilons=np.arange(-10, 3, 0.1), y_out_idx=None):
-    """
-    Function that computes numerically the Jacobian of a given step function and
-    computes the error with respect to the corresponding analytical form.
-        Inputs:
-            - y_init: initial condition to the step function
-            - epsilons: range of perturbations to consider (its log10)
-            - y_out_idx: if the step function returns more than one item, provide index of y_out
-    Note: J_analytical is correct if there is a linear decay in the error with decreasing epsilon
-    """
-
-    # Numerical Jacobian
-    errors = []
-    y_out = step_function(y_init)
-    if y_out_idx is not None:
-        y_out = y_out[y_out_idx]
-
-    # print('start : \t', u_init, u_out, np.linalg.norm(J_analytical))
-    for epsilon in epsilons:
-        eps = 10. ** epsilon
-        J_numerical = np.zeros(J_analytical.shape)
-        for qi in range(J_analytical.shape[1]):
-            y_tilde = y_init.copy()
-            y_tilde[qi] = y_tilde[qi] + eps
-            y_out_tilde = step_function(y_tilde)
-            if y_out_idx is not None:
-                y_out_tilde = y_out_tilde[y_out_idx]
-
-            J_numerical[:, qi] = (y_out_tilde - y_out) / eps
-
-        # Check difference
-        errors.append(np.linalg.norm(J_analytical - J_numerical) / np.linalg.norm(J_analytical))
-        # print('eps={}:\t'.format(epsilon), u_tilde, u_out_tilde, np.linalg.norm(J_numerical))
-
-    plt.figure(figsize=[12, 9], layout="tight")
-    plt.semilogy(-epsilons, errors, 'rx')
-    plt.xlabel('$-\\log_{10}(\\epsilon)$')
-
-
 def plot_train_data(truth, y_ref, t_ref, t_CR, folder):
     L = y_ref.shape[-1]
     y = y_ref[:len(truth['t'])]  # train_ens.getObservableHist(Nt=len(truth['t']))

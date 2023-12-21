@@ -1,3 +1,9 @@
+"""
+Test if I can run an ensemble of instances within the ESN.
+Compare the results with the predictions from a for loop.
+"""
+
+
 from default_parameters.annular import *
 
 
@@ -11,7 +17,6 @@ if __name__ == '__main__':
     bias_params['L'] = 10
     bias_params['N_units'] = 50
     bias_params['N_wash'] = 5
-    bias_params['ensemble_prediction'] = True
 
     # ======================= CREATE TRUTH AND ENSEMBLE  =================================
     truth = create_truth(true_params, filter_params, post_processed=False)
@@ -98,5 +103,6 @@ if __name__ == '__main__':
 
     plt.plot([t_b[-100], t_b[-1]], [0, 0], color='r')
 
-
     plt.show()
+
+
