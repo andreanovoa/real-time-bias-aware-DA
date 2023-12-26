@@ -101,16 +101,12 @@ if __name__ == '__main__':
     # %% 2. TRAIN THE ESN
     # Build training data dictionary
     Y = model.getObservableHist(N_wtv_model + N_test_model).transpose(2, 0, 1)
-
     ESN_train_data = dict(inputs=Y[:, :, observe_idx],
                           labels=Y,
                           observed_idx=observe_idx)
     # ESN class
     ESN_case = EchoStateNetwork(Y[0, observe_idx], dt=dt_model, **bias_params)
-
-    # Train
-    ESN_case.train(ESN_train_data,
-                   validation_strategy=EchoStateNetwork.RVC_Noise)
+    ESN_case.train(ESN_train_data, validation_strategy=EchoStateNetwork.RVC_Noise)
 
     # %% 3. INITIALISE THE ESN
     #  First initialise the network - washout phase

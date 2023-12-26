@@ -48,6 +48,7 @@ class EchoStateNetwork:
     upsample = 5
     wash_obs = None
     wash_time = None
+    Win_type = 'sparse'
     # Default hyperparameters and optimization ranges
     noise = 1e-10
     noise_type = 'gauss'
@@ -353,9 +354,14 @@ class EchoStateNetwork:
 
         # Input matrix: Sparse random matrix where only one element per row is different from zero
         Win = lil_matrix((self.N_units, self.N_dim_in + 1))  # +1 accounts for input bias
-        for j in range(self.N_units):
-            Win[j, rnd0.randint(low=0, high=self.N_dim_in + 1)] = rnd0.uniform(low=-1, high=1)
-
+        if self.Win_type == 'sparse':
+            for j in range(self.N_units):
+                Win[j, rnd0.randint(low=0, high=self.N_dim_in + 1)] = rnd0.uniform(low=-1, high=1)
+        elif self.Win_type == 'dense':
+            for j in range(self.N_units):
+                Win[j, :] = rnd0.uniform(low=-1, high=1, size=self.N_dim_in + 1)
+        else:
+            raise ValueError("Win type {} not implemented. Choose 'sparse' or 'dense'".format(self.Win_type))
         self.Win = Win.tocsr()
 
         # Reservoir state matrix: Erdos-Renyi network
@@ -489,6 +495,7 @@ class EchoStateNetwork:
 
         return search_grid, search_space, parameters
 
+
     @staticmethod
     def hyperparam_optimization(val, search_space, x0, n_calls, n_rand=0):
 
@@ -517,6 +524,7 @@ class EchoStateNetwork:
         return result
 
     # ______________________________________________________________________________________________ VALIDATION METHODS
+
     @staticmethod
     def RVC_Noise(x, case, U_wtv, Y_tv, tikh_opt, hp_names):
         """
@@ -594,7 +602,7 @@ class EchoStateNetwork:
 
         max_test_time = np.shape(U_test)[1] - self.N_wash
 
-        total_tests = min(10, int(np.floor(max_test_time / N_test)))
+        total_tests = min(20, int(np.floor(max_test_time / N_test)))
 
         # Break if not enough train_data for testing
         if total_tests < 1:

@@ -20,16 +20,22 @@ from ML_models.EchoStateNetwork import *
 from essentials.create import create_ensemble
 
 
-observe_idx = np.array([0])  # Number of dimensions the ESN predicts
+observe_idx = np.array([0, 1, 2])  # Number of dimensions the ESN predicts
 
 ESN_params = bias_params.copy()
 
-ESN_params['N_wash'] = 5
+ESN_params['N_wash'] = 4
+ESN_params['N_units'] = 50
+ESN_params['connect'] = 5
+
 ESN_params['upsample'] = 5
+ESN_params['Win_type'] = 'sparse'
 
-filter_params['m'] = 2
-observe_idx = np.array([0, 1, 2])  # Select observable states
+ESN_params['rho_range'] = (0.2, 0.9)
 
+filter_params['m'] = 10
+
+cs = ['lightblue', 'tab:blue', 'navy']
 
 t_transient = Lorenz63.defaults['t_transient']
 upsample = ESN_params['upsample']
@@ -37,11 +43,11 @@ dt_ESN = dt_model * upsample
 
 
 ESN_params['t_val'] = 2 * t_lyap
-ESN_params['t_test'] = 20 * t_lyap
+ESN_params['t_test'] = 5 * t_lyap
 
 N_train = int(ESN_params['t_train'] / dt_ESN)
 N_val = int(ESN_params['t_val'] / dt_ESN)
-N_test = int(ESN_params['t_test'] / dt_ESN)
+N_test = int(ESN_params['t_test'] / dt_ESN) * 20
 
 N_wash = ESN_params['N_wash']
 
@@ -50,30 +56,60 @@ N_test_model = N_test * upsample
 
 N_transient_model = int(t_transient / dt_model)
 
-# %% 2. CREATE TRUTH
+t_ref = t_lyap
+
+
+def plot_data(axs, data, type_plot='train'):
+    if type_plot == 'train':
+        ci = -1
+        for ttt, yyy in data:
+            ci += 1
+            for axj, axx in enumerate(axs[:, 0]):
+                axx.plot(ttt / t_ref, yyy[:, axj], '-', c=cs[ci])
+                axx.set(ylabel=truth.obsLabels[axj])
+        axs[0, 0].set(xlim=[0, ttt[-1] / t_ref])
+        axs[0, 0].legend(['Transient', 'Train+val', 'Tests'], ncols=3, loc='lower center', bbox_to_anchor=(0.5, 1.0))
+    else:
+        ttt, yyy = data
+        for axs_col in [axs[:, 1]]:
+            for ii, ax in enumerate(axs_col):
+                ax.plot(ttt / t_ref, yy[:, ii], '-', c='k', lw=2, alpha=.8, label='Truth')
+                if ii < ESN_case.N_dim:
+                    ax.plot(tt_up / t_ref, u_closed[1:, ii], 'x--', c='r', ms=4, label='ESN prediction')
+                    if ii in observe_idx:
+                        for yy_obs in yy[-1, ii]:
+                            ax.plot(ttt[-2] / t_ref, yy_obs, 'o', c='r', ms=8, alpha=.8, label='Data')
+        if jj == 0:
+            axs[0, 1].legend(ncols=3, loc='lower center', bbox_to_anchor=(0.5, 1.0))
+        if jj == num_tests:
+            margin = dt_ESN * ESN_case.N_wash
+            for ax, xl in zip(axs[-1, :], [[0, t_wash[0] / t_ref],
+                                           [t_wash[0] / t_ref - margin, tt_up[-1] / t_ref + margin]]):
+                ax.set(xlabel='$t/T$', xlim=xl)
 
 
 if __name__ == '__main__':
+    # %% 2. CREATE TRUTH
 
     forecast_params['model'] = Lorenz63
     forecast_params['dt'] = dt_model
-    model = create_ensemble(forecast_params, filter_params)
 
-    t_ref = t_lyap
-
-    N_wtv_model += ESN_params['N_wash'] * upsample
-
-    out = []
-    for Nt in [N_transient_model, N_wtv_model, N_test_model]:
-        state, t1 = model.timeIntegrate(Nt)
-        model.updateHistory(state, t1, reset=False)
-        yy = model.getObservableHist(Nt)
-        out.append((t1, yy))
+    truth = Lorenz63(**forecast_params)
 
     # %% 3. TRAIN THE ESN
 
+    train_model = create_ensemble(forecast_params, filter_params)
+    N_wtv_model += ESN_params['N_wash'] * upsample
+    out = []
+    for Nt in [N_transient_model, N_wtv_model, N_test_model]:
+        state, t1 = train_model.timeIntegrate(Nt)
+        train_model.updateHistory(state, t1, reset=False)
+        yy = train_model.getObservableHist(Nt)
+        out.append((t1, yy))
+    train_model.close()
+
     # Build training data dictionary
-    Y = model.getObservableHist(N_wtv_model + N_test_model)
+    Y = train_model.getObservableHist(N_wtv_model + N_test_model)
     Y = Y.transpose(2, 0, 1)
 
     # ESN class
@@ -85,14 +121,12 @@ if __name__ == '__main__':
                           observed_idx=observe_idx)
     ESN_case.train(ESN_train_data, validation_strategy=EchoStateNetwork.RVC_Noise)
 
-
     # %% 4.1 INITIALISE ESN WITH ENSEMBLE
 
     rng = np.random.default_rng(0)
 
-
-    wash_model = model.getObservableHist(ESN_case.N_wash * upsample)[:, observe_idx]
-    t_wash_model = model.hist_t[-ESN_case.N_wash * upsample:]
+    wash_model = train_model.getObservableHist(ESN_case.N_wash * upsample)[:, observe_idx]
+    t_wash_model = train_model.hist_t[-ESN_case.N_wash * upsample:]
 
     wash_data, t_wash = wash_model[::upsample], t_wash_model[::upsample]
 
@@ -107,20 +141,10 @@ if __name__ == '__main__':
 
     ESN_case.reset_state(u=u_wash[-1], r=r_wash[-1])
 
+    fig1 = plt.figure(figsize=(13, 3), layout="tight")
+    axs = fig1.subplots(nrows=ESN_case.N_dim, ncols=2, sharex='col', sharey='row')
 
-    fig1 = plt.figure(figsize=(13, 6), layout="tight")
-    axs = fig1.subplots(nrows=model.Nq, ncols=2, sharex='col', sharey='row')
-
-    cs = ['lightblue', 'tab:blue', 'navy']
-    ci = -1
-    for t1, yy in out:
-        ci += 1
-        for ii, ax in enumerate(axs[:, 0]):
-            ax.plot(t1 / t_ref, yy[:, ii], '-', c=cs[ci])
-            ax.set(ylabel=model.obsLabels[ii])
-    axs[0, 0].set(xlim=[0, model.hist_t[-1] / t_ref])
-    axs[0, 0].legend(['Transient', 'Train+val', 'Train tests'],
-                     ncols=3, loc='lower center', bbox_to_anchor=(0.5, 1.0))
+    plot_data(axs=axs, data=out, type_plot='train')
 
     for ii, idx in enumerate(ESN_case.observed_idx):
         axs[idx, 1].plot(t_wash_model / t_ref, wash_model[:, ii], '.-', c=cs[-1])
@@ -128,32 +152,18 @@ if __name__ == '__main__':
 
     for jj in range(num_tests + 1):
         # Forecast model and ESN and compare
-        out = model.timeIntegrate(Nt_tests_model)
-        model.updateHistory(*out, reset=False)
+        out = truth.timeIntegrate(Nt_tests_model)
+        truth.updateHistory(*out, reset=False)
 
-        yy = model.getObservableHist(Nt_tests_model)
-        tt = model.hist_t[-Nt_tests_model:]
+        yy = truth.getObservableHist(Nt_tests_model)
+        tt = truth.hist_t[-Nt_tests_model:]
         tt_up = out[-1][::ESN_case.upsample]
 
         u_closed = ESN_case.closedLoop(len(tt_up))[0]
         ESN_case.reset_state(u=yy[-1])
 
-        for axs_col in [axs[:, 1]]:
-            for ii, ax in enumerate(axs_col):
-                ax.plot(tt / t_ref, yy[:, ii], '-', c='k', lw=2, alpha=.8, label='Truth')
-                if ii < ESN_case.N_dim:
-                    ax.plot(tt_up / t_ref, u_closed[1:, ii], 'x--', c='r', ms=4, label='ESN prediction')
-                    if ii in observe_idx:
-                        for yy_obs in yy[-1, ii]:
-                            ax.plot(out[-1][-2] / t_ref, yy_obs, 'o', c='r', ms=8, alpha=.8, label='Data')
-        if jj == 0:
-            axs[0, 1].legend(ncols=3, loc='lower center', bbox_to_anchor=(0.5, 1.0))
-        if jj == num_tests:
-            margin = dt_ESN * ESN_case.N_wash
-            for ax, xl in zip(axs[-1, :], [[0, t_wash[0] / t_ref],
-                                           [t_wash[0] / t_ref - margin, tt_up[-1] / t_ref + margin]]):
-                ax.set(xlabel='$t/T$', xlim=xl)
-    plt.show()
+        plot_data(axs=axs, data=out, type_plot='test')
+        plt.show()
     # %% 4. UPDATE STATES USING DATA ASSIMILATION
 
     observables = dict()
