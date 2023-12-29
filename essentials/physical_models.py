@@ -68,6 +68,7 @@ class Model:
         self.alpha0 = {par: getattr(self, par) for par in self.params}
         self.alpha = self.alpha0.copy()
         self.psi = np.array([self.psi0]).T
+        self.t = 0.
         # ========================== CREATE HISTORY ========================== ##
         self.hist = np.array([self.psi])
         self.hist_t = np.array([self.t])
@@ -228,11 +229,17 @@ class Model:
             self.hist_t = np.hstack((self.hist_t, t))
         else:
             if psi is None:
-                psi = np.array([self.psi0]).T
+                self.hist = np.array(np.array([self.psi0]).T)
+            else:
+                self.hist = np.array([psi])
+                if self.hist.ndim > 3:
+                    self.hist = self.hist.squeeze(axis=0)
             if t is None:
-                t = self.t
-            self.hist = np.array([psi])
-            self.hist_t = np.array([t])
+                self.hist_t = np.array([0.])
+            else:
+                self.hist_t = np.array([t])
+                if self.hist_t.ndim > 1:
+                    self.hist_t = self.hist_t.squeeze()
 
         self.psi = self.hist[-1]
         self.t = self.hist_t[-1]
