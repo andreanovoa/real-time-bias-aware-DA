@@ -1,7 +1,9 @@
 from essentials.create import *
 from essentials.physical_models import *
 from essentials.Util import *
-
+from essentials.bias_models import *
+from essentials.plotResults import *
+from essentials.run import *
 # ============================================================================================== #
 
 path_dir = os.path.realpath(__file__).split('main')[0]
@@ -41,7 +43,8 @@ parameters_IC = dict(
 
 filter_params = dict(filter='rBA_EnKF',  # 'rBA_EnKF' 'EnKF' 'EnSRKF'
                      constrained_filter=False,
-                     m=50,
+                     bias_bayesian_update=True,
+                     m=10,
                      regularization_factor=2.0,
                      # Parameter estimation options
                      est_a=[*parameters_IC],
@@ -71,7 +74,7 @@ bias_params = dict(biasType=ESN,   # ESN / NoBias
                    est_a=filter_params['est_a'],
                    # Training data generation  options
                    augment_data=True,
-                   L=20,
+                   L=10,
                    # Training, val and wash times
                    N_wash=5,
                    # Hyperparameter search ranges

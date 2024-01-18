@@ -153,6 +153,7 @@ def fun_PSD(dt, X):
 
     return f, PSD
 
+
 def plot_train_data(truth, y_ref, t_ref, t_CR, folder):
     L = y_ref.shape[-1]
     y = y_ref[:len(truth['t'])]  # train_ens.getObservableHist(Nt=len(truth['t']))

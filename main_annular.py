@@ -3,27 +3,26 @@ from default_parameters.annular import *
 
 
 if __name__ == '__main__':
-    # ======================= CREATE TRUTH AND ENSEMBLE  =================================
+    # ========================== CREATE TRUTH AND ENSEMBLE  =================================
     truth = create_truth(true_params, filter_params, post_processed=False)
     forecast_params['dt'] = truth['dt']
 
     ensemble = create_ensemble(forecast_params, filter_params)
 
-    # %% ==================================== SELECT TRUE MODEL ======================================= #
-    # START BIAS MODEL -----------------------------------------------------------
-    ESN_name = 'ESN{}_L{}_Nw{}_{}_extraL'.format(bias_params['N_units'], bias_params['L'],
-                                                 bias_params['N_wash'], truth['name_bias'])
+    # %% ========================== SELECT BIAS MODEL ======================================= #
+    ESN_name = 'ESN{}_L{}_Nw{}_{}1'.format(bias_params['N_units'], bias_params['L'],
+                                          bias_params['N_wash'], truth['name_bias'])
 
     filter_ens = ensemble.copy()
-    create_bias_model(filter_ens, truth, bias_params, ESN_name,
-                      bias_model_folder=folder, plot_train_data=True)
+    create_bias_model(filter_ens, truth, bias_params, ESN_name, bias_model_folder=folder)
 
+    # %% ========================== RUN SIMULATION ====================================== #
     filter_ens = main(filter_ens, truth)
-
-    #%%  Plot results -------
 
     # Save simulation
     # save_simulation(filter_ens, truth, extra_parameters=None, results_dir=out_dir)
+
+    # %% ========================== PLOT RESULTS ======================================= #
 
     reference_params = dict(theta_b=0.63,
                             theta_e=0.66,

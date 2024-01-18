@@ -186,7 +186,7 @@ def create_ensemble(forecast_params, filter_params):
 
 
 def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name: str,
-                      bias_model_folder: str, plot_train_data=False):
+                      bias_model_folder: str):
     """
     This function creates the bias model for the input ensemble, truth and parameters.
     The bias model is added to the ensemble object as ensemble.bias.
@@ -198,6 +198,8 @@ def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name: str,
     y_raw = truth['y_raw'].copy()
     y_pp = truth['y_true'].copy()
     bias_params['noise_type'] = truth['noise_type']
+    if ensemble.bias_bayesian_update:
+        bias_params['N_ens'] = ensemble.m
 
     run_bias = True
     if bias_params['biasType'].name == 'None':
@@ -232,13 +234,17 @@ def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name: str,
         train_data_filename = bias_model_folder
         train_data_filename += 'Train_data_L{}_augment{}'.format(ensemble.bias.L, ensemble.bias.augment_data)
         train_data = create_bias_training_dataset(y_raw, y_pp, ensemble, train_params,
-                                                  train_data_filename, plot_train_data=plot_train_data)
+                                                  train_data_filename)
+
         # Run bias model training
         ensemble.bias.train_bias_model(train_data=train_data,
                                        folder=bias_model_folder,
                                        plot_training=True)
         # Save
         save_to_pickle_file(bias_model_folder + bias_name, ensemble.bias)
+
+    if ensemble.bias_bayesian_update:
+        assert ensemble.bias.N_ens == ensemble.m
 
     if not hasattr(ensemble.bias, 't_init'):
         ensemble.bias.t_init = truth['t_obs'][0] - truth['dt_obs']
@@ -257,7 +263,7 @@ def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name: str,
         truth['wash_t'] = truth['t'][i0:i1 + 1:ensemble.bias.upsample]
 
 
-def create_bias_training_dataset(y_raw, y_pp, ensemble, train_params, filename, plot_train_data=False):
+def create_bias_training_dataset(y_raw, y_pp, ensemble, train_params, filename):
 
     """
     Multi-parameter data generation for ESN training
@@ -395,99 +401,5 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble, train_params, filename, 
                       observed_idx=y_L_model.shape[1] + np.arange(y_L_model.shape[1])
                       )
     save_to_pickle_file(filename, train_data)
-
-    # ====================================== Plot training data ================================== #
-    # if plot_train_data:
-    #     Nq = y_train.shape[1]
-    #     if not train_params['augment_data']:
-    #         # Compute the correlation of raw and processed data --------------------------
-    #         RS, RS_corr, RS_mid, RS_un = [], [], [], []
-    #         for ii in range(y_train.shape[-1]):
-    #             RS.append(CR(y_true[:, :, 0], y_train[:Nt, :, ii])[1])
-    #
-    #         fig1 = plt.figure(figsize=[5, Nq * 2], layout="constrained")
-    #         norm = mpl.colors.Normalize(vmin=0, vmax=max(RS))
-    #         cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.viridis)
-    #         axss = fig1.subplots(Nq, 1, sharey='all', sharex='all')
-    #         if Nq == 1:
-    #             axss = np.expand_dims(axss, axis=0)
-    #
-    #         norm_y = np.max(y_true[:N_corr])
-    #
-    #         axss[0].set_title('Original')
-    #         for ll in range(y_train.shape[-1]):
-    #             clr = cmap.to_rgba(RS[ll])
-    #             for qq in range(y_train.shape[1]):
-    #                 axss[qq].plot(tt[:N_corr], y_train[:N_corr, qq, ll] / norm_y, color=clr)
-    #                 axss[qq].plot(tt[:N_corr], y_true[:N_corr, qq] / norm_y, '--r')
-    #         for qq, lbl in enumerate(ensemble.obsLabels):
-    #             axss[qq].set(ylabel=lbl)
-    #         axss[-1].set(xlabel='$t$')
-    #
-    #     else:
-    #         # Compute the correlation of raw and processed data --------------------------
-    #         RS, RS_corr, RS_mid, RS_un = [], [], [], []
-    #         for ii in range(y_train.shape[-1]):
-    #             RS.append(CR(y_true[:, :, 0], y_train[:Nt, :, ii])[1])
-    #             RS_un.append(CR(y_true[:, :, 0], y_uncorr[:, :, ii])[1])
-    #             RS_mid.append(CR(y_true[:, :, 0], y_midcorr[:, :, ii])[1])
-    #             RS_corr.append(CR(y_true[:, :, 0], y_corr[:, :, ii])[1])
-    #
-    #         fig1 = plt.figure(figsize=[5*4, Nq * 2], layout="constrained")
-    #         norm = mpl.colors.Normalize(vmin=0, vmax=max(RS))
-    #         cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.viridis)
-    #         axss = fig1.subplots(Nq, 4, sharey='all', sharex='all')
-    #         if Nq == 1:
-    #             axss = np.expand_dims(axss, axis=0)
-    #
-    #         ax0, ax1, ax2, ax3 = [axss[:, ii] for ii in range(4)]
-    #         norm_y = np.max(y_true[:N_corr])
-    #
-    #         for yy, RR, axs, title in zip([y_train, y_uncorr, y_midcorr, y_corr], [RS, RS_un, RS_mid, RS_corr],
-    #                                       [ax0, ax1, ax2, ax3], ['OG', 'Un-corr.', 'Mid-corr.', 'Corr.']):
-    #             axs[0].set_title(title)
-    #             for ll in range(yy.shape[-1]):
-    #                 clr = cmap.to_rgba(RR[ll])
-    #                 for qq in range(yy.shape[1]):
-    #                     axs[qq].plot(tt[:N_corr], yy[:N_corr, qq, ll] / norm_y, color=clr)
-    #                     axs[qq].plot(tt[:N_corr], y_true[:N_corr, qq] / norm_y, '--r')
-    #         for qq, lbl in enumerate(ensemble.obsLabels):
-    #             ax0[qq].set(ylabel=lbl)
-    #         for ax in axss[-1]:
-    #             ax.set(xlabel='$t$')
-    #
-    #     fig1.colorbar(cmap, ax=axss.ravel().tolist(), orientation='vertical', label='total RMS')
-    #     plt.savefig(filename + '.svg', dpi=350)
-    #
-    #     N_sf = train_data.shape[0] // train_ens.m
-    #     fig2 = plt.figure(figsize=[5 * N_sf, Nq * 2], layout="constrained")
-    #
-    #     if N_sf > 1:
-    #         R_data = [RS_un, RS_mid, RS_corr]
-    #     else:
-    #         R_data = [RS]
-    #
-    #     axss = fig2.subplots(Nq, len(R_data), sharey='all', sharex='all')
-    #     if Nq == 1:
-    #         axss = np.expand_dims(axss, axis=0)
-    #     if N_sf == 1:
-    #         axss = np.expand_dims(axss, axis=-1)
-    #
-    #     for mi, RR, title in zip(range(N_sf), R_data, ['Un-corr.', 'Mid-corr.', 'Corr.']):
-    #         bias = train_data[mi * train_ens.m:(mi+1) * train_ens.m]
-    #         axs = axss[:, mi]
-    #
-    #         axs[0].set_title(title)
-    #         for ll in range(bias.shape[0]):
-    #             clr = cmap.to_rgba(RR[ll])
-    #             for qq in range(bias.shape[-1]):
-    #                 axs[qq].plot(tt[:N_corr], bias[ll, :N_corr, qq] / norm_y, color=clr)
-    #     for ax in axss[-1]:
-    #         ax.set(xlabel='$t$')
-    #
-    #     fig2.colorbar(cmap, ax=axss.ravel().tolist(), orientation='vertical', label='total RMS')
-    #     plt.savefig(filename + '_bias.svg', dpi=350)
-    #     # plt.show()
-    #     plt.close('all')
 
     return train_data

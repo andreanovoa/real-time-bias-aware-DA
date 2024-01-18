@@ -444,8 +444,6 @@ class EchoStateNetwork:
         U_test = U[:, N_wtv:].copy()
         Y_test = Y[:, N_wtv:].copy()
 
-
-
         # compute norm (normalize inputs by component range)
         m = np.mean(U_wtv.min(axis=1), axis=0)
         M = np.mean(U_wtv.max(axis=1), axis=0)

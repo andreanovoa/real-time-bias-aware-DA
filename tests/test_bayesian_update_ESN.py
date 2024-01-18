@@ -22,13 +22,15 @@ from essentials.DA import EnSRKF, EnKF, inflateEnsemble
 from copy import deepcopy
 cs = ['lightblue', 'tab:blue', 'navy']
 
-observe_idx = np.array([0, 1, 2])  # Number of dimensions the ESN prediction
-update_reservoir = True
+observe_idx = np.array([0, 2])  # Number of dimensions the ESN prediction
+update_reservoir = 1
+plot_training_data = 0
+plot_timeseries_flag = 1
 
 
 ESN_params = bias_params.copy()
 
-ESN_params['N_wash'] = 3
+ESN_params['N_wash'] = 5
 ESN_params['N_units'] = 80
 ESN_params['N_folds'] = 8
 ESN_params['connect'] = 3
@@ -44,6 +46,11 @@ ESN_params['t_test'] = 5 * t_lyap
 
 
 dt_ESN = dt_model * ESN_params['upsample']
+
+dt_DA = 1. * t_lyap
+total_time = 100. * t_lyap
+num_DA_steps = int(total_time / dt_DA)
+
 
 N_train = int(ESN_params['t_train'] / dt_ESN)
 N_val = int(ESN_params['t_val'] / dt_ESN)
@@ -89,6 +96,18 @@ def plot_data(axs, type_plot='train'):
             axs[-1].set(xlabel='$t/T$', xlim=[t_wash[0] / t_ref - margin, tt_up[-1] / t_ref + margin])
 
 
+def plot_RMS(axs):
+    yy_up = interpolate(tt, yy, tt_up)
+    # yy_est = np.mean(u_closed, axis=-1)
+    std = np.std(u_closed, axis=-1)
+    rms = np.sqrt(np.sum((yy_up - u_closed) ** 2, axis=1))  #  / np.sum(yy_up ** 2, axis=1))
+    axs[0].plot(tt_up / t_ref, rms, 'r.', ms=.5)
+    for ss, cc in zip(std.T, ['b', 'c', 'g']):
+        axs[1].plot(tt_up / t_ref, ss * 2, c=cc)
+    axs[1].set(xlabel='$t/T$', ylabel='2 std')
+    axs[0].set(ylabel='RMS')
+
+
 if __name__ == '__main__':
     # %% 2. CREATE TRUTH
 
@@ -99,11 +118,11 @@ if __name__ == '__main__':
 
     # %% 3. TRAIN THE ESN
 
-    ESN_name = 'my_esn'
+    ESN_name = 'my_esn_partial'
     try:
         ESN_case, ESN_train_data = load_from_pickle_file(ESN_name)
     except FileNotFoundError:
-        filter_params['m'] = 50
+        filter_params['m'] = 20
         train_model = create_ensemble(forecast_params, filter_params)
         N_wtv_model = (N_train + N_val + ESN_params['N_wash'] * 2) * ESN_params['upsample']
         N_test_model = N_test * ESN_params['upsample']
@@ -117,9 +136,11 @@ if __name__ == '__main__':
         train_model.close()
 
         rng = np.random.default_rng(0)
-        fig1 = plt.figure(figsize=(6, 3), layout="tight")
-        axs_train = fig1.subplots(nrows=truth.Nphi, ncols=1, sharex='col', sharey='row')
-        plot_data(axs_train, type_plot='train')
+
+        if plot_training_data:
+            fig1 = plt.figure(figsize=(6, 3), layout="tight")
+            axs_train = fig1.subplots(nrows=truth.Nphi, ncols=1, sharex='col', sharey='row')
+            plot_data(axs_train, type_plot='train')
 
         # Build training data dictionary
         Y = train_model.getObservableHist(N_wtv_model + N_test_model)
@@ -136,8 +157,8 @@ if __name__ == '__main__':
         save_to_pickle_file(ESN_name, deepcopy(ESN_case), ESN_train_data)
 
     # %% INITIALIZE ENSEMBLE OF ESN
-    num_tests = 100
-    Nt_tests = int(1.5 * t_lyap / dt_ESN)
+    num_tests = num_DA_steps
+    Nt_tests = int(dt_DA / dt_ESN)
     Nt_tests_model = Nt_tests * ESN_case.upsample
 
     N_wash_model = ESN_case.N_wash * ESN_case.upsample
@@ -147,7 +168,6 @@ if __name__ == '__main__':
 
     wash_data, t_wash = wash_model[::ESN_case.upsample], t_wash_model[::ESN_case.upsample]
     u_wash, r_wash = ESN_case.openLoop(wash_data)
-
 
     ESN_case.reset_state(u=u_wash[-1], r=r_wash[-1])
 
@@ -168,6 +188,9 @@ if __name__ == '__main__':
 
     fig1 = plt.figure(figsize=(6, 3), layout="tight")
     axs_test = fig1.subplots(nrows=ESN_case.N_dim, ncols=1, sharex='col', sharey='row')
+
+    fig2 = plt.figure(figsize=(6, 3), layout="tight")
+    axs_RMS = fig2.subplots(nrows=2, ncols=1, sharex='col')
 
     for jj in range(num_tests + 1):
         # Forecast model and ESN
@@ -194,10 +217,9 @@ if __name__ == '__main__':
             Af = u_closed[-1].copy()
 
         # Compute ensemble statistics
-        Cdd = (0.05 * d) ** 2 * np.eye(len(d))
+        Cdd = (0.05 * 20) ** 2 * np.eye(len(d))
 
         # Apply ensemble square-root Kalman filter
-        Af = inflateEnsemble(Af, rho=1.002)
         Aa = EnSRKF(Af, d, Cdd, M)[0]
 
         # Update ESN with analysis state
@@ -205,13 +227,11 @@ if __name__ == '__main__':
             ESN_case.reset_state(u=Aa[:ESN_case.N_dim], r=Aa[ESN_case.N_dim:])
         else:
             ESN_case.reset_state(u=Aa[:ESN_case.N_dim])
-
-        plot_data(axs_test, type_plot='test')
+        if plot_timeseries_flag:
+            plot_data(axs_test, type_plot='test')
+        plot_RMS(axs_RMS)
 
     plt.show()
 
 
-    # %% 4. UPDATE STATES USING DATA ASSIMILATION
-
-    observables = dict()
 

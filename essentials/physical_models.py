@@ -24,6 +24,7 @@ class Model:
                           ensemble=False, filename='', governing_eqns_params=dict())
     defaults_ens: dict = dict(filter='EnKF',
                               constrained_filter=False,
+                              bias_bayesian_update=False,
                               regularization_factor=1.,
                               m=10,
                               dt_obs=None,
@@ -210,7 +211,7 @@ class Model:
         if self.bias is None:
             self.initBias()
 
-    def initBias(self, **Bdict):
+    def initBias(self, y=None, **Bdict):
 
         if 'biasType' in Bdict.keys():
             biasType = Bdict['biasType']
@@ -218,7 +219,8 @@ class Model:
             biasType = essentials.bias_models.NoBias
 
         # Initialise bias. Note: self.bias is now an instance of the bias class
-        self.bias = biasType(y=self.getObservables(), t=self.t, dt=self.dt, **Bdict)
+        self.bias = biasType(y=self.getObservables(),
+                             t=self.t, dt=self.dt, **Bdict)
         # Create bias history
         b = self.bias.getBias()
         self.bias.updateHistory(b, self.t, reset=True)

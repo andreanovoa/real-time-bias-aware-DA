@@ -34,7 +34,7 @@ class Bias:
             self.hist = np.array([self.getBias()])
             self.hist_t = np.array([self.t])
 
-        self.b = self.getBias(state=self.hist[-1])
+        self.b = self.hist[-1]
         self.t = self.hist_t[-1]
 
     def updateCurrentState(self, b, t):
@@ -77,20 +77,22 @@ class ESN(Bias, EchoStateNetwork):
 
     def __init__(self, y, t, dt, **kwargs):
         # --------------------  Initialise parent EchoStateNetwork  ------------------- #
-        EchoStateNetwork.__init__(self, y=np.zeros(len(y)), dt=dt, **kwargs)
+        EchoStateNetwork.__init__(self, y=np.zeros(y.shape), dt=dt, **kwargs)
         # --------------------------  Initialise parent Bias  ------------------------- #
         Bias.__init__(self, b=np.zeros(y.shape), t=t, dt=dt, **kwargs)
         # Flags
         self.initialised = False
         self.trained = False
+        self.N_ens = y.shape[-1]
         if 'store_ESN_history' in kwargs.keys():
             self.store_ESN_history = kwargs['store_ESN_history']
         else:
             self.store_ESN_history = False
 
-    def resetBias(self, value):
-        self.b = value
-        self.reset_state(u=value)
+    def resetBias(self, u, r=None):
+        self.b = self.outputs_to_inputs(u)
+        self.reset_state(u=u, r=r)
+
 
     def stateDerivative(self):
         J = self.Jacobian(open_loop_J=True)  # Compute ESN Jacobian
@@ -162,10 +164,15 @@ class ESN(Bias, EchoStateNetwork):
             val_strategy = EchoStateNetwork.RVC_Noise
         self.train(train_data, validation_strategy=val_strategy, plot_training=plot_training, folder=folder)
         self.trained = True
+        print(self.N_dim, self.N_dim_in)
 
-    def getBias(self, state=None, get_full_state=False):
+    def getBias(self, state=None, get_full_state=False, concat_reservoir_state=False):
         if get_full_state:
-            return self.getReservoirState()[0]
+            u, r = self.getReservoirState()
+            if concat_reservoir_state:
+                return np.concatenate([u, r], axis=0)
+            else:
+                return u
         else:
             if len(self.observed_idx) != self.N_dim:
                 bias_idx = [a for a in np.arange(self.N_dim) if a not in self.observed_idx]

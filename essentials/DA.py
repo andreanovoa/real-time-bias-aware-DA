@@ -24,6 +24,9 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
     Nt = int(np.round((t_obs[0] - ensemble.t) / ensemble.dt))
     ensemble = forecastStep(ensemble, Nt, averaged=False, **kwargs)
 
+    if ensemble.bias_bayesian_update and ensemble.bias.N_ens != ensemble.m:
+        raise AssertionError('Wrong ESN initialisation')
+
     print('Elapsed time to first observation: ' + str(time.time() - time1) + ' s')
 
     #  ASSIMILATION LOOP ##
@@ -43,25 +46,33 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
         Aa, J = analysisStep(ensemble, y_obs[ti], Cdd)  # Analysis step
         ensemble.hist_J.append(J)  # Store cost function
 
-        # ------------------------------  UPDATE STATE AND BIAS ------------------------------ #
+        # -------------------------  UPDATE STATE AND BIAS ESTIMATES------------------------- #
         ensemble.psi = Aa[:-ensemble.Nq, :]
         ensemble.hist[-1] = Aa[:-ensemble.Nq, :]
 
-        # Update bias with the analysis innovation d - y^a
+        # Update bias using the analysis innovation d - y^a
         Ya = ensemble.getObservables()
 
-
         # Update the bias state
-        if ensemble.bias_bayesian_update:
-            Bf = ensemble.bias.getState(full_state=True)
-            d_b = y_obs[ti] - Ya
-            Ba = EnKF(Bf, d_b, np.dot(d_b.T, d_b), np.eye(ensemble.Nq), get_cost=False)[0]
-            ensemble.bias.resetBias(Ba)
-        else:
+        if not ensemble.bias_bayesian_update:
             ensemble.bias.resetBias(y_obs[ti] - np.mean(Ya, -1))
+        else:
+            # Analysis innovations
+            I_a = y_obs[ti] - Ya
 
+            if ensemble.bias.update_reservoir:
+                Bf = ensemble.bias.getBias(full_state=True, concat_reservoir_state=True)
+            else:
+                Bf = ensemble.bias.getBias(full_state=True)
 
-
+            Cii = Cdd
+            Ba = EnKF(Bf, I_a, np.eye(ensemble.Nq), Cii, get_cost=False)[0]
+            # Update ESN states
+            N_dim = ensemble.bias.N_dim
+            if ensemble.bias.update_reservoir:
+                ensemble.bias.reset_state(u=Ba[:N_dim], r=Ba[N_dim:])
+            else:
+                ensemble.bias.reset_state(u=Ba[:N_dim])
 
         # ------------------------------ FORECAST TO NEXT OBSERVATION ---------------------- #
         ti += 1
@@ -103,6 +114,9 @@ def forecastStep(case, Nt, averaged=False, alpha=None, **kwargs):
     if case.bias is not None:
         y = case.getObservableHist(Nt)
         b, t_b = case.bias.timeIntegrate(t=t, y=y, **kwargs)
+
+        print(case.bias.hist.shape, b.shape, t_b.shape)
+
         case.bias.updateHistory(b, t_b)
 
     if case.hist_t[-1] != case.bias.hist_t[-1]:
