@@ -41,7 +41,7 @@ class Bias:
         self.b = b
         self.t = t
 
-    def getBias(self, state=None):
+    def getBias(self, state=None, **kwargs):
         if state is None:
             return self.b
         else:
@@ -78,12 +78,14 @@ class ESN(Bias, EchoStateNetwork):
     def __init__(self, y, t, dt, **kwargs):
         # --------------------  Initialise parent EchoStateNetwork  ------------------- #
         EchoStateNetwork.__init__(self, y=np.zeros(y.shape), dt=dt, **kwargs)
+
         # --------------------------  Initialise parent Bias  ------------------------- #
-        Bias.__init__(self, b=np.zeros(y.shape), t=t, dt=dt, **kwargs)
+        Bias.__init__(self, b=np.zeros(self.N_dim), t=t, dt=dt, **kwargs)
+
         # Flags
         self.initialised = False
         self.trained = False
-        self.N_ens = y.shape[-1]
+        self.N_ens = y.shape[0]
         if 'store_ESN_history' in kwargs.keys():
             self.store_ESN_history = kwargs['store_ESN_history']
         else:
@@ -92,7 +94,6 @@ class ESN(Bias, EchoStateNetwork):
     def resetBias(self, u, r=None):
         self.b = self.outputs_to_inputs(u)
         self.reset_state(u=u, r=r)
-
 
     def stateDerivative(self):
         J = self.Jacobian(open_loop_J=True)  # Compute ESN Jacobian

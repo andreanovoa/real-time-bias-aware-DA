@@ -22,7 +22,7 @@ from essentials.DA import EnSRKF, EnKF, inflateEnsemble
 from copy import deepcopy
 cs = ['lightblue', 'tab:blue', 'navy']
 
-observe_idx = np.array([0, 2])  # Number of dimensions the ESN prediction
+observe_idx = np.array([0, 1, 2])  # Number of dimensions the ESN prediction
 update_reservoir = 1
 plot_training_data = 0
 plot_timeseries_flag = 1
@@ -30,8 +30,8 @@ plot_timeseries_flag = 1
 
 ESN_params = bias_params.copy()
 
-ESN_params['N_wash'] = 5
-ESN_params['N_units'] = 80
+ESN_params['N_wash'] = 3
+ESN_params['N_units'] = 50
 ESN_params['N_folds'] = 8
 ESN_params['connect'] = 3
 
@@ -39,10 +39,11 @@ ESN_params['noise'] = 0.01
 ESN_params['upsample'] = 3
 ESN_params['Win_type'] = 'sparse'
 
-ESN_params['rho_range'] = (0.2, 0.9)
+ESN_params['rho_range'] = (0.2, 0.8)
 
-ESN_params['t_val'] = 2 * t_lyap
-ESN_params['t_test'] = 5 * t_lyap
+ESN_params['t_val'] = 6 * t_lyap
+ESN_params['t_test'] = 10 * t_lyap
+filter_params['m'] = 20
 
 
 dt_ESN = dt_model * ESN_params['upsample']
@@ -100,7 +101,7 @@ def plot_RMS(axs):
     yy_up = interpolate(tt, yy, tt_up)
     # yy_est = np.mean(u_closed, axis=-1)
     std = np.std(u_closed, axis=-1)
-    rms = np.sqrt(np.sum((yy_up - u_closed) ** 2, axis=1))  #  / np.sum(yy_up ** 2, axis=1))
+    rms = np.sqrt(np.sum((yy_up - u_closed) ** 2, axis=1) / np.sum(yy_up ** 2, axis=1))
     axs[0].plot(tt_up / t_ref, rms, 'r.', ms=.5)
     for ss, cc in zip(std.T, ['b', 'c', 'g']):
         axs[1].plot(tt_up / t_ref, ss * 2, c=cc)
@@ -119,10 +120,14 @@ if __name__ == '__main__':
     # %% 3. TRAIN THE ESN
 
     ESN_name = 'my_esn_partial'
+    load_ = False
     try:
         ESN_case, ESN_train_data = load_from_pickle_file(ESN_name)
+        load_ = check_valid_file(ESN_case, ESN_params)
     except FileNotFoundError:
-        filter_params['m'] = 20
+        load_ = False
+
+    if not load_:
         train_model = create_ensemble(forecast_params, filter_params)
         N_wtv_model = (N_train + N_val + ESN_params['N_wash'] * 2) * ESN_params['upsample']
         N_test_model = N_test * ESN_params['upsample']

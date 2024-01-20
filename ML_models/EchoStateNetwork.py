@@ -67,16 +67,18 @@ class EchoStateNetwork:
         :param dt: model dt such that dt_ESN = dt * upsample
         :param kwargs: any argument to re-define the dfault values of the class
         """
-        self.u = np.zeros(y.shape)
+
+        self.N_dim = y.shape[0]
         self.dt = dt
         self.dt_ESN = self.dt * self.upsample
+        self.u = np.zeros(self.N_dim)
 
         for key, val in kwargs.items():
             if hasattr(self, key):
                 setattr(self, key, val)
 
         # initially, assume full observability. This may change when providing input data
-        self.N_dim = len(y)
+
         self.observed_idx = np.arange(self.N_dim)
         self.filename = 'ESN'
 
@@ -204,7 +206,6 @@ class EchoStateNetwork:
                 - r: time series of reservoir states
         """
         Nt = u_wash.shape[0] - 1
-
         if extra_closed:
             Nt += extra_closed
 
@@ -232,6 +233,7 @@ class EchoStateNetwork:
         """
 
         u0, r0 = self.getReservoirState()
+
 
         r = np.empty((Nt + 1, self.N_units, u0.shape[-1]))
         u = np.empty((Nt + 1, self.N_dim, u0.shape[-1]))
@@ -534,8 +536,9 @@ class EchoStateNetwork:
 
         N_tikh = len(case.tikh_range)
         n_MSE = np.zeros(N_tikh)
-        N_fw = (case.N_train - case.N_val - case.N_wash) // (
-                    case.N_folds - 1)  # num steps forward the validation interval is shifted
+
+        # num steps forward the validation interval is shifted
+        N_fw = (case.N_train - case.N_val - case.N_wash) // (case.N_folds - 1)
 
         # Train using tv: Wout_tik is passed with all the combinations of tikh_ and target noise
         # This must result in L-Xa timeseries
@@ -560,7 +563,7 @@ class EchoStateNetwork:
                 u_open, r_open = case.openLoop(U_wash, extra_closed=False)
 
                 for tik_j in range(N_tikh):  # cloop for each tikh_-noise combination
-                    case.reset_state(u=u_open[-1], r=r_open[-1])
+                    case.reset_state(u=case.outputs_to_inputs(u_open[-1]), r=r_open[-1])
 
                     case.Wout = Wout_tik[tik_j]
                     U_close = case.closedLoop(case.N_val)[0][1:].squeeze()
@@ -576,14 +579,15 @@ class EchoStateNetwork:
         a = n_MSE.argmin()
         tikh_opt[case.val_k] = case.tikh_range[a]
         case.tikh = case.tikh_range[a]
+        normalized_best_MSE = n_MSE[a] / case.N_folds / case.L
 
         case.val_k += 1
         print(case.val_k, end="")
         for hp in case.optimize_hyperparams:
             print('\t {:.3e}'.format(getattr(case, hp)), end="")
-        print('\t {:.4f}'.format(n_MSE[a] / case.N_folds / case.L))
+        print('\t {:.4f}'.format(normalized_best_MSE))
 
-        return n_MSE[a] / case.N_folds / case.L
+        return normalized_best_MSE
 
     # ________________________________________________________________________________________________ TESTING FUNCTION
     def run_test(self, U_test, Y_test, pdf_file=None, folder='./'):

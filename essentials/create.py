@@ -223,20 +223,35 @@ def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name: str,
                         'alpha_distr': 'uniform',
                         'ensure_mean': True,
                         'plot_training': True,
-                        'perform_test': True}  # Default parameters
+                        'perform_test': True,
+                        'upsample': 1,
+                        'augment_data': True}  # Default parameters
         for key, val in bias_params.items():  # Combine defaults with prescribed parameters
             train_params[key] = val
-        # print('Train and save bias case')
-        ensemble.bias.filename = bias_name
-        ensemble.initBias(**train_params)
+
+        #  Define the minimum length of the training set
+        len_train_data = train_params['t_train'] + train_params['t_val']
+        if train_params['perform_test']:
+            len_train_data += train_params['t_test'] * 5
+
+        train_params['len_train_data'] = int(round(len_train_data / ensemble.dt / train_params['upsample'])) + train_params['N_wash']
+
+        #
+        bias_filename = bias_model_folder + 'Train_data_L{}_augment{}'.format(train_params['L'],
+                                                                              train_params['augment_data'])
+
 
         # Create training data on a multi-parameter approach
-        train_data_filename = bias_model_folder
-        train_data_filename += 'Train_data_L{}_augment{}'.format(ensemble.bias.L, ensemble.bias.augment_data)
-        train_data = create_bias_training_dataset(y_raw, y_pp, ensemble, train_params,
-                                                  train_data_filename)
+        train_data = create_bias_training_dataset(y_raw, y_pp,
+                                                  ensemble, train_params, bias_filename)
+        train_params['y0'] = train_data['labels'][:ensemble.m, 0].T
 
         # Run bias model training
+        ensemble.initBias(**train_params)
+
+        print('Ense', ensemble.bias.hist.shape)
+
+        ensemble.bias.filename = bias_name
         ensemble.bias.train_bias_model(train_data=train_data,
                                        folder=bias_model_folder,
                                        plot_training=True)
@@ -244,6 +259,7 @@ def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name: str,
         save_to_pickle_file(bias_model_folder + bias_name, ensemble.bias)
 
     if ensemble.bias_bayesian_update:
+        print(ensemble.bias.N_ens, ensemble.m)
         assert ensemble.bias.N_ens == ensemble.m
 
     if not hasattr(ensemble.bias, 't_init'):
@@ -267,15 +283,8 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble, train_params, filename):
 
     """
     Multi-parameter data generation for ESN training
-
-    :param y_raw:
-    :param y_pp:
-    :param ensemble:
-    :param train_params:
-    :param filename:
-    :param plot_train_data:
-    :return:
     """
+    ensemble = ensemble.copy()
     # =========================== Load training data if available ============================== #
     try:
         train_data = load_from_pickle_file(filename)
@@ -284,7 +293,7 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble, train_params, filename):
             U = train_data['inputs']
         else:
             U = train_data.copy()
-        if U.shape[1] < ensemble.bias.len_train_data:
+        if U.shape[1] < train_params['len_train_data']:
             print('Rerun multi-parameter training data: Increase the length of the training data')
             rerun = True
         if train_params['augment_data'] and U.shape[0] == train_params['L']:
@@ -298,7 +307,6 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble, train_params, filename):
         print('Run multi-parameter training data: file not found')
 
     # =======================  Create ensemble of initial guesses ============================ #
-
     # Forecast one realization to t_transient
     train_ens = ensemble.reshape_ensemble(m=1, reset=True)
     out = train_ens.timeIntegrate(int(train_ens.t_transient / train_ens.dt))
@@ -334,7 +342,7 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble, train_params, filename):
     train_ens.updateHistory(psi=psi0.T, reset=True)
 
     # =========================  Forcast fixed-point free ensemble ============================== #
-    Nt = train_ens.bias.len_train_data * train_ens.bias.upsample
+    Nt = train_params['len_train_data'] * train_params['upsample']
     N_corr = int(round(train_ens.t_CR / train_ens.dt))
     psi, tt = train_ens.timeIntegrate(Nt=Nt + N_corr)
     train_ens.updateHistory(psi, tt)

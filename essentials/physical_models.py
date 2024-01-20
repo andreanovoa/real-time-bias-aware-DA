@@ -219,8 +219,11 @@ class Model:
             biasType = essentials.bias_models.NoBias
 
         # Initialise bias. Note: self.bias is now an instance of the bias class
-        self.bias = biasType(y=self.getObservables(),
-                             t=self.t, dt=self.dt, **Bdict)
+        if 'y0' in Bdict.keys():
+            y0 = Bdict['y0']
+        else:
+            y0 = self.getObservables()
+        self.bias = biasType(y=y0, t=self.t, dt=self.dt, **Bdict)
         # Create bias history
         b = self.bias.getBias()
         self.bias.updateHistory(b, self.t, reset=True)
