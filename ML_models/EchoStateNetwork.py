@@ -25,31 +25,27 @@ XDG_RUNTIME_DIR = 'tmp/'
 
 
 class EchoStateNetwork:
-    augment_data = False
-    bias_in = None
-    bias_out = np.array([1.0])
-    connect = 5
-    initialised = False
-    L = 1
-    N_folds = 4
-    N_func_evals = 20
-    N_grid = 4
-    N_initial_rand = 0
-    N_random_points = 0
-    N_split = 4
-    N_units = 100
-    N_wash = 50
-    perform_test = True
-    seed_W = 1
-    seed_noise = 0
-    t_val = 0.1
-    t_train = 1.0
-    t_test = 0.5
-    upsample = 5
-    wash_obs = None
-    wash_time = None
-    Win_type = 'sparse'
-    # Default hyperparameters and optimization ranges
+    augment_data = False            # Data augmentation during training?
+    bias_in = np.array([0.1])       #
+    bias_out = np.array([1.0])      # For symmetry breaking
+    connect = 3                     # Connectivity between neurons
+    L = 1                           # Number of augmented datasets
+    N_folds = 4                     # Folds over the training set
+    N_func_evals = 20               # Total evals of Bayesian hyperparameter optimization (BHO)
+    N_grid = 4                      # BHO grid N_grid x N_grid \geq N_func_evals
+    N_initial_rand = 0              # Initial random evaluations at BYO
+    N_split = 4                     # Splits of training data for faster computation
+    N_units = 100                   # Number of neurones
+    N_wash = 50                     # Number of washout steps
+    perform_test = True             # Run tests during training?
+    seed_W = 1                      # Random seed for Win and W definition
+    seed_noise = 0                  # Random seed for input training data
+    t_val = 0.1                     # Validation time
+    t_train = 1.0                   # Training time
+    t_test = 0.5                    # Testing time
+    upsample = 5                    # Upsample x dt_model = dt_ESN
+    Win_type = 'sparse'             # Type of Wim definition [sparse/dense]
+    # Default hyperparameters and optimization ranges -----------------------
     noise = 1e-10
     noise_type = 'gauss'
     optimize_hyperparams = ['rho', 'sigma_in', 'tikh']
@@ -68,30 +64,32 @@ class EchoStateNetwork:
         :param kwargs: any argument to re-define the dfault values of the class
         """
 
-        self.N_dim = y.shape[0]
-        self.dt = dt
-        self.dt_ESN = self.dt * self.upsample
-        self.u = np.zeros(self.N_dim)
-
         for key, val in kwargs.items():
             if hasattr(self, key):
                 setattr(self, key, val)
 
-        # initially, assume full observability. This may change when providing input data
+        self.N_dim = y.shape[0]
+        self.dt = dt
+        self.dt_ESN = self.dt * self.upsample
 
-        self.observed_idx = np.arange(self.N_dim)
-        self.filename = 'ESN'
-
-        # -------------------------- Define time windows ----------------------------- #
+        # -----------  Initialise state and reservoir state to zeros ------------ #
+        self.u = np.zeros((self.N_dim, 1))
+        self.r = np.zeros((self.N_units, 1))
+        self.observed_idx = np.arange(self.N_dim)  # initially, assume full observability.
+        
+        # --------------------- Define time windows -------------------- #
         self.N_train = int(round(self.t_train / self.dt_ESN))
         self.N_val = int(round(self.t_val / self.dt_ESN))
         self.N_test = int(round(self.t_test / self.dt_ESN))
 
-        # -----------  Initialise reservoir state and its history to zeros ------------ #
-        self.r = np.zeros((self.N_units, 1))
+        # --------------------- Empty arrays and flags ----------------------- #
         self.norm = None
         self._WCout = None
-        self.trained = False
+        self.wash_obs = None
+        self.wash_time = None
+        self.trained = False                # Flag for training
+        self.initialised = False            # Flag for washout
+        self.filename = 'my_ESN'            # Default ESN file name
 
     @property
     def len_train_data(self):
@@ -99,9 +97,6 @@ class EchoStateNetwork:
         if self.perform_test:
             val += self.N_test * 5
         return val
-
-    def outputs_to_inputs(self, full_state):
-        return full_state[self.observed_idx]
 
     @property
     def N_dim_in(self):
@@ -126,21 +121,32 @@ class EchoStateNetwork:
         if tikhonov is not None:
             setattr(self, 'tikh', tikhonov)
 
+    @property
+    def N_ens(self):
+        if self.u.ndim > 1:
+            return self.u.shape[-1]
+        else:
+            return 1
+
     def reset_state(self, u=None, r=None):
         if u is not None:
-            if u.shape[0] != self.u.shape[0]:
-                self.u = u[self.observed_idx]
-            else:
-                self.u = u
+            if u.ndim == 1:
+                u = np.expand_dims(u, axis=-1)
+            self.u = u
         if r is not None:
+            if r.ndim == 1:
+                r = np.expand_dims(r, axis=-1)
             self.r = r
+
+    def outputs_to_inputs(self, full_state):
+        return full_state[self.observed_idx]
 
     # _______________________________________________________________________________________________________ JACOBIAN
 
     def Jacobian(self, open_loop_J=True, state=None):
         # Get current state
         if state is None:
-            u_in, r_in = self.getReservoirState()
+            u_in, r_in = self.get_reservoir_state()
         else:
             u_in, r_in = state
 
@@ -168,7 +174,8 @@ class EchoStateNetwork:
         return RHS.dot(Wout_1.T).T
 
     # ___________________________________________________________________________________ FUNCTIONS TO FORECAST THE ESN
-    def getReservoirState(self):
+
+    def get_reservoir_state(self):
         return self.u, self.r
 
     def step(self, u, r):
@@ -208,16 +215,12 @@ class EchoStateNetwork:
         Nt = u_wash.shape[0] - 1
         if extra_closed:
             Nt += extra_closed
+        self.reset_state(u=u_wash[0])
 
-        if u_wash.ndim == 3:
-            N_ens = u_wash.shape[-1]
-        else:
-            N_ens = 1
+        r = np.empty((Nt + 1, self.N_units, self.N_ens))
+        u = np.empty((Nt + 1, self.N_dim, self.N_ens))
 
-        r = np.empty((Nt + 1, self.N_units, N_ens))
-        u = np.empty((Nt + 1, self.N_dim, N_ens))
-
-        r[0] = self.getReservoirState()[-1]
+        u[0], r[0] = self.get_reservoir_state()
 
         for i in range(Nt):
             u[i + 1], r[i + 1] = self.step(u_wash[i], r[i])
@@ -232,13 +235,10 @@ class EchoStateNetwork:
                 - ra: time series of augmented reservoir states
         """
 
-        u0, r0 = self.getReservoirState()
+        r = np.empty((Nt + 1, self.N_units, self.N_ens))
+        u = np.empty((Nt + 1, self.N_dim, self.N_ens))
 
-
-        r = np.empty((Nt + 1, self.N_units, u0.shape[-1]))
-        u = np.empty((Nt + 1, self.N_dim, u0.shape[-1]))
-
-        u[0, self.observed_idx], r[0] = u0, r0
+        u[0], r[0] = self.get_reservoir_state()
 
         for i in range(Nt):
             u_input = self.outputs_to_inputs(full_state=u[i])
@@ -261,9 +261,7 @@ class EchoStateNetwork:
 
         # define grid search and bayesian optimisation hp_names
         search_grid, search_space, hp_names = self.hyperparameter_search()
-
         tikh_opt = np.zeros(self.N_func_evals)  # optimal tikhonov in each evaluation
-
         self.val_k = 0  # Validation iteration counter
 
         # Validation function
@@ -418,20 +416,29 @@ class EchoStateNetwork:
 
         #   APPLY UPSAMPLE ________________________
         if type(train_data) is dict:
-            U = train_data['inputs'][:, ::self.upsample].copy()
-            Y = train_data['labels'][:, ::self.upsample].copy()
+            defaults = dict(Y=None, bayesian_update=False, observed_idx=np.arange(self.N_dim), add_noise=True)
+            for key, val in defaults.items():
+                if key not in train_data.keys():
+                    train_data[key] = val
 
-            self.N_dim = Y.shape[-1]
-            self.observed_idx = train_data['observed_idx']
-            # self.reset_state(u=np.zeros(Y.shape[-1]))
+            # Set labels always as the full state
+            Y = train_data['data'][:, ::self.upsample].copy()
+
+            # Case I: Full observability .OR. Case II: Full observability with a DA-reconstructed state.
+            if len(train_data['observed_idx']) == self.N_dim or train_data['bayesian_update']:
+                self.observed_idx = np.arange(self.N_dim)
+            # Case II. Traditional partial observability
+            else:
+                self.observed_idx = train_data['observed_idx']
+
+            # Set inputs to the observed labels
+            U = Y[:, :, self.observed_idx]
 
             assert Y.shape[-1] >= U.shape[-1]
             assert U.shape[-1] == len(self.observed_idx)
-            add_noise = False
         else:
             U = train_data[:, ::self.upsample].copy()
             Y = U.copy()
-            add_noise = True
 
         #   SEPARATE INTO WASH/TRAIN/VAL/TEST SETS _______________
         N_tv = self.N_train + self.N_val
@@ -451,10 +458,7 @@ class EchoStateNetwork:
         M = np.mean(U_wtv.max(axis=1), axis=0)
         self.norm = M - m
 
-        if self.bias_in is None:
-            setattr(self, 'bias_in', np.array([0.1]))
-
-        if add_noise:
+        if train_data['add_noise']:
             #  ==================== ADD NOISE TO TRAINING INPUT ====================== ##
             # Add noise to the inputs if distinction inputs/labels is not given.
             # Larger noise promotes stability in long term, but hinders time accuracy

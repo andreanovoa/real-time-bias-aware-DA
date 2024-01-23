@@ -22,7 +22,9 @@ from essentials.DA import EnSRKF, EnKF, inflateEnsemble
 from copy import deepcopy
 cs = ['lightblue', 'tab:blue', 'navy']
 
-observe_idx = np.array([0, 1, 2])  # Number of dimensions the ESN prediction
+observe_idx = np.array([0, ])  # Number of dimensions the ESN prediction
+bayesian_update = True
+
 update_reservoir = 1
 plot_training_data = 0
 plot_timeseries_flag = 1
@@ -35,7 +37,7 @@ ESN_params['N_units'] = 50
 ESN_params['N_folds'] = 8
 ESN_params['connect'] = 3
 
-ESN_params['noise'] = 0.01
+ESN_params['noise'] = 0.1
 ESN_params['upsample'] = 3
 ESN_params['Win_type'] = 'sparse'
 
@@ -48,8 +50,8 @@ filter_params['m'] = 20
 
 dt_ESN = dt_model * ESN_params['upsample']
 
-dt_DA = 1. * t_lyap
-total_time = 100. * t_lyap
+dt_DA = .25 * t_lyap
+total_time = 20. * t_lyap
 num_DA_steps = int(total_time / dt_DA)
 
 
@@ -70,7 +72,7 @@ def plot_data(axs, type_plot='train'):
                 axx.set(ylabel=truth.obsLabels[axj])
             if ci == 2:
                 axs[0].set(xlim=[0, ttt[-1] / t_ref])
-                axs[0].legend(['Transient', 'Train+val', 'Tests'], ncols=3, loc='lower center', bbox_to_anchor=(0.5, 1.0))
+                axs[0].legend(['Transient', 'Train+val', 'Tests'], ncols=3, loc='lower center', bbox_to_anchor=(.5, 1.))
     else:
         if jj == 0:
             for ii, idx in enumerate(ESN_case.observed_idx):
@@ -105,8 +107,8 @@ def plot_RMS(axs):
     axs[0].plot(tt_up / t_ref, rms, 'r.', ms=.5)
     for ss, cc in zip(std.T, ['b', 'c', 'g']):
         axs[1].plot(tt_up / t_ref, ss * 2, c=cc)
-    axs[1].set(xlabel='$t/T$', ylabel='2 std')
-    axs[0].set(ylabel='RMS')
+    axs[1].set(xlabel='$t/T$', ylabel='2 std', ylim=[0,30])
+    axs[0].set(ylabel='RMS', ylim=[0, 5])
 
 
 if __name__ == '__main__':
@@ -152,12 +154,13 @@ if __name__ == '__main__':
         Y = Y.transpose(2, 0, 1)
 
         # ESN class
-        ESN_case = EchoStateNetwork(Y[0, 0, observe_idx], dt=dt_model, **ESN_params)
+        ESN_case = EchoStateNetwork(Y[0, 0, :], dt=dt_model, **ESN_params)
 
         # Train
-        ESN_train_data = dict(inputs=Y[:, :, observe_idx],
-                              labels=Y,
-                              observed_idx=observe_idx)
+        ESN_train_data = dict(data=Y,
+                              bayesian_update=bayesian_update,
+                              observed_idx=observe_idx
+                              )
         ESN_case.train(ESN_train_data, validation_strategy=EchoStateNetwork.RVC_Noise)
         save_to_pickle_file(ESN_name, deepcopy(ESN_case), ESN_train_data)
 
@@ -167,11 +170,14 @@ if __name__ == '__main__':
     Nt_tests_model = Nt_tests * ESN_case.upsample
 
     N_wash_model = ESN_case.N_wash * ESN_case.upsample
-    wash_model = ESN_train_data['inputs'][:, -N_wash_model:].transpose(1, 2, 0)
+    wash_model = ESN_train_data['data'][:, -N_wash_model:, ESN_case.observed_idx].transpose(1, 2, 0)
 
     t_wash_model = np.arange(0, N_wash_model) * dt_model
 
     wash_data, t_wash = wash_model[::ESN_case.upsample], t_wash_model[::ESN_case.upsample]
+
+
+    print('\n\nwashout shaope', wash_data.shape, observe_idx)
     u_wash, r_wash = ESN_case.openLoop(wash_data)
 
     ESN_case.reset_state(u=u_wash[-1], r=r_wash[-1])
@@ -182,14 +188,15 @@ if __name__ == '__main__':
         truth.updateHistory(psi, tt, reset=True)
 
     #  Observation operator
-
     if update_reservoir:
-        M = np.zeros([ESN_case.N_dim_in, ESN_case.N_dim + ESN_case.N_units])
+        M = np.zeros([len(observe_idx), ESN_case.N_dim + ESN_case.N_units])
     else:
-        M = np.zeros([ESN_case.N_dim_in, ESN_case.N_dim])
+        M = np.zeros([len(observe_idx), ESN_case.N_dim])
 
     for dim_i, obs_i in enumerate(observe_idx):
         M[dim_i, obs_i] = 1.
+
+    print(M)
 
     fig1 = plt.figure(figsize=(6, 3), layout="tight")
     axs_test = fig1.subplots(nrows=ESN_case.N_dim, ncols=1, sharex='col', sharey='row')
@@ -223,6 +230,7 @@ if __name__ == '__main__':
 
         # Compute ensemble statistics
         Cdd = (0.05 * 20) ** 2 * np.eye(len(d))
+
 
         # Apply ensemble square-root Kalman filter
         Aa = EnSRKF(Af, d, Cdd, M)[0]

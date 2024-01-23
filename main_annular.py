@@ -11,7 +11,7 @@ if __name__ == '__main__':
 
     # %% ========================== SELECT BIAS MODEL ======================================= #
     ESN_name = 'ESN{}_L{}_Nw{}_{}1'.format(bias_params['N_units'], bias_params['L'],
-                                          bias_params['N_wash'], truth['name_bias'])
+                                           bias_params['N_wash'], truth['name_bias'])
 
     filter_ens = ensemble.copy()
     create_bias_model(filter_ens, truth, bias_params, ESN_name, bias_model_folder=folder)

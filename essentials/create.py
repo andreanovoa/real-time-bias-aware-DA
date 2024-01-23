@@ -214,7 +214,6 @@ def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name: str,
                 run_bias = False
 
     if run_bias:
-
         # ======================== SET NECESSARY TRAINING PARAMETERS ======================
         train_params = {'L': 10,
                         't_train': ensemble.t_transient,
@@ -234,8 +233,8 @@ def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name: str,
         if train_params['perform_test']:
             len_train_data += train_params['t_test'] * 5
 
-        train_params['len_train_data'] = int(round(len_train_data / ensemble.dt / train_params['upsample'])) + train_params['N_wash']
-
+        train_params['len_train_data'] = (int(round(len_train_data / ensemble.dt / train_params['upsample']))
+                                          + train_params['N_wash'])
         #
         bias_filename = bias_model_folder + 'Train_data_L{}_augment{}'.format(train_params['L'],
                                                                               train_params['augment_data'])
@@ -244,6 +243,7 @@ def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name: str,
         # Create training data on a multi-parameter approach
         train_data = create_bias_training_dataset(y_raw, y_pp,
                                                   ensemble, train_params, bias_filename)
+
         train_params['y0'] = train_data['labels'][:ensemble.m, 0].T
 
         # Run bias model training
@@ -392,22 +392,27 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble, train_params, filename):
             train_data_model[:, :, 3*ii+2] = yy[best_lag:best_lag + Nt]
 
     # ================ Create training biases as (observations - model estimates) ================= #
-    train_data_in = y_raw - train_data_model
-    train_data_out = y_pp - train_data_model
+    train_data_inn = y_raw - train_data_model  # Innovations
+    train_data_bias = y_pp - train_data_model  # Model bias
 
     # =======================  Force train_data shape to be (L x Nt x Ndim) ======================= #
-    train_data_out = train_data_out.transpose((2, 0, 1))
-    train_data_in = train_data_in.transpose((2, 0, 1))
+    train_data_bias = train_data_bias.transpose((2, 0, 1))
+    train_data_inn = train_data_inn.transpose((2, 0, 1))
 
-    assert len(train_data_in.shape) == 3
-    assert train_data_in.shape[1] == Nt
-    assert train_data_in.shape[2] == y_L_model.shape[1]
+    assert len(train_data_inn.shape) == 3
+    assert train_data_inn.shape[1] == Nt
+    assert train_data_inn.shape[2] == y_L_model.shape[1]
 
     # =============================== Store in dictionary and save ================================ #
-    train_data = dict(inputs=train_data_in,
-                      labels=np.concatenate([train_data_out, train_data_in], axis=2),
-                      observed_idx=y_L_model.shape[1] + np.arange(y_L_model.shape[1])
+    train_data = dict(data=np.concatenate([train_data_bias, train_data_inn], axis=2),
+                      observed_idx=ensemble.Nq + np.arange(ensemble.Nq),  # only observe innovations
+                      bayesian_update=bayesian_update,
+                      add_noise=add_noise
                       )
+
+    raise ('continue here')
+
+
     save_to_pickle_file(filename, train_data)
 
     return train_data
