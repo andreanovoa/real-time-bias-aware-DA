@@ -28,12 +28,12 @@ def main(filter_ens, truth):
     else:
         Nt_extra = int(filter_ens.t_CR / filter_ens.dt) + 1
 
-    psi, t = filter_ens.timeIntegrate(Nt_extra, averaged=True)
-    filter_ens.updateHistory(psi, t)
+    psi, t = filter_ens.time_integrate(Nt_extra)
+    filter_ens.update_history(psi, t)
     if filter_ens.bias is not None:
-        y = filter_ens.getObservableHist(Nt_extra)
-        b, t_b = filter_ens.bias.timeIntegrate(t=t, y=y)
-        filter_ens.bias.updateHistory(b, t_b)
+        y = filter_ens.get_observable_hist(Nt_extra)
+        b, t_b = filter_ens.bias.time_integrate(t=t, y=y)
+        filter_ens.bias.update_history(b, t_b)
 
     # =============================== CLOSE SIMULATION  =============================== #
     filter_ens.close()
@@ -76,7 +76,7 @@ def run_Lk_loop(ensemble, truth, bias_params, Ls=10, ks=1., folder=''):
 def save_simulation(filter_ens, truth, extra_parameters=None, results_dir="results/"):
     os.makedirs(results_dir, exist_ok=True)
 
-    parameters = dict(biasType=filter_ens.biasType, forecast_model=filter_ens.name,
+    parameters = dict(biasType=filter_ens.bias_type, forecast_model=filter_ens.name,
                       true_model=truth['model'], num_DA=len(truth['t_obs']))
 
     if extra_parameters is not None:

@@ -85,22 +85,22 @@ class ESN(Bias, EchoStateNetwork):
         # Flags
         self.initialised = False
         self.trained = False
-        self.N_ens = y.shape[0]
+
         if 'store_ESN_history' in kwargs.keys():
             self.store_ESN_history = kwargs['store_ESN_history']
         else:
             self.store_ESN_history = False
 
-    def resetBias(self, u, r=None):
+    def reset_bias(self, u, r=None):
         self.b = self.outputs_to_inputs(u)
         self.reset_state(u=u, r=r)
 
-    def stateDerivative(self):
+    def state_derivative(self):
         J = self.Jacobian(open_loop_J=True)  # Compute ESN Jacobian
         db_dinput = J[self.observed_idx, :]
         return -db_dinput
 
-    def timeIntegrate(self, t, y=None, wash_t=None, wash_obs=None):
+    def time_integrate(self, t, y=None, wash_t=None, wash_obs=None):
         if not self.trained:
             raise NotImplementedError('ESN model not trained')
 
@@ -165,11 +165,12 @@ class ESN(Bias, EchoStateNetwork):
             val_strategy = EchoStateNetwork.RVC_Noise
         self.train(train_data, validation_strategy=val_strategy, plot_training=plot_training, folder=folder)
         self.trained = True
-        print(self.N_dim, self.N_dim_in)
 
-    def getBias(self, state=None, get_full_state=False, concat_reservoir_state=False):
+
+
+    def get_bias(self, state=None, get_full_state=False, concat_reservoir_state=False):
         if get_full_state:
-            u, r = self.getReservoirState()
+            u, r = self.get_reservoir_state()
             if concat_reservoir_state:
                 return np.concatenate([u, r], axis=0)
             else:
@@ -181,7 +182,7 @@ class ESN(Bias, EchoStateNetwork):
                 bias_idx = np.arange(self.N_dim)
 
             if state is None:
-                state = self.getReservoirState()[0]
+                state = self.get_reservoir_state()[0]
                 return state[bias_idx]
             else:  # the input is a timeseries
                 if state.ndim > 1:

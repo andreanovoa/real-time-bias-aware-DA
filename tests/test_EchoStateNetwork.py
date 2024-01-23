@@ -92,15 +92,15 @@ if __name__ == '__main__':
 
     out = []
     for Nt in [N_transient_model, N_wtv_model, N_test_model]:
-        state, t1 = model.timeIntegrate(Nt)
-        model.updateHistory(state, t1, reset=False)
-        yy = model.getObservableHist(Nt)
+        state, t1 = model.time_integrate(Nt)
+        model.update_history(state, t1, reset=False)
+        yy = model.get_observable_hist(Nt)
         out.append((t1, yy))
-    model.updateHistory(state, t1, reset=False)
+    model.update_history(state, t1, reset=False)
 
     # %% 2. TRAIN THE ESN
     # Build training data dictionary
-    Y = model.getObservableHist(N_wtv_model + N_test_model).transpose(2, 0, 1)
+    Y = model.get_observable_hist(N_wtv_model + N_test_model).transpose(2, 0, 1)
     ESN_train_data = dict(inputs=Y[:, :, observe_idx],
                           labels=Y,
                           observed_idx=observe_idx)
@@ -110,7 +110,7 @@ if __name__ == '__main__':
 
     # %% 3. INITIALISE THE ESN
     #  First initialise the network - washout phase
-    wash_model = model.getObservableHist(ESN_case.N_wash * upsample)
+    wash_model = model.get_observable_hist(ESN_case.N_wash * upsample)
     t_wash_model = model.hist_t[-ESN_case.N_wash * upsample:]
 
     wash_model = wash_model[:, observe_idx, 0]
@@ -135,7 +135,7 @@ if __name__ == '__main__':
             ci += 1
             for ii, ax in enumerate(axs[:, 0]):
                 ax.plot(t1 / t_ref, yy[:, ii], '-', c=cs[ci])
-                ax.set(ylabel=model.obsLabels[ii])
+                ax.set(ylabel=model.obs_labels[ii])
         axs[0, 0].set(xlim=[0, model.hist_t[-1] / t_ref])
         axs[0, 0].legend(['Transient', 'Train+val', 'Train tests'],
                          ncols=3, loc='lower center', bbox_to_anchor=(0.5, 1.0))
@@ -146,10 +146,10 @@ if __name__ == '__main__':
 
         for jj in range(num_tests + 1):
             # Forecast model and ESN and compare
-            out = model.timeIntegrate(Nt_tests_model)
-            model.updateHistory(*out, reset=False)
+            out = model.time_integrate(Nt_tests_model)
+            model.update_history(reset=False)
 
-            yy = model.getObservableHist(Nt_tests_model)
+            yy = model.get_observable_hist(Nt_tests_model)
             tt = model.hist_t[-Nt_tests_model:]
             tt_up = out[-1][::ESN_case.upsample]
 

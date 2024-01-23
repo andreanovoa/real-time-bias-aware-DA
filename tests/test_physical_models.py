@@ -22,17 +22,17 @@ if __name__ == '__main__':
     case = Annular()
 
     # Forecast model and update
-    state, t_ = case.timeIntegrate(int(case.t_transient / case.dt))
-    case.updateHistory(state, t_)
+    state, t_ = case.time_integrate(int(case.t_transient / case.dt))
+    case.update_history(state, t_)
 
     # Generate ensemble
     DA_params = dict(m=10, est_a=case.params[:2], std_psi=0.1, std_a=0.4, alpha_distr='uniform')
-    case.initEnsemble(**DA_params)
+    case.init_ensemble(**DA_params)
 
     t1 = time.time()
     for _ in range(2):
-        state, t_ = case.timeIntegrate(int(case.t_transient / case.dt))
-        case.updateHistory(state, t_)
+        state, t_ = case.time_integrate(int(case.t_transient / case.dt))
+        case.update_history(state, t_)
 
     print('Elapsed time = ', str(time.time() - t1))
 
@@ -45,7 +45,7 @@ if __name__ == '__main__':
     axs = subfigs[0].subplots(2, 1, sharey='all')
 
     # State evolution
-    y, lbl = case.getObservableHist(), case.obsLabels[0]
+    y, lbl = case.get_observable_hist(), case.obs_labels[0]
 
     axs[0].plot(t_h, y[:, 0], color='blue', label=lbl)
     axs[1].plot(t_h[-t_zoom:], y[-t_zoom:, 0], color='blue')

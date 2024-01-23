@@ -52,7 +52,7 @@ if __name__ == '__main__':
                      }
 
     # using default TA parameters for ESN training
-    bias_params = {'biasType': ESN,  # Bias.ESN  # None
+    bias_params = {'bias_type': ESN,  # Bias.ESN  # None
                    'std_a': filter_params['std_a'],
                    'est_a': filter_params['est_a'],
                    'N_wash': 30,

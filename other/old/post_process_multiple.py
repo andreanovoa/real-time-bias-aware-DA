@@ -47,7 +47,7 @@ for file in files:
         truth = pickle.load(f)
         filter_ens = pickle.load(f)
     # Observable bias
-    y_filter, t_filter = filter_ens.getObservableHist()[0], filter_ens.hist_t
+    y_filter, t_filter = filter_ens.get_observable_hist()[0], filter_ens.hist_t
     y_truth = truth['y'][:len(y_filter)]
     b_truth = truth['b_true'][:len(y_filter)]
     b_obs = y_truth - np.mean(y_filter, -1)

@@ -22,7 +22,7 @@ if __name__ == '__main__':
                      # initial parameter and state uncertainty
                      'std_a': 0.3,
                      'std_psi': 0.3,
-                     'biasType': Bias.NoBias,  # Bias.ESN / Bias.NoBias
+                     'bias_type': Bias.NoBias,  # Bias.ESN / Bias.NoBias
                      # Define the observation time window
                      't_start': 2.0,
                      't_stop': 2.6,

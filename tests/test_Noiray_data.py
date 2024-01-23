@@ -53,15 +53,14 @@ if __name__ == '__main__':
 
     # Forecast ensemble
     Nt = ensemble.t_transient // ensemble.dt
-    state, t_ = ensemble.timeIntegrate(Nt)
+    state, t_ = ensemble.time_integrate(Nt)
 
     # %% Plot ensemble
 
     print(ensemble.hist.shape, ensemble.psi.shape, state.shape)
 
-
-    ensemble.updateHistory(psi=state, t=t_)
-    y_model = ensemble.getObservableHist()
+    ensemble.update_history(psi=state, t=t_)
+    y_model = ensemble.get_observable_hist()
 
 
     fig1 = plt.figure()

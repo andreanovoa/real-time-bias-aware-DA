@@ -37,8 +37,8 @@ if __name__ == '__main__':
     Nt = int(np.round((truth['t_obs'][0] - filter_ens.t) / filter_ens.dt))
 
     # Forecast ensemble and update the history
-    psi, t = filter_ens.timeIntegrate(Nt=Nt, averaged=False, alpha=None)
-    filter_ens.updateHistory(psi, t)
+    psi, t = filter_ens.time_integrate()
+    filter_ens.update_history(psi, t)
     filter_ens.close()
 
     # %%
@@ -56,12 +56,12 @@ if __name__ == '__main__':
 
     bias_idx = ESN.observed_idx
 
-    y = filter_ens.getObservableHist(Nt)
+    y = filter_ens.get_observable_hist(Nt)
     ESN.N_ens = y.shape[-1]
 
     colors = get_cmap(y.shape[-1])
 
-    b2, t_b = ESN.timeIntegrate(t=t, y=y, wash_t=truth['wash_t'], wash_obs=truth['wash_obs'])
+    b2, t_b = ESN.time_integrate(t=t, y=y, wash_t=truth['wash_t'], wash_obs=truth['wash_obs'])
 
     wash_model = interpolate(t, y, truth['wash_t'])
     washout = np.expand_dims(truth['wash_obs'], -1) - wash_model
@@ -86,11 +86,11 @@ if __name__ == '__main__':
 
     bias_idx = [a for a in np.arange(ESN.N_dim) if a in ESN.observed_idx]
 
-    y = filter_ens.getObservableHist(Nt)
+    y = filter_ens.get_observable_hist(Nt)
     for ii in range(y.shape[-1]):
         yy = y[:, :, ii]
         ESN = deepcopy(filter_ens.bias)
-        b2, t_b = ESN.timeIntegrate(t=t, y=yy, wash_t=truth['wash_t'], wash_obs=truth['wash_obs'])
+        b2, t_b = ESN.time_integrate(t=t, y=yy, wash_t=truth['wash_t'], wash_obs=truth['wash_obs'])
         line = plt.plot(t_b[-100:], b2[-100:, bias_idx[0]], '--', lw=.8, color=colors[ii])
         wash_model = interpolate(t, yy, truth['wash_t'])
         washout = truth['wash_obs'] - wash_model

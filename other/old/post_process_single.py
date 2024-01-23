@@ -29,7 +29,7 @@ if __name__ == '__main__':
         filter_ens = pickle.load(f)
 
 filt = filter_ens.filt
-biasType = filter_ens.biasType
+biasType = filter_ens.bias_type
 num_DA = parameters['num_DA']
 Nt_extra = parameters['Nt_extra']
 
@@ -43,7 +43,7 @@ num_SE_only = filter_ens.num_SE_only
 
 # %% ================================ PLOT time series, parameters and RMS ================================ #
 
-y_filter, labels = filter_ens.getObservableHist()
+y_filter, labels = filter_ens.get_observable_hist()
 if len(np.shape(y_filter)) < 3:
     y_filter = np.expand_dims(y_filter, axis=1)
 if len(np.shape(y_true)) < 3:

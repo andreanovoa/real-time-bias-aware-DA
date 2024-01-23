@@ -132,7 +132,7 @@ def post_process_WhyAugment(results_dir, k_plot=None, J_plot=None, figs_dir=None
             ii += 2
             truth = truth.copy()
             # ---------------------------------------------------------
-            y, t = filter_ens.getObservableHist(), filter_ens.hist_t
+            y, t = filter_ens.get_observable_hist(), filter_ens.hist_t
             b, t_b = filter_ens.bias.hist, filter_ens.bias.hist_t
 
             # Unbiased signal error
@@ -226,7 +226,7 @@ def post_process_single(filter_ens, truth, filename=None, mic=0, reference_y=1.,
     num_DA_blind = filter_ens.num_DA_blind
     num_SE_only = filter_ens.num_SE_only
 
-    y_filter, t = filter_ens.getObservableHist(), filter_ens.hist_t
+    y_filter, t = filter_ens.get_observable_hist(), filter_ens.hist_t
     b, t_b = filter_ens.bias.hist, filter_ens.bias.hist_t
 
     y_filter, b, obs = [yy[:, mic] for yy in [y_filter, b, obs]]
@@ -662,7 +662,7 @@ def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False,
                     filename=None, reference_y=1., reference_t=1.):
     t_obs, obs = truth['t_obs'], truth['y_obs']
 
-    y_filter, t = filter_ens.getObservableHist(), filter_ens.hist_t
+    y_filter, t = filter_ens.get_observable_hist(), filter_ens.hist_t
     b, t_b = filter_ens.bias.hist, filter_ens.bias.hist_t
     y_mean = np.mean(y_filter, -1)
 
@@ -1017,13 +1017,13 @@ def plot_Rijke_animation(folder, figs_dir):
     locs_obs = filter_ens.x_mic
 
     # Bias-aware EnKF sol
-    y_BA = filter_ens_BA.getObservableHist(loc=locs)
+    y_BA = filter_ens_BA.get_observable_hist(loc=locs)
     y_BA = np.mean(y_BA, -1)
     # Bias-blind EnKF sol
-    y_BB = filter_ens_BB.getObservableHist(loc=locs)
+    y_BB = filter_ens_BB.get_observable_hist(loc=locs)
     y_BB = np.mean(y_BB, -1)
     # truth
-    y_t = truth_ens.getObservableHist(loc=locs).squeeze()
+    y_t = truth_ens.get_observable_hist(loc=locs).squeeze()
     y_t += .4 * y_t * np.sin((np.expand_dims(truth_ens.hist_t, -1) * np.pi * 2) ** 2)
     y_t = interpolate(truth_ens.hist_t, y_t, filter_ens.hist_t)
 
@@ -1044,14 +1044,14 @@ def plot_Rijke_animation(folder, figs_dir):
     t_gif = filter_ens.hist_t[t0:t1:5]
 
     # all pressure points
-    y_BA = filter_ens_BA.getObservableHist(loc=locs)
-    y_BB = filter_ens_BB.getObservableHist(loc=locs)
+    y_BA = filter_ens_BA.get_observable_hist(loc=locs)
+    y_BB = filter_ens_BB.get_observable_hist(loc=locs)
     y_t, y_BB, y_BA = [interpolate(filter_ens.hist_t, yy, t_gif) for yy in [y_t, y_BB, y_BA]]
     max_v = np.max(abs(y_t))
 
     # observation points
-    y_BB_obs = filter_ens_BB.getObservableHist()
-    y_BA_obs = filter_ens_BA.getObservableHist()
+    y_BB_obs = filter_ens_BB.get_observable_hist()
+    y_BA_obs = filter_ens_BA.get_observable_hist()
 
     y_BA_obs = y_BA_obs + interpolate(filter_ens_BA.bias.hist_t, filter_ens_BA.bias.hist, filter_ens_BA.hist_t)
 
@@ -1079,10 +1079,10 @@ def plot_Rijke_animation(folder, figs_dir):
             params_legend.append('$\\' + p + '$ ' + filter_name)
 
     # timeseries
-    y_BA_tt = filter_ens_BA.getObservableHist()[:, 0]
+    y_BA_tt = filter_ens_BA.get_observable_hist()[:, 0]
     y_BA_tt_u = y_BA_tt + interpolate(filter_ens_BA.bias.hist_t, filter_ens_BA.bias.hist, filter_ens_BA.hist_t)
 
-    y_BB_tt = filter_ens_BB.getObservableHist()[:, 0]
+    y_BB_tt = filter_ens_BB.get_observable_hist()[:, 0]
     y_t_tt = truth['y_raw'][:, 0]
     y_obs_tt = truth['p_obs'][:, 0]
     pressure_legend = ['Truth', 'Data', 'State + bias  BA', 'State est. BA', 'State est.']
@@ -1169,8 +1169,8 @@ def plot_annular_model(forecast_params=None, animate=False, anim_name=None):
     # Non-ensemble case =============================
     t1 = time.time()
     case = Annular(**paramsTA)
-    state, t_ = case.timeIntegrate(int(case.t_transient * 3 / case.dt))
-    case.updateHistory(state, t_)
+    state, t_ = case.time_integrate(int(case.t_transient * 3 / case.dt))
+    case.update_history(state, t_)
 
     print(case.dt)
     print('Elapsed time = ', str(time.time() - t1))
@@ -1185,7 +1185,7 @@ def plot_annular_model(forecast_params=None, animate=False, anim_name=None):
     t_zoom = min([len(t_h) - 1, int(0.05 / case.dt)])
 
     # State evolution
-    y, lbl = case.getObservableHist(), case.obsLabels
+    y, lbl = case.get_observable_hist(), case.obs_labels
 
     ax[0].scatter(t_h, y[:, 0], c=t_h, label=lbl, cmap='Blues', s=10, marker='.')
 
@@ -1203,7 +1203,7 @@ def plot_annular_model(forecast_params=None, animate=False, anim_name=None):
     if not animate:
         ax2 = subfigs[1].subplots(2, 1)
 
-        y, lbl = case.getObservableHist(), case.obsLabels
+        y, lbl = case.get_observable_hist(), case.obs_labels
         y = np.mean(y, axis=-1)
 
         # print(np.min(y, axis=0))
@@ -1220,7 +1220,7 @@ def plot_annular_model(forecast_params=None, animate=False, anim_name=None):
     else:
         ax2 = subfigs[1].subplots(1, 1, subplot_kw={'projection': 'polar'})
         angles = np.linspace(0, 2 * np.pi, 200)  # Angles from 0 to 2π
-        y, lbl = case.getObservableHist(loc=angles), case.obsLabels
+        y, lbl = case.get_observable_hist(loc=angles), case.obs_labels
         y = np.mean(y, axis=-1)
 
         radius = [0, 0.5, 1]

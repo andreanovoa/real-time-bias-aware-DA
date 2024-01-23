@@ -51,9 +51,9 @@ N_forecast = (N_transient+N_washout+N_train+N_val+N_test) * upsample
 model = physical_models.Lorenz63({'dt':   dt / upsample,
                                   'psi0': u0})
 
-state1, t1 = model.timeIntegrate(N_forecast)
-model.updateHistory(state1, t1)
-U, T = model.getObservableHist().squeeze(), model.hist_t
+state1, t1 = model.time_integrate(N_forecast)
+model.update_history(state1, t1)
+U, T = model.get_observable_hist().squeeze(), model.hist_t
 
 #
 # for ax, u in zip(axs, U.T):

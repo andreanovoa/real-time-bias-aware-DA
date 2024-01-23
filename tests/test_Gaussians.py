@@ -25,7 +25,7 @@ if __name__ == '__main__':
                      'm': 100,
                      'est_p': ['beta'],
                      # # initial parameter and state uncertainty
-                     'biasType': bias_models.NoBias,  # Bias.ESN / Bias.NoBias
+                     'bias_type': bias_models.NoBias,  # Bias.ESN / Bias.NoBias
                      # Define the observation time window
                      't_start': 2.0,
                      't_stop': 2.5,
@@ -42,8 +42,8 @@ if __name__ == '__main__':
 
     std = 0.2
     mean = np.mean(filter_ens.psi, axis=-1)
-    filter_ens.psi = filter_ens.addUncertainty(mean, std,
-                                               filter_ens.m, method='normal')
+    filter_ens.psi = filter_ens.add_uncertainty(mean, std,
+                                                filter_ens.m, method='normal')
     filter_ens.hist[-1] = filter_ens.psi
     mean = np.mean(filter_ens.psi, axis=-1)
 

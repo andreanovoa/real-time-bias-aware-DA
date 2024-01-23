@@ -51,7 +51,7 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
         ensemble.hist[-1] = Aa[:-ensemble.Nq, :]
 
         # Update bias using the analysis innovation d - y^a
-        Ya = ensemble.getObservables()
+        Ya = ensemble.get_observables()
 
         # Update the bias state
         if not ensemble.bias_bayesian_update:
@@ -107,17 +107,17 @@ def forecastStep(case, Nt, averaged=False, alpha=None, **kwargs):
     """
 
     # Forecast ensemble and update the history
-    psi, t = case.timeIntegrate(Nt=Nt, averaged=averaged, alpha=alpha)
-    case.updateHistory(psi, t)
+    psi, t = case.time_integrate()
+    case.update_history(psi, t)
 
     # Forecast ensemble bias and update its history
     if case.bias is not None:
-        y = case.getObservableHist(Nt)
-        b, t_b = case.bias.timeIntegrate(t=t, y=y, **kwargs)
+        y = case.get_observable_hist(Nt)
+        b, t_b = case.bias.time_integrate(t=t, y=y, **kwargs)
 
         print(case.bias.hist.shape, b.shape, t_b.shape)
 
-        case.bias.updateHistory(b, t_b)
+        case.bias.update_history(b, t_b)
 
     if case.hist_t[-1] != case.bias.hist_t[-1]:
         raise AssertionError('t assertion', case.hist_t[-1], case.bias.hist_t[-1])
@@ -144,7 +144,7 @@ def analysisStep(case, d, Cdd):
         M = M[:, :-case.Na]
 
     # --------------- Augment state matrix with biased Y --------------- #
-    y = case.getObservables()
+    y = case.get_observables()
     Af = np.vstack((Af, y))
     # ======================== APPLY SELECTED FILTER ======================== #
     if case.filter == 'EnSRKF':
@@ -154,7 +154,7 @@ def analysisStep(case, d, Cdd):
     elif case.filter == 'rBA_EnKF':
         # ----------------- Retrieve bias and its Jacobian ----------------- #
         b = case.bias.getBias()
-        J = case.bias.stateDerivative()
+        J = case.bias.state_derivative()
         # -------------- Define bias Covariance and the weight -------------- #
         k = case.regularization_factor
         Cbb = Cdd.copy()  # Bias covariance matrix same as obs cov matrix for now

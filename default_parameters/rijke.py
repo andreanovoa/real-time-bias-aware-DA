@@ -28,7 +28,7 @@ filter_params = dict(filter='rBA_EnKF',  # 'rBA_EnKF' 'EnKF' 'EnSRKF'
                      inflation=1.002,
                      start_ensemble_forecast=1)
 
-bias_params = dict(biasType=ESN,  # ESN / NoBias
+bias_params = dict(bias_type=ESN,  # ESN / NoBias
                    N_units=500,
                    upsample=2,
                    # Training data generation  options

@@ -53,7 +53,7 @@ filter_params = {'filter': 'EnKF',
                  'inflation': 1.0,
                  }
 
-bias_params = {'biasType': ESN,
+bias_params = {'bias_type': ESN,
                'N_wash': 30,
                'upsample': 3,
                'N_units': 600,

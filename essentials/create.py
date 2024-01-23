@@ -6,6 +6,27 @@ import scipy.io as sio
 rng = np.random.default_rng(6)
 
 
+def create_ensemble(forecast_params, filter_params):
+
+    # ==============================  INITIALISE MODEL  ================================= #
+    if 'std_a' in filter_params.keys() and type(filter_params['std_a']) is dict:
+        for key, vals in filter_params['std_a'].items():
+            forecast_params[key] = .5 * (vals[1] + vals[0])
+
+    ensemble = forecast_params['model'](**forecast_params)
+
+    # Forecast model case to steady state initial condition before initialising ensemble
+    state, t_ = ensemble.time_integrate(int(ensemble.t_CR / ensemble.dt))
+    ensemble.update_history(state, t_)
+
+    # =========================  INITIALISE ENSEMBLE & BIAS  =========================== #
+    ensemble.init_ensemble(**filter_params)
+    ensemble.init_bias()
+
+    ensemble.close()
+    return ensemble
+
+
 def create_truth(true_params: dict, filter_params: dict, post_processed=False):
     name_bias, noise_type = 'None', 'None'
     b_true = np.zeros(1)
@@ -150,39 +171,18 @@ def create_observations(true_parameters=None):
         print('Load true data: ' + name)
     except ModuleNotFoundError or FileNotFoundError:
         case = classType(**TA_params)
-        psi, t = case.timeIntegrate(Nt=int(t_max / case.dt))
-        case.updateHistory(psi, t)
+        psi, t = case.time_integrate(int(t_max / case.dt))
+        case.update_history(psi, t)
         case.close()
         save_to_pickle_file(name, case)
         print('Save true data: ' + name)
 
     # Retrieve observables
-    p_obs = case.getObservableHist()
+    p_obs = case.get_observable_hist()
     if len(np.shape(p_obs)) > 2:
         p_obs = np.squeeze(p_obs, axis=-1)
 
     return p_obs, case.hist_t, name.split('Truth_')[-1]
-
-
-def create_ensemble(forecast_params, filter_params):
-
-    # ==============================  INITIALISE MODEL  ================================= #
-    if 'std_a' in filter_params.keys() and type(filter_params['std_a']) is dict:
-        for key, vals in filter_params['std_a'].items():
-            forecast_params[key] = .5 * (vals[1] + vals[0])
-
-    ensemble = forecast_params['model'](**forecast_params)
-
-    # Forecast model case to steady state initial condition before initialising ensemble
-    state, t_ = ensemble.timeIntegrate(int(ensemble.t_CR / ensemble.dt))
-    ensemble.updateHistory(state, t_)
-
-    # =========================  INITIALISE ENSEMBLE & BIAS  =========================== #
-    ensemble.initEnsemble(**filter_params)
-    ensemble.initBias()
-
-    ensemble.close()
-    return ensemble
 
 
 def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name: str,
@@ -202,8 +202,8 @@ def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name: str,
         bias_params['N_ens'] = ensemble.m
 
     run_bias = True
-    if bias_params['biasType'].name == 'None':
-        ensemble.initBias(**bias_params)
+    if bias_params['bias_type'].name == 'None':
+        ensemble.init_bias(**bias_params)
         run_bias = False
     else:
         # Create bias estimator if the class is not 'NoBias'
@@ -239,17 +239,14 @@ def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name: str,
         bias_filename = bias_model_folder + 'Train_data_L{}_augment{}'.format(train_params['L'],
                                                                               train_params['augment_data'])
 
-
         # Create training data on a multi-parameter approach
         train_data = create_bias_training_dataset(y_raw, y_pp,
                                                   ensemble, train_params, bias_filename)
 
-        train_params['y0'] = train_data['labels'][:ensemble.m, 0].T
+        train_params['y0'] = train_data['data'][:ensemble.m, 0].T
 
         # Run bias model training
-        ensemble.initBias(**train_params)
-
-        print('Ense', ensemble.bias.hist.shape)
+        ensemble.init_bias(**train_params)
 
         ensemble.bias.filename = bias_name
         ensemble.bias.train_bias_model(train_data=train_data,
@@ -258,6 +255,7 @@ def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name: str,
         # Save
         save_to_pickle_file(bias_model_folder + bias_name, ensemble.bias)
 
+    ensemble.bias.print_bias_parameters()
     if ensemble.bias_bayesian_update:
         print(ensemble.bias.N_ens, ensemble.m)
         assert ensemble.bias.N_ens == ensemble.m
@@ -290,7 +288,7 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble, train_params, filename):
         train_data = load_from_pickle_file(filename)
         rerun = True
         if type(train_data) is dict:
-            U = train_data['inputs']
+            U = train_data['data']
         else:
             U = train_data.copy()
         if U.shape[1] < train_params['len_train_data']:
@@ -299,120 +297,125 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble, train_params, filename):
         if train_params['augment_data'] and U.shape[0] == train_params['L']:
             print('Rerun multi-parameter training data: need data augment ')
             rerun = True
-        # Load training data if all the conditions are ok
-        if not rerun:
-            print('Loaded multi-parameter training data')
-            return train_data
     except FileNotFoundError:
+        rerun = True
         print('Run multi-parameter training data: file not found')
 
-    # =======================  Create ensemble of initial guesses ============================ #
-    # Forecast one realization to t_transient
-    train_ens = ensemble.reshape_ensemble(m=1, reset=True)
-    out = train_ens.timeIntegrate(int(train_ens.t_transient / train_ens.dt))
-    train_ens.updateHistory(*out)
-
-    # Create ensemble of training data
-    train_params['m'] = train_params['L']
-    train_ens.initEnsemble(**train_params)
-
-    # Forecast ensemble
-    Nt_train = int(round(train_params['t_train'] / train_ens.dt))
-    psi, t = train_ens.timeIntegrate(Nt=Nt_train)
-    train_ens.updateHistory(psi, t)
-    y_L_model = train_ens.getObservableHist(Nt=Nt_train)  # Nt x Nq x m
-
-    # =========================  Remove and replace fixed points =================================== #
-    tol = 1e-1
-    N_CR = int(round(train_ens.t_CR / train_ens.dt))
-    range_y = np.max(np.max(y_L_model[-N_CR:], axis=0) - np.min(y_L_model[-N_CR:], axis=0), axis=0)
-    idx_FP = (range_y < tol)
-    psi0 = psi[-1, :, ~idx_FP]
-    if len(np.flatnonzero(idx_FP)) / len(idx_FP) >= 0.2:
-        allowed_FPs = np.flatnonzero(idx_FP)[0:int(0.2 * len(idx_FP))+1]
-        idx_FP[allowed_FPs] = 0
-        psi0 = psi[-1, :, ~idx_FP]  # non-fixed point ICs (keeping one)
-        print('There are {}/{} fixed points'.format(len(np.flatnonzero(idx_FP)), len(idx_FP)))
-        mean_psi = np.mean(psi0, axis=0)
-        cov_psi = np.cov(psi0.T)
-        new_psi0 = rng.multivariate_normal(mean_psi, cov_psi, len(np.flatnonzero(idx_FP)))
-        psi0 = np.concatenate([psi0, new_psi0], axis=0)
-
-    # Reset ensemble with post-transient ICs
-    train_ens.updateHistory(psi=psi0.T, reset=True)
-
-    # =========================  Forcast fixed-point free ensemble ============================== #
-    Nt = train_params['len_train_data'] * train_params['upsample']
-    N_corr = int(round(train_ens.t_CR / train_ens.dt))
-    psi, tt = train_ens.timeIntegrate(Nt=Nt + N_corr)
-    train_ens.updateHistory(psi, tt)
-    train_ens.close()
-
-    # ===============  If data augmentation, correlate observations and estimates ================= #
-    y_L_model = train_ens.getObservableHist()
-    # Add the mean of batches of the ensemble size as options (might help short washout in DA)   < ======================= Test
-    if ensemble.m < train_ens.m:
-        batch_size = ensemble.m
+    # Load training data if all the conditions are ok
+    if not rerun:
+        train_data = load_from_pickle_file(filename)
+        print('Loaded multi-parameter training data')
     else:
-        batch_size = ensemble.m - 1
-    # Select randomly m realizations of y_L_model
-    y_L_extra = []
-    for _ in range(3):
-        idx_to_avg = rng.integers(train_ens.m, size=batch_size)
-        y_L_extra.append(np.mean(y_L_model[:, :, idx_to_avg], axis=-1))
+        # =======================  Create ensemble of initial guesses ============================ #
+        # Forecast one realization to t_transient
+        train_ens = ensemble.reshape_ensemble(m=1, reset=True)
+        out = train_ens.time_integrate(int(train_ens.t_transient / train_ens.dt))
+        train_ens.update_history(*out)
 
-    y_L_extra = np.array(y_L_extra).transpose(1, 2, 0)
-    y_L_model = np.concatenate([y_L_model, y_L_extra], axis=-1)
+        # Create ensemble of training data
+        train_params['m'] = train_params['L']
+        train_ens.init_ensemble(**train_params)
 
-    # Equivalent observation signals (raw and post-processed)
-    y_raw = y_raw[-Nt:].copy()
-    y_pp = y_pp[-Nt:].copy()
-    if len(y_raw.shape) < 3:
-        y_raw = np.expand_dims(y_raw, -1)
-        y_pp = np.expand_dims(y_pp, -1)
+        # Forecast ensemble
+        Nt_train = int(round(train_params['t_train'] / train_ens.dt))
+        psi, t = train_ens.time_integrate(Nt=Nt_train)
+        train_ens.update_history(psi, t)
+        y_L_model = train_ens.get_observable_hist(Nt=Nt_train)  # Nt x Nq x m
 
-    if not train_params['augment_data']:
-        train_data_model = y_L_model[-Nt:]
-    else:
-        y_pp_corr = y_pp[:N_corr, :, 0]
-        lags = np.linspace(start=0, stop=N_corr, num=N_corr, dtype=int)
-        train_data_model = np.zeros([y_pp.shape[0], y_pp.shape[1], train_ens.m * 3])
+        # =========================  Remove and replace fixed points =================================== #
+        tol = 1e-1
+        N_CR = int(round(train_ens.t_CR / train_ens.dt))
+        range_y = np.max(np.max(y_L_model[-N_CR:], axis=0) - np.min(y_L_model[-N_CR:], axis=0), axis=0)
+        idx_FP = (range_y < tol)
+        psi0 = psi[-1, :, ~idx_FP]
+        if len(np.flatnonzero(idx_FP)) / len(idx_FP) >= 0.2:
+            allowed_FPs = np.flatnonzero(idx_FP)[0:int(0.2 * len(idx_FP))+1]
+            idx_FP[allowed_FPs] = 0
+            psi0 = psi[-1, :, ~idx_FP]  # non-fixed point ICs (keeping one)
+            print('There are {}/{} fixed points'.format(len(np.flatnonzero(idx_FP)), len(idx_FP)))
+            new_psi0 = rng.multivariate_normal(np.mean(psi0, axis=0), np.cov(psi0.T), len(np.flatnonzero(idx_FP)))
+            psi0 = np.concatenate([psi0, new_psi0], axis=0)
 
-        for ii in range(train_ens.m):
-            yy = y_L_model[:, :, ii]
-            RS = []
-            for lag in lags:
-                RS.append(CR(y_pp_corr, yy[lag:N_corr + lag] / np.max(yy[lag:N_corr + lag]))[1])
-            best_lag = lags[np.argmin(RS)]                  # fully correlated
-            worst_lag = lags[np.argmax(RS)]                 # fully uncorrelated
-            mid_lag = int(np.mean([best_lag, worst_lag]))   # mid-correlated
-            # Store train data
-            train_data_model[:, :, 3*ii] = yy[worst_lag:worst_lag + Nt]
-            train_data_model[:, :, 3*ii+1] = yy[mid_lag:mid_lag + Nt]
-            train_data_model[:, :, 3*ii+2] = yy[best_lag:best_lag + Nt]
+        # Reset ensemble with post-transient ICs
+        train_ens.update_history(psi=psi0.T, reset=True)
 
-    # ================ Create training biases as (observations - model estimates) ================= #
-    train_data_inn = y_raw - train_data_model  # Innovations
-    train_data_bias = y_pp - train_data_model  # Model bias
+        # =========================  Forecast fixed-point free ensemble ============================== #
+        Nt = train_params['len_train_data'] * train_params['upsample']
+        N_corr = int(round(train_ens.t_CR / train_ens.dt))
 
-    # =======================  Force train_data shape to be (L x Nt x Ndim) ======================= #
-    train_data_bias = train_data_bias.transpose((2, 0, 1))
-    train_data_inn = train_data_inn.transpose((2, 0, 1))
+        psi, tt = train_ens.time_integrate(Nt=Nt + N_corr)
+        train_ens.update_history(psi, tt)
+        train_ens.close()
 
-    assert len(train_data_inn.shape) == 3
-    assert train_data_inn.shape[1] == Nt
-    assert train_data_inn.shape[2] == y_L_model.shape[1]
-
-    # =============================== Store in dictionary and save ================================ #
-    train_data = dict(data=np.concatenate([train_data_bias, train_data_inn], axis=2),
-                      observed_idx=ensemble.Nq + np.arange(ensemble.Nq),  # only observe innovations
-                      bayesian_update=bayesian_update,
-                      add_noise=add_noise
-                      )
-
-    raise ('continue here')
+        # ===============  If data augmentation, correlate observations and estimates ================= #
+        y_L_model = train_ens.get_observable_hist()
+        #
+        # # Add the mean of batches of the ensemble size as options (might help short washout in DA)   < ======================= Test
+        # if ensemble.m < train_ens.m:
+        #     batch_size = ensemble.m
+        # else:
+        #     batch_size = ensemble.m - 1
+        # # Select randomly m realizations of y_L_model
+        # y_L_extra = []
+        # for _ in range(3):
+        #     idx_to_avg = rng.integers(train_ens.m, size=batch_size)
+        #     y_L_extra.append(np.mean(y_L_model[:, :, idx_to_avg], axis=-1))
+        #
+        # y_L_extra = np.array(y_L_extra).transpose(1, 2, 0)
+        # y_L_model = np.concatenate([y_L_model, y_L_extra], axis=-1)
 
 
-    save_to_pickle_file(filename, train_data)
+        # Equivalent observation signals (raw and post-processed)
+        y_raw = y_raw[-Nt:].copy()
+        y_pp = y_pp[-Nt:].copy()
+        if len(y_raw.shape) < 3:
+            y_raw = np.expand_dims(y_raw, -1)
+            y_pp = np.expand_dims(y_pp, -1)
+
+        if not train_params['augment_data']:
+            train_data_model = y_L_model[-Nt:]
+        else:
+            y_pp_corr = y_pp[:N_corr, :, 0]
+            lags = np.linspace(start=0, stop=N_corr, num=N_corr, dtype=int)
+            train_data_model = np.zeros([y_pp.shape[0], y_pp.shape[1], train_ens.m * 3])
+
+            for ii in range(train_ens.m):
+                yy = y_L_model[:, :, ii]
+
+
+                RS = []
+                for lag in lags:
+                    RS.append(CR(y_pp_corr, yy[lag:N_corr + lag] / np.max(yy[lag:N_corr + lag]))[1])
+                best_lag = lags[np.argmin(RS)]                  # fully correlated
+                worst_lag = lags[np.argmax(RS)]                 # fully uncorrelated
+                mid_lag = int(np.mean([best_lag, worst_lag]))   # mid-correlated
+                # Store train data
+                train_data_model[:, :, 3*ii] = yy[worst_lag:worst_lag + Nt]
+                train_data_model[:, :, 3*ii+1] = yy[mid_lag:mid_lag + Nt]
+                train_data_model[:, :, 3*ii+2] = yy[best_lag:best_lag + Nt]
+
+        # ================ Create training biases as (observations - model estimates) ================= #
+        train_data_inn = y_raw - train_data_model  # Innovations
+        train_data_bias = y_pp - train_data_model  # Model bias
+
+        # ===================  Force train_data shape to be (L x Nt x N_dim). NB- N_dim = Nq =================== #
+        train_data_bias = train_data_bias.transpose((2, 0, 1))
+        train_data_inn = train_data_inn.transpose((2, 0, 1))
+
+        assert len(train_data_inn.shape) == 3
+        assert train_data_inn.shape[1] == Nt
+        assert train_data_inn.shape[2] == y_L_model.shape[1]
+
+        # =============================== Store in dictionary and save ================================ #
+        train_data = dict(data=np.concatenate([train_data_bias, train_data_inn], axis=2),
+                          observed_idx=ensemble.Nq + np.arange(ensemble.Nq))  # only observe innovations
+
+        for key, default_val in zip(['bayesian_update', 'add_noise'], [True, True]):
+            if key in train_params.keys():
+                train_data[key] = train_params[key]
+            else:
+                train_data[key] = default_val
+
+        save_to_pickle_file(filename, train_data)
 
     return train_data

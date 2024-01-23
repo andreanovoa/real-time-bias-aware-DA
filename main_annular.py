@@ -1,6 +1,9 @@
 
+
+
 from default_parameters.annular import *
 
+plt.rcParams['text.usetex'] = True # enable LaTeX rendering
 
 if __name__ == '__main__':
     # ========================== CREATE TRUTH AND ENSEMBLE  =================================

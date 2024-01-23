@@ -33,15 +33,15 @@ def one_dim_sweep(model, model_params: dict, sweep_p: str, range_p: list,  t_max
                 with open(filename, 'rb') as f:
                     case_p = pickle.load(f)
             else:
-                psi_i, tt = case_p.timeIntegrate(Nt=int(t_max / case_p.dt))
-                case_p.updateHistory(psi_i, tt)
+                psi_i, tt = case_p.time_integrate()
+                case_p.update_history(psi_i, tt)
                 with open(filename, 'wb') as f:
                     pickle.dump(case_p, f)
         else:
-            psi_i, tt = case_p.timeIntegrate(Nt=int(t_max / case_p.dt))
-            case_p.updateHistory(psi_i, tt)
+            psi_i, tt = case_p.time_integrate()
+            case_p.update_history(psi_i, tt)
 
-        obs, lbl = case_p.getObservableHist(int(case_p.t_transient / case_p.dt)), case_p.obsLabels
+        obs, lbl = case_p.get_observable_hist(int(case_p.t_transient / case_p.dt)), case_p.obs_labels
         if len(obs.shape) > 2:
             obs, lbl = obs[:, 0], lbl[0]
         # store
@@ -106,11 +106,11 @@ def Lyap_Classification(cases):
     lambdas = []
     for case in cases:
         q0, t1 = case.psi, case.t  # initial state
-        q0_hist = case.getObservableHist(int(case.t_transient/2/case.dt))
+        q0_hist = case.get_observable_hist(int(case.t_transient / 2 / case.dt))
 
         # Compute peaks in the timeseries
         max_peaks, std_peaks = 0., 0.
-        for dim in range(len(case.obsLabels)):
+        for dim in range(len(case.obs_labels)):
             for k in [1, -1]:
                 peaks = find_peaks(q0_hist[:, dim].squeeze() * k)
                 peaks = q0_hist[peaks[0], dim] - np.mean(q0_hist[:, dim])
@@ -140,11 +140,11 @@ def Lyap_Classification(cases):
                 q0_pert = [q0.squeeze() + eps * a for a in orth_basis]
                 # integrate perturbed cases
                 for ii in range(N_exp):
-                    sol = solve_ivp(case.timeDerivative, t_span=([t0, t1]), y0=q0_pert[ii],
+                    sol = solve_ivp(case.time_derivative, t_span=([t0, t1]), y0=q0_pert[ii],
                                     args=(case.govEqnDict(), case.alpha0))
                     q0_pert[ii] = sol.y[:, -1]
 
-                sol = solve_ivp(case.timeDerivative, t_span=([t0, t1]), y0=q0.squeeze(),
+                sol = solve_ivp(case.time_derivative, t_span=([t0, t1]), y0=q0.squeeze(),
                                 args=(case.govEqnDict(), case.alpha0))
                 q0 = sol.y[:, -1]
 

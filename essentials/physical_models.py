@@ -89,7 +89,7 @@ class Model:
         return self.Nphi + self.Na + self.Nq
 
     @property
-    def biasType(self):
+    def bias_type(self):
         if hasattr(self, 'bias'):
             return type(self.bias)
         else:
@@ -108,19 +108,18 @@ class Model:
             model.ensemble = False
         else:
             model.ensemble = True
-            psi = model.addUncertainty(self.rng, np.mean(psi, -1, keepdims=True),
-                                       np.std(psi, -1, keepdims=True), m)
-        model.updateHistory(psi=psi, t=0., reset=reset)
+            psi = model.add_uncertainty(self.rng, np.mean(psi, -1, keepdims=True), np.std(psi, -1, keepdims=True), m)
+        model.update_history(psi=psi, t=0., reset=reset)
         return model
 
-    def getObservables(self, Nt=1, **kwargs):
+    def get_observables(self, Nt=1, **kwargs):
         if Nt == 1:
             return self.hist[-1, :self.Nq, :]
         else:
             return self.hist[-Nt:, :self.Nq, :]
 
-    def getObservableHist(self, Nt=0, **kwargs):
-        return self.getObservables(Nt, **kwargs)
+    def get_observable_hist(self, Nt=0, **kwargs):
+        return self.get_observables(Nt, **kwargs)
 
     def print_model_parameters(self):
         print('\n ------------------ {} Model Parameters ------------------ '.format(self.name))
@@ -147,7 +146,7 @@ class Model:
 
     # ------------------------- Functions for update/initialise the model --------------------------- #
     @staticmethod
-    def addUncertainty(rng, mean, std, m, method='normal', param_names=None, ensure_mean=False):
+    def add_uncertainty(rng, mean, std, m, method='normal', param_names=None, ensure_mean=False):
         if method == 'normal':
             if isinstance(std, float):
                 cov = np.diag((mean * std) ** 2)
@@ -178,7 +177,7 @@ class Model:
             ens[:, 0] = mean
         return ens
 
-    def initEnsemble(self, **DAdict):
+    def init_ensemble(self, **DAdict):
         DAdict = DAdict.copy()
         self.ensemble = True
 
@@ -196,25 +195,25 @@ class Model:
         ensure_mean = self.ensure_mean
         mean_psi0 = np.mean(self.psi, -1)
 
-        new_psi0 = self.addUncertainty(self.rng, mean_psi0, self.std_psi, self.m,
-                                       method='normal', ensure_mean=ensure_mean)
+        new_psi0 = self.add_uncertainty(self.rng, mean_psi0, self.std_psi, self.m, method='normal',
+                                        ensure_mean=ensure_mean)
 
         if self.est_a:  # Augment ensemble with estimated parameters
             mean_a = np.array([getattr(self, pp) for pp in self.est_a])
-            new_alpha0 = self.addUncertainty(self.rng, mean_a, self.std_a, self.m, method=self.alpha_distr,
-                                             param_names=self.est_a, ensure_mean=ensure_mean)
+            new_alpha0 = self.add_uncertainty(self.rng, mean_a, self.std_a, self.m, method=self.alpha_distr,
+                                              param_names=self.est_a, ensure_mean=ensure_mean)
             new_psi0 = np.vstack((new_psi0, new_alpha0))
             self.Na = len(self.est_a)
 
         # RESET ENSEMBLE HISTORY
-        self.updateHistory(psi=new_psi0, t=0., reset=True)
+        self.update_history(psi=new_psi0, t=0., reset=True)
         if self.bias is None:
-            self.initBias()
+            self.init_bias()
 
-    def initBias(self, y=None, **Bdict):
+    def init_bias(self, y=None, **Bdict):
 
-        if 'biasType' in Bdict.keys():
-            biasType = Bdict['biasType']
+        if 'bias_type' in Bdict.keys():
+            biasType = Bdict['bias_type']
         else:
             biasType = essentials.bias_models.NoBias
 
@@ -222,13 +221,13 @@ class Model:
         if 'y0' in Bdict.keys():
             y0 = Bdict['y0']
         else:
-            y0 = self.getObservables()
+            y0 = self.get_observables()
         self.bias = biasType(y=y0, t=self.t, dt=self.dt, **Bdict)
         # Create bias history
         b = self.bias.getBias()
         self.bias.updateHistory(b, self.t, reset=True)
 
-    def updateHistory(self, psi=None, t=None, reset=False):
+    def update_history(self, psi=None, t=None, reset=False):
         if not reset:
             self.hist = np.concatenate((self.hist, psi), axis=0)
             self.hist_t = np.hstack((self.hist_t, t))
@@ -272,7 +271,7 @@ class Model:
         else:
             pass
 
-    def getAlpha(self, psi=None):
+    def get_alpha(self, psi=None):
         alpha = []
         if psi is None:
             psi = self.psi
@@ -302,7 +301,7 @@ class Model:
         # psi = RK4(t_interp, y0, fun, params)
         return psi
 
-    def timeIntegrate(self, Nt=100, averaged=False, alpha=None):
+    def time_integrate(self, Nt=100, averaged=False, alpha=None):
         """
             Integrator of the model. If the model is forcast as an ensemble, it uses parallel computation.
             Args:
@@ -319,12 +318,12 @@ class Model:
         args = self.governing_eqns_params
 
         if not self.ensemble:
-            psi = [Model.forecast(y0=self.psi[:, 0], fun=self.timeDerivative, t=t, params={**self.alpha0, **args})]
+            psi = [Model.forecast(y0=self.psi[:, 0], fun=self.time_derivative, t=t, params={**self.alpha0, **args})]
 
         else:
             if not averaged:
-                alpha = self.getAlpha()
-                forecast_part = partial(Model.forecast, fun=self.timeDerivative, t=t)
+                alpha = self.get_alpha()
+                forecast_part = partial(Model.forecast, fun=self.time_derivative, t=t)
                 sol = [self.pool.apply_async(forecast_part,
                                              kwds={'y0': self.psi[:, mi].T, 'params': {**args, **alpha[mi]}})
                        for mi in range(self.m)]
@@ -334,8 +333,8 @@ class Model:
                 psi_deviation = self.psi - psi_mean0
 
                 if alpha is None:
-                    alpha = self.getAlpha(psi_mean0)[0]
-                psi_mean = Model.forecast(y0=psi_mean0[:, 0], fun=self.timeDerivative, t=t,
+                    alpha = self.get_alpha(psi_mean0)[0]
+                psi_mean = Model.forecast(y0=psi_mean0[:, 0], fun=self.time_derivative, t=t,
                                           params={**alpha, **args})
 
                 # if np.mean(np.std(self.psi[:len(self.psi0)] / np.array([self.psi0]).T, axis=0)) < 2.:
@@ -386,11 +385,11 @@ class VdP(Model):
     # _______________ VdP specific properties and methods ________________ #
 
     @property
-    def obsLabels(self):
+    def obs_labels(self):
         return ["$\\eta$"]
 
     @staticmethod
-    def timeDerivative(t, psi, beta, zeta, kappa, law, omega):
+    def time_derivative(t, psi, beta, zeta, kappa, law, omega):
         eta, mu = psi[:2]
         dmu_dt = - omega ** 2 * eta + mu * (beta - zeta)
         # Add nonlinear term
@@ -459,7 +458,7 @@ class Rijke(Model):
         # c1: 347.2492    p1: 1.0131e+05      rho1: 1.1762    u1: 10          M1: 0.0288          T1: 300
         # c2: 423.6479    p2: 101300          rho2: 0.7902    u2: 11.1643     M2: 0.0264          T2: 446.5282
         # Tau: 0.0320     Td: 0.0038          Tu: 0.0012      R_in: -0.9970   R_out: -0.9970      Su: 0.9000
-        # Qbar: 5000      R_gas: 287.1000     gamma: 1.4000
+        # Q_bar: 5000     R_gas: 287.1000     gamma: 1.4000
         ##############################################################################################################
 
     def modify_settings(self):
@@ -468,7 +467,7 @@ class Rijke(Model):
             self.tau_adv, self.Nc = 1E-2, 50
             self.psi0 = np.hstack([np.mean(self.psi, -1), np.zeros(extra_Nc)])
             self.Dc, self.gc = Cheb(self.Nc, getg=True)
-            self.updateHistory(reset=True)
+            self.update_history(reset=True)
             self.set_fixed_params()
 
     # _________________________ Governing equations ________________________ #
@@ -484,7 +483,7 @@ class Rijke(Model):
             loc = np.expand_dims(self.x_mic, axis=1)
         return ["$p'(x = {:.2f})$".format(x) for x in loc[:, 0]]
 
-    def getObservables(self, Nt=1, loc=None):
+    def get_observables(self, Nt=1, loc=None, **kwargs):
         if loc is None:
             loc = self.x_mic
         loc = np.expand_dims(loc, axis=1)
@@ -499,7 +498,7 @@ class Rijke(Model):
         return p_mic
 
     @staticmethod
-    def timeDerivative(t, psi,
+    def time_derivative(t, psi,
                        C1, C2, beta, kappa, tau,
                        cosomjxf, Dc, gc, jpiL, L, law, meanFlow, Nc, Nm, tau_adv, sinomjxf):
         """
@@ -575,11 +574,11 @@ class Lorenz63(Model):
 
     # _______________ Lorenz63 specific properties and methods ________________ #
     @property
-    def obsLabels(self):
+    def obs_labels(self):
         return ['$x$', '$y$', '$z$']
 
     @staticmethod
-    def timeDerivative(t, psi, sigma, rho, beta):
+    def time_derivative(t, psi, sigma, rho, beta):
         x1, x2, x3 = psi[:3]
         dx1 = sigma * (x2 - x1)
         dx2 = x1 * (rho - x3) - x2
@@ -642,7 +641,7 @@ class Annular(Model):
 
     # _______________  Specific properties and methods ________________ #
     @property
-    def obsLabels(self, loc=None, measure_modes=False):
+    def obs_labels(self, loc=None, measure_modes=False):
         if measure_modes:
             return ["$\\eta_1$", '$\\eta_2$']
         else:
@@ -658,17 +657,18 @@ class Annular(Model):
     def beta_c2_from_ER(ER):
         return Annular.c2b_1 * ER + Annular.c2b_1
 
-    def getObservables(self, Nt=1, loc=None, measure_modes=False):
+    def get_observables(self, Nt=1, **kwargs):
         """
         pressure measurements at theta = [0º, 60º, 120º, 240º`]
         p(θ, t) = η1(t) * cos(nθ) + η2(t) * sin(nθ).
         """
-        if loc is None:
-            loc = self.theta_mic
 
-        if measure_modes:
-            return self.hist[-Nt:, [0, 2], :]
+        if 'loc' not in kwargs.keys() or kwargs['loc'] is None:
+            loc = self.theta_mic
         else:
+            loc = kwargs['loc']
+
+        if 'measure_modes' not in kwargs.keys() or not kwargs['measure_modes']:
             eta1, eta2 = self.hist[-Nt:, 0, :], self.hist[-Nt:, 2, :]
 
             if max(loc) > 2 * np.pi:
@@ -682,9 +682,11 @@ class Annular(Model):
                 return p_mics.squeeze(axis=0)
             else:
                 return p_mics
+        else:
+            return self.hist[-Nt:, [0, 2], :]
 
     @staticmethod
-    def timeDerivative(t, psi, nu, kappa, beta_c2, theta_b, omega, epsilon, theta_e):
+    def time_derivative(t, psi, nu, kappa, beta_c2, theta_b, omega, epsilon, theta_e):
         y_a, z_a, y_b, z_b = psi[:4]  # y = η, and z = dη/dt
 
         def k1(y1, y2, sign):

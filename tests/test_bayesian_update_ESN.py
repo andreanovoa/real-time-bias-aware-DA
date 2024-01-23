@@ -69,7 +69,7 @@ def plot_data(axs, type_plot='train'):
             ci += 1
             for axj, axx in enumerate(axs):
                 axx.plot(ttt / t_ref, yyy[:, axj], '-', c=cs[ci])
-                axx.set(ylabel=truth.obsLabels[axj])
+                axx.set(ylabel=truth.obs_labels[axj])
             if ci == 2:
                 axs[0].set(xlim=[0, ttt[-1] / t_ref])
                 axs[0].legend(['Transient', 'Train+val', 'Tests'], ncols=3, loc='lower center', bbox_to_anchor=(.5, 1.))
@@ -136,9 +136,9 @@ if __name__ == '__main__':
         N_transient_model = int(train_model.t_transient / dt_model)
         out = []
         for Nt in [N_transient_model, N_wtv_model, N_test_model]:
-            state, t1 = train_model.timeIntegrate(Nt)
-            train_model.updateHistory(state, t1, reset=False)
-            yy = train_model.getObservableHist(Nt)
+            state, t1 = train_model.time_integrate(Nt)
+            train_model.update_history(state, t1, reset=False)
+            yy = train_model.get_observable_hist(Nt)
             out.append((yy, t1))
         train_model.close()
 
@@ -150,7 +150,7 @@ if __name__ == '__main__':
             plot_data(axs_train, type_plot='train')
 
         # Build training data dictionary
-        Y = train_model.getObservableHist(N_wtv_model + N_test_model)
+        Y = train_model.get_observable_hist(N_wtv_model + N_test_model)
         Y = Y.transpose(2, 0, 1)
 
         # ESN class
@@ -184,8 +184,8 @@ if __name__ == '__main__':
 
     for Nt in [int(truth.t_transient/dt_model), N_wash_model]:
         truth.t = 0.
-        psi, tt = truth.timeIntegrate(Nt)
-        truth.updateHistory(psi, tt, reset=True)
+        psi, tt = truth.time_integrate(Nt)
+        truth.update_history(psi, tt, reset=True)
 
     #  Observation operator
     if update_reservoir:
@@ -206,8 +206,8 @@ if __name__ == '__main__':
 
     for jj in range(num_tests + 1):
         # Forecast model and ESN
-        psi, tt = truth.timeIntegrate(Nt_tests_model)
-        truth.updateHistory(psi, tt, reset=False)
+        psi, tt = truth.time_integrate(Nt_tests_model)
+        truth.update_history(psi, tt, reset=False)
 
         u_closed, r_closed = ESN_case.closedLoop(Nt_tests)
         u_closed, r_closed = u_closed[1:], r_closed[1:]
@@ -220,7 +220,7 @@ if __name__ == '__main__':
             tt_up[-1] = tt[-1].copy()
 
         # Take measurement of the truth
-        yy = truth.getObservableHist(Nt_tests_model)
+        yy = truth.get_observable_hist(Nt_tests_model)
         d = yy[-1, observe_idx, 0]
 
         if update_reservoir:

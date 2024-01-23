@@ -278,7 +278,7 @@ def get_error_metrics(results_folder):
 
             print('\t k = ', out['ks'][jj], '({}, {})'.format(filter_ens.bias.L, filter_ens.regularization_factor))
             # Compute biased and unbiased signals
-            y, t = filter_ens.getObservableHist(), filter_ens.hist_t
+            y, t = filter_ens.get_observable_hist(), filter_ens.hist_t
             b, t_b = filter_ens.bias.hist, filter_ens.bias.hist_t
             y_mean = np.mean(y, -1)
 

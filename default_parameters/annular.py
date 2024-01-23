@@ -67,7 +67,7 @@ forecast_params = dict(model=Annular,
                        beta_c2=Annular.beta_c2_from_ER(ER),
                        )
 
-bias_params = dict(biasType=ESN,   # ESN / NoBias
+bias_params = dict(bias_type=ESN,   # ESN / NoBias
                    upsample=5,
                    N_units=100,
                    std_a=filter_params['std_a'],
