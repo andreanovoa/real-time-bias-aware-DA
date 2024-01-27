@@ -5,19 +5,17 @@ import numpy as np
 
 class Bias:
     attrs = dict(augment_data=False,
-                 est_b=False,
-                 bias_form='None',
                  upsample=1)
 
     def __init__(self, b, t, dt, **kwargs):
-        self.b = b
-        self.t = t
         self.dt = dt
         self.precision_t = int(-np.log10(dt)) + 2
 
         # ========================== CREATE HISTORY ========================== ##
-        self.hist = np.array([self.b])
-        self.hist_t = np.array([self.t])
+        if b.ndim == 1:
+            b = np.expand_dims(b, axis=-1)
+        self.hist = np.array([b])
+        self.hist_t = np.array([t])
 
         # ========================= DEFINE ESSENTIALS ========================== ##
         for key, val in Bias.attrs.items():
@@ -26,44 +24,52 @@ class Bias:
             else:
                 setattr(self, key, val)
 
-    def updateHistory(self, b, t, reset=False):
-        if not reset:
+    @property
+    def N_ens(self):
+        return self.hist.shape[-1]
+
+    def update_history(self, b, t, reset=False, update_last_state=False, **kwargs):
+        if not reset and not update_last_state:
             self.hist = np.concatenate((self.hist, b))
             self.hist_t = np.concatenate((self.hist_t, t))
+        elif update_last_state:
+            if b is not None:
+                self.hist[-1] = b
+                if hasattr(self, 'reset_state'):
+                    r = None
+                    if b.shape[-1] != self.r.shape[-1]:
+                        r = np.zeros(self.r.shape[0], b.shape[-1])
+                    self.reset_state(u=b, r=r)
+            else:
+                raise ValueError('psi must be provided')
+            if t is not None:
+                self.hist_t = t
         else:
-            self.hist = np.array([self.getBias()])
-            self.hist_t = np.array([self.t])
+            self.hist = np.array([self.get_bias(state=b)])
+            self.hist_t = np.array([t])
 
-        self.b = self.hist[-1]
-        self.t = self.hist_t[-1]
-
-    def updateCurrentState(self, b, t):
-        self.b = b
-        self.t = t
-
-    def getBias(self, state=None, **kwargs):
-        if state is None:
-            return self.b
-        else:
-            return state
-
-    def resetBias(self, value):
-        self.b = value
 
 # =================================================================================================================== #
 
 
 class NoBias(Bias):
-    name = 'None'
+    name = 'NoBias'
 
     def __init__(self, y, t, dt, **kwargs):
         super().__init__(b=np.zeros(y.shape), t=t, dt=dt, **kwargs)
+        self.N_dim = len(self.get_bias())
 
-    def stateDerivative(self):
-        return np.zeros([len(self.b), len(self.b)])
+    def get_bias(self, state=None, **kwargs):
+        if state is None:
+            return self.hist[-1]
+        else:
+            return state
 
-    def timeIntegrate(self, t, y=None, t_end=0):
-        return np.zeros([len(t), len(self.b)]), t
+    def state_derivative(self):
+        return np.zeros([self.N_dim, self.N_dim])
+
+    def time_integrate(self, t, **kwargs):
+        return np.zeros([len(t), self.N_dim]), t
 
     def print_bias_parameters(self):
         print('\n ----------------  Bias model parameters ---------------- ',
@@ -77,10 +83,10 @@ class ESN(Bias, EchoStateNetwork):
 
     def __init__(self, y, t, dt, **kwargs):
         # --------------------  Initialise parent EchoStateNetwork  ------------------- #
-        EchoStateNetwork.__init__(self, y=np.zeros(y.shape), dt=dt, **kwargs)
+        EchoStateNetwork.__init__(self, y=y, dt=dt, **kwargs)
 
         # --------------------------  Initialise parent Bias  ------------------------- #
-        Bias.__init__(self, b=np.zeros(self.N_dim), t=t, dt=dt, **kwargs)
+        Bias.__init__(self, b=y, t=t, dt=dt, **kwargs)
 
         # Flags
         self.initialised = False
@@ -92,7 +98,6 @@ class ESN(Bias, EchoStateNetwork):
             self.store_ESN_history = False
 
     def reset_bias(self, u, r=None):
-        self.b = self.outputs_to_inputs(u)
         self.reset_state(u=u, r=r)
 
     def state_derivative(self):
@@ -165,8 +170,6 @@ class ESN(Bias, EchoStateNetwork):
             val_strategy = EchoStateNetwork.RVC_Noise
         self.train(train_data, validation_strategy=val_strategy, plot_training=plot_training, folder=folder)
         self.trained = True
-
-
 
     def get_bias(self, state=None, get_full_state=False, concat_reservoir_state=False):
         if get_full_state:

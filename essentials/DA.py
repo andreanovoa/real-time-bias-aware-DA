@@ -21,7 +21,7 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
 
     # FORECAST UNTIL FIRST OBS ##
     time1 = time.time()
-    Nt = int(np.round((t_obs[0] - ensemble.t) / ensemble.dt))
+    Nt = int(np.round((t_obs[0] - ensemble.get_current_time / ensemble.dt)))
     ensemble = forecastStep(ensemble, Nt, averaged=False, **kwargs)
 
     if ensemble.bias_bayesian_update and ensemble.bias.N_ens != ensemble.m:
@@ -47,28 +47,31 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
         ensemble.hist_J.append(J)  # Store cost function
 
         # -------------------------  UPDATE STATE AND BIAS ESTIMATES------------------------- #
-        ensemble.psi = Aa[:-ensemble.Nq, :]
-        ensemble.hist[-1] = Aa[:-ensemble.Nq, :]
+        # ensemble.psi = Aa[:-ensemble.Nq, :]
+        # ensemble.hist[-1] = Aa[:-ensemble.Nq, :]
+        ensemble.update_history(Aa[:-ensemble.Nq, :], update_last_state=True)
 
         # Update bias using the analysis innovation d - y^a
         Ya = ensemble.get_observables()
 
         # Update the bias state
-        if not ensemble.bias_bayesian_update:
-            ensemble.bias.resetBias(y_obs[ti] - np.mean(Ya, -1))
+        if not ensemble.bias_bayesian_update or ensemble.bias.name == 'NoBias':
+            ensemble.bias.update_history(b=y_obs[ti] - np.mean(Ya, -1), update_last_state=True)
         else:
             # Analysis innovations
             I_a = y_obs[ti] - Ya
 
             if ensemble.bias.update_reservoir:
-                Bf = ensemble.bias.getBias(full_state=True, concat_reservoir_state=True)
+                Bf = ensemble.bias.get_bias(full_state=True, concat_reservoir_state=True)
             else:
-                Bf = ensemble.bias.getBias(full_state=True)
+                Bf = ensemble.bias.get_bias(full_state=True)
 
             Cii = Cdd
             Ba = EnKF(Bf, I_a, np.eye(ensemble.Nq), Cii, get_cost=False)[0]
             # Update ESN states
             N_dim = ensemble.bias.N_dim
+            ensemble.bias.update_history(b=Ba[:N_dim], update_last_state=True)
+            # ESN specific
             if ensemble.bias.update_reservoir:
                 ensemble.bias.reset_state(u=Ba[:N_dim], r=Ba[N_dim:])
             else:
@@ -82,7 +85,7 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
         elif ti in print_i:
             print(int(np.round(ti / len(t_obs) * 100, decimals=0)), end="% ")
 
-        Nt = int(np.round((t_obs[ti] - ensemble.t) / ensemble.dt))
+        Nt = int(np.round((t_obs[ti] - ensemble.get_current_time) / ensemble.dt))
         # Parallel forecast
         ensemble = forecastStep(ensemble, Nt)
 
@@ -107,16 +110,13 @@ def forecastStep(case, Nt, averaged=False, alpha=None, **kwargs):
     """
 
     # Forecast ensemble and update the history
-    psi, t = case.time_integrate()
+    psi, t = case.time_integrate(Nt)
     case.update_history(psi, t)
 
     # Forecast ensemble bias and update its history
     if case.bias is not None:
         y = case.get_observable_hist(Nt)
         b, t_b = case.bias.time_integrate(t=t, y=y, **kwargs)
-
-        print(case.bias.hist.shape, b.shape, t_b.shape)
-
         case.bias.update_history(b, t_b)
 
     if case.hist_t[-1] != case.bias.hist_t[-1]:
@@ -135,7 +135,7 @@ def analysisStep(case, d, Cdd):
             Aa: analysis ensemble (or Af is Aa is not real)
     """
 
-    Af = case.psi.copy()  # state matrix [modes + params] x m
+    Af = case.get_current_state  # state matrix [modes + params] x m
     M = case.M.copy()
     Cdd = Cdd.copy()
 
@@ -153,7 +153,7 @@ def analysisStep(case, d, Cdd):
         Aa, cost = EnKF(Af, d, Cdd, M, get_cost=case.get_cost)
     elif case.filter == 'rBA_EnKF':
         # ----------------- Retrieve bias and its Jacobian ----------------- #
-        b = case.bias.getBias()
+        b = case.bias.get_bias()
         J = case.bias.state_derivative()
         # -------------- Define bias Covariance and the weight -------------- #
         k = case.regularization_factor
@@ -185,7 +185,7 @@ def analysisStep(case, d, Cdd):
                 if not case.constrained_filter:
                     print('reject-inflate')
                     Aa = inflateEnsemble(Af, case.reject_inflation, d=d, additive=True)
-                    case.rejected_analysis.append([(case.t, np.dot(case.Ma, Aa), np.dot(case.Ma, Af), None)])
+                    case.rejected_analysis.append([(case.get_current_time, np.dot(case.Ma, Aa), np.dot(case.Ma, Af), None)])
                 else:
                     raise NotImplementedError('Constrained filter yet to test')
                     # # Try assimilating the parameters themselves
@@ -258,11 +258,11 @@ def checkParams(Aa, case):
                 mean_, min_ = np.mean(alpha_), np.min(alpha_)
                 bound_ = lower_bounds[idx_]
                 if mean_ >= bound_:
-                    print('t = {:.3f} reject-inflate: min {} = {:.2f} < {:.2f}'.format(case.t, case.est_a[idx_],
-                                                                                       min_, bound_))
+                    print('t = {:.3f} r-i: min {} = {:.2f} < {:.2f}'.format(case.get_current_time,
+                                                                            case.est_a[idx_], min_, bound_))
                 else:
-                    print('t = {:.3f} reject-inflate: mean {} = {:.2f} < {:.2f}'.format(case.t, case.est_a[idx_],
-                                                                                        mean_, bound_))
+                    print('t = {:.3f} r-i: mean {} = {:.2f} < {:.2f}'.format(case.get_current_time,
+                                                                             case.est_a[idx_], mean_, bound_))
         if any(break_up):
             idx = np.argwhere(break_up)
             if len(idx.shape) > 1:
@@ -272,11 +272,11 @@ def checkParams(Aa, case):
                 mean_, max_ = np.mean(alpha_), np.max(alpha_)
                 bound_ = upper_bounds[idx_]
                 if mean_ <= bound_:
-                    print('t = {:.3f} reject-inflate: max {} = {:.2f} > {:.2f}'.format(case.t, case.est_a[idx_],
-                                                                                       mean_, bound_))
+                    print('t = {:.3f} r-i: max {} = {:.2f} > {:.2f}'.format(case.get_current_time,
+                                                                            case.est_a[idx_], mean_, bound_))
                 else:
-                    print('t = {:.3f} reject-inflate: mean {} = {:.2f} > {:.2f}'.format(case.t, case.est_a[idx_],
-                                                                                        mean_, bound_))
+                    print('t = {:.3f} r-i: mean {} = {:.2f} > {:.2f}'.format(case.get_current_time,
+                                                                             case.est_a[idx_], mean_, bound_))
         return is_physical, None, None
 
     #  -----------------------------------------------------------------
@@ -291,12 +291,12 @@ def checkParams(Aa, case):
             if mean_ >= bound_:
                 d_alpha.append(np.max(alpha_) + np.std(alpha_))
 
-                print('t = {:.3f}: min {} = {:.2f} < {:.2f}. d_alpha = {:.2f}'.format(case.t, case.est_a[idx_],
-                                                                                      min_, bound_, d_alpha[-1]))
+                print('t = {:.3f}: min{}={:.2f}<{:.2f}. d_alph={:.2f}'.format(case.get_current_time, case.est_a[idx_],
+                                                                              min_, bound_, d_alpha[-1]))
             else:
                 d_alpha.append(bound_ + 2 * np.std(alphas[idx_]))
-                print('t = {:.3f}: mean {} = {:.2f} < {:.2f}. d_alpha = {:.2f}'.format(case.t, case.est_a[idx_],
-                                                                                       mean_, bound_, d_alpha[-1]))
+                print('t = {:.3f}: mean{}={:.2f}<{:.2f}. d_alph={:.2f}'.format(case.get_current_time, case.est_a[idx_],
+                                                                               mean_, bound_, d_alpha[-1]))
 
     if any(break_up):
         idx = np.argwhere(break_up)
@@ -315,13 +315,13 @@ def checkParams(Aa, case):
                 d_alpha.append(np.min(alpha_) - np.std(alpha_))
                 # elif min_ < bound_:
                 #     d_alpha.append(min_)
-                print('t = {:.3f}: max {} = {:.2f} > {:.2f}. d_alpha = {:.2f}'.format(case.t, case.est_a[idx_],
-                                                                                      max_, bound_, d_alpha[-1]))
+                print('t = {:.3f}: max{}={:.2f}>{:.2f}. d_alph={:.2f}'.format(case.get_current_time, case.est_a[idx_],
+                                                                              max_, bound_, d_alpha[-1]))
             else:
                 d_alpha.append(bound_ - 2 * np.std(alphas[idx_]))
 
-                print('t = {:.3f}: mean {} = {:.2f} > {:.2f}. d_alpha = {:.2f}'.format(case.t, case.est_a[idx_],
-                                                                                       mean_, bound_, d_alpha[-1]))
+                print('t = {:.3f}: mean{}={:.2f}>{:.2f}. d_alph={:.2f}'.format(case.get_current_time, case.est_a[idx_],
+                                                                               mean_, bound_, d_alpha[-1]))
 
     return is_physical, np.array(idx_alpha, dtype=int), d_alpha
 

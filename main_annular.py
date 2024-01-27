@@ -1,6 +1,5 @@
 
 
-
 from default_parameters.annular import *
 
 plt.rcParams['text.usetex'] = True # enable LaTeX rendering

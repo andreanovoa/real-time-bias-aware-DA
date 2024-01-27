@@ -64,25 +64,32 @@ class EchoStateNetwork:
         :param kwargs: any argument to re-define the dfault values of the class
         """
 
+        if y.ndim == 1:
+            y = np.expand_dims(y, -1)
+        elif y.ndim > 2:
+            raise AssertionError('The input y must have 2 or less dimension')
+
         for key, val in kwargs.items():
             if hasattr(self, key):
                 setattr(self, key, val)
 
+        # -----------  Initialise state and reservoir state to zeros ------------ #
         self.N_dim = y.shape[0]
+
+        self.u = np.zeros((self.N_dim, y.shape[1]))
+        self.r = np.zeros((self.N_units, y.shape[1]))
+
+        self.observed_idx = np.arange(self.N_dim)  # initially, assume full observability.
+        
+        # ---------------- Define time steps and time windows -------------------- #
         self.dt = dt
         self.dt_ESN = self.dt * self.upsample
 
-        # -----------  Initialise state and reservoir state to zeros ------------ #
-        self.u = np.zeros((self.N_dim, 1))
-        self.r = np.zeros((self.N_units, 1))
-        self.observed_idx = np.arange(self.N_dim)  # initially, assume full observability.
-        
-        # --------------------- Define time windows -------------------- #
         self.N_train = int(round(self.t_train / self.dt_ESN))
         self.N_val = int(round(self.t_val / self.dt_ESN))
         self.N_test = int(round(self.t_test / self.dt_ESN))
 
-        # --------------------- Empty arrays and flags ----------------------- #
+        # ------------------------ Empty arrays and flags -------------------------- #
         self.norm = None
         self._WCout = None
         self.wash_obs = None
@@ -121,22 +128,17 @@ class EchoStateNetwork:
         if tikhonov is not None:
             setattr(self, 'tikh', tikhonov)
 
-    @property
-    def N_ens(self):
-        if self.u.ndim > 1:
-            return self.u.shape[-1]
-        else:
-            return 1
-
     def reset_state(self, u=None, r=None):
         if u is not None:
             if u.ndim == 1:
                 u = np.expand_dims(u, axis=-1)
             self.u = u
+
         if r is not None:
             if r.ndim == 1:
                 r = np.expand_dims(r, axis=-1)
             self.r = r
+        assert self.r.shape[-1] == self.u.shape[-1]
 
     def outputs_to_inputs(self, full_state):
         return full_state[self.observed_idx]
@@ -184,6 +186,7 @@ class EchoStateNetwork:
                 new reservoir state (without bias_out) and output state
         """
         # Normalise input data and augment with input bias (ESN symmetry parameter)
+
         if u.ndim == 1:
             u = np.expand_dims(u, axis=-1)
         if r.ndim == 1:
@@ -200,6 +203,7 @@ class EchoStateNetwork:
 
         # output bias added
         r_aug = np.concatenate((r_out, bias_out))
+
         # compute output from ESN if not during training
         u_out = np.dot(r_aug.T, self.Wout).T
         return u_out, r_out
@@ -217,8 +221,10 @@ class EchoStateNetwork:
             Nt += extra_closed
         self.reset_state(u=u_wash[0])
 
-        r = np.empty((Nt + 1, self.N_units, self.N_ens))
-        u = np.empty((Nt + 1, self.N_dim, self.N_ens))
+        r = np.empty((Nt + 1, self.N_units, self.u.shape[-1]))
+        u = np.empty((Nt + 1, self.N_dim, self.u.shape[-1]))
+
+        print(u.shape)
 
         u[0], r[0] = self.get_reservoir_state()
 
@@ -235,8 +241,8 @@ class EchoStateNetwork:
                 - ra: time series of augmented reservoir states
         """
 
-        r = np.empty((Nt + 1, self.N_units, self.N_ens))
-        u = np.empty((Nt + 1, self.N_dim, self.N_ens))
+        r = np.empty((Nt + 1, self.N_units, self.u.shape[-1]))
+        u = np.empty((Nt + 1, self.N_dim, self.u.shape[-1]))
 
         u[0], r[0] = self.get_reservoir_state()
 
@@ -250,6 +256,7 @@ class EchoStateNetwork:
 
         # Format training data and divide into wash-train-validate, and test sets
         U_wtv, Y_tv, U_test, Y_test = self.format_training_data(train_data)
+
 
         self.Wout = np.zeros([self.N_units + 1, self.N_dim])
 
@@ -286,7 +293,7 @@ class EchoStateNetwork:
 
         # ============================  Train Wout ================================== ##
         self.reset_state(u=self.u * 0, r=self.r * 0)
-        self.Wout = self.solveRidgeRegression(U_wtv, Y_tv)
+        self.Wout = self.solve_ridge_regression(U_wtv, Y_tv)
         print('\n Time per hyperparameter eval.:', (time.time() - ti) / self.N_func_evals,
               '\n Best Results: x ')
         for hp in self.optimize_hyperparams:
@@ -361,7 +368,8 @@ class EchoStateNetwork:
             for j in range(self.N_units):
                 Win[j, :] = rnd0.uniform(low=-1, high=1, size=self.N_dim_in + 1)
         else:
-            raise ValueError("Win type {} not implemented. Choose 'sparse' or 'dense'".format(self.Win_type))
+            raise ValueError("Win type {} not implemented ['sparse', 'dense']".format(self.Win_type))
+        # Make csr matrix
         self.Win = Win.tocsr()
 
         # Reservoir state matrix: Erdos-Renyi network
@@ -371,11 +379,11 @@ class EchoStateNetwork:
         spectral_radius = np.abs(sparse_eigs(W, k=1, which='LM', return_eigenvectors=False))[0]
         self.W = (1. / spectral_radius) * W
 
-    def computeRRterms(self, U_wtv, Y_tv):
+    def compute_RR_terms(self, U_wtv, Y_tv):
         LHS, RHS = 0., 0.
         R_RR = [np.empty([0, self.N_units])] * self.L
         U_RR = [np.empty([0, self.N_dim])] * self.L
-        self.r = 0
+        self.r *= 0.
         for ll in range(self.L):
 
             # Washout phase. Store the last r value only
@@ -404,8 +412,8 @@ class EchoStateNetwork:
 
         return LHS, RHS, U_RR, R_RR
 
-    def solveRidgeRegression(self, U_wtv, Y_tv):
-        LHS, RHS = self.computeRRterms(U_wtv, Y_tv)[:2]
+    def solve_ridge_regression(self, U_wtv, Y_tv):
+        LHS, RHS = self.compute_RR_terms(U_wtv, Y_tv)[:2]
         LHS.ravel()[::LHS.shape[1] + 1] += self.tikh  # Add tikhonov to the diagonal
         return np.linalg.solve(LHS, RHS)  # Solve linear regression problem
 
@@ -499,7 +507,6 @@ class EchoStateNetwork:
 
         return search_grid, search_space, parameters
 
-
     @staticmethod
     def hyperparam_optimization(val, search_space, x0, n_calls, n_rand=0):
 
@@ -546,7 +553,7 @@ class EchoStateNetwork:
 
         # Train using tv: Wout_tik is passed with all the combinations of tikh_ and target noise
         # This must result in L-Xa timeseries
-        LHS, RHS, U_train, R_train = case.computeRRterms(U_wtv, Y_tv)
+        LHS, RHS, U_train, R_train = case.compute_RR_terms(U_wtv, Y_tv)
         Wout_tik = np.empty((N_tikh, case.N_units + 1, case.N_dim))
         for tik_j in range(N_tikh):
             LHS_ = LHS.copy()

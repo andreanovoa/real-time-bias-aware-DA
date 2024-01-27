@@ -20,7 +20,7 @@ class Model:
     """ Parent Class with the general model properties and methods definitions.
     """
     defaults: dict = dict(t=0., seed=0,
-                          psi0=np.empty(1), alpha0=np.empty(1), psi=None, alpha=None,
+                          psi0=None, alpha0=None, alpha=None,
                           ensemble=False, filename='', governing_eqns_params=dict())
     defaults_ens: dict = dict(filter='EnKF',
                               constrained_filter=False,
@@ -67,12 +67,13 @@ class Model:
 
         # ====================== SET INITIAL CONDITIONS ====================== ##
         self.alpha0 = {par: getattr(self, par) for par in self.params}
+        # Ensure psi0 is ndarray with ndim=2
+        if self.psi0.ndim < 2:
+            self.psi0 = np.array([self.psi0]).T
         self.alpha = self.alpha0.copy()
-        self.psi = np.array([self.psi0]).T
-        self.t = 0.
         # ========================== CREATE HISTORY ========================== ##
-        self.hist = np.array([self.psi])
-        self.hist_t = np.array([self.t])
+        self.hist = np.array([self.psi0])
+        self.hist_t = np.array([0.])
         self.hist_J = []
         # ========================== DEFINE LENGTHS ========================== ##
         self.precision_t = int(-np.log10(self.dt)) + 2
@@ -89,6 +90,14 @@ class Model:
         return self.Nphi + self.Na + self.Nq
 
     @property
+    def get_current_state(self):
+        return self.hist[-1]
+
+    @property
+    def get_current_time(self):
+        return self.hist_t[-1]
+
+    @property
     def bias_type(self):
         if hasattr(self, 'bias'):
             return type(self.bias)
@@ -102,7 +111,7 @@ class Model:
         model = self.copy()
         if m is None:
             m = model.m
-        psi = model.psi
+        psi = model.get_current_state
         if m == 1:
             psi = np.mean(psi, -1, keepdims=True)
             model.ensemble = False
@@ -146,7 +155,8 @@ class Model:
 
     # ------------------------- Functions for update/initialise the model --------------------------- #
     @staticmethod
-    def add_uncertainty(rng, mean, std, m, method='normal', param_names=None, ensure_mean=False):
+    def add_uncertainty(rng, mean, std, m, method='normal',
+                        param_names=None, ensure_mean=False):
         if method == 'normal':
             if isinstance(std, float):
                 cov = np.diag((mean * std) ** 2)
@@ -193,7 +203,7 @@ class Model:
         # --------------- RESET INITIAL CONDITION AND HISTORY --------------- ##
         # Note: if est_a and est_b psi = [psi; alpha; biasWeights]
         ensure_mean = self.ensure_mean
-        mean_psi0 = np.mean(self.psi, -1)
+        mean_psi0 = np.mean(self.get_current_state, -1)
 
         new_psi0 = self.add_uncertainty(self.rng, mean_psi0, self.std_psi, self.m, method='normal',
                                         ensure_mean=ensure_mean)
@@ -210,7 +220,7 @@ class Model:
         if self.bias is None:
             self.init_bias()
 
-    def init_bias(self, y=None, **Bdict):
+    def init_bias(self, **Bdict):
 
         if 'bias_type' in Bdict.keys():
             biasType = Bdict['bias_type']
@@ -222,15 +232,27 @@ class Model:
             y0 = Bdict['y0']
         else:
             y0 = self.get_observables()
-        self.bias = biasType(y=y0, t=self.t, dt=self.dt, **Bdict)
-        # Create bias history
-        b = self.bias.getBias()
-        self.bias.updateHistory(b, self.t, reset=True)
 
-    def update_history(self, psi=None, t=None, reset=False):
-        if not reset:
+        self.bias = biasType(y=np.zeros([y0.shape[0], 1]),
+                             t=self.get_current_time, dt=self.dt, **Bdict)
+
+        print('init_bias', self.bias.N_dim, self.bias.N_ens)
+
+        # Create bias history
+        self.bias.update_history(b=y0, t=self.get_current_time, reset=True)
+        print('init_bias_post', self.bias.N_dim, self.bias.N_ens, y0.shape)
+
+    def update_history(self, psi=None, t=None, reset=False, update_last_state=False):
+        if not reset and not update_last_state:
             self.hist = np.concatenate((self.hist, psi), axis=0)
             self.hist_t = np.hstack((self.hist_t, t))
+        elif update_last_state:
+            if psi is not None:
+                self.hist[-1] = psi
+            else:
+                raise ValueError('psi must be provided')
+            if t is not None:
+                self.hist_t = t
         else:
             if psi is None:
                 self.hist = np.array(np.array([self.psi0]).T)
@@ -244,9 +266,6 @@ class Model:
                 self.hist_t = np.array([t])
                 if self.hist_t.ndim > 1:
                     self.hist_t = self.hist_t.squeeze()
-
-        self.psi = self.hist[-1]
-        self.t = self.hist_t[-1]
 
     def is_not_physical(self, print_=False):
         if not hasattr(self, '_physical'):
@@ -274,7 +293,7 @@ class Model:
     def get_alpha(self, psi=None):
         alpha = []
         if psi is None:
-            psi = self.psi
+            psi = self.get_current_state
         for mi in range(psi.shape[-1]):
             ii = -self.Na
             alph = self.alpha0.copy()
@@ -314,23 +333,24 @@ class Model:
                 t: time of the propagated psi
         """
 
-        t = np.round(self.t + np.arange(0, Nt + 1) * self.dt, self.precision_t)
+        t = np.round(self.get_current_time + np.arange(0, Nt + 1) * self.dt, self.precision_t)
         args = self.governing_eqns_params
 
+        psi0 = self.get_current_state
         if not self.ensemble:
-            psi = [Model.forecast(y0=self.psi[:, 0], fun=self.time_derivative, t=t, params={**self.alpha0, **args})]
+            psi = [Model.forecast(y0=psi0[:, 0], fun=self.time_derivative, t=t, params={**self.alpha0, **args})]
 
         else:
             if not averaged:
                 alpha = self.get_alpha()
                 forecast_part = partial(Model.forecast, fun=self.time_derivative, t=t)
                 sol = [self.pool.apply_async(forecast_part,
-                                             kwds={'y0': self.psi[:, mi].T, 'params': {**args, **alpha[mi]}})
+                                             kwds={'y0': psi0[:, mi].T, 'params': {**args, **alpha[mi]}})
                        for mi in range(self.m)]
                 psi = [s.get() for s in sol]
             else:
-                psi_mean0 = np.mean(self.psi, axis=1, keepdims=True)
-                psi_deviation = self.psi - psi_mean0
+                psi_mean0 = np.mean(psi0, axis=1, keepdims=True)
+                psi_deviation = psi0 - psi_mean0
 
                 if alpha is None:
                     alpha = self.get_alpha(psi_mean0)[0]
@@ -371,7 +391,7 @@ class VdP(Model):
     def __init__(self, **model_dict):
 
         if 'psi0' not in model_dict.keys():
-            model_dict['psi0'] = [0.1, 0.1]  # initialise eta and mu
+            model_dict['psi0'] = np.array([0.1, 0.1])  # initialise eta and mu
 
         super().__init__(child_defaults=VdP.defaults, **model_dict)
 
@@ -465,7 +485,8 @@ class Rijke(Model):
         if self.est_a and 'tau' in self.est_a:
             extra_Nc = 50 - self.Nc
             self.tau_adv, self.Nc = 1E-2, 50
-            self.psi0 = np.hstack([np.mean(self.psi, -1), np.zeros(extra_Nc)])
+            psi = self.get_current_state
+            self.psi0 = np.hstack([np.mean(psi, -1), np.zeros(extra_Nc)])
             self.Dc, self.gc = Cheb(self.Nc, getg=True)
             self.update_history(reset=True)
             self.set_fixed_params()
@@ -568,7 +589,7 @@ class Lorenz63(Model):
     # __________________________ Init method ___________________________ #
     def __init__(self, **model_dict):
         if 'psi0' not in model_dict.keys():
-            model_dict['psi0'] = [1.0, 1.0, 1.0]  # initialise x, y, z
+            model_dict['psi0'] = np.array([1.0, 1.0, 1.0])  # initialise x, y, z
 
         super().__init__(child_defaults=Lorenz63.defaults, **model_dict)
 
@@ -633,7 +654,7 @@ class Annular(Model):
                     Bi * np.cos(phbi),
                     -omega * Bi * np.sin(phbi)]
 
-            model_dict['psi0'] = psi0  # initialise \eta_a, \dot{\eta_a}, \eta_b, \dot{\eta_b}
+            model_dict['psi0'] = np.array(psi0)  # initialise \eta_a, \dot{\eta_a}, \eta_b, \dot{\eta_b}
 
         super().__init__(child_defaults=Annular.defaults, **model_dict)
 

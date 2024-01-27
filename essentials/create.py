@@ -243,22 +243,23 @@ def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name: str,
         train_data = create_bias_training_dataset(y_raw, y_pp,
                                                   ensemble, train_params, bias_filename)
 
-        train_params['y0'] = train_data['data'][:ensemble.m, 0].T
-
         # Run bias model training
+
+        train_params['y0'] = np.zeros((train_data['data'].shape[-1], ensemble.m))
         ensemble.init_bias(**train_params)
 
         ensemble.bias.filename = bias_name
         ensemble.bias.train_bias_model(train_data=train_data,
                                        folder=bias_model_folder,
                                        plot_training=True)
+
         # Save
         save_to_pickle_file(bias_model_folder + bias_name, ensemble.bias)
 
     ensemble.bias.print_bias_parameters()
     if ensemble.bias_bayesian_update:
-        print(ensemble.bias.N_ens, ensemble.m)
-        assert ensemble.bias.N_ens == ensemble.m
+        if ensemble.bias.N_ens != ensemble.m:
+            raise AssertionError(ensemble.bias.N_ens, ensemble.m)
 
     if not hasattr(ensemble.bias, 't_init'):
         ensemble.bias.t_init = truth['t_obs'][0] - truth['dt_obs']
