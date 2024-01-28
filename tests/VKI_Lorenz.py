@@ -58,9 +58,7 @@ if __name__ == '__main__':
 
     model = Lorenz63(**forecast_params)
 
-
-
-    model.timeIntegrate()
+    model.time_integrate()
 
 
 

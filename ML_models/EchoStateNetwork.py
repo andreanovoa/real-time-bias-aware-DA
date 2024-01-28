@@ -17,7 +17,7 @@ from skopt.learning import GaussianProcessRegressor as GPR
 from skopt.learning.gaussian_process.kernels import ConstantKernel, Matern
 from skopt.space import Real
 from skopt.plots import plot_convergence
-
+import random
 from scipy.sparse import csr_matrix, lil_matrix
 from scipy.sparse.linalg import eigs as sparse_eigs
 
@@ -223,8 +223,6 @@ class EchoStateNetwork:
 
         r = np.empty((Nt + 1, self.N_units, self.u.shape[-1]))
         u = np.empty((Nt + 1, self.N_dim, self.u.shape[-1]))
-
-        print(u.shape)
 
         u[0], r[0] = self.get_reservoir_state()
 
@@ -624,14 +622,17 @@ class EchoStateNetwork:
             medians_alpha, max_alpha = [], -np.inf
             for U_test_l, Y_test_l in zip(U_test, Y_test):
                 subplots = min(10, total_tests)  # number of plotted intervals
-                fig, _ = plt.subplots(subplots, 1, figsize=[10, 2 * subplots], sharex='all', layout='tight')
+                fig, _ = plt.subplots(subplots, ncols=1, figsize=[10, 2 * subplots], sharex='all', layout='tight')
                 errors = np.zeros(total_tests)
                 # Different intervals in the test set
-                ti, dim_i = -N_test, -1
+                ti = -N_test
+                dims_test = random.sample(np.arange(self.N_dim).tolist(), k=4)
+
                 self.reset_state()
                 while True:
                     ti += N_test
-                    dim_i += 1
+                    # dims_test = np.random.random_integers(low=0, high=self.N_dim-1, size=subplots)
+
                     test_i = ti // N_test
                     if test_i >= total_tests:
                         break
@@ -650,6 +651,7 @@ class EchoStateNetwork:
 
                     errors[test_i] = np.log10(np.mean((Yh_t - Y_t) ** 2) / np.mean(np.expand_dims(self.norm, -1) ** 2))
                     if test_i < subplots:
+                        dim_i = dims_test[test_i]
                         t_ = np.arange(len(Yh_t)) * self.dt_ESN
                         plt.subplot(subplots, 1, test_i + 1)
                         plt.plot(t_, Y_t[:, dim_i], 'k', label='truth dim ' + str(dim_i))
