@@ -233,14 +233,7 @@ class Model:
         else:
             y0 = self.get_observables()
 
-        self.bias = biasType(y=np.zeros([y0.shape[0], 1]),
-                             t=self.get_current_time, dt=self.dt, **Bdict)
-
-        print('init_bias', self.bias.N_dim, self.bias.N_ens)
-
-        # Create bias history
-        self.bias.update_history(b=y0, t=self.get_current_time, reset=True)
-        print('init_bias_post', self.bias.N_dim, self.bias.N_ens, y0.shape)
+        self.bias = biasType(y=y0, t=self.get_current_time, dt=self.dt, **Bdict)
 
     def update_history(self, psi=None, t=None, reset=False, update_last_state=False):
         if not reset and not update_last_state:

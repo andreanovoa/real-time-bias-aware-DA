@@ -28,8 +28,15 @@ class Bias:
     def N_ens(self):
         return self.hist.shape[-1]
 
-    def update_history(self, b, t, reset=False, update_last_state=False, **kwargs):
+    @property
+    def get_current_time(self):
+        return self.hist_t[-1]
+
+    def update_history(self, b, t=None, reset=False, update_last_state=False, **kwargs):
+
         if not reset and not update_last_state:
+            if b is None or t is None:
+                raise AssertionError('both t and b must be defined')
             self.hist = np.concatenate((self.hist, b))
             self.hist_t = np.concatenate((self.hist_t, t))
         elif update_last_state:
@@ -43,10 +50,15 @@ class Bias:
             else:
                 raise ValueError('psi must be provided')
             if t is not None:
-                self.hist_t = t
+                self.hist_t[-1] = t
         else:
-            self.hist = np.array([self.get_bias(state=b)])
+            if t is None:
+                t = self.get_current_time
+            self.hist = np.array([b])
             self.hist_t = np.array([t])
+            if hasattr(self, 'reset_state'):
+                r = np.zeros((self.N_units, self.N_ens))
+                self.reset_state(u=b, r=r)
 
 
 # =================================================================================================================== #
@@ -114,7 +126,7 @@ class ESN(Bias, EchoStateNetwork):
         if len(t) % self.upsample:
             Nt += 1
             interp_flag = True
-        t_b = np.round(self.t + np.arange(0, Nt+1) * self.dt_ESN, self.precision_t)
+        t_b = np.round(self.get_current_time + np.arange(0, Nt+1) * self.dt_ESN, self.precision_t)
 
         # If the time is before the washout initialization, return zeros
         if self.initialised:
@@ -129,8 +141,10 @@ class ESN(Bias, EchoStateNetwork):
                 self.initialised = True
                 # Run washout phase in open-loop
                 wash_model = interpolate(t, y, wash_t)
+
                 if wash_obs.ndim < wash_model.ndim:
                     wash_obs = np.expand_dims(wash_obs, -1)
+
                 washout = wash_obs - wash_model
 
                 u_open, r_open = self.openLoop(washout)

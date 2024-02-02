@@ -626,7 +626,11 @@ class EchoStateNetwork:
                 errors = np.zeros(total_tests)
                 # Different intervals in the test set
                 ti = -N_test
-                dims_test = random.sample(np.arange(self.N_dim).tolist(), k=4)
+
+                if subplots < self.N_dim:
+                    dims_test = random.sample(np.arange(self.N_dim).tolist(), k=subplots)
+                else:
+                    dims_test = np.random.random_integers(low=0, high=self.N_dim-1, size=subplots)
 
                 self.reset_state()
                 while True:

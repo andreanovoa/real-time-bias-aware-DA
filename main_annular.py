@@ -2,12 +2,9 @@
 
 from default_parameters.annular import *
 
-plt.rcParams['text.usetex'] = True # enable LaTeX rendering
-
 if __name__ == '__main__':
     # ========================== CREATE TRUTH AND ENSEMBLE  =================================
     truth = create_truth(true_params, filter_params, post_processed=False)
-    forecast_params['dt'] = truth['dt']
 
     ensemble = create_ensemble(forecast_params, filter_params)
 

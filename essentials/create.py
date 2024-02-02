@@ -245,24 +245,32 @@ def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name: str,
 
         # Run bias model training
 
-        train_params['y0'] = np.zeros((train_data['data'].shape[-1], ensemble.m))
-        ensemble.init_bias(**train_params)
+        print(train_data['data'].shape)
 
+        train_params['y0'] = np.zeros((train_data['data'].shape[-1], 1))
+
+        ensemble.init_bias(**train_params)
         ensemble.bias.filename = bias_name
         ensemble.bias.train_bias_model(train_data=train_data,
                                        folder=bias_model_folder,
                                        plot_training=True)
 
+        if ensemble.bias_bayesian_update:
+            ensemble.bias.update_history(b=np.zeros((ensemble.bias.N_dim, ensemble.m)),
+                                         reset=True)
+
         # Save
         save_to_pickle_file(bias_model_folder + bias_name, ensemble.bias)
 
     ensemble.bias.print_bias_parameters()
+
     if ensemble.bias_bayesian_update:
         if ensemble.bias.N_ens != ensemble.m:
-            raise AssertionError(ensemble.bias.N_ens, ensemble.m)
+            raise AssertionError(ensemble.bias.N_ens, ensemble.m,
+                                 ensemble.bias.wash_obs.shape)
 
     if not hasattr(ensemble.bias, 't_init'):
-        ensemble.bias.t_init = truth['t_obs'][0] - truth['dt_obs']
+        ensemble.bias.t_init = truth['t_obs'][0] - 2 * truth['dt_obs']
 
     # Ensure the truth has washout if needed
     if hasattr(ensemble.bias, 'N_wash') and 'wash_t' not in truth.keys():
@@ -279,7 +287,6 @@ def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name: str,
 
 
 def create_bias_training_dataset(y_raw, y_pp, ensemble, train_params, filename):
-
     """
     Multi-parameter data generation for ESN training
     """

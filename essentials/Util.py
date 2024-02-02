@@ -11,7 +11,7 @@ from functools import lru_cache
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
-from scipy.interpolate import interp1d
+from scipy.interpolate import interp1d, PchipInterpolator
 from scipy.signal import find_peaks
 
 rng = np.random.default_rng(6)
@@ -92,9 +92,8 @@ def RK4(t, q0, func, *kwargs):
 
 
 def interpolate(t_y, y, t_eval, method='cubic', ax=0, bound=False, fill_value="extrapolate"):
-    spline = interp1d(t_y, y, kind=method, axis=ax,
-                      copy=True, bounds_error=bound, fill_value=fill_value)
-    return spline(t_eval)
+    interpolator = PchipInterpolator(t_y, y)
+    return interpolator(t_eval)
 
 
 def getEnvelope(timeseries_x, timeseries_y, fill_value=0):

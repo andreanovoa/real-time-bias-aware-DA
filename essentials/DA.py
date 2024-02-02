@@ -21,7 +21,8 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
 
     # FORECAST UNTIL FIRST OBS ##
     time1 = time.time()
-    Nt = int(np.round((t_obs[0] - ensemble.get_current_time / ensemble.dt)))
+    Nt = int(np.round((t_obs[0] - ensemble.get_current_time) / ensemble.dt))
+
     ensemble = forecastStep(ensemble, Nt, averaged=False, **kwargs)
 
     if ensemble.bias_bayesian_update and ensemble.bias.N_ens != ensemble.m:
