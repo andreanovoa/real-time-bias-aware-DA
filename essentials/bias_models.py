@@ -5,6 +5,7 @@ import numpy as np
 
 class Bias:
     attrs = dict(augment_data=False,
+                 bayesian_update=False,
                  upsample=1)
 
     def __init__(self, b, t, dt, **kwargs):
@@ -146,6 +147,7 @@ class ESN(Bias, EchoStateNetwork):
                     wash_obs = np.expand_dims(wash_obs, -1)
 
                 washout = wash_obs - wash_model
+
 
                 u_open, r_open = self.openLoop(washout)
                 u[t1:t1+self.N_wash+1] = u_open

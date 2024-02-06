@@ -6,9 +6,9 @@ import os
 import matplotlib.pyplot as plt
 import matplotlib.backends.backend_pdf as plt_pdf
 from numpy import ndarray, dtype
+from essentials.DA import EnSRKF, EnKF
 
 from essentials.Util import *
-from essentials.DA import EnKF
 
 # Validation methods
 from functools import partial
@@ -35,7 +35,7 @@ class EchoStateNetwork:
     N_folds = 4  # Folds over the training set
     N_func_evals = 20  # Total evals of Bayesian hyperparameter optimization (BHO)
     N_grid = 4  # BHO grid N_grid x N_grid \geq N_func_evals
-    N_initial_rand = 0  # Initial random evaluations at BYO
+    N_initial_rand = 0  # Initial random evaluations at BHO
     N_split = 4  # Splits of training data for faster computation
     N_units = 100  # Number of neurones
     N_wash = 50  # Number of washout steps
@@ -110,6 +110,8 @@ class EchoStateNetwork:
 
     @property
     def N_dim_in(self):
+        if self.bayesian_update:
+            return self.N_dim
         return len(self.observed_idx)
 
     @property
@@ -131,7 +133,9 @@ class EchoStateNetwork:
         if tikhonov is not None:
             setattr(self, 'tikh', tikhonov)
 
-    def reset_state(self, u=None, r=None):
+    def reset_state(self, u=None, r=None, reshape=False):
+        if r is not None and u is not None:
+            assert self.r.shape[-1] == self.u.shape[-1]
         if u is not None:
             if u.ndim == 1:
                 u = np.expand_dims(u, axis=-1)
@@ -142,51 +146,10 @@ class EchoStateNetwork:
                 r = np.expand_dims(r, axis=-1)
             self.r = r
 
-        if self.r.shape[-1] != self.u.shape[-1]:
-            raise AssertionError((self.r.shape, self.u.shape))
-
-    def get_reservoir_state(self):
-        return self.u, self.r
-
-    def reconstruct_state(self, observed_data, filter_=EnKF, update_reservoir=True):
-        Cdd = (0.05 * np.max(abs(observed_data))) ** 2 * np.eye(len(self.observed_idx))
-
-        if not hasattr(self, 'M'):
-            if update_reservoir:
-                M = np.zeros([len(self.observed_idx), self.N_dim + self.N_units])
-            else:
-                M = np.zeros([len(self.observed_idx), self.N_dim])
-
-            for dim_i, obs_i in enumerate(self.observed_idx):
-                M[dim_i, obs_i] = 1.
-            # Set attribute
-            setattr(self, 'M', M)
-
-        # Define forecast state
-        u, r = self.get_reservoir_state()
-        if update_reservoir:
-            x = np.concatenate([u, r], axis=0)
-        else:
-            x = u.copy()
-
-        # Apply ensemble square-root Kalman filter
-        if observed_data.ndim > 1:
-            d = np.mean(observed_data, axis=-1)
-        else:
-            d = observed_data
-        x_hat = filter_(Af=x, d=d, Cdd=Cdd, M=self.M)[0]
-
-        # Return updates to u and r
-        if update_reservoir:
-            return x_hat[:self.N_dim], x_hat[self.N_dim:]
-        else:
-            return x_hat[:self.N_dim], None
-
-    def outputs_to_inputs(self, full_state):
-        return full_state[self.observed_idx]
     # _______________________________________________________________________________________________________ JACOBIAN
 
     def Jacobian(self, open_loop_J=True, state=None):
+        # Get current state
         if state is None:
             u_in, r_in = self.get_reservoir_state()
         else:
@@ -217,6 +180,45 @@ class EchoStateNetwork:
 
     # ___________________________________________________________________________________ FUNCTIONS TO FORECAST THE ESN
 
+    def get_reservoir_state(self):
+        return self.u, self.r
+
+    def outputs_to_inputs(self, full_state):
+        if self.bayesian_update:
+            return full_state
+        return full_state[self.observed_idx]
+
+    def reconstruct_state(self, observed_data, filter_=EnKF, update_reservoir=True):
+        Cdd = (0.05 * np.max(abs(observed_data))) ** 2 * np.eye(len(self.observed_idx))
+
+        if not hasattr(self, 'M'):
+            if update_reservoir:
+                M = np.zeros([len(self.observed_idx), self.N_dim + self.N_units])
+            else:
+                M = np.zeros([len(self.observed_idx), self.N_dim])
+
+            for dim_i, obs_i in enumerate(self.observed_idx):
+                M[dim_i, obs_i] = 1.
+            # Set attribute
+            setattr(self, 'M', M)
+
+        # Define forecast state
+        u, r = self.get_reservoir_state()
+        if update_reservoir:
+            x = np.concatenate([u, r], axis=0)
+        else:
+            x = u.copy()
+
+        # Apply ensemble square-root Kalman filter
+
+        x_hat = filter_(Af=x, d=np.mean(observed_data, axis=-1), Cdd=Cdd, M=self.M)[0]
+
+        # Return updates to u and r
+        if update_reservoir:
+            return x_hat[:self.N_dim], x_hat[self.N_dim:]
+        else:
+            return x_hat[:self.N_dim], None
+
     def step(self, u, r):
         """ Advances one ESN time step.
             Returns:
@@ -245,7 +247,7 @@ class EchoStateNetwork:
         u_out = np.dot(r_aug.T, self.Wout).T
         return u_out, r_out
 
-    def openLoop(self, u_wash, extra_closed=0):
+    def openLoop(self, u_wash, extra_closed_step=0):
         """ Initialises ESN in open-loop.
             Input:
                 - U_wash: washout input time series
@@ -254,27 +256,24 @@ class EchoStateNetwork:
                 - r: time series of reservoir states
         """
         Nt = u_wash.shape[0] - 1
-        if extra_closed:
-            Nt += extra_closed
+        r = np.zeros((Nt + extra_closed_step + 1, self.N_units, self.u.shape[-1]))
+        u = np.zeros((Nt + extra_closed_step + 1, self.N_dim, self.u.shape[-1]))
 
-        r = np.empty((Nt + 1, self.N_units, self.u.shape[-1]))
-        u = np.empty((Nt + 1, self.N_dim, self.u.shape[-1]))
-
-        if self.bayesian_update and self.trained:
-            u0, r0 = self.reconstruct_state(observed_data=u_wash[0], update_reservoir=True)
-            self.reset_state(u=u0, r=r0)
-        else:
-            self.reset_state(u=u_wash[0])
-
-        u[0], r[0] = self.get_reservoir_state()
-
+        self.reset_state(u=u_wash[0], r=r[0])
         for ii in range(Nt):
-            if self.bayesian_update and self.trained:
-                u_in, r_in = self.reconstruct_state(observed_data=u_wash[ii], update_reservoir=True)
-            else:
-                u_in, r_in = u_wash[ii], r[ii]
-
+            # if not self.bayesian_update or not self.trained or len(u_wash[ii]) == self.N_dim:
+            u_in, r_in = self.get_reservoir_state()
+            # else:
+            #     u_in, r_in = self.reconstruct_state(observed_data=u_wash[ii], update_reservoir=True)
+            if ii == 0:
+                u[0], r[0] = u_in, r_in  # Save initial state
             u[ii + 1], r[ii + 1] = self.step(u_in, r_in)
+
+        if extra_closed_step:
+            self.reset_state(u=u[Nt], r=r[Nt])
+            u_closed, r_closed = self.closedLoop(Nt=extra_closed_step)
+            u[-extra_closed_step:], r[-extra_closed_step:] = u_closed[1:], r_closed[1:]
+
         return u, r
 
     def closedLoop(self, Nt):
@@ -292,23 +291,21 @@ class EchoStateNetwork:
         u[0], r[0] = self.get_reservoir_state()
 
         for i in range(Nt):
-            u_input = self.outputs_to_inputs(full_state=u[i])
-            u[i + 1], r[i + 1] = self.step(u_input, r[i])
+            u_in = self.outputs_to_inputs(full_state=u[i])
+            u[i + 1], r[i + 1] = self.step(u_in, r[i])
         return u, r
 
     # _______________________________________________________________________________________ TRAIN & VALIDATE THE ESN
-    def train(self, validation_strategy=None, plot_training=True, folder='./', **train_data):
+    def train(self, train_data, validation_strategy, plot_training=True, folder='./'):
 
-        # The objective is to initialize the weights in Wout
+        # Format training data and divide into wash-train-validate, and test sets
+        U_wtv, Y_tv, U_test, Y_test = self.format_training_data(train_data)
         self.Wout = np.zeros([self.N_units + 1, self.N_dim])
-
-        # =========  Format training data into wash-train-val and test sets ========= ##
-        U_wtv, Y_tv, U_test, Y_test = self.format_training_data(**train_data)
 
         # ======================  Generate matrices W and Win ======================= ##
         self.generate_W_Win(seed=self.seed_W)
 
-        # ===================  Bayesian Hyperparameter Optimization ================= ##
+        # ==========================  Bayesian Optimization ========================= ##
         ti = time.time()  # check time
 
         # define grid search and bayesian optimisation hp_names
@@ -317,32 +314,35 @@ class EchoStateNetwork:
         self.val_k = 0  # Validation iteration counter
 
         # Validation function
-        if validation_strategy is None:
-            validation_strategy = EchoStateNetwork.RVC_Noise
-
         val_func = partial(validation_strategy,
                            case=self,
                            U_wtv=U_wtv.copy(),
                            Y_tv=Y_tv.copy(),
                            tikh_opt=tikh_opt,
-                           hp_names=hp_names)
+                           hp_names=hp_names
+                           )
 
         # Perform optimization
-        res = self.hyperparam_optimization(val_func, search_space, x0=search_grid, n_calls=self.N_func_evals)
+        res = EchoStateNetwork.hyperparam_optimization(val_func, search_space,
+                                                       x0=search_grid, n_calls=self.N_func_evals)
         f_iters = np.array(res.func_vals)
 
         # Save optimized parameters
         self.reset_hyperparams(res.x, hp_names, tikhonov=tikh_opt[np.argmin(f_iters)])
+
         for hpi, hp in enumerate(self.optimize_hyperparams):
             self.filename += '_{}_{:.3e}'.format(hp, getattr(self, hp))
 
         # ============================  Train Wout ================================== ##
+        self.reset_state(u=self.u * 0., r=self.r * 0.)
         self.Wout = self.solve_ridge_regression(U_wtv, Y_tv)
         print('\n Time per hyperparameter eval.:', (time.time() - ti) / self.N_func_evals,
               '\n Best Results: x ')
         for hp in self.optimize_hyperparams:
             print('\t {:.2e}'.format(getattr(self, hp)), end="")
         print(' f {:.4f}'.format(-res.fun))
+
+        self.trained = True
 
         # =============================  Plot result ================================ ##
         if plot_training or self.perform_test:
@@ -398,23 +398,6 @@ class EchoStateNetwork:
                 self.run_test(U_test, Y_test, pdf_file=pdf)  # Run test
             pdf.close()  # Close training results pdf
 
-        # ====================  Set flags and initialise state ====================== ##
-        if self.bayesian_update:
-            # initialise state with a random sample from test data
-            u_init, r_init = np.empty((self.N_dim, self.L)), np.empty((self.N_units, self.L))
-            for ii, U_test_l in enumerate(U_test):
-                self.reset_state(u=self.u*0., r=self.r*0.)
-                # Random time window
-                ti = np.random.randint(low=0, high=U_test_l.shape[0]-self.N_wash)
-                # Initialise washout
-                u_open, r_open = self.openLoop(U_test_l[ti: ti + self.N_wash])
-                print(ii, self.L, u_open.shape, u_init.shape)
-                u_init[:, ii], r_init[:, ii] = u_open[-1].squeeze(), r_open[-1].squeeze()
-            # Set physical and reservoir states as ensembles
-            self.reset_state(u=u_init, r=r_init)
-        self.trained = True
-
-
     def generate_W_Win(self, seed=1):
         rnd0 = np.random.RandomState(seed)
 
@@ -442,10 +425,11 @@ class EchoStateNetwork:
         LHS, RHS = 0., 0.
         R_RR = [np.empty([0, self.N_units])] * self.L
         U_RR = [np.empty([0, self.N_dim])] * self.L
-        self.reset_state(u=self.u * 0, r=self.r * 0)
+        self.r *= 0.
         for ll in range(self.L):
+
             # Washout phase. Store the last r value only
-            self.r = self.openLoop(U_wtv[ll][:self.N_wash], extra_closed=True)[1][-1]
+            self.r = self.openLoop(U_wtv[ll][:self.N_wash], extra_closed_step=1)[1][-1]
 
             # Split training data for faster computations
             U_train = np.array_split(U_wtv[ll][self.N_wash:], self.N_split, axis=0)
@@ -453,7 +437,7 @@ class EchoStateNetwork:
 
             for U_t, Y_t in zip(U_train, Y_target):
                 # Open-loop train phase
-                u_open, r_open = self.openLoop(U_t, extra_closed=True)
+                u_open, r_open = self.openLoop(U_t, extra_closed_step=1)
 
                 self.reset_state(u=u_open[-1], r=r_open[-1])
 
@@ -475,32 +459,47 @@ class EchoStateNetwork:
         LHS.ravel()[::LHS.shape[1] + 1] += self.tikh  # Add tikhonov to the diagonal
         return np.linalg.solve(LHS, RHS)  # Solve linear regression problem
 
-    def format_training_data(self, data=None, bayesian_update=False, observed_idx=None, add_noise=True):
+    def format_training_data(self, train_data):
         """
-        :param data: training data labels with dimensions L x Nt x Ndim
-        :param bayesian_update: boolean. Should we update the state with DA?
-        :param observed_idx: which indices of the label data are observed
-        :param add_noise:  boolean. Should we add noise to the input data?
+        :param train_data:  dimensions L x Nt x Ndim .or. dict containing inputs and labels
         """
 
-        #   APPLY UPSAMPLE AND OBSERVED INDICES ________________________
+        #   APPLY UPSAMPLE ________________________
+        if type(train_data) is dict:
+            defaults = dict(bayesian_update=self.bayesian_update,
+                            observed_idx=self.observed_idx,
+                            add_noise=True
+                            )
+            for key, val in defaults.items():
+                if key not in train_data.keys():
+                    train_data[key] = val
 
-        # Set labels always as the full state
-        Y = data[:, ::self.upsample].copy()
-        self.L = Y.shape[0]
+            # Set labels always as the full state
+            Y = train_data['data'][:, ::self.upsample].copy()
 
-        self.bayesian_update = bayesian_update
-        self.observed_idx = observed_idx
+            # Case I: Full observability .OR. Case II: Full observability with a DA-reconstructed state.
+            # if len(train_data['observed_idx']) == self.N_dim or train_data['bayesian_update']:
+            #     self.observed_idx = np.arange(self.N_dim)
+            # # Case II. Traditional partial observability
+            # else:
+            self.observed_idx = train_data['observed_idx']
+            self.bayesian_update = train_data['bayesian_update']
+            add_noise = train_data['add_noise']
 
-        # Case I: Full observability .OR. Case II: Partial observability
-        if not bayesian_update:
-            U = Y[:, :, self.observed_idx]
-        # Case III: Full observability with a DA-reconstructed state.
+            # Set inputs to the observed labels. Note: if bayesian_update force full observability
+            if self.bayesian_update:
+                U = Y.copy()
+            else:
+                U = Y[:, :, self.observed_idx]
+
+            assert Y.shape[-1] == self.N_dim
+            assert U.shape[-1] == self.N_dim_in
+            assert self.N_dim >= self.N_dim_in
+
         else:
-            U = Y.copy()
-
-        assert Y.shape[-1] >= U.shape[-1]
-        assert U.shape[-1] == len(self.observed_idx)
+            U = train_data[:, ::self.upsample].copy()
+            Y = U.copy()
+            add_noise = True
 
         #   SEPARATE INTO WASH/TRAIN/VAL/TEST SETS _______________
         N_tv = self.N_train + self.N_val
@@ -617,7 +616,7 @@ class EchoStateNetwork:
         # Perform Validation in different folds
         for U_l, Y_l in zip(U_wtv, Y_tv):  # Each set of training data
             for fold in range(case.N_folds):
-                case.reset_state(u=case.u * 0, r=case.r * 0)
+                case.reset_state(u=case.u * 0., r=case.r * 0.)
                 p = case.N_wash + fold * N_fw
 
                 # Select washout and validation data
@@ -625,7 +624,7 @@ class EchoStateNetwork:
                 Y_val = Y_l[p:p + case.N_val]
 
                 # Perform washout (open-loop without extra forecast step)
-                u_open, r_open = case.openLoop(U_wash, extra_closed=False)
+                u_open, r_open = case.openLoop(U_wash)
 
                 for tik_j in range(N_tikh):  # cloop for each tikh_-noise combination
                     case.reset_state(u=case.outputs_to_inputs(u_open[-1]), r=r_open[-1])
@@ -688,10 +687,10 @@ class EchoStateNetwork:
                 else:
                     dims_test = np.random.random_integers(low=0, high=self.N_dim - 1, size=subplots)
 
-                # Reset state
-                self.reset_state(u=self.u*0., r=self.r*0.)
+                # self.reset_state(u=self.u * 0. , r=self.r*0.)
                 while True:
                     ti += N_test
+                    # dims_test = np.random.random_integers(low=0, high=self.N_dim-1, size=subplots)
 
                     test_i = ti // N_test
                     if test_i >= total_tests:

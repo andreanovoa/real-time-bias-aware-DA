@@ -12,21 +12,23 @@ forecast_params = dict(dt=dt_model,
                        t_lyap=t_lyap)
 
 bias_params = dict(t_train=40 * t_lyap,
-                   t_val=2 * t_lyap,
+                   t_val=6 * t_lyap,
                    t_test=10 * t_lyap,
-                   N_wash=2,
-                   N_units=200,
+                   N_wash=5,
+                   N_units=50,
                    N_folds=8,
                    N_split=5,
                    connect=3,
                    plot_training=True,
-                   rho_range=(.1, 1.),
+                   rho_range=(.2, .8),
                    tikh_range=[1E-6, 1E-9, 1E-12],
                    N_func_evals=40,
                    sigma_in_range=(np.log10(0.5), np.log10(50.)),
                    N_grid=5,
-                   noise=1e-3,
-                   perform_test=True
+                   noise=1e-2,
+                   perform_test=True,
+                   Win_type='sparse',
+                   upsample=3
                    )
 
 parameters_IC = dict(

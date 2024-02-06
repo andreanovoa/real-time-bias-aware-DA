@@ -256,8 +256,7 @@ def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name: str,
                                        plot_training=True)
 
         if ensemble.bias_bayesian_update:
-            ensemble.bias.update_history(b=np.zeros((ensemble.bias.N_dim, ensemble.m)),
-                                         reset=True)
+            ensemble.bias.update_history(b=np.zeros((ensemble.bias.N_dim, ensemble.m)), reset=True)
 
         # Save
         save_to_pickle_file(bias_model_folder + bias_name, ensemble.bias)
@@ -265,6 +264,7 @@ def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name: str,
     ensemble.bias.print_bias_parameters()
 
     if ensemble.bias_bayesian_update:
+        ensemble.bias.bayesian_update = True
         if ensemble.bias.N_ens != ensemble.m:
             raise AssertionError(ensemble.bias.N_ens, ensemble.m,
                                  ensemble.bias.wash_obs.shape)
