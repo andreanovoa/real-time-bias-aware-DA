@@ -1,12 +1,6 @@
-from typing import Any
 
-import numpy as np
 import time
-import os
-import matplotlib.pyplot as plt
 import matplotlib.backends.backend_pdf as plt_pdf
-from numpy import ndarray, dtype
-
 from essentials.Util import *
 from essentials.DA import EnKF
 
@@ -149,7 +143,6 @@ class EchoStateNetwork:
         return self.u, self.r
 
     def reconstruct_state(self, observed_data, filter_=EnKF, update_reservoir=True):
-        Cdd = (0.05 * np.max(abs(observed_data))) ** 2 * np.eye(len(self.observed_idx))
 
         if not hasattr(self, 'M'):
             if update_reservoir:
@@ -172,8 +165,10 @@ class EchoStateNetwork:
         # Apply ensemble square-root Kalman filter
         if observed_data.ndim > 1:
             d = np.mean(observed_data, axis=-1)
+            Cdd = np.dot(observed_data, observed_data.T) / self.L
         else:
             d = observed_data
+            Cdd = (0.05 * np.max(abs(observed_data))) ** 2 * np.eye(len(self.observed_idx))
         x_hat = filter_(Af=x, d=d, Cdd=Cdd, M=self.M)[0]
 
         # Return updates to u and r
@@ -183,7 +178,10 @@ class EchoStateNetwork:
             return x_hat[:self.N_dim], None
 
     def outputs_to_inputs(self, full_state):
-        return full_state[self.observed_idx]
+        if self.bayesian_update:
+            return full_state
+        else:
+            return full_state[self.observed_idx]
     # _______________________________________________________________________________________________________ JACOBIAN
 
     def Jacobian(self, open_loop_J=True, state=None):
@@ -408,7 +406,6 @@ class EchoStateNetwork:
                 ti = np.random.randint(low=0, high=U_test_l.shape[0]-self.N_wash)
                 # Initialise washout
                 u_open, r_open = self.openLoop(U_test_l[ti: ti + self.N_wash])
-                print(ii, self.L, u_open.shape, u_init.shape)
                 u_init[:, ii], r_init[:, ii] = u_open[-1].squeeze(), r_open[-1].squeeze()
             # Set physical and reservoir states as ensembles
             self.reset_state(u=u_init, r=r_init)

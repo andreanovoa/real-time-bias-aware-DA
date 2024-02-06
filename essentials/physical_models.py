@@ -62,7 +62,7 @@ class Model:
                 setattr(self, key, model_dict[key])
                 del model_dict[key]
 
-        if len(model_dict.keys()) != 0:
+        if len(model_dict.keys()) > 1:
             print('Model {} not assigned'.format(model_dict.keys()))
 
         # ====================== SET INITIAL CONDITIONS ====================== ##
