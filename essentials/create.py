@@ -202,6 +202,7 @@ def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name: str,
         bias_params['N_ens'] = ensemble.m
 
     run_bias = True
+    run_bias = True
     if bias_params['bias_type'].name == 'None':
         ensemble.init_bias(**bias_params)
         run_bias = False

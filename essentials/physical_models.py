@@ -214,6 +214,8 @@ class Model:
                                               param_names=self.est_a, ensure_mean=ensure_mean)
             new_psi0 = np.vstack((new_psi0, new_alpha0))
             self.Na = len(self.est_a)
+        else:
+            self.est_a = []
 
         # RESET ENSEMBLE HISTORY
         self.update_history(psi=new_psi0, t=0., reset=True)

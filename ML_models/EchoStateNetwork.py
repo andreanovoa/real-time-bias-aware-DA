@@ -142,18 +142,18 @@ class EchoStateNetwork:
     def get_reservoir_state(self):
         return self.u, self.r
 
-    def reconstruct_state(self, observed_data, filter_=EnKF, update_reservoir=True):
+    def reconstruct_state(self, observed_data, filter_=EnKF, update_reservoir=True, Cdd=None):
 
-        if not hasattr(self, 'M'):
-            if update_reservoir:
-                M = np.zeros([len(self.observed_idx), self.N_dim + self.N_units])
-            else:
-                M = np.zeros([len(self.observed_idx), self.N_dim])
+        # if not hasattr(self, 'M'):
+        if update_reservoir:
+            M = np.zeros([len(self.observed_idx), self.N_dim + self.N_units])
+        else:
+            M = np.zeros([len(self.observed_idx), self.N_dim])
 
-            for dim_i, obs_i in enumerate(self.observed_idx):
-                M[dim_i, obs_i] = 1.
-            # Set attribute
-            setattr(self, 'M', M)
+        for dim_i, obs_i in enumerate(self.observed_idx):
+            M[dim_i, obs_i] = 1.
+            # # Set attribute
+            # setattr(self, 'M', M)
 
         # Define forecast state
         u, r = self.get_reservoir_state()
@@ -165,11 +165,18 @@ class EchoStateNetwork:
         # Apply ensemble square-root Kalman filter
         if observed_data.ndim > 1:
             d = np.mean(observed_data, axis=-1)
-            Cdd = np.dot(observed_data, observed_data.T) / self.L
         else:
             d = observed_data
-            Cdd = (0.05 * np.max(abs(observed_data))) ** 2 * np.eye(len(self.observed_idx))
-        x_hat = filter_(Af=x, d=d, Cdd=Cdd, M=self.M)[0]
+
+        # Define observation error matrix
+        if Cdd is None:
+            if observed_data.ndim > 1 and observed_data.shape[-1] > 1:
+                Cdd = np.dot(observed_data, observed_data.T) / self.L
+            else:
+                Cdd = (0.05 * np.max(abs(observed_data))) ** 2 * np.eye(len(self.observed_idx))
+
+        # Apply Kalman filter
+        x_hat = filter_(Af=x, d=d, Cdd=Cdd, M=M)[0]
 
         # Return updates to u and r
         if update_reservoir:
@@ -243,7 +250,7 @@ class EchoStateNetwork:
         u_out = np.dot(r_aug.T, self.Wout).T
         return u_out, r_out
 
-    def openLoop(self, u_wash, extra_closed=0):
+    def openLoop(self, u_wash, extra_closed=0, force_reconstruct=True):
         """ Initialises ESN in open-loop.
             Input:
                 - U_wash: washout input time series
@@ -258,7 +265,7 @@ class EchoStateNetwork:
         r = np.empty((Nt + 1, self.N_units, self.u.shape[-1]))
         u = np.empty((Nt + 1, self.N_dim, self.u.shape[-1]))
 
-        if self.bayesian_update and self.trained:
+        if self.bayesian_update and self.trained and force_reconstruct:
             u0, r0 = self.reconstruct_state(observed_data=u_wash[0], update_reservoir=True)
             self.reset_state(u=u0, r=r0)
         else:
@@ -267,7 +274,7 @@ class EchoStateNetwork:
         u[0], r[0] = self.get_reservoir_state()
 
         for ii in range(Nt):
-            if self.bayesian_update and self.trained:
+            if self.bayesian_update and self.trained and force_reconstruct:
                 u_in, r_in = self.reconstruct_state(observed_data=u_wash[ii], update_reservoir=True)
             else:
                 u_in, r_in = u_wash[ii], r[ii]
@@ -397,19 +404,26 @@ class EchoStateNetwork:
             pdf.close()  # Close training results pdf
 
         # ====================  Set flags and initialise state ====================== ##
-        if self.bayesian_update:
-            # initialise state with a random sample from test data
-            u_init, r_init = np.empty((self.N_dim, self.L)), np.empty((self.N_units, self.L))
-            for ii, U_test_l in enumerate(U_test):
-                self.reset_state(u=self.u*0., r=self.r*0.)
-                # Random time window
-                ti = np.random.randint(low=0, high=U_test_l.shape[0]-self.N_wash)
-                # Initialise washout
-                u_open, r_open = self.openLoop(U_test_l[ti: ti + self.N_wash])
-                u_init[:, ii], r_init[:, ii] = u_open[-1].squeeze(), r_open[-1].squeeze()
-            # Set physical and reservoir states as ensembles
-            self.reset_state(u=u_init, r=r_init)
+        # Flag case as trained
         self.trained = True
+
+    def initialize_state(self, data,  N_ens=1):
+
+        # initialise state with a random sample from test data
+        u_init, r_init = np.empty((self.N_dim, N_ens)), np.empty((self.N_units, N_ens))
+        # Random time windows and fimensions
+        if data.shape[0] == 1:
+            dim_ids = [0] * N_ens
+        else:
+            dim_ids = random.sample(np.arange(data.shape[0]).tolist(), k=N_ens)
+        t_ids = random.sample(np.arange(data.shape[1]-self.N_wash).tolist(), k=N_ens)
+        for ii in range(N_ens):
+            self.reset_state(u=self.u * 0., r=self.r * 0.)
+            ti, dim_i = t_ids[ii], dim_ids[ii]
+            u_open, r_open = self.openLoop(data[dim_i, ti: ti + self.N_wash], force_reconstruct=False)
+            u_init[:, ii], r_init[:, ii] = u_open[-1].squeeze(), r_open[-1].squeeze()
+        # Set physical and reservoir states as ensembles
+        self.reset_state(u=u_init, r=r_init)
 
 
     def generate_W_Win(self, seed=1):
@@ -472,25 +486,25 @@ class EchoStateNetwork:
         LHS.ravel()[::LHS.shape[1] + 1] += self.tikh  # Add tikhonov to the diagonal
         return np.linalg.solve(LHS, RHS)  # Solve linear regression problem
 
-    def format_training_data(self, data=None, bayesian_update=False, observed_idx=None, add_noise=True):
+    def format_training_data(self, data=None, add_noise=True):#, bayesian_update=False, observed_idx=None, add_noise=True):
         """
         :param data: training data labels with dimensions L x Nt x Ndim
         :param bayesian_update: boolean. Should we update the state with DA?
         :param observed_idx: which indices of the label data are observed
         :param add_noise:  boolean. Should we add noise to the input data?
         """
-
+        print(data.shape)
         #   APPLY UPSAMPLE AND OBSERVED INDICES ________________________
 
         # Set labels always as the full state
         Y = data[:, ::self.upsample].copy()
         self.L = Y.shape[0]
 
-        self.bayesian_update = bayesian_update
-        self.observed_idx = observed_idx
+        # self.bayesian_update = bayesian_update
+        # self.observed_idx = observed_idx
 
         # Case I: Full observability .OR. Case II: Partial observability
-        if not bayesian_update:
+        if not self.bayesian_update:
             U = Y[:, :, self.observed_idx]
         # Case III: Full observability with a DA-reconstructed state.
         else:
