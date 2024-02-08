@@ -1153,7 +1153,7 @@ def plot_Rijke_animation(folder, figs_dir):
 
 def plot_annular_model(forecast_params=None, animate=False, anim_name=None):
     from matplotlib.animation import FuncAnimation
-    from functions.physical_models import Annular
+    from essentials.physical_models import Annular
     import datetime
     import time
 
