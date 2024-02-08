@@ -142,7 +142,7 @@ class EchoStateNetwork:
     def get_reservoir_state(self):
         return self.u, self.r
 
-    def reconstruct_state(self, observed_data, filter_=EnKF, update_reservoir=True, Cdd=None):
+    def reconstruct_state(self, observed_data, filter_=EnKF, update_reservoir=True, Cdd=None, inflation=1.0):
 
         # if not hasattr(self, 'M'):
         if update_reservoir:
@@ -177,6 +177,8 @@ class EchoStateNetwork:
 
         # Apply Kalman filter
         x_hat = filter_(Af=x, d=d, Cdd=Cdd, M=M)[0]
+        x_hat_mean = np.mean(x_hat, -1, keepdims=True)
+        x_hat = x_hat_mean + (x_hat - x_hat_mean) * inflation
 
         # Return updates to u and r
         if update_reservoir:
