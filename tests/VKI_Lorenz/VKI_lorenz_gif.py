@@ -178,8 +178,5 @@ if __name__ == '__main__':
 
 
 
-
-
-
         animation = FuncAnimation(fig, update,  frames=np.arange(Nt//dt_frame), blit=False)
         animation.save('Lorenz_butterfly.gif', fps=5)

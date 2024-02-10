@@ -1,5 +1,6 @@
-matplotlib~=3.7.3
+matplotlib~=3.8.0
 scipy~=1.10
 numpy~=1.26.1
-h5py~=3.7.0
+h5py~=3.9.0
 scikit-optimize~=0.9.0
+mediapy
