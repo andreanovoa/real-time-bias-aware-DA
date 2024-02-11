@@ -615,15 +615,15 @@ class Annular(Model):
 
     defaults: dict = dict(Nq=4, n=1., ER=ER_0, t_transient=0.5, t_CR=0.01, dt=1. / 51200,
                           theta_b=0.63, theta_e=0.66, omega=1090 * 2 * np.pi, epsilon=2.3E-3,
-                          nu=nu_1 * ER_0 + nu_2, beta_c2=c2b_1 * ER_0 + c2b_2, kappa=1.2E-4)  # values in Matlab codes
+                          nu=nu_1 * ER_0 + nu_2, c2beta=c2b_1 * ER_0 + c2b_2, kappa=1.2E-4)  # values in Matlab codes
 
-    defaults['nu'], defaults['beta_c2'] = 30., 5.  # spin
-    # defaults['nu'], defaults['beta_c2'] = 1., 25.  # stand
-    # defaults['nu'], defaults['beta_c2'] = 20., 18.  # mix
+    # defaults['nu'], defaults['c2beta'] = 30., 5.  # spin
+    # defaults['nu'], defaults['c2beta'] = 1., 25.  # stand
+    # defaults['nu'], defaults['c2beta'] = 20., 18.  # mix
 
-    params_labels = dict(omega='$\\omega$', nu='$\\nu$', beta_c2='$c_2\\beta $', kappa='$\\kappa$',
+    params_labels = dict(omega='$\\omega$', nu='$\\nu$', c2beta='$c_2\\beta $', kappa='$\\kappa$',
                          epsilon='$\\epsilon$', theta_b='$\\Theta_\\beta$', theta_e='$\\Theta_\\epsilon$')
-    params_lims = dict(omega=(1000 * 2 * np.pi, 1300 * 2 * np.pi), nu=(1., 60.), beta_c2=(1., 60.), kappa=(None, None),
+    params_lims = dict(omega=(1000 * 2 * np.pi, 1300 * 2 * np.pi), nu=(1., 60.), c2beta=(1., 60.), kappa=(None, None),
                        epsilon=(None, None), theta_b=(0, 2 * np.pi), theta_e=(0, 2 * np.pi))
     params = list([*params_labels])
     fixed_params = []
@@ -656,6 +656,7 @@ class Annular(Model):
 
         self.theta_mic = np.radians([0, 60, 120, 240])
 
+
     # _______________  Specific properties and methods ________________ #
     @property
     def obs_labels(self, loc=None, measure_modes=False):
@@ -671,8 +672,8 @@ class Annular(Model):
         return Annular.nu_1 * ER + Annular.nu_2
 
     @staticmethod
-    def beta_c2_from_ER(ER):
-        return Annular.c2b_1 * ER + Annular.c2b_1
+    def c2beta_from_ER(ER):
+        return Annular.c2b_1 * ER + Annular.c2b_2
 
     def get_observables(self, Nt=1, **kwargs):
         """
@@ -703,14 +704,14 @@ class Annular(Model):
             return self.hist[-Nt:, [0, 2], :]
 
     @staticmethod
-    def time_derivative(t, psi, nu, kappa, beta_c2, theta_b, omega, epsilon, theta_e):
+    def time_derivative(t, psi, nu, kappa, c2beta, theta_b, omega, epsilon, theta_e):
         y_a, z_a, y_b, z_b = psi[:4]  # y = η, and z = dη/dt
 
         def k1(y1, y2, sign):
             return (2 * nu - 3. / 4 * kappa * (3 * y1 ** 2 + y2 ** 2) +
-                    sign * beta_c2 / 2. * np.cos(2. * theta_b))
+                    sign * c2beta / 2. * np.cos(2. * theta_b))
 
-        k2 = beta_c2 / 2. * np.sin(2. * theta_b) - 3. / 2 * kappa * y_a * y_b
+        k2 = c2beta / 2. * np.sin(2. * theta_b) - 3. / 2 * kappa * y_a * y_b
 
         def k3(y1, y2, sign):
             return omega ** 2 * (y1 * (1 + sign * epsilon / 2. * np.cos(2. * theta_e)) +

@@ -1250,27 +1250,3 @@ def plot_annular_model(forecast_params=None, animate=False, anim_name=None):
         anim.save(anim_name, fps=dt_gif * 10)
 
     plt.show()
-
-
-# if __name__ == '__main__':
-#
-#     # plot_annular_model(animate=True)
-#
-#     myfolder = 'results/VdP_final_.3/'
-#     loop_folder = myfolder + 'results_loopParams/'
-#
-#     # if not os.path.isdir(loop_folder):
-#     #     continue
-#
-#     my_dirs = os.listdir(loop_folder)
-#     for std_item in my_dirs:
-#         if not os.path.isdir(loop_folder + std_item) or std_item[:3] != 'std':
-#             continue
-#         print(loop_folder + std_item)
-#         std_folder = loop_folder + std_item + '/'
-#
-#         file = '{}Contour_std{}_results'.format(loop_folder, std_item.split('std')[-1])
-#         plot_Lk_contours(std_folder, file)
-#
-#         file = '{}CR_std{}_results'.format(loop_folder, std_item.split('std')[-1])
-#         post_process_multiple(std_folder, file)

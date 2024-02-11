@@ -33,7 +33,7 @@ true_params = dict(model=data_folder + 'annular/ER_{}'.format(ER),
 
 parameters_IC = dict(
         nu=(40., 50.),
-        beta_c2=(40., 50.),
+        c2beta=(40., 50.),
         kappa=(1.E-4, 1.3E-4),
         epsilon=(1E-3, 5E-3),
         theta_b=(0.5, 0.7),
