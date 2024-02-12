@@ -19,9 +19,9 @@ if num_proc > 1:
 class Model:
     """ Parent Class with the general model properties and methods definitions.
     """
-    defaults: dict = dict(t=0., seed=0,
+    defaults: dict = dict(t=0., seed=6,
                           psi0=None, alpha0=None, alpha=None,
-                          ensemble=False, filename='', governing_eqns_params=dict())
+                          filename='', governing_eqns_params=dict())
     defaults_ens: dict = dict(filter='EnKF',
                               constrained_filter=False,
                               bias_bayesian_update=False,
@@ -35,13 +35,13 @@ class Model:
                               reject_inflation=1.002,
                               std_psi=0.001,
                               std_a=0.001,
-                              alpha_distr='normal',
+                              alpha_distr='uniform',
+                              phi_distr='normal',
                               ensure_mean=False,
                               num_DA_blind=0,
                               num_SE_only=0,
                               start_ensemble_forecast=0.,
-                              get_cost=False,
-                              Na=0
+                              get_cost=False
                               )
 
     # __slots__ = list(defaults.keys()) + list(defaults_ens.keys()) + ['hist', 'hist_t', 'hist_J', '_pool', '_M', '_Ma']
@@ -75,6 +75,7 @@ class Model:
         self.hist = np.array([self.psi0])
         self.hist_t = np.array([0.])
         self.hist_J = []
+        self.ensemble = False
         # ========================== DEFINE LENGTHS ========================== ##
         self.precision_t = int(-np.log10(self.dt)) + 2
         self.bias = None
@@ -90,6 +91,14 @@ class Model:
         return self.Nphi + self.Na + self.Nq
 
     @property
+    def Na(self):
+        if not hasattr(self, 'est_a'):
+            return 0
+        else:
+            return len(self.est_a)
+
+
+    @property
     def get_current_state(self):
         return self.hist[-1]
 
@@ -103,6 +112,9 @@ class Model:
             return type(self.bias)
         else:
             return essentials.bias_models.NoBias
+
+    def set_rng(self, seed):
+        self.rng = np.random.default_rng(seed)
 
     def copy(self):
         return deepcopy(self)
@@ -155,37 +167,27 @@ class Model:
 
     # ------------------------- Functions for update/initialise the model --------------------------- #
     @staticmethod
-    def add_uncertainty(rng, mean, std, m, method='normal',
-                        param_names=None, ensure_mean=False):
-        if method == 'normal':
-            if isinstance(std, float):
-                cov = np.diag((mean * std) ** 2)
+    def add_uncertainty(rng, mean, std, m, method='uniform', ensure_mean=False):
+        if method not in ['uniform', 'normal']:
+            raise ValueError('Distribution {} not recognised'.format(method))
+
+        if type(std) is dict:
+            if method == 'uniform':
+                ensemble_ = [rng.uniform(low=sa[0], high=sa[1], size=m) for sa in std.values()]
             else:
-                raise TypeError('std in normal distribution must be float not {}'.format(type(std)))
-            ens = rng.multivariate_normal(mean, cov, m).T
-        elif method == 'uniform':
-            ens = np.zeros((len(mean), m))
-            if isinstance(std, float):
-                for pi, pp in enumerate(mean):
-                    if abs(std) <= .5:
-                        ens[pi, :] = pp * (1. + rng.uniform(-std, std, m))
-                    else:
-                        ens[pi, :] = rng.uniform(pp - std, pp + std, m)
-            elif isinstance(std, dict):
-                if param_names is not None:
-                    for pi, key in enumerate(param_names):
-                        ens[pi, :] = rng.uniform(std[key][0], std[key][1], m)
-                else:
-                    for pi, _ in enumerate(mean):
-                        ens[pi, :] = rng.uniform(std[pi][0], std[pi][1], m)
+                ensemble_ = [rng.normal(loc=np.mean(sa), scale=np.mean(sa)/2, size=m) for sa in std.values()]
+        elif type(std) is float:
+            if method == 'uniform':
+                ensemble_ = [ma * (1. + rng.uniform(-std, std, m)) for ma in mean]
             else:
-                raise TypeError('std in normal distribution must be float or dict')
+                ensemble_ = rng.multivariate_normal(mean, np.diag((mean * std) ** 2), m).T
         else:
-            raise ValueError('Parameter distribution {} not recognised'.format(method))
+            raise TypeError('std in normal distribution must be float not {}'.format(type(std)))
 
         if ensure_mean:
-            ens[:, 0] = mean
-        return ens
+            ensemble_[:, 0] = mean
+
+        return ensemble_
 
     def init_ensemble(self, **DAdict):
         DAdict = DAdict.copy()
@@ -201,19 +203,21 @@ class Model:
         if hasattr(self, 'modify_settings'):
             self.modify_settings()
         # --------------- RESET INITIAL CONDITION AND HISTORY --------------- ##
-        # Note: if est_a and est_b psi = [psi; alpha; biasWeights]
-        ensure_mean = self.ensure_mean
         mean_psi0 = np.mean(self.get_current_state, -1)
+        new_psi0 = self.add_uncertainty(self.rng, mean_psi0, self.std_psi, self.m, method=self.phi_distr,
+                                        ensure_mean=self.ensure_mean)
 
-        new_psi0 = self.add_uncertainty(self.rng, mean_psi0, self.std_psi, self.m, method='normal',
-                                        ensure_mean=ensure_mean)
+        for var in [self.est_a, self.std_a]:
+            if type(var) is dict:
+                self.std_a = var.copy()
+                self.est_a = [*var]
 
-        if self.est_a:  # Augment ensemble with estimated parameters
+        if self.est_a:  # Augment ensemble with estimated parameters: psi = [psi; alpha]
+
             mean_a = np.array([getattr(self, pp) for pp in self.est_a])
-            new_alpha0 = self.add_uncertainty(self.rng, mean_a, self.std_a, self.m, method=self.alpha_distr,
-                                              param_names=self.est_a, ensure_mean=ensure_mean)
+            new_alpha0 = self.add_uncertainty(self.rng, mean_a, self.std_a, self.m,
+                                              method=self.alpha_distr, ensure_mean=self.ensure_mean)
             new_psi0 = np.vstack((new_psi0, new_alpha0))
-            self.Na = len(self.est_a)
         else:
             self.est_a = []
 
@@ -372,7 +376,9 @@ class VdP(Model):
     """
 
     name: str = 'VdP'
-    defaults: dict = dict(Nq=1, t_transient=1.5, t_CR=0.04, dt=1e-4,
+    t_transient = 1.5
+    t_CR = 0.04
+    defaults: dict = dict(Nq=1, dt=1e-4,
                           omega=2 * np.pi * 120., law='tan',
                           zeta=60., beta=70., kappa=4.0, gamma=1.7)  # beta, zeta [rad/s]
 
@@ -423,7 +429,9 @@ class Rijke(Model):
     """
 
     name: str = 'Rijke'
-    defaults: dict = dict(Nm=10, Nc=10, Nq=6, t_transient=1., t_CR=0.02, dt=1e-4,
+    t_transient = 1.
+    t_CR = 0.02
+    defaults: dict = dict(Nm=10, Nc=10, Nq=6, dt=1e-4,
                           beta=4.0, tau=1.5E-3, C1=.05, C2=.01, kappa=1E5, xf=0.2, L=1., law='sqrt')
     params_labels = dict(beta='$\\beta$', tau='$\\tau$', C1='$C_1$', C2='$C_2$', kappa='$\\kappa$')
     params_lims = dict(beta=(0.01, 5), tau=[1E-6, None], C1=(0., 1.), C2=(0., 1.), kappa=(1E3, 1E8))
@@ -572,7 +580,9 @@ class Lorenz63(Model):
     name: str = 'Lorenz63'
 
     t_lyap = 0.906 ** (-1)
-    defaults: dict = dict(Nq=3, t_lyap=t_lyap, t_transient=t_lyap * 20., t_CR=t_lyap * 4., dt=0.02,
+    t_transient = 10 * t_lyap
+    t_CR = 4 * t_lyap
+    defaults: dict = dict(Nq=3, dt=0.02,
                           rho=28., sigma=10., beta=8. / 3.)
 
     params_labels = dict(rho='$\\rho$', sigma='$\\sigma$', beta='$\\beta$')
@@ -609,13 +619,16 @@ class Annular(Model):
 
     name: str = 'Annular'
 
+    t_transient = 0.5
+    t_CR = 0.01
+
     ER_0 = 0.5
     nu_1, nu_2 = 633.77, -331.39
-    c2b_1, c2b_2 = 258.3, -108.27
+    c2b_1, c2b_2 = 258.3, -108.27  # values in Matlab codes
 
-    defaults: dict = dict(Nq=4, n=1., ER=ER_0, t_transient=0.5, t_CR=0.01, dt=1. / 51200,
+    defaults: dict = dict(Nq=4, n=1., ER=ER_0, dt=1. / 51200,
                           theta_b=0.63, theta_e=0.66, omega=1090 * 2 * np.pi, epsilon=2.3E-3,
-                          nu=nu_1 * ER_0 + nu_2, c2beta=c2b_1 * ER_0 + c2b_2, kappa=1.2E-4)  # values in Matlab codes
+                          nu=nu_1 * ER_0 + nu_2, c2beta=c2b_1 * ER_0 + c2b_2, kappa=1.2E-4)
 
     # defaults['nu'], defaults['c2beta'] = 30., 5.  # spin
     # defaults['nu'], defaults['c2beta'] = 1., 25.  # stand
@@ -632,10 +645,7 @@ class Annular(Model):
     def __init__(self, **model_dict):
 
         if 'psi0' not in model_dict.keys():
-            if 'omega' not in model_dict.keys():
-                omega = Annular.defaults['omega']
-            else:
-                omega = model_dict['omega']
+            omega = Annular.defaults['omega']
 
             C0, X0, th0, ph0 = 10, 0, 0.63, 0  # %initial values
             # %Conversion of the initial conditions from the quaternion formalism to the AB formalism

@@ -47,7 +47,6 @@ filter_params = dict(filter='rBA_EnKF',  # 'rBA_EnKF' 'EnKF' 'EnSRKF'
                      m=10,
                      regularization_factor=2.0,
                      # Parameter estimation options
-                     est_a=[*parameters_IC],
                      std_a=parameters_IC,
                      alpha_distr='uniform',
                      std_psi=.5,
