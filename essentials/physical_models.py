@@ -230,6 +230,8 @@ class Model:
 
         if 'bias_type' in Bdict.keys():
             biasType = Bdict['bias_type']
+        elif 'model' in Bdict.keys():
+            biasType = Bdict['model']
         else:
             biasType = essentials.bias_models.NoBias
 
@@ -237,7 +239,7 @@ class Model:
         if 'y0' in Bdict.keys():
             y0 = Bdict['y0']
         else:
-            y0 = self.get_observables()
+            y0 = np.mean(self.get_observables(), axis=-1, keepdims=True)
 
         self.bias = biasType(y=y0, t=self.get_current_time, dt=self.dt, **Bdict)
 

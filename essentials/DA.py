@@ -57,7 +57,9 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
 
         # Update the bias state
         if not ensemble.bias_bayesian_update or ensemble.bias.name == 'NoBias':
-            ensemble.bias.update_history(b=y_obs[ti] - np.mean(Ya, -1), update_last_state=True)
+            b = np.expand_dims(y_obs[ti] - np.mean(Ya, -1), -1)
+
+            ensemble.bias.update_history(b=b, update_last_state=True)
         else:
             # Analysis innovations
             I_a = y_obs[ti] - Ya

@@ -1,0 +1,3 @@
+# Additional requrements or the tutorials
+jupyter
+mediapy

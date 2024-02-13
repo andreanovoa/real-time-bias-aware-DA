@@ -146,8 +146,10 @@ class ESN(Bias, EchoStateNetwork):
                 if wash_obs.ndim < wash_model.ndim:
                     wash_obs = np.expand_dims(wash_obs, -1)
 
-                washout = wash_obs - wash_model
-
+                if self.N_ens == 1:
+                    washout = wash_obs - np.mean(wash_model, axis=-1, keepdims=True)
+                else:
+                    washout = wash_obs - wash_model
 
                 u_open, r_open = self.openLoop(washout)
                 u[t1:t1+self.N_wash+1] = u_open
@@ -160,6 +162,7 @@ class ESN(Bias, EchoStateNetwork):
                     u_close, r_close = self.closedLoop(Nt)
                     u[t1 + self.N_wash + 1:] = u_close[1:]
                     r[t1 + self.N_wash + 1:] = r_close[1:]
+                print('wash ok')
         # Interpolate the final point if the upsample is not multiple of dt
         if interp_flag:
             u[-1] = interpolate(t_b[-Nt:], u[-Nt:], t[-1])
@@ -174,17 +177,25 @@ class ESN(Bias, EchoStateNetwork):
     def print_bias_parameters(self):
         print('\n ---------------- {} bias model parameters --------------- '.format(self.name))
         keys_to_print = sorted(['t_train', 't_val', 'N_wash', 'rho', 'sigma_in', 'upsample',
-                                'N_units', 'perform_test', 'augment_data', 'L', 'connect', 'tikh'])
+                                'N_units', 'perform_test', 'augment_data', 'L', 'connect', 'tikh',
+                                'bayesian_update', 'observed_idx'])
         for key in keys_to_print:
-            try:
-                print('\t {} = {:.6}'.format(key, getattr(self, key)))
-            except ValueError:
-                print('\t {} = {}'.format(key, getattr(self, key)))
+            val = getattr(self, key)
+            if type(val) is float:
+                print('\t {} = {:.6}'.format(key, val))
+            else:
+                print('\t {} = {}'.format(key, val))
 
-    def train_bias_model(self, train_data, val_strategy=None, plot_training=True, folder='./'):
-        if val_strategy is None:
-            val_strategy = EchoStateNetwork.RVC_Noise
-        self.train(train_data, validation_strategy=val_strategy, plot_training=plot_training, folder=folder)
+    def train_bias_model(self, **train_data):
+        data = train_data['data']
+        del train_data['data']
+        dict_items = train_data.copy().items()
+        for key, val in dict_items:
+            if hasattr(self, key):
+                setattr(self, key, val)
+                del train_data[key]
+
+        self.train(data, **train_data)
         self.trained = True
 
     def get_bias(self, state=None, get_full_state=False, concat_reservoir_state=False):

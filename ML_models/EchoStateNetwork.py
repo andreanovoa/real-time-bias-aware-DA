@@ -81,10 +81,10 @@ class EchoStateNetwork:
         # ---------------- Define time steps and time windows -------------------- #
         self.dt = dt
         self.dt_ESN = self.dt * self.upsample
-
-        self.N_train = int(round(self.t_train / self.dt_ESN))
-        self.N_val = int(round(self.t_val / self.dt_ESN))
-        self.N_test = int(round(self.t_test / self.dt_ESN))
+        #
+        # self.N_train = int(round(self.t_train / self.dt_ESN))
+        # self.N_val = int(round(self.t_val / self.dt_ESN))
+        # self.N_test = int(round(self.t_test / self.dt_ESN))
 
         # ------------------------ Empty arrays and flags -------------------------- #
         self.norm = None
@@ -94,6 +94,18 @@ class EchoStateNetwork:
         self.trained = False  # Flag for training
         self.initialised = False  # Flag for washout
         self.filename = 'my_ESN'  # Default ESN file name
+
+    @property
+    def N_train(self):
+        return int(round(self.t_train / self.dt_ESN))
+
+    @property
+    def N_val(self):
+        return int(round(self.t_val / self.dt_ESN))
+
+    @property
+    def N_test(self):
+        return int(round(self.t_test / self.dt_ESN))
 
     @property
     def len_train_data(self):
@@ -137,7 +149,7 @@ class EchoStateNetwork:
             self.r = r
 
         if self.r.shape[-1] != self.u.shape[-1]:
-            raise AssertionError((self.r.shape, self.u.shape))
+            raise AssertionError(['reset_state', self.r.shape, self.u.shape])
 
     def get_reservoir_state(self):
         return self.u, self.r
@@ -171,7 +183,7 @@ class EchoStateNetwork:
         # Define observation error matrix
         if Cdd is None:
             if observed_data.ndim > 1 and observed_data.shape[-1] > 1:
-                Cdd = np.dot(observed_data, observed_data.T) / self.L
+                Cdd = np.cov(observed_data)
             else:
                 Cdd = (0.05 * np.max(abs(observed_data))) ** 2 * np.eye(len(self.observed_idx))
 
@@ -304,13 +316,14 @@ class EchoStateNetwork:
         return u, r
 
     # _______________________________________________________________________________________ TRAIN & VALIDATE THE ESN
-    def train(self, validation_strategy=None, plot_training=True, folder='./', **train_data):
+    def train(self, train_data, plot_training=True, folder='./', add_noise=True, **kwargs):
+
 
         # The objective is to initialize the weights in Wout
         self.Wout = np.zeros([self.N_units + 1, self.N_dim])
 
         # =========  Format training data into wash-train-val and test sets ========= ##
-        U_wtv, Y_tv, U_test, Y_test = self.format_training_data(**train_data)
+        U_wtv, Y_tv, U_test, Y_test = self.format_training_data(data=train_data, add_noise=add_noise)
 
         # ======================  Generate matrices W and Win ======================= ##
         self.generate_W_Win(seed=self.seed_W)
@@ -324,8 +337,10 @@ class EchoStateNetwork:
         self.val_k = 0  # Validation iteration counter
 
         # Validation function
-        if validation_strategy is None:
+        if 'validation_strategy' not in kwargs.keys():
             validation_strategy = EchoStateNetwork.RVC_Noise
+        else:
+            validation_strategy = kwargs['validation_strategy']
 
         val_func = partial(validation_strategy,
                            case=self,
@@ -453,10 +468,10 @@ class EchoStateNetwork:
 
     def compute_RR_terms(self, U_wtv, Y_tv):
         LHS, RHS = 0., 0.
-        R_RR = [np.empty([0, self.N_units])] * self.L
-        U_RR = [np.empty([0, self.N_dim])] * self.L
+        R_RR = [np.empty([0, self.N_units])] * U_wtv.shape[0]
+        U_RR = [np.empty([0, self.N_dim])] * U_wtv.shape[0]
         self.reset_state(u=self.u * 0, r=self.r * 0)
-        for ll in range(self.L):
+        for ll in range(U_wtv.shape[0]):
             # Washout phase. Store the last r value only
             self.r = self.openLoop(U_wtv[ll][:self.N_wash], extra_closed=True)[1][-1]
 
@@ -488,19 +503,16 @@ class EchoStateNetwork:
         LHS.ravel()[::LHS.shape[1] + 1] += self.tikh  # Add tikhonov to the diagonal
         return np.linalg.solve(LHS, RHS)  # Solve linear regression problem
 
-    def format_training_data(self, data=None, add_noise=True):#, bayesian_update=False, observed_idx=None, add_noise=True):
+    def format_training_data(self, data=None, add_noise=True):
         """
         :param data: training data labels with dimensions L x Nt x Ndim
-        :param bayesian_update: boolean. Should we update the state with DA?
-        :param observed_idx: which indices of the label data are observed
         :param add_noise:  boolean. Should we add noise to the input data?
         """
-        print(data.shape)
+
         #   APPLY UPSAMPLE AND OBSERVED INDICES ________________________
 
         # Set labels always as the full state
         Y = data[:, ::self.upsample].copy()
-        self.L = Y.shape[0]
 
         # self.bayesian_update = bayesian_update
         # self.observed_idx = observed_idx
@@ -539,7 +551,7 @@ class EchoStateNetwork:
             # Larger noise promotes stability in long term, but hinders time accuracy
             U_std = np.std(U, axis=1)
             rnd = np.random.RandomState(self.seed_noise)
-            for ll in range(self.L):
+            for ll in range(Y.shape[0]):
                 for dd in range(self.N_dim):
                     U_wtv[ll, :, dd] += rnd.normal(loc=0, scale=self.noise * U_std[ll, dd], size=U_wtv.shape[1])
                     U_test[ll, :, dd] += rnd.normal(loc=0, scale=self.noise * U_std[ll, dd], size=U_test.shape[1])
@@ -682,7 +694,7 @@ class EchoStateNetwork:
 
         max_test_time = np.shape(U_test)[1] - self.N_wash
 
-        total_tests = min(20, int(np.floor(max_test_time / N_test)))
+        total_tests = min(10, int(np.floor(max_test_time / N_test)))
 
         # Break if not enough train_data for testing
         if total_tests < 1:
@@ -738,4 +750,4 @@ class EchoStateNetwork:
                 # Save to pdf
                 add_pdf_page(pdf_file, fig)
 
-            print('Median and max error in', self.L, ' test:', np.median(medians_alpha), max_alpha)
+            print('Median and max error in', total_tests * U_test.shape[0], 'tests:', np.median(medians_alpha), max_alpha)

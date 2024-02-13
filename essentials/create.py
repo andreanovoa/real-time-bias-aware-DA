@@ -272,7 +272,6 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble,
                                  L=10,
                                  N_wash=5,
                                  augment_data=True,
-                                 upsample=1,
                                  perform_test=True,
                                  biased_observations=False,
                                  bayesian_update=False,
@@ -285,14 +284,14 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble,
     ensemble = ensemble.copy()
 
     if t_train is None:
-        train_params['t_train'] = ensemble.t_transient
+        t_train = ensemble.t_transient
     if t_val is None:
-        train_params['t_val'] = ensemble.t_CR
+        t_val = ensemble.t_CR
 
-    min_train_data = train_params['t_train'] + train_params['t_val']
+    min_train_data = t_train + t_val
     if perform_test:
-        min_train_data += train_params['t_val'] * 5
-    min_train_data = int(min_train_data / ensemble.dt / upsample) + N_wash
+        min_train_data += t_val * 5
+    min_train_data = int(min_train_data / ensemble.dt) + N_wash
 
     # =========================== Load training data if available ============================== #
     try:
@@ -328,7 +327,7 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble,
         train_ens.init_ensemble(**train_params)
 
         # Forecast ensemble
-        psi, t = train_ens.time_integrate(Nt=int(round(train_params['t_train'] / train_ens.dt)))
+        psi, t = train_ens.time_integrate(Nt=int(round(t_train / train_ens.dt)))
         train_ens.update_history(psi, t)
         y_L_model = train_ens.get_observable_hist()  # N_train x Nq x m
 
@@ -348,10 +347,11 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble,
 
         # Reset ensemble with post-transient ICs
         train_ens.update_history(psi=psi0.T, reset=True)
+        
 
         # =========================  Forecast fixed-point-free ensemble ============================== #
 
-        Nt = min_train_data * upsample
+        Nt = min_train_data
         N_corr = int(round(train_ens.t_CR / train_ens.dt))
 
         psi, tt = train_ens.time_integrate(Nt=Nt + N_corr)
@@ -360,6 +360,7 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble,
 
         # ===============  If data augmentation, correlate observations and estimates ================= #
         y_L_model = train_ens.get_observable_hist()
+
 
         # Equivalent observation signals (raw and post-processed)
         y_raw = y_raw[-Nt:].copy()
@@ -392,7 +393,7 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble,
         innovations = y_raw - train_data_model
         innovations = innovations.transpose((2, 0, 1))  # Force shape to be (L x Nt x N_dim). Note: N_dim = Nq
 
-        assert innovations.ndims == 3
+        assert innovations.ndim == 3
         assert innovations.shape[1] == Nt
         assert innovations.shape[2] == y_L_model.shape[1]
 
@@ -413,14 +414,17 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble,
 
         # =============================== Save train_data dict ================================ #
         # Save key keywords
+        train_data['t_train'] = t_train
+        train_data['t_val'] = t_val
+
         train_data['add_noise'] = add_noise
         train_data['augment_data'] = augment_data
         train_data['bayesian_update'] = bayesian_update
         train_data['biased_observations'] = biased_observations
         train_data['L'] = L
-        train_data['upsample'] = upsample
 
         if filename is not None:
             save_to_pickle_file(filename, train_data)
 
     return train_data
+

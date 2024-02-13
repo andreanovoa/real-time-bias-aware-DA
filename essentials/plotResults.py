@@ -8,6 +8,7 @@ import numpy as np
 import matplotlib as mpl
 from matplotlib.ticker import FormatStrFormatter
 import matplotlib.backends.backend_pdf as plt_pdf
+from essentials.Util import interpolate
 
 XDG_RUNTIME_DIR = 'tmp/'
 
@@ -211,6 +212,8 @@ def post_process_WhyAugment(results_dir, k_plot=None, J_plot=None, figs_dir=None
 
 # ==================================================================================================================
 def recover_unbiased_solution(t_b, b, t, y, upsample=True):
+    y = y.squeeze()
+    b = b.squeeze()
     if upsample:
         y_unbiased = interpolate(t, y, t_b, method='linear') + b
         y_unbiased = interpolate(t_b, y_unbiased, t, method='linear')
