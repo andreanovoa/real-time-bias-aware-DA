@@ -40,8 +40,7 @@ class Model:
                               ensure_mean=False,
                               num_DA_blind=0,
                               num_SE_only=0,
-                              start_ensemble_forecast=0.,
-                              get_cost=False
+                              start_ensemble_forecast=0.
                               )
 
     # __slots__ = list(defaults.keys()) + list(defaults_ens.keys()) + ['hist', 'hist_t', 'hist_J', '_pool', '_M', '_Ma']
@@ -74,7 +73,6 @@ class Model:
         # ========================== CREATE HISTORY ========================== ##
         self.hist = np.array([self.psi0])
         self.hist_t = np.array([0.])
-        self.hist_J = []
         self.ensemble = False
         # ========================== DEFINE LENGTHS ========================== ##
         self.precision_t = int(-np.log10(self.dt)) + 2

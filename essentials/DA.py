@@ -23,7 +23,7 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
     time1 = time.time()
     Nt = int(np.round((t_obs[0] - ensemble.get_current_time) / ensemble.dt))
 
-    ensemble = forecastStep(ensemble, Nt, averaged=False, **kwargs)
+    ensemble = forecastStep(ensemble, Nt, **kwargs)
 
     if ensemble.bias_bayesian_update and ensemble.bias.N_ens != ensemble.m:
         raise AssertionError('Wrong ESN initialisation')
@@ -44,12 +44,9 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
         ensemble.activate_parameter_estimation = ti >= ensemble.num_SE_only
 
         # ------------------------------  PERFORM ASSIMILATION ------------------------------ #
-        Aa, J = analysisStep(ensemble, y_obs[ti], Cdd)  # Analysis step
-        ensemble.hist_J.append(J)  # Store cost function
+        Aa = analysisStep(ensemble, y_obs[ti], Cdd)  # Analysis step
 
         # -------------------------  UPDATE STATE AND BIAS ESTIMATES------------------------- #
-        # ensemble.psi = Aa[:-ensemble.Nq, :]
-        # ensemble.hist[-1] = Aa[:-ensemble.Nq, :]
         ensemble.update_history(Aa[:-ensemble.Nq, :], update_last_state=True)
 
         # Update bias using the analysis innovation d - y^a
@@ -58,7 +55,6 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
         # Update the bias state
         if not ensemble.bias_bayesian_update or ensemble.bias.name == 'NoBias':
             b = np.expand_dims(y_obs[ti] - np.mean(Ya, -1), -1)
-
             ensemble.bias.update_history(b=b, update_last_state=True)
         else:
             # Analysis innovations
@@ -70,7 +66,7 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
                 Bf = ensemble.bias.get_bias(full_state=True)
 
             Cii = Cdd
-            Ba = EnKF(Bf, I_a, np.eye(ensemble.Nq), Cii, get_cost=False)[0]
+            Ba = EnKF(Bf, I_a, np.eye(ensemble.Nq), Cii)[0]
             # Update ESN states
             N_dim = ensemble.bias.N_dim
             ensemble.bias.update_history(b=Ba[:N_dim], update_last_state=True)
@@ -100,7 +96,7 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
 # =================================================================================================================== #
 
 
-def forecastStep(case, Nt, averaged=False, alpha=None, **kwargs):
+def forecastStep(case, Nt, **kwargs):
     """ Forecast step in the data assimilation algorithm. The state vector of
         one of the ensemble members is integrated in time
         Inputs:
@@ -151,9 +147,9 @@ def analysisStep(case, d, Cdd):
     Af = np.vstack((Af, y))
     # ======================== APPLY SELECTED FILTER ======================== #
     if case.filter == 'EnSRKF':
-        Aa, cost = EnSRKF(Af, d, Cdd, M, get_cost=case.get_cost)
+        Aa = EnSRKF(Af, d, Cdd, M)
     elif case.filter == 'EnKF':
-        Aa, cost = EnKF(Af, d, Cdd, M, get_cost=case.get_cost)
+        Aa = EnKF(Af, d, Cdd, M)
     elif case.filter == 'rBA_EnKF':
         # ----------------- Retrieve bias and its Jacobian ----------------- #
         b = case.bias.get_bias()
@@ -163,9 +159,9 @@ def analysisStep(case, d, Cdd):
         Cbb = Cdd.copy()  # Bias covariance matrix same as obs cov matrix for now
 
         if case.activate_bias_aware:
-            Aa, cost = rBA_EnKF(Af, d, Cdd, Cbb, k, M, b, J, get_cost=case.get_cost)
+            Aa = rBA_EnKF(Af, d, Cdd, Cbb, k, M, b, J)
         else:
-            Aa, cost = EnKF(Af, d, Cdd, M, get_cost=case.get_cost)
+            Aa = EnKF(Af, d, Cdd, M)
     else:
         raise ValueError('Filter ' + case.filter + ' not defined.')
 
@@ -203,14 +199,14 @@ def analysisStep(case, d, Cdd):
                     # d_alpha = np.concatenate([d, d_alpha])
                     #
                     # if case.filter == 'EnSRKF':
-                    #     Aa, cost = EnSRKF(Af, d_alpha, Cdd_alpha, M_alpha, get_cost=case.get_cost)
+                    #     Aa = EnSRKF(Af, d_alpha, Cdd_alpha, M_alpha)
                     # elif case.filter == 'EnKF':
-                    #     Aa, cost = EnKF(Af, d_alpha, Cdd_alpha, M_alpha, get_cost=case.get_cost)
+                    #     Aa = EnKF(Af, d_alpha, Cdd_alpha, M_alpha)
                     # elif case.filter == 'rBA_EnKF':
                     #     if case.activate_bias_aware:
-                    #         Aa, cost = rBA_EnKF(Af, d_alpha, Cdd_alpha, Cbb, k, M_alpha, b, J, get_cost=case.get_cost)
+                    #         Aa = rBA_EnKF(Af, d_alpha, Cdd_alpha, Cbb, k, M_alpha, b, J)
                     #     else:
-                    #         Aa, cost = EnKF(Af, d_alpha, Cdd_alpha, M_alpha, get_cost=case.get_cost)
+                    #         Aa = EnKF(Af, d_alpha, Cdd_alpha, M_alpha)
                     #
                     # # double check point in case the inflation takes the ensemble out of parameter range
                     # if checkParams(Aa, case)[0]:
@@ -221,7 +217,7 @@ def analysisStep(case, d, Cdd):
                     #     Aa = inflateEnsemble(Af, case.inflation)
 
             # Aa = Aa[:-case.Nq, :]
-    return Aa, cost
+    return Aa
 
 
 # =================================================================================================================== #
@@ -333,17 +329,15 @@ def checkParams(Aa, case):
 # =================================================================================================================== #
 
 
-def EnSRKF(Af, d, Cdd, M, get_cost=False):
+def EnSRKF(Af, d, Cdd, M):
     """Ensemble Square-Root Kalman Filter based on Evensen (2009)
         Inputs:
             Af: forecast ensemble at time t
             d: observation at time t
             Cdd: observation error covariance matrix
             M: matrix mapping from state to observation space
-            get_cost: do you want to compute the cost function?
         Returns:
             Aa: analysis ensemble (or Af is Aa is not real)
-            cost: (optional) calculation of the DA cost function and its derivative
     """
     m = np.size(Af, 1)  # ensemble size
     d = np.expand_dims(d, axis=1)
@@ -376,36 +370,21 @@ def EnSRKF(Af, d, Cdd, M, get_cost=False):
     Psi_a = np.dot(Psi_f, np.dot(V, np.dot(sqrtIE, V.T)))
     Aa = psi_a_m + Psi_a
 
-    cost = np.array([None] * 4)
-    if np.isreal(Aa).all():
-        if get_cost:  # Compute cost function terms
-            Ya = Aa[-len(d):]
-            Wdd = linalg.inv(Cdd)
-            Cpp = np.dot(Psi_f, Psi_f.T)
-            Wpp = linalg.pinv(Cpp)
-
-            cost[0] = np.dot(np.mean(Af - Aa, -1).T, np.dot(Wpp, np.mean(Af - Aa, -1)))
-            cost[1] = np.dot(np.mean(d - Ya, -1).T, np.dot(Wdd, np.mean(d - Ya, -1)))
-
-            dJdpsi = np.dot(Wpp, Af - Aa) + np.dot(M.T, np.dot(Wdd, Ya - d))
-            cost[3] = abs(np.mean(dJdpsi) / 2.)
-        return Aa, cost
-    else:
+    if not np.isreal(Aa).all():
+        Aa = Af
         print('Aa not real')
-        return Af, cost
+    return Aa
 
 
-def EnKF(Af, d, Cdd, M, get_cost=False):
+def EnKF(Af, d, Cdd, M):
     """Ensemble Kalman Filter as derived in Evensen (2009) eq. 9.27.
         Inputs:
             Af: forecast ensemble at time t
             d: observation at time t
             Cdd: observation error covariance matrix
             M: matrix mapping from state to observation space
-            get_cost: do you want to compute the cost function?
         Returns:
             Aa: analysis ensemble (or Af is Aa is not real)
-            cost: (optional) calculation of the DA cost function and its derivative
     """
     m = np.size(Af, 1)
 
@@ -427,26 +406,13 @@ def EnKF(Af, d, Cdd, M, get_cost=False):
 
     Aa = Af + np.dot(Af, X)
 
-    cost = np.array([None] * 4)
-    if np.isreal(Aa).all():
-        if get_cost:  # Compute cost function terms
-            Ya = Aa[-len(d):]
-            Cpp = np.dot(Psi_f, Psi_f.T)
-            Wdd = linalg.inv(Cdd)
-            Wpp = linalg.pinv(Cpp)
-
-            cost[0] = np.dot(np.mean(Af - Aa, -1).T, np.dot(Wpp, np.mean(Af - Aa, -1)))
-            cost[1] = np.dot(np.mean(np.expand_dims(d, -1) - Ya, -1).T,
-                             np.dot(Wdd, np.mean(np.expand_dims(d, -1) - Ya, -1)))
-            dJdpsi = np.dot(Wpp, Af - Aa) + np.dot(M.T, np.dot(Wdd, Ya - D))
-            cost[3] = abs(np.mean(dJdpsi) / 2.)
-        return Aa, cost
-    else:
+    if not np.isreal(Aa).all():
+        Aa = Af
         print('Aa not real')
-        return Af, cost
+    return Aa
 
 
-def rBA_EnKF(Af, d, Cdd, Cbb, k, M, b, J, get_cost=False):
+def rBA_EnKF(Af, d, Cdd, Cbb, k, M, b, J):
     """ Bias-aware Ensemble Kalman Filter.
         Inputs:
             Af: forecast ensemble at time t (augmented with Y) [N x m]
@@ -457,10 +423,8 @@ def rBA_EnKF(Af, d, Cdd, Cbb, k, M, b, J, get_cost=False):
             M: matrix mapping from state to observation space [Nq x N]
             b: bias of the forecast observables (Y = MAf + B) [Nq x 1]
             J: derivative of the bias with respect to the input [Nq x Nq]
-            get_cost: do you want to compute the cost function?
         Returns:
             Aa: analysis ensemble (or Af is Aa is not real)
-            cost: (optional) calculation of the DA cost function and its derivative
     """
     Nm = np.size(Af, 1)
     Nq = len(d)
@@ -473,8 +437,14 @@ def rBA_EnKF(Af, d, Cdd, Cbb, k, M, b, J, get_cost=False):
 
     # Create an ensemble of observations
     D = rng.multivariate_normal(d, Cdd, Nm).transpose()
-    B = rng.multivariate_normal(b, Cbb, Nm).transpose()
-    # B = np.repeat(np.expand_dims(b, 1), Nm, axis=1)
+
+    if b.ndim > 1 and b.shape[-1] == Nm:
+        B = b
+    else:
+        if b.ndim == 1:
+            b = np.expand_dims(b, axis=1)
+        # B = rng.multivariate_normal(b.squeeze(), Cbb, Nm).transpose()
+        B = np.repeat(b, Nm, axis=1)
 
     Y = Q + B
 
@@ -484,38 +454,18 @@ def rBA_EnKF(Af, d, Cdd, Cbb, k, M, b, J, get_cost=False):
     else:
         CdWb = np.dot(Cdd, linalg.inv(Cbb))
 
-    Cinv = (Nm - 1) * Cdd + np.dot(Iq + J,
-                                   np.dot(Cqq, (Iq + J).T)) + k * np.dot(CdWb,
-                                                                         np.dot(J, np.dot(Cqq, J.T)))
+    Cinv = ((Nm - 1) * Cdd + np.dot(Iq + J, np.dot(Cqq, (Iq + J).T)) +
+            k * np.dot(CdWb, np.dot(J, np.dot(Cqq, J.T))))
+
     K = np.dot(Psi_f, np.dot(S.T, linalg.inv(Cinv)))
     Aa = Af + np.dot(K, np.dot(Iq + J, D - Y) - k * np.dot(CdWb, np.dot(J, B)))
 
-    # Compute cost function terms (this could be commented out to increase speed)
-    cost = np.array([None] * 4)
-    if np.isreal(Aa).all():
-        if get_cost:  # Compute cost function terms
-            ba = b + np.dot(J, np.mean(np.dot(M, Aa) - Q, -1))
-            Ya = np.dot(M, Aa) + np.expand_dims(ba, -1)
-            Wdd = linalg.inv(Cdd)
-            Wpp = linalg.pinv(np.dot(Psi_f, Psi_f.T))
-            Wbb = k * linalg.inv(Cbb)
 
-            cost[0] = np.dot(np.mean(Af - Aa, -1).T, np.dot(Wpp, np.mean(Af - Aa, -1)))
-            cost[1] = np.dot(np.mean(np.expand_dims(d, -1) - Ya, -1).T,
-                             np.dot(Wdd, np.mean(np.expand_dims(d, -1) - Ya, -1)))
-            cost[2] = np.dot(ba.T, np.dot(Wbb, ba))
-
-            dbdpsi = np.dot(M.T, J.T)
-            dydpsi = dbdpsi + M.T
-
-            Ba = np.repeat(np.expand_dims(ba, 1), Nm, axis=1)
-            dJdpsi = np.dot(Wpp, Af - Aa) + np.dot(dydpsi, np.dot(Wdd, Ya - D)) + np.dot(dbdpsi, np.dot(Wbb, Ba))
-            cost[3] = abs(np.mean(dJdpsi) / 2.)
-    else:
+    if not np.isreal(Aa).all():
         print('Aa not real')
         Aa = Af
 
-    return Aa, cost
+    return Aa
 
 
 # =================================================================================================================== #

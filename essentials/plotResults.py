@@ -700,11 +700,11 @@ def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False,
               [t[0], t[-1]]]
 
     if plot_states:
-        fig1 = plt.figure(figsize=(9, 5.5), layout="constrained")
-        subfigs = fig1.subfigures(1, 2, width_ratios=[1.1, 1])
-
-        ax_zoom = subfigs[0].subplots(Nq, 2, sharex='col', sharey='row')
-        ax_all = subfigs[1].subplots(Nq, 1, sharex='col')
+        fig1, axs = plt.subplots(Nq, 3, figsize=(12, 5.5), layout="constrained",
+                                 width_ratios=[1, 1, 1.5],
+                                 sharey='row', sharex='col')
+        ax_zoom = axs[:, :-1]
+        ax_all = axs[:, -1]
         for qi in range(Nq):
             for ax, xl in zip([ax_zoom[qi, 0], ax_zoom[qi, 1], ax_all[qi]], x_lims):
 
@@ -894,7 +894,7 @@ def plot_Lk_contours(folder, filename='contour'):
 # ==================================================================================================================
 
 def plot_truth(truth_dict, plot_time=False, Nq=None, filename=None):
-    from functions.Util import interpolate, fun_PSD
+    from essentials.Util import interpolate, fun_PSD
     from scipy.signal import find_peaks
     if Nq is None:
         Nq = truth_dict['y_obs'].shape[-1]

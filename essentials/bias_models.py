@@ -35,6 +35,8 @@ class Bias:
 
     def update_history(self, b, t=None, reset=False, update_last_state=False, **kwargs):
 
+        assert self.hist.ndim == 3
+
         if not reset and not update_last_state:
             if b is None or t is None:
                 raise AssertionError('both t and b must be defined')
@@ -55,8 +57,10 @@ class Bias:
         else:
             if t is None:
                 t = self.get_current_time
-            self.hist = np.array([b])
             self.hist_t = np.array([t])
+            self.hist = np.array([b])
+            if self.hist.ndim < 3:
+                self.hist = np.expand_dims(self.hist, axis=-1)
             if hasattr(self, 'reset_state'):
                 r = np.zeros((self.N_units, self.N_ens))
                 self.reset_state(u=b, r=r)
@@ -82,7 +86,7 @@ class NoBias(Bias):
         return np.zeros([self.N_dim, self.N_dim])
 
     def time_integrate(self, t, **kwargs):
-        return np.zeros([len(t), self.N_dim]), t
+        return np.zeros([len(t), self.N_dim, self.N_ens]), t
 
     def print_bias_parameters(self):
         print('\n ----------------  Bias model parameters ---------------- ',
@@ -162,7 +166,6 @@ class ESN(Bias, EchoStateNetwork):
                     u_close, r_close = self.closedLoop(Nt)
                     u[t1 + self.N_wash + 1:] = u_close[1:]
                     r[t1 + self.N_wash + 1:] = r_close[1:]
-                print('wash ok')
         # Interpolate the final point if the upsample is not multiple of dt
         if interp_flag:
             u[-1] = interpolate(t_b[-Nt:], u[-Nt:], t[-1])
