@@ -137,11 +137,13 @@ def fun_PSD(dt, X):
     # - Outputs:
     #       - f: corresponding frequencies
     #       - PSD: Power Spectral Density (Nq list)
-    if len(X.shape) > 1:
+    if X.ndim == 2:
         if X.shape[0] > X.shape[1]:
             X = X.T
-    else:
+    elif X.ndim ==1:
         X = np.expand_dims(X, axis=0)
+    else:
+        raise AssertionError('X must be 2 dimensional')
 
     len_x = X.shape[-1]
     f = np.linspace(0.0, 1.0 / (2.0 * dt), len_x // 2)

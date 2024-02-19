@@ -33,8 +33,7 @@ def create_ensemble(forecast_params=None, model=None, **filter_params):
 
 
 def create_truth(model, t_start=1., t_stop=1.5, dt_obs=20, std_obs=0.01,
-                 noise_type='gauss, add', post_processed=False, **true_params):
-
+                 noise_type='gauss, add', post_processed=False, **kwargs):
     # =========================== LOAD DATA OR CREATE TRUTH FROM LOM ================================ #
     if type(model) is str:
         y_raw, y_true, t_true, name_truth = create_observations_from_file(model)
@@ -44,54 +43,29 @@ def create_truth(model, t_start=1., t_stop=1.5, dt_obs=20, std_obs=0.01,
     else:
         y_true, t_true, name_truth = create_observations(model)
 
-        if 'std_obs' in true_params.keys():
-            std_obs = true_params['std_obs']
-        if 'noise_type' in true_params.keys():
-            noise_type = true_params['noise_type']
-
         #  ADD BIAS TO THE TRUTH #
-        if 'manual_bias' in true_params.keys():
-            if type(true_params['manual_bias']) is str:
-                name_bias = true_params['manual_bias']
-                if name_bias == 'time':
+        if 'manual_bias' in kwargs.keys():
+            manual_bias = kwargs['manual_bias']
+            if type(manual_bias) is str:
+                if manual_bias == 'time':
                     b_true = .4 * y_true * np.sin((np.expand_dims(t_true, -1) * np.pi * 2) ** 2)
-                elif name_bias == 'periodic':
+                elif manual_bias == 'periodic':
                     b_true = 0.2 * np.max(y_true, axis=0) * np.cos(2 * y_true / np.max(y_true, axis=0))
-                elif name_bias == 'linear':
+                elif manual_bias == 'linear':
                     b_true = .1 * np.max(y_true, axis=0) + .3 * y_true
-                elif name_bias == 'cosine':
+                elif manual_bias == 'cosine':
                     b_true = np.cos(y_true)
                 else:
-                    raise ValueError("Bias {} not recognized choose [linear, periodic, time]".format(name_bias))
+                    raise ValueError("Bias {} not recognized choose [linear, periodic, time]".format(manual_bias))
             else:
                 # The manual bias is a function of state and/or time
-                b_true, name_bias = true_params['manual_bias'](y_true, t_true)
+                b_true, name_bias = manual_bias(y_true, t_true)
         # Add bias to the reference data
         y_raw = y_true + b_true
 
     # =========================== ADD NOISE TO THE TRUTH ================================ #
     if type(model) is dict or post_processed:
-        Nt, q = y_true.shape[:2]
-        noise_type += ', ' + str(std_obs)
-
-        # Create noise to add to the truth
-        if 'gauss' in noise_type.lower():
-            noise = rng.multivariate_normal(np.zeros(q), np.eye(q) * std_obs ** 2, Nt)
-        else:
-            i0 = Nt % 2 != 0  # Add extra step if odd
-            noise = np.zeros([Nt + i0, q])
-            for ii in range(q):
-                noise_white = np.fft.rfft(rng.standard_normal(Nt + i0) * std_obs)
-                # Generate the noise signal
-                S = colour_noise(Nt + i0, noise_colour=noise_type)
-                S = noise_white * S / np.sqrt(np.mean(S ** 2))  # Normalize S
-                noise[:, ii] = np.fft.irfft(S)[i0:]  # transform back into time domain
-
-        if 'add' in noise_type.lower():
-            max_y = np.max(abs(y_true))
-            y_raw = y_true + noise * max_y
-        else:
-            y_raw = y_true * (1 + noise)
+        y_raw = create_noisy_signal(y_raw, noise_level=std_obs, noise_type=noise_type)
     else:
         noise_type = name_bias
         std_obs = None
@@ -107,7 +81,7 @@ def create_truth(model, t_start=1., t_stop=1.5, dt_obs=20, std_obs=0.01,
     truth = dict(y_raw=y_raw, y_true=y_true, t=t_true, b=b_true, dt=dt_t,
                  t_obs=t_true[obs_idx], y_obs=y_raw[obs_idx], dt_obs=dt_obs * dt_t,
                  name=name_truth, name_bias=name_bias, noise_type=noise_type,
-                 model=model, std_obs=std_obs, true_params=true_params)
+                 model=model, std_obs=std_obs, true_params=kwargs)
 
     return truth
 
@@ -184,6 +158,33 @@ def create_observations(model, **true_parameters):
         p_obs = np.squeeze(p_obs, axis=-1)
 
     return p_obs, case.hist_t, name.split('Truth_')[-1]
+
+
+def create_noisy_signal(y_clean, noise_level=0.1, noise_type='gauss, add'):
+    if y_clean.ndim == 2:
+        y_clean = np.expand_dims(y_clean, -1)
+
+    Nt, q, L = y_clean.shape
+    y_noisy = y_clean.copy()
+
+    for ll in range(L):
+        if 'gauss' in noise_type.lower():
+            noise = rng.multivariate_normal(np.zeros(q), np.eye(q) * noise_level ** 2, Nt)
+        else:
+            i0 = Nt % 2 != 0  # Add extra step if odd
+            noise = np.zeros([Nt, q])
+            for ii in range(q):
+                noise_white = np.fft.rfft(rng.standard_normal(Nt + i0) * noise_level)
+                # Generate the noise signal
+                S = colour_noise(Nt + i0, noise_colour=noise_type)
+                S = noise_white * S / np.sqrt(np.mean(S ** 2))  # Normalize S
+                noise[:, ii] = np.fft.irfft(S)[i0:]  # transform back into time domain
+        if 'add' in noise_type.lower():
+            y_noisy[:, :, ll] += noise * np.max(abs(y_clean[:, :, ll]))
+        else:
+            y_noisy[:, :, ll] += noise * y_noisy[:, :, ll]
+    return y_noisy
+
 
 
 def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name: str,
@@ -347,7 +348,6 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble,
 
         # Reset ensemble with post-transient ICs
         train_ens.update_history(psi=psi0.T, reset=True)
-        
 
         # =========================  Forecast fixed-point-free ensemble ============================== #
 
@@ -360,7 +360,6 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble,
 
         # ===============  If data augmentation, correlate observations and estimates ================= #
         y_L_model = train_ens.get_observable_hist()
-
 
         # Equivalent observation signals (raw and post-processed)
         y_raw = y_raw[-Nt:].copy()
@@ -427,4 +426,3 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble,
             save_to_pickle_file(filename, train_data)
 
     return train_data
-

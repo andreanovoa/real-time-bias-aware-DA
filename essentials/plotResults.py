@@ -8,7 +8,7 @@ import numpy as np
 import matplotlib as mpl
 from matplotlib.ticker import FormatStrFormatter
 import matplotlib.backends.backend_pdf as plt_pdf
-from essentials.Util import interpolate
+from essentials.Util import interpolate, fun_PSD
 
 XDG_RUNTIME_DIR = 'tmp/'
 
@@ -215,8 +215,8 @@ def recover_unbiased_solution(t_b, b, t, y, upsample=True):
     y = y.squeeze()
     b = b.squeeze()
     if upsample:
-        y_unbiased = interpolate(t, y, t_b, method='linear') + b
-        y_unbiased = interpolate(t_b, y_unbiased, t, method='linear')
+        y_unbiased = interpolate(t, y, t_b) + b
+        y_unbiased = interpolate(t_b, y_unbiased, t)
     else:
         y_unbiased = y + b
     return y_unbiased
@@ -691,7 +691,7 @@ def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False,
 
     # cut signals to interval of interest -----
     N_CR = int(filter_ens.t_CR // filter_ens.dt)  # Length of interval to compute correlation and RMS
-    i0, i1 = [np.argmin(abs(t - truth['t_obs'][idx])) for idx in [0, -1]]  # start/end of assimilation
+    i0, i1 = [np.argmin(abs(t - ttt)) for ttt in [truth['t_obs'][0], t[-1]]]  # start/end of assimilation
 
     y_unbiased = recover_unbiased_solution(t_b, b, t, y_mean, upsample=hasattr(filter_ens.bias, 'upsample'))
     y_filter, y_mean, y_unbiased, t = (yy[i0 - N_CR:i1 + N_CR] for yy in [y_filter, y_mean, y_unbiased, t])
@@ -718,7 +718,7 @@ def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False,
     max_y = np.max(abs(y_raw))
     y_lims = [-max_y - margin, max_y + margin]
     x_lims = [[t_obs[0] - .25 * filter_ens.t_CR, t_obs[0] + filter_ens.t_CR],
-              [filter_ens.hist_t[-1] - filter_ens.t_CR, filter_ens.hist_t[-1]],
+              [t_obs[-1] - filter_ens.t_CR, filter_ens.hist_t[-1]],
               [t[0], t[-1]]]
 
     if plot_states:
@@ -915,15 +915,15 @@ def plot_Lk_contours(folder, filename='contour'):
 
 # ==================================================================================================================
 
-def plot_truth(truth_dict, plot_time=False, Nq=None, filename=None):
-    from essentials.Util import interpolate, fun_PSD
-    from scipy.signal import find_peaks
+
+def plot_truth(plot_time=False, Nq=None, filename=None, **truth_dict):
     if Nq is None:
-        Nq = truth_dict['y_obs'].shape[-1]
+        Nq = truth_dict['y_obs'].shape[1]
 
     dt, t_obs, y_obs = [truth_dict[key] for key in ['dt', 't_obs', 'y_obs']]
     t0 = int(t_obs[0] // dt)
     y_raw, y_pp, t = [truth_dict[key][t0:] for key in ['y_raw', 'y_true', 't']]
+
     y_obs_pp = interpolate(t, y_pp, t_obs)
     noise = y_raw - y_pp
 
@@ -931,47 +931,53 @@ def plot_truth(truth_dict, plot_time=False, Nq=None, filename=None):
     max_y = np.max(abs(y_raw[:t1 - t0]))
 
     fig1 = plt.figure(figsize=(15, 2 * Nq), layout="constrained")
-    subfigs = fig1.subfigures(nrows=1, ncols=5, width_ratios=[1, 1, 0.5, 1, 1])
+    subfigs = fig1.subfigures(nrows=1, ncols=4, width_ratios=[2, 0.5, 1, 1])
     labels = ['Raw', 'Post-processed', 'Noise']
-    y_labels = ['$\\tilde{y}$', '$y$', '$(\\tilde{y}-y)$']
+    y_labels = ['$\\tilde{y}, y$', '', '$(\\tilde{y}-y)$']
     cols = ['tab:blue', 'mediumseagreen', 'tab:purple']
 
+    ax_01 = subfigs[0].subplots(Nq, 2, sharex='all', sharey='all')
+    ax_4 = subfigs[-1].subplots(Nq, 1, sharex='all', sharey='all')
+
     # Plot zoomed timeseries of raw, post-processed and noise
-    for sf, yy, ttl, lbl, c in zip([0, 1, -1], [y_raw, y_pp, noise], labels, y_labels, cols):
-        ax = subfigs[sf].subplots(Nq, 1, sharex='all')
+    for ax, yy, ttl, lbl, c in zip([ax_01[:,0], ax_01[:,1], ax_4], [y_raw, y_pp, noise], labels, y_labels, cols):
         if Nq == 1:
             ax = [ax]
         ax[0].set(title=ttl)
-        ax[-1].set(xlabel='$t$', xlim=[t_obs[0], t_obs[10]])
+        ax[-1].set(xlabel='$t$', xlim=[t_obs[0], t_obs[-1]])
         for qi in range(Nq):
             ax[qi].plot(t, yy[:, qi], color=c)
-            ax[qi].plot([t_obs[0], t_obs[10]], np.mean(yy[:, qi]) * np.array([1, 1]), color=c)
-            ax[qi].set(ylim=[-max_y, max_y])
-            if ttl != 'Noise':
-                ax[qi].plot(t_obs, y_obs[:, qi], 'ro')
-                if ttl != 'Raw':
-                    ax[qi].plot(t_obs, y_obs_pp[:, qi], 'o', color=cols[1], markerfacecolor='none')
-            ax[qi].set(ylabel=lbl + '$_{}$'.format(qi))
+            ax[qi].axhline(np.mean(yy[:, qi]), color=c)
+            # ax[qi].set(ylim=[-max_y, max_y])
+            # if ttl != 'Noise':
+            #     ax[qi].plot(t_obs, y_obs[:, qi], 'ṛo')
+            #     if ttl != 'Raw':
+            #         ax[qi].plot(t_obs, y_obs_pp[:, qi], 'o', color=cols[1], markerfacecolor='none')
+            if len(lbl) > 1:
+                ax[qi].set(ylabel=lbl + '$_{}$'.format(qi))
 
     # Plot probability density essentials and power spectral densities
-    ax_pdf = subfigs[2].subplots(Nq, 1, sharey='all')
-    ax_PSD = subfigs[3].subplots(Nq, 1, sharex='all', sharey='all')
+    ax_pdf = subfigs[1].subplots(Nq, 1, sharey='all')
+    ax_PSD = subfigs[2].subplots(Nq, 1, sharex='all', sharey='all')
     if Nq == 1:
         ax_pdf = [ax_pdf]
         ax_PSD = [ax_PSD]
     binwidth = 0.01 * max_y
     bins = np.arange(-max_y, max_y + binwidth, binwidth)
     for yy, ttl, lbl, c in zip([y_raw, y_pp], labels[:2], y_labels[:2], cols[:2]):
-        ax_pdf[0].set(title='pdf', ylim=[-max_y, max_y])
+        yy = yy.squeeze()
+        ax_pdf[0].set(title='PDF', ylim=[-max_y, max_y])
+        ax_PSD[0].set(title='PSD', xlim=[100, 2e3])
         ax_pdf[-1].set(xlabel='$p$')
         for qi in range(Nq):
-            peaks = find_peaks(abs(yy[:, qi]))[0]
-            ax_pdf[qi].hist(yy[peaks, qi], bins=bins, density=True, orientation='horizontal',
-                            color=c, label=lbl + '$_{}$'.format(qi))
-        f, PSD = fun_PSD(dt, yy)
+            # peaks = find_peaks(abs(yy[:, qi]))[0]
+            # ax_pdf[qi].hist(yy[peaks, qi], bins=bins, density=True, orientation='horizontal',
+            #                 color=c, label=lbl + '$_{}$'.format(qi))
+            ax_pdf[qi].hist(yy[:, qi], bins=bins, density=True, orientation='horizontal',
+                            color=c, label=lbl + '$_{}$'.format(qi), histtype='step')
+        f, PSD = fun_PSD(dt, yy.squeeze())
         for qi in range(Nq):
             ax_PSD[qi].semilogy(f, PSD[qi], color=c, label=lbl + '$_{}$'.format(qi))
-            ax_PSD[qi].set(ylabel='PSD', xlim=[100, 2e3])
 
     # Plot full timeseries if requested
     figs2 = []
