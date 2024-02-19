@@ -88,8 +88,8 @@ def create_truth(model, t_start=1., t_stop=1.5, dt_obs=20, std_obs=0.01,
                 noise[:, ii] = np.fft.irfft(S)[i0:]  # transform back into time domain
 
         if 'add' in noise_type.lower():
-            mean_y = np.mean(abs(y_true))
-            y_raw = y_true + noise * mean_y
+            max_y = np.max(abs(y_true))
+            y_raw = y_true + noise * max_y
         else:
             y_raw = y_true * (1 + noise)
     else:

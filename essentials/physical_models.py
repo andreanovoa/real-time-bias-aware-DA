@@ -385,7 +385,7 @@ class VdP(Model):
     params_labels = dict(beta='$\\beta$', zeta='$\\zeta$', kappa='$\\kappa$')
     params_lims = dict(zeta=(5, 120), kappa=(0.1, 20), beta=(5, 120))
     params: list = [*params_labels]  # ,'omega', 'gamma']
-
+    state_labels: list = ['$\\eta$', '$\mu$']
     fixed_params = ['law', 'omega']
 
     # __________________________ Init method ___________________________ #
@@ -436,6 +436,7 @@ class Rijke(Model):
     params_labels = dict(beta='$\\beta$', tau='$\\tau$', C1='$C_1$', C2='$C_2$', kappa='$\\kappa$')
     params_lims = dict(beta=(0.01, 5), tau=[1E-6, None], C1=(0., 1.), C2=(0., 1.), kappa=(1E3, 1E8))
     params: list = list([*params_labels])
+
 
     fixed_params = ['cosomjxf', 'Dc', 'gc', 'jpiL', 'L', 'law', 'meanFlow', 'Nc', 'Nm', 'tau_adv', 'sinomjxf']
 
@@ -506,6 +507,13 @@ class Rijke(Model):
         if loc is None:
             loc = np.expand_dims(self.x_mic, axis=1)
         return ["$p'(x = {:.2f})$".format(x) for x in loc[:, 0]]
+
+    @property
+    def state_labels(self):
+        lbls0 = ["$\eta_{}$".format(j) for j in np.arange(self.Nm)]
+        lbls1 = ["$\dot{\\eta}_{}$".format(j) for j in np.arange(self.Nm)]
+        lbls2 = ["$\\nu_{}$".format(j) for j in np.arange(self.Nc)]
+        return lbls0 + lbls1 + lbls2
 
     def get_observables(self, Nt=1, loc=None, **kwargs):
         if loc is None:
@@ -589,6 +597,8 @@ class Lorenz63(Model):
     params_lims = dict(rho=(None, None), sigma=(None, None), beta=(None, None))
     params = list([*params_labels])
 
+    state_labels = ['$x$', '$y$', '$z$']
+
     fixed_params = []
 
     # __________________________ Init method ___________________________ #
@@ -639,6 +649,8 @@ class Annular(Model):
     params_lims = dict(omega=(1000 * 2 * np.pi, 1300 * 2 * np.pi), nu=(1., 60.), c2beta=(1., 60.), kappa=(None, None),
                        epsilon=(None, None), theta_b=(0, 2 * np.pi), theta_e=(0, 2 * np.pi))
     params = list([*params_labels])
+
+    state_labels = ['$\\eta_{a}$', '$\\dot{\\eta}_{a}$', '$\\eta_{b}$', '$\\dot{\\eta}_{b}$']
     fixed_params = []
 
     # __________________________ Init method ___________________________ #

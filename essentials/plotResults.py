@@ -222,6 +222,28 @@ def recover_unbiased_solution(t_b, b, t, y, upsample=True):
     return y_unbiased
 
 
+def plot_ensemble(ensemble, max_modes=None, reference_params=None, nbins=6):
+    if max_modes is None:
+        max_modes = ensemble.Nphi
+    fig, axs = plt.subplots(figsize=(12, 1.5), layout='tight', nrows=1, ncols=max_modes, sharey=True)
+    for ax, ph, lbl in zip(axs.ravel(), ensemble.get_current_state[:-ensemble.Na, ], ensemble.state_labels):
+        ax.hist(ph, bins=nbins, color='tab:green')
+        ax.set(xlabel=lbl)
+    fig, axs = plt.subplots(figsize=(12, 1.5), layout='tight', nrows=1, ncols=ensemble.Na, sharey=True)
+
+    reference_alpha = dict()
+    for param in ensemble.est_a:
+        reference_alpha[param] = 1.
+    if type(reference_params) is dict:
+        for param, val in reference_params.items():
+            reference_alpha[param] = val
+
+    for ax, a, param in zip(axs.ravel(), ensemble.get_current_state[-ensemble.Na:, ], ensemble.est_a):
+        xlims = np.array(ensemble.std_a[param]) / reference_alpha[param]
+        ax.hist(a / reference_alpha[param], bins=np.linspace(*xlims, nbins))
+        ax.set(xlabel=ensemble.params_labels[param])
+
+
 def post_process_single(filter_ens, truth, filename=None, mic=0, reference_y=1.,
                         reference_p=None, reference_t=1., plot_params=False):
     t_obs, obs = truth['t_obs'], truth['y_obs']
@@ -693,10 +715,10 @@ def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False,
                                                                   [y_raw, y_unbiased, y_filter,
                                                                    y_mean, obs, y_truth_no_noise]]
     margin = 0.5
-    max_y = np.max(abs(y_raw[:N_CR]))
+    max_y = np.max(abs(y_raw))
     y_lims = [-max_y - margin, max_y + margin]
-    x_lims = [[t_obs[0] - .25 * filter_ens.t_CR, t_obs[0] + .25 * filter_ens.t_CR],
-              [t_obs[-1] - .25 * filter_ens.t_CR, t_obs[-1] + .25 * filter_ens.t_CR],
+    x_lims = [[t_obs[0] - .25 * filter_ens.t_CR, t_obs[0] + filter_ens.t_CR],
+              [filter_ens.hist_t[-1] - filter_ens.t_CR, filter_ens.hist_t[-1]],
               [t[0], t[-1]]]
 
     if plot_states:

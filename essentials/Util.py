@@ -91,7 +91,7 @@ def RK4(t, q0, func, *kwargs):
     return np.array(qhist)
 
 
-def interpolate(t_y, y, t_eval, method='cubic', ax=0, bound=False, fill_value="extrapolate"):
+def interpolate(t_y, y, t_eval):
     interpolator = PchipInterpolator(t_y, y)
     return interpolator(t_eval)
 
