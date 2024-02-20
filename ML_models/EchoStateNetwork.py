@@ -116,7 +116,10 @@ class EchoStateNetwork:
 
     @property
     def N_dim_in(self):
-        return len(self.observed_idx)
+        if self.bayesian_update:
+            return self.N_dim
+        else:
+            return len(self.observed_idx)
 
     @property
     def WCout(self):
@@ -428,7 +431,7 @@ class EchoStateNetwork:
 
         # initialise state with a random sample from test data
         u_init, r_init = np.empty((self.N_dim, N_ens)), np.empty((self.N_units, N_ens))
-        # Random time windows and fimensions
+        # Random time windows and fimension
         if data.shape[0] == 1:
             dim_ids = [0] * N_ens
         else:
@@ -525,7 +528,7 @@ class EchoStateNetwork:
             U = Y.copy()
 
         assert Y.shape[-1] >= U.shape[-1]
-        assert U.shape[-1] == len(self.observed_idx)
+        assert U.shape[-1] == self.N_dim_in
 
         #   SEPARATE INTO WASH/TRAIN/VAL/TEST SETS _______________
         N_tv = self.N_train + self.N_val
@@ -700,6 +703,7 @@ class EchoStateNetwork:
         if total_tests < 1:
             print('Test not performed. Not enough train_data')
         else:
+            flag = True
             medians_alpha, max_alpha = [], -np.inf
             for U_test_l, Y_test_l in zip(U_test, Y_test):
                 subplots = min(10, total_tests)  # number of plotted intervals
@@ -748,6 +752,10 @@ class EchoStateNetwork:
                 max_alpha = max(max_alpha, max(errors))
                 medians_alpha.append(np.median(errors))
                 # Save to pdf
-                add_pdf_page(pdf_file, fig)
+                if flag:
+                    add_pdf_page(pdf_file, fig, close_figs=False)
+                    flag = False
+                else:
+                    add_pdf_page(pdf_file, fig, close_figs=True)
 
             print('Median and max error in', total_tests * U_test.shape[0], 'tests:', np.median(medians_alpha), max_alpha)

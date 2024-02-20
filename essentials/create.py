@@ -201,7 +201,7 @@ def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name: str,
     y_pp = truth['y_true'].copy()
     bias_params['noise_type'] = truth['noise_type']
     if ensemble.bias_bayesian_update:
-        bias_params['N_ens'] = ensemble.m
+        bias_params['m'] = ensemble.m
 
     run_bias = True
     if bias_params['bias_type'].name == 'None':
@@ -236,9 +236,6 @@ def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name: str,
                                        folder=bias_model_folder,
                                        plot_training=True)
 
-        if ensemble.bias_bayesian_update:
-            ensemble.bias.update_history(b=np.zeros((ensemble.bias.N_dim, ensemble.m)), reset=True)
-
         # Save bias object
         save_to_pickle_file(bias_model_folder + bias_name, ensemble.bias)
 
@@ -255,16 +252,21 @@ def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name: str,
 
     # Ensure the truth has washout if needed
     if hasattr(ensemble.bias, 'N_wash') and 'wash_t' not in truth.keys():
+        wash_t, wash_obs = create_washout(ensemble.bias.t_init, ensemble.bias.upsample,
+                                          ensemble.bias.N_wash, **truth)
+        truth['wash_t'], truth['wash_obs'] = wash_t, wash_obs
 
-        i1 = np.argmin(abs(ensemble.bias.t_init - truth['t']))
-        i0 = i1 - ensemble.bias.N_wash * ensemble.bias.upsample
 
-        if i0 < 0:
-            raise ValueError('increase bias.t_init > t_wash + dt_obs')
+def create_washout(bias_case, **truth):
+    i1 = np.argmin(abs(bias_case.t_init - truth['t']))
+    i0 = i1 - bias_case.N_wash * bias_case.upsample
 
-        # Add washout to the truth
-        truth['wash_obs'] = truth['y_raw'][i0:i1 + 1:ensemble.bias.upsample]
-        truth['wash_t'] = truth['t'][i0:i1 + 1:ensemble.bias.upsample]
+    if i0 < 0:
+        raise ValueError('increase bias.t_init > t_wash + dt_obs')
+
+    wash_obs = truth['y_raw'][i0:i1 + 1:bias_case.upsample]
+    wash_t = truth['t'][i0:i1 + 1:bias_case.upsample]
+    return wash_t, wash_obs
 
 
 def create_bias_training_dataset(y_raw, y_pp, ensemble,

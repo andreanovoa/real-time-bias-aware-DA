@@ -4,26 +4,29 @@ import numpy as np
 
 
 class Bias:
-    attrs = dict(augment_data=False,
-                 bayesian_update=False,
-                 upsample=1)
 
     def __init__(self, b, t, dt, **kwargs):
         self.dt = dt
         self.precision_t = int(-np.log10(dt)) + 2
 
+        self.augment_data = False
+        self.bayesian_update = False
+        self.biased_observations = False
+        self.upsample = 1
+        self.m = 1
+        # ========================= Re-DEFINE ESSENTIALS ========================== ##
+        for key, val in kwargs.items():
+            if hasattr(self, key):
+                setattr(self, key, kwargs[key])
+
         # ========================== CREATE HISTORY ========================== ##
         if b.ndim == 1:
             b = np.expand_dims(b, axis=-1)
+        if self.biased_observations:
+            b = np.concatenate([b, b], axis=0)
+
         self.hist = np.array([b])
         self.hist_t = np.array([t])
-
-        # ========================= DEFINE ESSENTIALS ========================== ##
-        for key, val in Bias.attrs.items():
-            if key in kwargs.keys():
-                setattr(self, key, kwargs[key])
-            else:
-                setattr(self, key, val)
 
     @property
     def N_ens(self):
@@ -33,7 +36,16 @@ class Bias:
     def get_current_time(self):
         return self.hist_t[-1]
 
-    def update_history(self, b, t=None, reset=False, update_last_state=False, **kwargs):
+    @property
+    def get_current_bias(self):
+        current_state = self.hist[-1]
+        return self.get_bias(state=current_state)
+
+    def get_bias(self, state):
+        return state
+
+
+    def update_history(self, b, t=None, reset=False, update_last_state=False):
 
         assert self.hist.ndim == 3
 
@@ -62,7 +74,7 @@ class Bias:
             if self.hist.ndim < 3:
                 self.hist = np.expand_dims(self.hist, axis=-1)
             if hasattr(self, 'reset_state'):
-                r = np.zeros((self.N_units, self.N_ens))
+                r = np.zeros((self.N_units, self.m))
                 self.reset_state(u=b, r=r)
 
 
@@ -74,13 +86,10 @@ class NoBias(Bias):
 
     def __init__(self, y, t, dt, **kwargs):
         super().__init__(b=np.zeros(y.shape), t=t, dt=dt, **kwargs)
-        self.N_dim = len(self.get_bias())
+        self.N_dim = self.hist.shape[1]
 
-    def get_bias(self, state=None, **kwargs):
-        if state is None:
-            return self.hist[-1]
-        else:
-            return state
+    def get_ML_state(self):
+        return None
 
     def state_derivative(self):
         return np.zeros([self.N_dim, self.N_dim])
@@ -99,11 +108,11 @@ class ESN(Bias, EchoStateNetwork):
     name = 'ESN'
 
     def __init__(self, y, t, dt, **kwargs):
-        # --------------------  Initialise parent EchoStateNetwork  ------------------- #
-        EchoStateNetwork.__init__(self, y=y, dt=dt, **kwargs)
-
         # --------------------------  Initialise parent Bias  ------------------------- #
         Bias.__init__(self, b=y, t=t, dt=dt, **kwargs)
+
+        # --------------------  Initialise parent EchoStateNetwork  ------------------- #
+        EchoStateNetwork.__init__(self, y=self.hist[0], dt=dt, **kwargs)
 
         # Flags
         self.initialised = False
@@ -195,33 +204,33 @@ class ESN(Bias, EchoStateNetwork):
         dict_items = train_data.copy().items()
         for key, val in dict_items:
             if hasattr(self, key):
+                print(key, getattr(self, key), '->', val)
                 setattr(self, key, val)
                 del train_data[key]
 
         self.train(data, **train_data)
         self.trained = True
+        if self.bayesian_update:
+            self.update_history(b=np.zeros((self.N_dim, self.m)), reset=True)
 
-    def get_bias(self, state=None, get_full_state=False, concat_reservoir_state=False):
-        if get_full_state:
-            u, r = self.get_reservoir_state()
-            if concat_reservoir_state:
-                return np.concatenate([u, r], axis=0)
-            else:
-                return u
+
+    def get_ML_state(self, concat_reservoir_state=False):
+        u, r = self.get_reservoir_state()
+        if concat_reservoir_state:
+            return np.concatenate([u, r], axis=0)
         else:
-            if len(self.observed_idx) != self.N_dim:
-                bias_idx = [a for a in np.arange(self.N_dim) if a not in self.observed_idx]
-            else:
-                bias_idx = np.arange(self.N_dim)
+            return u
 
-            if state is None:
-                state = self.get_reservoir_state()[0]
-                return state[bias_idx]
-            else:  # the input is a timeseries
-                if state.ndim > 1:
-                    return state[:, bias_idx]
-                else:
-                    return state[bias_idx]
+    def get_bias(self, state):
+        if self.biased_observations:
+            bias_idx = [a for a in np.arange(self.N_dim) if a not in self.observed_idx]
+        else:
+            bias_idx = np.arange(self.N_dim)
+
+        if state.ndim > 1:
+            return state[:, bias_idx]
+        else:
+            return state[bias_idx]
 # =================================================================================================================== #
 
 

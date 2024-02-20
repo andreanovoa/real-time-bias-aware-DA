@@ -224,14 +224,12 @@ class Model:
         if self.bias is None:
             self.init_bias()
 
-    def init_bias(self, **Bdict):
+    def init_bias(self, bias_model=essentials.bias_models.NoBias, **Bdict):
 
         if 'bias_type' in Bdict.keys():
-            biasType = Bdict['bias_type']
+            raise 'redefine to bias_model'
         elif 'model' in Bdict.keys():
-            biasType = Bdict['model']
-        else:
-            biasType = essentials.bias_models.NoBias
+            raise 'redefine to bias_model'
 
         # Initialise bias. Note: self.bias is now an instance of the bias class
         if 'y0' in Bdict.keys():
@@ -239,7 +237,7 @@ class Model:
         else:
             y0 = np.mean(self.get_observables(), axis=-1, keepdims=True)
 
-        self.bias = biasType(y=y0, t=self.get_current_time, dt=self.dt, **Bdict)
+        self.bias = bias_model(y=y0, t=self.get_current_time, dt=self.dt, **Bdict)
 
     def update_history(self, psi=None, t=None, reset=False, update_last_state=False):
         if not reset and not update_last_state:
