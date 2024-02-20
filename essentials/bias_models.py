@@ -126,9 +126,24 @@ class ESN(Bias, EchoStateNetwork):
     def reset_bias(self, u, r=None):
         self.reset_state(u=u, r=r)
 
+    # def state_derivative(self):
+    #     Js = []
+    #     U, R = self.get_reservoir_state()
+    #     for u, r in zip(U.T, R.T):
+    #         Js.append(self.Jacobian(open_loop_J=True, state=(u, r))) # Compute ESN Jacobian
+    #     J = np.array(Js)
+    #     db_dinput = J[self.observed_idx, self.observed_idx]
+    #
+    #     print(db_dinput.shape, J.shape, 'JAC')
+    #     return -db_dinput
+
+
     def state_derivative(self):
-        J = self.Jacobian(open_loop_J=True)  # Compute ESN Jacobian
-        db_dinput = J[self.observed_idx, :]
+        print('VAR U = ', np.mean(np.var(self.get_reservoir_state()[0])))
+        u, r = [np.mean(xx, axis=-1, keepdims=True) for xx in self.get_reservoir_state()]
+        J = self.Jacobian(open_loop_J=True, state=(u, r))  # Compute ESN Jacobian
+
+        db_dinput = J[np.array(self.observed_idx), np.array([self.observed_idx]).T]
         return -db_dinput
 
     def time_integrate(self, t, y=None, wash_t=None, wash_obs=None):
@@ -163,6 +178,7 @@ class ESN(Bias, EchoStateNetwork):
                     washout = wash_obs - np.mean(wash_model, axis=-1, keepdims=True)
                 else:
                     washout = wash_obs - wash_model
+
 
                 u_open, r_open = self.openLoop(washout)
                 u[t1:t1+self.N_wash+1] = u_open
@@ -212,7 +228,9 @@ class ESN(Bias, EchoStateNetwork):
         self.trained = True
         if self.bayesian_update:
             self.update_history(b=np.zeros((self.N_dim, self.m)), reset=True)
+            self.initialise_state(data=data,  N_ens=self.m)
 
+            print('VAAR', np.var(self.u))
 
     def get_ML_state(self, concat_reservoir_state=False):
         u, r = self.get_reservoir_state()
@@ -227,10 +245,12 @@ class ESN(Bias, EchoStateNetwork):
         else:
             bias_idx = np.arange(self.N_dim)
 
-        if state.ndim > 1:
+        if state.shape[0] == self.N_dim:
+            return state[bias_idx]
+        elif state.shape[1] == self.N_dim:
             return state[:, bias_idx]
         else:
-            return state[bias_idx]
+            raise AssertionError('state shape = {}'.format(state.shape))
 # =================================================================================================================== #
 
 

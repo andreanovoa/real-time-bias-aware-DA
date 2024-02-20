@@ -191,7 +191,7 @@ class EchoStateNetwork:
                 Cdd = (0.05 * np.max(abs(observed_data))) ** 2 * np.eye(len(self.observed_idx))
 
         # Apply Kalman filter
-        x_hat = filter_(Af=x, d=d, Cdd=Cdd, M=M)[0]
+        x_hat = filter_(Af=x, d=d, Cdd=Cdd, M=M)
         x_hat_mean = np.mean(x_hat, -1, keepdims=True)
         x_hat = x_hat_mean + (x_hat - x_hat_mean) * inflation
 
@@ -427,19 +427,20 @@ class EchoStateNetwork:
         # Flag case as trained
         self.trained = True
 
-    def initialize_state(self, data,  N_ens=1):
-
+    def initialise_state(self, data,  N_ens=1):
         # initialise state with a random sample from test data
         u_init, r_init = np.empty((self.N_dim, N_ens)), np.empty((self.N_units, N_ens))
-        # Random time windows and fimension
+        # Random time windows and dimension
         if data.shape[0] == 1:
             dim_ids = [0] * N_ens
         else:
             dim_ids = random.sample(np.arange(data.shape[0]).tolist(), k=N_ens)
+
+
         t_ids = random.sample(np.arange(data.shape[1]-self.N_wash).tolist(), k=N_ens)
-        for ii in range(N_ens):
-            self.reset_state(u=self.u * 0., r=self.r * 0.)
-            ti, dim_i = t_ids[ii], dim_ids[ii]
+        # Open loop for each ensemble memnber
+        for ii, ti, dim_i in zip(range(N_ens), t_ids, dim_ids):
+            self.reset_state(u=np.zeros((self.N_dim, 1)), r=np.zeros((self.N_units, 1)))
             u_open, r_open = self.openLoop(data[dim_i, ti: ti + self.N_wash], force_reconstruct=False)
             u_init[:, ii], r_init[:, ii] = u_open[-1].squeeze(), r_open[-1].squeeze()
         # Set physical and reservoir states as ensembles
