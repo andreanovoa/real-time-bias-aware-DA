@@ -257,15 +257,15 @@ def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name: str,
         truth['wash_t'], truth['wash_obs'] = wash_t, wash_obs
 
 
-def create_washout(bias_case, **truth):
-    i1 = np.argmin(abs(bias_case.t_init - truth['t']))
+def create_washout(bias_case, t=False, y_raw=False, **truth):
+    i1 = np.argmin(abs(bias_case.t_init - t))
     i0 = i1 - bias_case.N_wash * bias_case.upsample
 
     if i0 < 0:
         raise ValueError('increase bias.t_init > t_wash + dt_obs')
 
-    wash_obs = truth['y_raw'][i0:i1 + 1:bias_case.upsample]
-    wash_t = truth['t'][i0:i1 + 1:bias_case.upsample]
+    wash_obs = y_raw[i0:i1 + 1:bias_case.upsample]
+    wash_t = t[i0:i1 + 1:bias_case.upsample]
     return wash_t, wash_obs
 
 

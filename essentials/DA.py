@@ -54,12 +54,15 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
 
         # Update the bias state
         if not ensemble.bias.bayesian_update or ensemble.bias.name == 'NoBias':
-            b = np.expand_dims(y_obs[ti] - np.mean(Ya, -1), -1)
-            ensemble.bias.update_history(b=b, update_last_state=True)
+            b = np.expand_dims(y_obs[ti], -1) - np.mean(Ya, -1, keepdims=True)
+            ensemble.bias.update_history(b=b, u=b, update_last_state=True)
+
+
+
         else:
             i_data = np.expand_dims(y_obs[ti], axis=-1) - Ya  # Analysis innovations
-            u_hat, r_hat = ensemble.bias.reconstruct_state(i_data, filter_=EnKF, Cdd=Cdd, inflation=1.0,
-                                                           update_reservoir=ensemble.bias.update_reservoir)
+            u_hat, r_hat = ensemble.bias.reconstruct_state(i_data, filter_=EnKF, Cdd=Cdd, inflation=1.01,
+                                                           update_reservoir=False)
             # Update states
             updated_state = dict(u=u_hat, b=u_hat)
             if ensemble.bias.update_reservoir:

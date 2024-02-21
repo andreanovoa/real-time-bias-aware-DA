@@ -1,3 +1,5 @@
+import matplotlib.pyplot as plt
+
 from ML_models.EchoStateNetwork import EchoStateNetwork
 from essentials.Util import interpolate
 import numpy as np
@@ -138,10 +140,8 @@ class ESN(Bias, EchoStateNetwork):
 
 
     def state_derivative(self):
-        print('VAR U = ', np.mean(np.var(self.get_reservoir_state()[0])))
         u, r = [np.mean(xx, axis=-1, keepdims=True) for xx in self.get_reservoir_state()]
         J = self.Jacobian(open_loop_J=True, state=(u, r))  # Compute ESN Jacobian
-
         db_dinput = J[np.array(self.observed_idx), np.array([self.observed_idx]).T]
         return -db_dinput
 
@@ -178,11 +178,16 @@ class ESN(Bias, EchoStateNetwork):
                 else:
                     washout = wash_obs - wash_model
 
-
                 u_open, r_open = self.openLoop(washout)
                 u[t1:t1+self.N_wash+1] = u_open
                 r[t1:t1+self.N_wash+1] = r_open
                 Nt -= self.N_wash
+
+                # plt.figure()
+                # plt.plot(wash_t, washout[:, 0])
+                # plt.plot(wash_t, u_open[:, 0])
+                # plt.show()
+
                 # Run the rest of the time window in closed-loop
                 if Nt > 0:
                     # Store open-loop forecast
@@ -219,7 +224,6 @@ class ESN(Bias, EchoStateNetwork):
         dict_items = train_data.copy().items()
         for key, val in dict_items:
             if hasattr(self, key):
-                print(key, getattr(self, key), '->', val)
                 setattr(self, key, val)
                 del train_data[key]
 
@@ -228,8 +232,6 @@ class ESN(Bias, EchoStateNetwork):
         if self.bayesian_update:
             self.update_history(b=np.zeros((self.N_dim, self.m)), reset=True)
             self.initialise_state(data=data,  N_ens=self.m)
-
-            print('VAAR', np.var(self.u))
 
     def get_ML_state(self, concat_reservoir_state=False):
         u, r = self.get_reservoir_state()

@@ -212,8 +212,10 @@ def post_process_WhyAugment(results_dir, k_plot=None, J_plot=None, figs_dir=None
 
 # ==================================================================================================================
 def recover_unbiased_solution(t_b, b, t, y, upsample=True):
-    y = y.squeeze()
-    b = b.squeeze()
+    if b.ndim < y.ndim:
+        b = np.expand_dims(b, axis=-1)
+    elif b.shape[-1] > 1:
+        b = np.mean(b, axis=-1, keepdims=True)
     if upsample:
         y_unbiased = interpolate(t, y, t_b) + b
         y_unbiased = interpolate(t_b, y_unbiased, t)
@@ -252,7 +254,8 @@ def post_process_single(filter_ens, truth, filename=None, mic=0, reference_y=1.,
     num_SE_only = filter_ens.num_SE_only
 
     y_filter, t = filter_ens.get_observable_hist(), filter_ens.hist_t
-    b, t_b = filter_ens.bias.hist, filter_ens.bias.hist_t
+    b = filter_ens.bias.get_bias(state=filter_ens.bias.hist)
+    t_b = filter_ens.bias.hist_t
 
     y_filter, b, obs = [yy[:, mic] for yy in [y_filter, b, obs]]
     y_mean = np.mean(y_filter, -1)
@@ -585,6 +588,143 @@ def post_process_pdf(filter_ens, truth, params, filename=None, reference_p=None,
         plt.close()
 
 
+def plot_states_PDF(ensembles, truth):
+
+    if type(ensembles) is not list:
+        ensembles = [ensembles]
+
+    Nq = truth['y_true'].shape[1]
+    fig, axs_all = plt.subplots(nrows=2*len(ensembles), ncols=Nq, sharex=True, sharey='row',
+                                figsize=(15, 4*len(ensembles)), layout='tight')
+
+    i0 = np.argmin(abs(truth['t'] - truth['t_obs'][0] + ensembles[0].t_CR))
+    i1 = np.argmin(abs(truth['t'] - ensembles[0].hist_t[-1]))
+
+    t_ref, y_ref_true, y_ref_raw = [truth[key][i0:i1] for key in ['t', 'y_true', 'y_raw']]
+    j0 = np.argmin(abs(t_ref - truth['t_obs'][-1]))
+    j1 = np.argmin(abs(t_ref - ensembles[0].hist_t[-1]))
+
+    args_1 = dict(orientation='vertical', histtype='step', bins=20, density=False)
+    args_2 = dict(orientation='vertical', histtype='stepfilled', bins=30, density=False, alpha=0.2)
+
+    ii = -2
+    for ens in ensembles:
+        ii += 2
+
+        y_est = ens.get_observable_hist()
+        y_est = interpolate(ens.hist_t, y_est, t_ref)
+
+        for qi, ax in enumerate(axs_all[ii]):
+            for mi in range(ens.m):
+                ax.hist(y_est[j0:j1, qi, mi], color='c', **args_2)
+            ax.hist(y_ref_true[j0:j1, qi], color='k', alpha=0.7, lw=2, **args_1)
+            ax.hist(y_ref_raw[j0:j1, qi], color='tab:red', alpha=0.7, lw=2, **args_1)
+            ax.axvline(np.mean(y_ref_true[j0:j1, qi]), color='k', ls='--', lw=1)
+            ax.axvline(np.mean(y_ref_raw[j0:j1, qi]), color='tab:red', ls='--', lw=1)
+            ax.axvline(np.mean(y_est[j0:j1, qi]), color='c', ls='--', lw=1)
+        axs_all[ii, 0].set(ylabel=ens.filter)
+
+        # Plot bias-corrected solutions
+        b_est = ens.bias.get_bias(state=ens.bias.hist)
+        y_est = interpolate(t_ref, y_est, ens.bias.hist_t) + b_est
+        y_est = interpolate(ens.bias.hist_t, y_est, t_ref)
+
+        for qi, ax in enumerate(axs_all[ii+1]):
+            for mi in range(ens.m):
+                ax.hist(y_est[j0:j1, qi, mi], color='tab:green', **args_2)
+            ax.hist(y_ref_true[j0:j1, qi], color='k', alpha=0.7, lw=2, **args_1)
+            ax.hist(y_ref_raw[j0:j1, qi], color='tab:red', alpha=0.7, lw=2, **args_1)
+            ax.axvline(np.mean(y_ref_true[j0:j1, qi]), color='k', ls='--', lw=1)
+            ax.axvline(np.mean(y_ref_raw[j0:j1, qi]), color='tab:red', ls='--', lw=1)
+            ax.axvline(np.mean(y_est[j0:j1, qi]), color='tab:green', ls='--', lw=1)
+        axs_all[ii+1, 0].set(ylabel='{}+\n{}'.format(ens.filter, ens.bias.name))
+
+    for ax, lbl in zip(axs_all[-1, :], ens.obs_labels):
+        ax.set(xlabel=lbl)
+
+
+def plot_RMS_pdf(ensembles, truth):
+
+    if type(ensembles) is not list:
+        ensembles = [ensembles]
+
+    fig, axs_all = plt.subplots(nrows=2*len(ensembles), ncols=4, sharex=True, sharey='row',
+                                figsize=(15, 4*len(ensembles)), layout='tight')
+
+    i0 = np.argmin(abs(truth['t'] - truth['t_obs'][0] + ensembles[0].t_CR))
+    i1 = np.argmin(abs(truth['t'] - ensembles[0].hist_t[-1]))
+
+    t_ref, y_ref = [truth[key][i0:i1] for key in ['t', 'y_raw']]
+    y_ref = np.expand_dims(y_ref, axis=-1)
+
+    args = dict(bins=40, range=(0, 2), density=True, orientation='vertical')
+    ii = -2
+    for ens in ensembles:
+        ii += 2
+
+        y_est = ens.get_observable_hist()
+        y_est = interpolate(ens.hist_t, y_est, t_ref)
+
+        # root-mean square error
+        R = np.sqrt(np.sum((y_ref - y_est) ** 2, axis=1) / np.sum((y_ref) ** 2, axis=1))
+
+        axs = axs_all[ii]
+
+        axs[0].set(ylabel=ens.filter)
+
+        j0 = np.argmin(abs(t_ref - truth['t_obs'][0] + ens.t_CR))
+        j1s = [np.argmin(abs(t_ref - truth['t_obs'][idx])) for idx in [0, len(truth['t_obs']) // 2, -1]]
+        j1s.append(i1)
+        kk = 0
+        legs = ['pre-DA', 'DA', 'DA2', 'post_DA']
+        for j1, leg, ax in zip(j1s, legs, axs):
+            segment = R[j0:j1]
+            ax.hist(np.mean(segment, axis=-1), histtype='step', color='c', lw=2, **args)
+            ax.hist(segment, histtype='stepfilled', alpha=0.1, stacked=False, color=['c'] * 10, **args)
+            mean = np.mean(segment)
+            if mean > 2:
+                ax.axvline(2, c='tab:red', lw=1, ls='--')
+            else:
+                ax.axvline(mean, c='k', lw=1, ls='--')
+            j0 = j1
+            kk += 1
+            ax.legend([leg + '_mean', leg + '_j'])
+
+
+
+        axs = axs_all[ii+1]
+        b_est = ens.bias.get_bias(ens.bias.hist)
+
+        y_est = interpolate(t_ref, y_est, ens.bias.hist_t) + b_est
+
+        y_est = interpolate(ens.bias.hist_t, y_est, t_ref)
+
+        # root-mean square error
+        R = np.sqrt(np.sum((y_ref - y_est) ** 2, axis=1) / np.sum((y_ref) ** 2, axis=1))
+
+        axs[0].set(ylabel=ens.filter)
+
+        j0 = np.argmin(abs(t_ref - truth['t_obs'][0] + ens.t_CR))
+        j1s = [np.argmin(abs(t_ref - truth['t_obs'][idx])) for idx in [0, len(truth['t_obs']) // 2, -1]]
+        j1s.append(i1)
+        kk = 0
+        legs = ['pre-DA', 'DA', 'DA2', 'post_DA']
+        for j1, leg, ax in zip(j1s, legs, axs):
+            segment = R[j0:j1]
+            ax.hist(np.mean(segment, axis=-1), histtype='step', color='tab:green', lw=2, **args)
+            ax.hist(segment, histtype='stepfilled', alpha=0.1, stacked=False, color=['tab:green'] * 10, **args)
+            mean = np.mean(segment)
+            if mean > 2:
+                ax.axvline(2, c='tab:red', lw=1, ls='--')
+            else:
+                ax.axvline(mean, c='k', lw=1, ls='--')
+            j0 = j1
+            kk += 1
+            ax.legend([leg + '_mean', leg + '_j'])
+            ax.set(xlabel='RMS error')
+        axs[0].set(ylabel='{}+\n{}'.format(ens.filter, ens.bias.name))
+
+
 def plot_violins(ax, values, location, color='b', label=None, alpha=0.5, **kwargs):
     violins = ax.violinplot(values, positions=location, **kwargs)
 
@@ -686,15 +826,20 @@ def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False,
     t_obs, obs = truth['t_obs'], truth['y_obs']
 
     y_filter, t = filter_ens.get_observable_hist(), filter_ens.hist_t
-    b, t_b = filter_ens.bias.hist, filter_ens.bias.hist_t
-    y_mean = np.mean(y_filter, -1)
+
+
+    y_mean = np.mean(y_filter, -1, keepdims=True)
 
     # cut signals to interval of interest -----
     N_CR = int(filter_ens.t_CR // filter_ens.dt)  # Length of interval to compute correlation and RMS
     i0, i1 = [np.argmin(abs(t - ttt)) for ttt in [truth['t_obs'][0], t[-1]]]  # start/end of assimilation
 
+    y_filter, y_mean, t = (yy[i0 - N_CR:i1 + N_CR] for yy in [y_filter, y_mean, t])
+
+    b = filter_ens.bias.get_bias(state=filter_ens.bias.hist)
+    t_b = filter_ens.bias.hist_t
+
     y_unbiased = recover_unbiased_solution(t_b, b, t, y_mean, upsample=hasattr(filter_ens.bias, 'upsample'))
-    y_filter, y_mean, y_unbiased, t = (yy[i0 - N_CR:i1 + N_CR] for yy in [y_filter, y_mean, y_unbiased, t])
 
     y_raw = interpolate(truth['t'], truth['y_raw'], t)
     y_truth_no_noise = interpolate(truth['t'], truth['y_true'], t)
@@ -762,7 +907,7 @@ def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False,
         ax_zoom = subfigs[0].subplots(Nq, 2, sharex='col', sharey='row')
         ax_all = subfigs[1].subplots(Nq, 1, sharex='col')
 
-        b_filter = b  #interpolate(t_b, b, t)
+        b_filter = b
         b_raw = interpolate(t, y_raw - y_mean, t_b)
         b_truth_no_noise = interpolate(t, y_truth_no_noise - y_mean, t_b)
         b_raw, b_filter, b_truth_no_noise = [yy / reference_y for yy in [b_raw, b_filter, b_truth_no_noise]]
@@ -797,10 +942,10 @@ def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False,
 def plot_DA_window(t_obs, ax=None, twin=False):
     if ax is None:
         ax = plt.gca()
-    ax.plot((t_obs[-1], t_obs[-1]), (-1E6, 1E6), '--', color='k', linewidth=.8)  # DA window
-    ax.plot((t_obs[0], t_obs[0]), (-1E6, 1E6), '--', color='k', linewidth=.8)  # DA window
+    ax.axvline(x=t_obs[-1], ls='--', color='k', linewidth=.8)
+    ax.axvline(x=t_obs[0], ls='--', color='k', linewidth=.8)
     if twin:
-        ax.plot((t_obs[0], t_obs[-1]), (1, 1), '-', color='k', linewidth=.6)  # DA window
+        ax.axhline(y=1, ls='--', color='k', linewidth=.6)
 
 
 def plot_Lk_contours(folder, filename='contour'):
