@@ -45,7 +45,7 @@ class Bias:
         return state
 
 
-    def update_history(self, b, t=None, reset=False, update_last_state=False):
+    def update_history(self, b, t=None, reset=False, update_last_state=False, **kwargs):
 
         assert self.hist.ndim == 3
 
@@ -58,10 +58,7 @@ class Bias:
             if b is not None:
                 self.hist[-1] = b
                 if hasattr(self, 'reset_state'):
-                    r = None
-                    if b.shape[-1] != self.r.shape[-1]:
-                        r = np.zeros(self.r.shape[0], b.shape[-1])
-                    self.reset_state(u=b, r=r)
+                    self.reset_state(**kwargs)
             else:
                 raise ValueError('psi must be provided')
             if t is not None:
@@ -108,6 +105,8 @@ class ESN(Bias, EchoStateNetwork):
     name = 'ESN'
 
     def __init__(self, y, t, dt, **kwargs):
+        self.update_reservoir = False
+
         # --------------------------  Initialise parent Bias  ------------------------- #
         Bias.__init__(self, b=y, t=t, dt=dt, **kwargs)
 

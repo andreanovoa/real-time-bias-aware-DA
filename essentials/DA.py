@@ -53,28 +53,18 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
         Ya = ensemble.get_observables()
 
         # Update the bias state
-        if not ensemble.bias_bayesian_update or ensemble.bias.name == 'NoBias':
+        if not ensemble.bias.bayesian_update or ensemble.bias.name == 'NoBias':
             b = np.expand_dims(y_obs[ti] - np.mean(Ya, -1), -1)
             ensemble.bias.update_history(b=b, update_last_state=True)
         else:
-            # Analysis innovations
-            I_a = y_obs[ti] - Ya
-
+            i_data = np.expand_dims(y_obs[ti], axis=-1) - Ya  # Analysis innovations
+            u_hat, r_hat = ensemble.bias.reconstruct_state(i_data, filter_=EnKF, Cdd=Cdd, inflation=1.0,
+                                                           update_reservoir=ensemble.bias.update_reservoir)
+            # Update states
+            updated_state = dict(u=u_hat, b=u_hat)
             if ensemble.bias.update_reservoir:
-                Bf = ensemble.bias.get_bias(full_state=True, concat_reservoir_state=True)
-            else:
-                Bf = ensemble.bias.get_bias(full_state=True)
-
-            Cii = Cdd
-            Ba = EnKF(Bf, I_a, np.eye(ensemble.Nq), Cii)[0]
-            # Update ESN states
-            N_dim = ensemble.bias.N_dim
-            ensemble.bias.update_history(b=Ba[:N_dim], update_last_state=True)
-            # ESN specific
-            if ensemble.bias.update_reservoir:
-                ensemble.bias.reset_state(u=Ba[:N_dim], r=Ba[N_dim:])
-            else:
-                ensemble.bias.reset_state(u=Ba[:N_dim])
+                updated_state['r'] = r_hat
+            ensemble.bias.update_history(**updated_state, update_last_state=True)
 
         # ------------------------------ FORECAST TO NEXT OBSERVATION ---------------------- #
         ti += 1
@@ -392,7 +382,10 @@ def EnKF(Af, d, Cdd, M):
     Psi_f = Af - psi_f_m
 
     # Create an ensemble of observations
-    D = rng.multivariate_normal(d, Cdd, m).transpose()
+    if d.ndim == 2 and d.shape[-1] == m:
+        D = d
+    else:
+        D = rng.multivariate_normal(d, Cdd, m).transpose()
 
     # Mapped forecast matrix M(Af) and mapped deviations M(Af')
     Y = np.dot(M, Af)
