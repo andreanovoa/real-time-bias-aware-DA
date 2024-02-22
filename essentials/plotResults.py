@@ -588,7 +588,7 @@ def post_process_pdf(filter_ens, truth, params, filename=None, reference_p=None,
         plt.close()
 
 
-def plot_states_PDF(ensembles, truth):
+def plot_states_PDF(ensembles, truth, nbins=20):
 
     if type(ensembles) is not list:
         ensembles = [ensembles]
@@ -604,8 +604,8 @@ def plot_states_PDF(ensembles, truth):
     j0 = np.argmin(abs(t_ref - truth['t_obs'][-1]))
     j1 = np.argmin(abs(t_ref - ensembles[0].hist_t[-1]))
 
-    args_1 = dict(orientation='vertical', histtype='step', bins=20, density=False)
-    args_2 = dict(orientation='vertical', histtype='stepfilled', bins=30, density=False, alpha=0.2)
+    args_1 = dict(orientation='vertical', histtype='step', bins=nbins, density=False)
+    args_2 = dict(orientation='vertical', histtype='stepfilled', bins=nbins, density=False, alpha=0.2)
 
     ii = -2
     for ens in ensembles:
@@ -643,7 +643,31 @@ def plot_states_PDF(ensembles, truth):
         ax.set(xlabel=lbl)
 
 
-def plot_RMS_pdf(ensembles, truth):
+def print_parameter_results(ensembles, true_values):
+    from tabulate import tabulate
+    if type(ensembles) is not list:
+        ensembles = [ensembles]
+
+    headers = ['']
+    truth_row = ['Truth']
+    for key, val in true_values.items():
+        headers.append(key)
+        truth_row.append('${}$'.format(val))
+
+    rows = [truth_row]
+    for ensemble in ensembles:
+        alpha = ensemble.get_alpha()
+        row = ['{} + {}'.format(ensemble.filter, ensemble.bias.name)]
+        for key in headers[1:]:
+            vals = [a[key] for a in alpha]
+            row.append('${} \\pm {}$'.format(np.mean(vals), np.std(vals)))
+
+        rows.append(row)
+
+    print(tabulate(tabular_data=rows, headers=headers))
+
+
+def plot_RMS_pdf(ensembles, truth, nbins=40):
 
     if type(ensembles) is not list:
         ensembles = [ensembles]
@@ -654,10 +678,10 @@ def plot_RMS_pdf(ensembles, truth):
     i0 = np.argmin(abs(truth['t'] - truth['t_obs'][0] + ensembles[0].t_CR))
     i1 = np.argmin(abs(truth['t'] - ensembles[0].hist_t[-1]))
 
-    t_ref, y_ref = [truth[key][i0:i1] for key in ['t', 'y_raw']]
+    t_ref, y_ref = [truth[key][i0:i1] for key in ['t', 'y_true']]
     y_ref = np.expand_dims(y_ref, axis=-1)
 
-    args = dict(bins=40, range=(0, 2), density=True, orientation='vertical')
+    args = dict(bins=nbins, range=(0, 2), density=True, orientation='vertical')
     ii = -2
     for ens in ensembles:
         ii += 2
@@ -700,7 +724,7 @@ def plot_RMS_pdf(ensembles, truth):
         y_est = interpolate(ens.bias.hist_t, y_est, t_ref)
 
         # root-mean square error
-        R = np.sqrt(np.sum((y_ref - y_est) ** 2, axis=1) / np.sum((y_ref) ** 2, axis=1))
+        R = np.sqrt(np.sum((y_ref - y_est) ** 2, axis=1) / np.sum(y_ref ** 2, axis=1))
 
         axs[0].set(ylabel=ens.filter)
 

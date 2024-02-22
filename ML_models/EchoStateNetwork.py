@@ -34,7 +34,7 @@ class EchoStateNetwork:
     N_units = 100  # Number of neurones
     N_wash = 50  # Number of washout steps
     perform_test = True  # Run tests during training?
-    seed_W = 1  # Random seed for Win and W definition
+    seed_W = 0  # Random seed for Win and W definition
     seed_noise = 0  # Random seed for input training data
     t_val = 0.1  # Validation time
     t_train = 1.0  # Training time
@@ -427,17 +427,24 @@ class EchoStateNetwork:
         # Flag case as trained
         self.trained = True
 
-    def initialise_state(self, data,  N_ens=1):
+    def initialise_state(self, data,  N_ens=1, seed=0):
+        if hasattr(self, 'seed'):
+            seed = self.seed
+        rng0 = np.random.default_rng(seed)
         # initialise state with a random sample from test data
         u_init, r_init = np.empty((self.N_dim, N_ens)), np.empty((self.N_units, N_ens))
         # Random time windows and dimension
         if data.shape[0] == 1:
             dim_ids = [0] * N_ens
         else:
-            dim_ids = random.sample(np.arange(data.shape[0]).tolist(), k=N_ens)
+            if N_ens > data.shape[0]:
+                replace = False
+            else:
+                replace = True
+            dim_ids = rng0.choice(data.shape[0], size=N_ens, replace=replace)
 
+        t_ids = rng0.choice(data.shape[1]-self.N_wash, size=N_ens, replace=False)
 
-        t_ids = random.sample(np.arange(data.shape[1]-self.N_wash).tolist(), k=N_ens)
         # Open loop for each ensemble memnber
         for ii, ti, dim_i in zip(range(N_ens), t_ids, dim_ids):
             self.reset_state(u=np.zeros((self.N_dim, 1)), r=np.zeros((self.N_units, 1)))
@@ -446,15 +453,14 @@ class EchoStateNetwork:
         # Set physical and reservoir states as ensembles
         self.reset_state(u=u_init, r=r_init)
 
-
     def generate_W_Win(self, seed=1):
-        rnd0 = np.random.RandomState(seed)
+        rnd0 = np.random.default_rng(seed)
 
         # Input matrix: Sparse random matrix where only one element per row is different from zero
         Win = lil_matrix((self.N_units, self.N_dim_in + 1))  # +1 accounts for input bias
         if self.Win_type == 'sparse':
             for j in range(self.N_units):
-                Win[j, rnd0.randint(low=0, high=self.N_dim_in + 1)] = rnd0.uniform(low=-1, high=1)
+                Win[j, rnd0.choice(self.N_dim_in + 1)] = rnd0.uniform(low=-1, high=1)
         elif self.Win_type == 'dense':
             for j in range(self.N_units):
                 Win[j, :] = rnd0.uniform(low=-1, high=1, size=self.N_dim_in + 1)
@@ -463,11 +469,15 @@ class EchoStateNetwork:
         # Make csr matrix
         self.Win = Win.tocsr()
 
+        print('sparsity = ', self.sparsity)
         # Reservoir state matrix: Erdos-Renyi network
-        W = csr_matrix(rnd0.uniform(-1, 1, (self.N_units, self.N_units)) *
-                       (rnd0.rand(self.N_units, self.N_units) < (1 - self.sparsity)))
+        W = csr_matrix(rnd0.uniform(low=-1, high=1, size=(self.N_units, self.N_units)) *
+                       (rnd0.random(size=(self.N_units, self.N_units)) < (1 - self.sparsity)))
         # scale W by the spectral radius to have unitary spectral radius
         spectral_radius = np.abs(sparse_eigs(W, k=1, which='LM', return_eigenvectors=False))[0]
+
+        print('rho = ', spectral_radius)
+
         self.W = (1. / spectral_radius) * W
 
     def compute_RR_terms(self, U_wtv, Y_tv):
@@ -554,11 +564,11 @@ class EchoStateNetwork:
             # Add noise to the inputs if distinction inputs/labels is not given.
             # Larger noise promotes stability in long term, but hinders time accuracy
             U_std = np.std(U, axis=1)
-            rnd = np.random.RandomState(self.seed_noise)
+            rng_noise = np.random.default_rng(self.seed_noise)
             for ll in range(Y.shape[0]):
                 for dd in range(self.N_dim):
-                    U_wtv[ll, :, dd] += rnd.normal(loc=0, scale=self.noise * U_std[ll, dd], size=U_wtv.shape[1])
-                    U_test[ll, :, dd] += rnd.normal(loc=0, scale=self.noise * U_std[ll, dd], size=U_test.shape[1])
+                    U_wtv[ll, :, dd] += rng_noise.normal(loc=0, scale=self.noise * U_std[ll, dd], size=U_wtv.shape[1])
+                    U_test[ll, :, dd] += rng_noise.normal(loc=0, scale=self.noise * U_std[ll, dd], size=U_test.shape[1])
 
         return U_wtv, Y_tv, U_test, Y_test
 
@@ -684,79 +694,78 @@ class EchoStateNetwork:
         return normalized_best_MSE
 
     # ________________________________________________________________________________________________ TESTING FUNCTION
-    def run_test(self, U_test, Y_test, pdf_file=None, folder='./'):
+    def run_test(self, U_test, Y_test, pdf_file=None, folder='./', max_tests=10, seed=0):
+        if hasattr(self, 'seed'):
+            seed = self.seed
 
+        rng0 = np.random.default_rng(seed)
         if pdf_file is None:
             os.makedirs(folder + 'figs_ESN', exist_ok=True)
             pdf_file = plt_pdf.PdfPages(folder + 'figs_ESN/' + self.filename + '_Test.pdf')
 
-        # Number of tests (with a maximum of 10)
-        if self.N_test > 3 * self.N_val:
-            N_test = self.N_val  # Testing window
+        L, max_test_time, Nq = U_test.shape
+        max_test_time -= self.N_wash
+
+        # Select test cases (with a maximum of max_tests)
+        total_tests = min(max_tests, L)
+        if max_tests != L:
+            # L_indices = np.random.random_integers(low=0, high=L, size=total_tests)
+            if total_tests <= L:
+                L_indices = rng0.choice(L, total_tests, replace=False)
+            else:
+                L_indices = rng0.choice(L, total_tests, replace=True)
         else:
-            N_test = self.N_test  # Testing window
+            L_indices = np.arange(L)
 
-        max_test_time = np.shape(U_test)[1] - self.N_wash
+        # Time window of each test
+        N_test = self.N_val
 
-        total_tests = min(10, int(np.floor(max_test_time / N_test)))
+        # Random initial time
+        if max_test_time > self.N_val:
+            # initial_times = np.random.random_integers(low=0, high=max_test_time - N_test, size=total_tests)
+            initial_times = rng0.choice(max_test_time - N_test, size=total_tests, replace=False)
+        else:
+            initial_times = [0] * total_tests
 
         # Break if not enough train_data for testing
         if total_tests < 1:
             print('Test not performed. Not enough train_data')
         else:
-            flag = True
-            medians_alpha, max_alpha = [], -np.inf
-            for U_test_l, Y_test_l in zip(U_test, Y_test):
-                subplots = min(10, total_tests)  # number of plotted intervals
-                fig, _ = plt.subplots(subplots, ncols=1, figsize=[10, 2 * subplots], sharex='all', layout='tight')
-                errors = np.zeros(total_tests)
-                # Different intervals in the test set
-                ti = -N_test
-
-                if subplots < self.N_dim:
-                    dims_test = random.sample(np.arange(self.N_dim).tolist(), k=subplots)
-                else:
-                    dims_test = np.random.random_integers(low=0, high=self.N_dim - 1, size=subplots)
-
+            errors = []
+            for test_i, Li, i0 in zip(np.arange(total_tests), L_indices, initial_times):
                 # Reset state
                 self.reset_state(u=self.u*0., r=self.r*0.)
-                while True:
-                    ti += N_test
 
-                    test_i = ti // N_test
-                    if test_i >= total_tests:
-                        break
+                # Select dataset
+                U_test_l, Y_test_l = U_test[Li], Y_test[Li]
 
-                    # washout for each interval
-                    u_open, r_open = self.openLoop(U_test_l[ti: ti + self.N_wash])
-                    self.reset_state(u=u_open[-1], r=r_open[-1])
+                # washout for each interval
+                u_open, r_open = self.openLoop(U_test_l[i0: i0 + self.N_wash])
+                self.reset_state(u=u_open[-1], r=r_open[-1])
 
-                    # Data to compare with, i.e., labels
-                    Y_t = Y_test_l[ti + self.N_wash: ti + self.N_wash + N_test].squeeze()
+                # Data to compare with, i.e., labels
+                Y_t = Y_test_l[i0 + self.N_wash: i0 + self.N_wash + N_test].squeeze()
 
-                    # Closed-loop prediction
-                    Yh_t = self.closedLoop(N_test)[0][1:].squeeze()
+                # Closed-loop prediction
+                Yh_t = self.closedLoop(N_test)[0][1:].squeeze()
 
-                    # Do the multiple sub_loop inside each test interval
+                # compute error
+                err = np.log10(np.mean((Yh_t - Y_t) ** 2) / np.mean(np.expand_dims(self.norm, -1) ** 2))
+                errors.append(err)
 
-                    errors[test_i] = np.log10(np.mean((Yh_t - Y_t) ** 2) / np.mean(np.expand_dims(self.norm, -1) ** 2))
-                    if test_i < subplots:
-                        dim_i = dims_test[test_i]
-                        t_ = np.arange(len(Yh_t)) * self.dt_ESN
-                        plt.subplot(subplots, 1, test_i + 1)
-                        plt.plot(t_, Y_t[:, dim_i], 'k', label='truth dim ' + str(dim_i))
-                        plt.plot(t_, Yh_t[:, dim_i], '--r', label='ESN dim ' + str(dim_i))
-                        plt.legend(title='Test ' + str(test_i), loc='upper left', bbox_to_anchor=(1.01, 1.01))
-                    if dim_i == self.N_dim - 1:
-                        dim_i = -1
+                # plot test
+                fig, axs = plt.subplots(nrows=Nq, ncols=1, figsize=[10, 2 * Nq], sharex='all', layout='tight')
+                t_ = np.arange(len(Yh_t)) * self.dt_ESN
+                for dim_i, ax in enumerate(axs):
+                    ax.plot(t_, Y_t[:, dim_i], 'k', label='truth dim ' + str(dim_i))
+                    ax.plot(t_, Yh_t[:, dim_i], '--r', label='ESN dim ' + str(dim_i))
+                    ax.legend(title='Test {}: Li = {}'.format(test_i, Li), loc='upper left', bbox_to_anchor=(1.01, 1.01))
 
-                max_alpha = max(max_alpha, max(errors))
-                medians_alpha.append(np.median(errors))
                 # Save to pdf
-                if flag:
-                    add_pdf_page(pdf_file, fig, close_figs=False)
-                    flag = False
-                else:
+                if test_i > 0:
                     add_pdf_page(pdf_file, fig, close_figs=True)
+                else:
+                    add_pdf_page(pdf_file, fig, close_figs=False)
 
-            print('Median and max error in', total_tests * U_test.shape[0], 'tests:', np.median(medians_alpha), max_alpha)
+            print('Median and max error in', total_tests, 'tests:', np.median(errors), np.max(errors))
+
