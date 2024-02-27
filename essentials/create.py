@@ -32,34 +32,39 @@ def create_ensemble(forecast_params=None, model=None, **filter_params):
     return ensemble
 
 
-def create_truth(model, t_start=1., t_stop=1.5, dt_obs=20, std_obs=0.01,
-                 noise_type='gauss, add', post_processed=False, **kwargs):
+def create_truth(model, t_start=1., t_stop=1.5, dt_obs=20, std_obs=0.05, t_max=None,
+                 noise_type='gauss, add', post_processed=False, manual_bias=None, **kwargs):
     # =========================== LOAD DATA OR CREATE TRUTH FROM LOM ================================ #
+    if t_max is None:
+        t_max = t_stop + t_start
+
     if type(model) is str:
-        y_raw, y_true, t_true, name_truth = create_observations_from_file(model)
+        y_raw, y_true, t_true, name_truth = create_observations_from_file(model, t_max=t_max)
         case_name = model.split('/')[-1]
         name_bias = 'Exp_' + case_name
         b_true = np.zeros(1)
     else:
-        y_true, t_true, name_truth = create_observations(model)
+        y_true, t_true, name_truth = create_observations(model, t_max=t_max, **kwargs)
 
         #  ADD BIAS TO THE TRUTH #
-        if 'manual_bias' in kwargs.keys():
-            manual_bias = kwargs['manual_bias']
-            if type(manual_bias) is str:
-                if manual_bias == 'time':
-                    b_true = .4 * y_true * np.sin((np.expand_dims(t_true, -1) * np.pi * 2) ** 2)
-                elif manual_bias == 'periodic':
-                    b_true = 0.2 * np.max(y_true, axis=0) * np.cos(2 * y_true / np.max(y_true, axis=0))
-                elif manual_bias == 'linear':
-                    b_true = .1 * np.max(y_true, axis=0) + .3 * y_true
-                elif manual_bias == 'cosine':
-                    b_true = np.cos(y_true)
-                else:
-                    raise ValueError("Bias {} not recognized choose [linear, periodic, time]".format(manual_bias))
+        if manual_bias is None:
+            b_true = np.zeros(1)
+            name_bias = 'No_bias'
+        elif type(manual_bias) is str:
+            name_bias = manual_bias
+            if manual_bias == 'time':
+                b_true = .4 * y_true * np.sin((np.expand_dims(t_true, -1) * np.pi * 2) ** 2)
+            elif manual_bias == 'periodic':
+                b_true = 0.2 * np.max(y_true, axis=0) * np.cos(2 * y_true / np.max(y_true, axis=0))
+            elif manual_bias == 'linear':
+                b_true = .1 * np.max(y_true, axis=0) + .3 * y_true
+            elif manual_bias == 'cosine':
+                b_true = np.cos(y_true)
             else:
-                # The manual bias is a function of state and/or time
-                b_true, name_bias = manual_bias(y_true, t_true)
+                raise ValueError("Bias {} not recognized choose [linear, periodic, time]".format(manual_bias))
+        else:
+            # The manual bias is a function of state and/or time
+            b_true, name_bias = manual_bias(y_true, t_true)
         # Add bias to the reference data
         y_raw = y_true + b_true
 
@@ -86,66 +91,64 @@ def create_truth(model, t_start=1., t_stop=1.5, dt_obs=20, std_obs=0.01,
     return truth
 
 
-def create_observations_from_file(name):
+def create_observations_from_file(name, t_max=None):
     # Wave case: load .mat file ====================================
-    if 'rijke' in name:
-        try:
+    try:
+        if 'rijke' in name:
             mat = sio.loadmat(name + '.mat')
-        except FileNotFoundError:
-            raise 'File ' + name + ' not defined'
-        y_raw, y_true, t_obs = [mat[key].transpose() for key in ['p_mic', 'p_mic', 't_mic']]
-    elif 'annular' in name:
-        try:
+            y_raw, y_true, t_obs = [mat[key].transpose() for key in ['p_mic', 'p_mic', 't_mic']]
+        elif 'annular' in name:
             mat = sio.loadmat(name + '.mat')
             y_raw, y_true, t_obs = [mat[key] for key in ['y_raw', 'y_filtered', 't']]
-        except FileNotFoundError:
-            raise 'File ' + name + ' not defined'
-    else:
+        else:
+            raise FileNotFoundError
+    except FileNotFoundError:
         raise 'File ' + name + ' not defined'
 
     if len(np.shape(t_obs)) > 1:
         t_obs = np.squeeze(t_obs)
 
     if y_raw.shape[0] != len(t_obs):
-        y_true = y_true.transpose()
-    if y_raw.shape[0] != len(t_obs):
-        y_raw = y_raw.transpose()
+        y_raw, y_true = [yy.transpose() for yy in [y_raw, y_true]]
+
+    if t_max is not None:
+        idx = np.argmin(abs(t_obs - t_max))
+        y_raw, y_true, t_obs = [yy[:idx] for yy in [y_raw, y_true, t_obs]]
 
     return y_raw, y_true, t_obs, name.split('data/')[-1]
 
 
-def create_observations(model, **true_parameters):
+def create_observations(model, t_max=None, **true_parameters):
     try:
         TA_params = true_parameters.copy()
-        classType = model
-        if 't_max' in TA_params.keys():
-            t_max = TA_params['t_max']
-        else:
-            t_max = classType.t_transient * 5
+        model = model
     except AttributeError:
         raise 'true_parameters must be dict'
+
+    if t_max is None:
+        t_max = model.t_transient * 5
 
     # ============================================================
     # Add key parameters to filename
     suffix = ''
-    key_save = classType.params + ['law']
+    key_save = model.params + ['law']
 
     for key, val in TA_params.items():
         if key in key_save:
-            if type(val) == str:
+            if type(val) is str:
                 suffix += val + '_'
             else:
                 suffix += key + '{:.2e}'.format(val) + '_'
 
     name = os.path.join(os.getcwd() + '/data/')
     os.makedirs(name, exist_ok=True)
-    name += 'Truth_{}_{}tmax-{:.2}'.format(classType.name, suffix, t_max)
+    name += 'Truth_{}_{}tmax-{:.2}'.format(model.name, suffix, t_max)
 
     try:
         case = load_from_pickle_file(name)
         print('Load true data: ' + name)
     except ModuleNotFoundError or FileNotFoundError:
-        case = classType(**TA_params)
+        case = model(**TA_params)
         psi, t = case.time_integrate(int(t_max / case.dt))
         case.update_history(psi, t)
         case.close()
@@ -184,7 +187,6 @@ def create_noisy_signal(y_clean, noise_level=0.1, noise_type='gauss, add'):
         else:
             y_noisy[:, :, ll] += noise * y_noisy[:, :, ll]
     return y_noisy
-
 
 
 def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name: str,

@@ -435,7 +435,6 @@ class Rijke(Model):
     params_lims = dict(beta=(0.01, 5), tau=[1E-6, None], C1=(0., 1.), C2=(0., 1.), kappa=(1E3, 1E8))
     params: list = list([*params_labels])
 
-
     fixed_params = ['cosomjxf', 'Dc', 'gc', 'jpiL', 'L', 'law', 'meanFlow', 'Nc', 'Nm', 'tau_adv', 'sinomjxf']
 
     def __init__(self, **model_dict):
@@ -499,7 +498,6 @@ class Rijke(Model):
             self.governing_eqns_params[key] = getattr(self, key)
 
     # _______________ Rijke specific properties and methods ________________ #
-
     @property
     def obsLabels(self, loc=None):
         if loc is None:
@@ -541,9 +539,7 @@ class Rijke(Model):
             Returns:
                 concatenation of the state vector time derivative
         """
-        eta = psi[:Nm]
-        mu = psi[Nm: 2 * Nm]
-        v = psi[2 * Nm: 2 * Nm + Nc]
+        eta, mu, v = psi[:Nm], psi[Nm: 2 * Nm], psi[2 * Nm: 2 * Nm + Nc]
 
         # Advection equation boundary conditions
         v2 = np.hstack((np.dot(eta, cosomjxf), v))
@@ -644,7 +640,8 @@ class Annular(Model):
 
     params_labels = dict(omega='$\\omega$', nu='$\\nu$', c2beta='$c_2\\beta $', kappa='$\\kappa$',
                          epsilon='$\\epsilon$', theta_b='$\\Theta_\\beta$', theta_e='$\\Theta_\\epsilon$')
-    params_lims = dict(omega=(1000 * 2 * np.pi, 1300 * 2 * np.pi), nu=(1., 60.), c2beta=(1., 60.), kappa=(None, None),
+    params_lims = dict(omega=(1000 * 2 * np.pi, 1300 * 2 * np.pi),
+                       nu=(-60., 60.), c2beta=(0., 60.), kappa=(None, None),
                        epsilon=(None, None), theta_b=(0, 2 * np.pi), theta_e=(0, 2 * np.pi))
     params = list([*params_labels])
 
@@ -675,7 +672,6 @@ class Annular(Model):
         super().__init__(child_defaults=Annular.defaults, **model_dict)
 
         self.theta_mic = np.radians([0, 60, 120, 240])
-
 
     # _______________  Specific properties and methods ________________ #
     @property

@@ -9,23 +9,25 @@ This folder includes a collection of jupyter notebooks to ease the introduction 
 ***
 ## Where to start?
 Each tutorial file name includes a two-digit code, which indicates the tutorial category. 
-To replicate results in [parper] go directly to tutorials 11-12.
+To replicate results in [parper] go directly to tutorials 11-13.
 
 
 ### Code-specific tutorials [0x]
 - [x] 00 - Class Model
 - [ ] 01 - Class Bias
-- [x] 03 - Noise colours
+- [x] 03 - Create truth
 
 
 ### Data Assimilation tutorials [1x]
 * DA on twin experiments
-   1) [ ] 10 - Bias-aware and bias-unaware methods
+   1) [ ] 10 - Bias-unaware DA twin experiment on the Lorenz63
+  2) [x] 11 - Bias-aware DA twin experiment on the annular model 
 
 
 * DA on thermoacoustic experimental data 
-   1) [x] 11 - Idealized situation (unbiased observations)
-   2) [ ] 12 - Assimilation of raw experimental data
+   1) [x] 12 - Idealized situation (unbiased observations)
+   2) [x] 13 - Assimilation of raw experimental data assuming unbiased observations
+  3) [ ] 14 - Assimilation of raw experimental data
  
 ### Echo state network tutorials [1x]
 - [ ] 20 - ESN as model bias estimator and multi-parameter training approach

@@ -704,7 +704,7 @@ def plot_RMS_pdf(ensembles, truth, nbins=40):
         for j1, leg, ax in zip(j1s, legs, axs):
             segment = R[j0:j1]
             ax.hist(np.mean(segment, axis=-1), histtype='step', color='c', lw=2, **args)
-            ax.hist(segment, histtype='stepfilled', alpha=0.1, stacked=False, color=['c'] * 10, **args)
+            ax.hist(segment, histtype='stepfilled', alpha=0.1, stacked=False, color=['c'] * ens.m, **args)
             mean = np.mean(segment)
             if mean > 2:
                 ax.axvline(2, c='tab:red', lw=1, ls='--')
@@ -736,7 +736,7 @@ def plot_RMS_pdf(ensembles, truth, nbins=40):
         for j1, leg, ax in zip(j1s, legs, axs):
             segment = R[j0:j1]
             ax.hist(np.mean(segment, axis=-1), histtype='step', color='tab:green', lw=2, **args)
-            ax.hist(segment, histtype='stepfilled', alpha=0.1, stacked=False, color=['tab:green'] * 10, **args)
+            ax.hist(segment, histtype='stepfilled', alpha=0.1, stacked=False, color=['tab:green'] * ens.m, **args)
             mean = np.mean(segment)
             if mean > 2:
                 ax.axvline(2, c='tab:red', lw=1, ls='--')

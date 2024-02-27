@@ -138,12 +138,11 @@ class ESN(Bias, EchoStateNetwork):
     #     print(db_dinput.shape, J.shape, 'JAC')
     #     return -db_dinput
 
-
     def state_derivative(self):
         u, r = [np.mean(xx, axis=-1, keepdims=True) for xx in self.get_reservoir_state()]
         J = self.Jacobian(open_loop_J=True, state=(u, r))  # Compute ESN Jacobian
-        db_dinput = J[np.array(self.observed_idx), np.array([self.observed_idx]).T]
-        return -db_dinput
+        db_din = J[np.array(self.observed_idx), np.array([self.observed_idx]).T]
+        return -db_din
 
     def time_integrate(self, t, y=None, wash_t=None, wash_obs=None):
         if not self.trained:
@@ -240,7 +239,10 @@ class ESN(Bias, EchoStateNetwork):
         else:
             return u
 
-    def get_bias(self, state):
+    def get_bias(self, state, mean_bias=True):
+        if mean_bias:
+            state = np.mean(state, axis=-1, keepdims=True)
+
         if self.biased_observations:
             bias_idx = [a for a in np.arange(self.N_dim) if a not in self.observed_idx]
         else:
