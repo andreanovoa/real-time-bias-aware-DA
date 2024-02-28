@@ -2,3 +2,4 @@
 jupyter
 mediapy
 tabulate
+PyQt5

@@ -588,24 +588,26 @@ def post_process_pdf(filter_ens, truth, params, filename=None, reference_p=None,
         plt.close()
 
 
-def plot_states_PDF(ensembles, truth, nbins=20):
-
+def plot_states_PDF(ensembles, truth, nbins=20, window=None):
     if type(ensembles) is not list:
         ensembles = [ensembles]
 
     Nq = truth['y_true'].shape[1]
-    fig, axs_all = plt.subplots(nrows=2*len(ensembles), ncols=Nq, sharex=True, sharey='row',
-                                figsize=(15, 4*len(ensembles)), layout='tight')
+    fig, axs_all = plt.subplots(nrows=2 * len(ensembles), ncols=Nq, sharex=True, sharey=True,
+                                figsize=(15, 4 * len(ensembles)), layout='tight')
 
-    i0 = np.argmin(abs(truth['t'] - truth['t_obs'][0] + ensembles[0].t_CR))
-    i1 = np.argmin(abs(truth['t'] - ensembles[0].hist_t[-1]))
+    if window is None:
+        i0 = np.argmin(abs(truth['t'] - truth['t_obs'][0] + ensembles[0].t_CR))
+        i1 = np.argmin(abs(truth['t'] - ensembles[0].hist_t[-1]))
+    else:
+        i0, i1 =  window
 
     t_ref, y_ref_true, y_ref_raw = [truth[key][i0:i1] for key in ['t', 'y_true', 'y_raw']]
     j0 = np.argmin(abs(t_ref - truth['t_obs'][-1]))
     j1 = np.argmin(abs(t_ref - ensembles[0].hist_t[-1]))
 
     args_1 = dict(orientation='vertical', histtype='step', bins=nbins, density=False)
-    args_2 = dict(orientation='vertical', histtype='stepfilled', bins=nbins, density=False, alpha=0.2)
+    args_2 = dict(orientation='vertical', histtype='stepfilled', bins=nbins, density=False)
 
     ii = -2
     for ens in ensembles:
@@ -614,30 +616,29 @@ def plot_states_PDF(ensembles, truth, nbins=20):
         y_est = ens.get_observable_hist()
         y_est = interpolate(ens.hist_t, y_est, t_ref)
 
-        for qi, ax in enumerate(axs_all[ii]):
-            for mi in range(ens.m):
-                ax.hist(y_est[j0:j1, qi, mi], color='c', **args_2)
-            ax.hist(y_ref_true[j0:j1, qi], color='k', alpha=0.7, lw=2, **args_1)
-            ax.hist(y_ref_raw[j0:j1, qi], color='tab:red', alpha=0.7, lw=2, **args_1)
-            ax.axvline(np.mean(y_ref_true[j0:j1, qi]), color='k', ls='--', lw=1)
-            ax.axvline(np.mean(y_ref_raw[j0:j1, qi]), color='tab:red', ls='--', lw=1)
-            ax.axvline(np.mean(y_est[j0:j1, qi]), color='c', ls='--', lw=1)
-        axs_all[ii, 0].set(ylabel=ens.filter)
-
         # Plot bias-corrected solutions
-        b_est = ens.bias.get_bias(state=ens.bias.hist)
-        y_est = interpolate(t_ref, y_est, ens.bias.hist_t) + b_est
-        y_est = interpolate(ens.bias.hist_t, y_est, t_ref)
+        b_est = ens.bias.get_bias(state=ens.bias.hist, mean_bias=False)
+        y_mean = np.mean(y_est, axis=-1, keepdims=True)
+        if ens.bias.name != 'NoBias':
+            y_est_u = interpolate(t_ref, y_mean, ens.bias.hist_t) + b_est
+            y_est_u = interpolate(ens.bias.hist_t, y_est_u, t_ref)
+        else:
+            y_est_u = y_mean
 
-        for qi, ax in enumerate(axs_all[ii+1]):
-            for mi in range(ens.m):
-                ax.hist(y_est[j0:j1, qi, mi], color='tab:green', **args_2)
-            ax.hist(y_ref_true[j0:j1, qi], color='k', alpha=0.7, lw=2, **args_1)
-            ax.hist(y_ref_raw[j0:j1, qi], color='tab:red', alpha=0.7, lw=2, **args_1)
-            ax.axvline(np.mean(y_ref_true[j0:j1, qi]), color='k', ls='--', lw=1)
-            ax.axvline(np.mean(y_ref_raw[j0:j1, qi]), color='tab:red', ls='--', lw=1)
-            ax.axvline(np.mean(y_est[j0:j1, qi]), color='tab:green', ls='--', lw=1)
-        axs_all[ii+1, 0].set(ylabel='{}+\n{}'.format(ens.filter, ens.bias.name))
+        for yy, axs_, c in zip([y_est, y_est_u], [axs_all[ii], axs_all[ii + 1]],
+                               [['c', 'tab:blue'], ['tab:green', 'darkgreen']]):
+            for qi, ax in enumerate(axs_):
+                for mi in range(yy.shape[-1]):
+                    ax.hist(yy[j0:j1, qi, mi], color=c[0], alpha=0.2, **args_2)
+                ax.hist(y_ref_true[j0:j1, qi], color='k', alpha=0.7, lw=2, **args_1)
+                ax.hist(y_ref_raw[j0:j1, qi], color='tab:red', alpha=0.7, lw=2, **args_1)
+                ax.hist(np.mean(yy[j0:j1, qi], axis=-1), color=c[1], alpha=1, ls=(0, (6, 1)), lw=1.5, **args_1)
+                ax.axvline(np.mean(y_ref_true[j0:j1, qi]), color='k', ls='-', lw=2)
+                ax.axvline(np.mean(y_ref_raw[j0:j1, qi]), color='tab:red', ls='-', lw=2)
+                ax.axvline(np.mean(yy[j0:j1, qi]), color=c[0], ls=(0, (6, 6)), lw=2)
+
+        axs_all[ii, 0].set(ylabel=ens.filter)
+        axs_all[ii + 1, 0].set(ylabel='{}+\n{}'.format(ens.filter, ens.bias.name))
 
     for ax, lbl in zip(axs_all[-1, :], ens.obs_labels):
         ax.set(xlabel=lbl)
@@ -681,72 +682,50 @@ def plot_RMS_pdf(ensembles, truth, nbins=40):
     t_ref, y_ref = [truth[key][i0:i1] for key in ['t', 'y_true']]
     y_ref = np.expand_dims(y_ref, axis=-1)
 
+    j0 = np.argmin(abs(t_ref - truth['t_obs'][0] + ensembles[0].t_CR))
+    j1s = [np.argmin(abs(t_ref - truth['t_obs'][idx])) for idx in [0, len(truth['t_obs']) // 2, -1]]
+    j1s.append(i1)
+    legs = ['pre-DA', 'DA', 'DA2', 'post_DA']
+
     args = dict(bins=nbins, range=(0, 2), density=True, orientation='vertical')
     ii = -2
     for ens in ensembles:
         ii += 2
-
         y_est = ens.get_observable_hist()
         y_est = interpolate(ens.hist_t, y_est, t_ref)
 
-        # root-mean square error
-        R = np.sqrt(np.sum((y_ref - y_est) ** 2, axis=1) / np.sum((y_ref) ** 2, axis=1))
+        b_est = ens.bias.get_bias(ens.bias.hist, mean_bias=False)
+        y_mean = np.mean(y_est, axis=-1, keepdims=True)
+        y_est_u = interpolate(t_ref, y_mean, ens.bias.hist_t) + b_est
+        y_est_u = interpolate(ens.bias.hist_t, y_est_u, t_ref)
 
-        axs = axs_all[ii]
+        colours = [['c'] * ens.m, ['tab:green'] * b_est.shape[-1]]
 
-        axs[0].set(ylabel=ens.filter)
+        for axs_, yy, c in zip([axs_all[ii], axs_all[ii+1]], [y_est, y_est_u], colours):
 
-        j0 = np.argmin(abs(t_ref - truth['t_obs'][0] + ens.t_CR))
-        j1s = [np.argmin(abs(t_ref - truth['t_obs'][idx])) for idx in [0, len(truth['t_obs']) // 2, -1]]
-        j1s.append(i1)
-        kk = 0
-        legs = ['pre-DA', 'DA', 'DA2', 'post_DA']
-        for j1, leg, ax in zip(j1s, legs, axs):
-            segment = R[j0:j1]
-            ax.hist(np.mean(segment, axis=-1), histtype='step', color='c', lw=2, **args)
-            ax.hist(segment, histtype='stepfilled', alpha=0.1, stacked=False, color=['c'] * ens.m, **args)
-            mean = np.mean(segment)
-            if mean > 2:
-                ax.axvline(2, c='tab:red', lw=1, ls='--')
-            else:
-                ax.axvline(mean, c='k', lw=1, ls='--')
-            j0 = j1
-            kk += 1
-            ax.legend([leg + '_mean', leg + '_j'])
+            R = np.sqrt(np.sum((y_ref - yy) ** 2, axis=1) / np.sum(y_ref ** 2, axis=1))
 
+            axs_[0].set(ylabel=ens.filter)
+            if axs_[0] == axs_all[ii + 1, 0]:
+                axs_[0].set(ylabel='{} \n w/ {}'.format(ens.filter, ens.bias.name))
 
+            kk = 0
+            for j1, leg, ax in zip(j1s, legs, axs_):
+                segment = R[j0:j1]
+                ax.hist(np.mean(segment, axis=-1), histtype='step', color=c[0], lw=2, **args)
+                ax.hist(segment, histtype='stepfilled', alpha=0.1, stacked=False, color=c, **args)
+                mean = np.mean(segment)
+                if mean > 2:
+                    ax.axvline(2, c='tab:red', lw=1, ls='--')
+                else:
+                    ax.axvline(mean, c='k', lw=1, ls='--')
+                j0 = j1
+                kk += 1
+                ax.legend([leg + '_mean', leg + '_j'])
 
-        axs = axs_all[ii+1]
-        b_est = ens.bias.get_bias(ens.bias.hist)
+                if axs_[0] == axs_all[ii+1, 0]:
+                    ax.set(xlabel='RMS error')
 
-        y_est = interpolate(t_ref, y_est, ens.bias.hist_t) + b_est
-
-        y_est = interpolate(ens.bias.hist_t, y_est, t_ref)
-
-        # root-mean square error
-        R = np.sqrt(np.sum((y_ref - y_est) ** 2, axis=1) / np.sum(y_ref ** 2, axis=1))
-
-        axs[0].set(ylabel=ens.filter)
-
-        j0 = np.argmin(abs(t_ref - truth['t_obs'][0] + ens.t_CR))
-        j1s = [np.argmin(abs(t_ref - truth['t_obs'][idx])) for idx in [0, len(truth['t_obs']) // 2, -1]]
-        j1s.append(i1)
-        kk = 0
-        legs = ['pre-DA', 'DA', 'DA2', 'post_DA']
-        for j1, leg, ax in zip(j1s, legs, axs):
-            segment = R[j0:j1]
-            ax.hist(np.mean(segment, axis=-1), histtype='step', color='tab:green', lw=2, **args)
-            ax.hist(segment, histtype='stepfilled', alpha=0.1, stacked=False, color=['tab:green'] * ens.m, **args)
-            mean = np.mean(segment)
-            if mean > 2:
-                ax.axvline(2, c='tab:red', lw=1, ls='--')
-            else:
-                ax.axvline(mean, c='k', lw=1, ls='--')
-            j0 = j1
-            kk += 1
-            ax.legend([leg + '_mean', leg + '_j'])
-            ax.set(xlabel='RMS error')
-        axs[0].set(ylabel='{}+\n{}'.format(ens.filter, ens.bias.name))
 
 
 def plot_violins(ax, values, location, color='b', label=None, alpha=0.5, **kwargs):

@@ -49,25 +49,24 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
         # -------------------------  UPDATE STATE AND BIAS ESTIMATES------------------------- #
         ensemble.update_history(Aa[:-ensemble.Nq, :], update_last_state=True)
 
-        # Update bias using the analysis innovation d - y^a
+        # Update bias using the mean analysis innovation i^a = d - <y^a>
         Ya = ensemble.get_observables()
+        ia = np.expand_dims(y_obs[ti], -1) - np.mean(Ya, -1, keepdims=True)
 
         # Update the bias state
         if not ensemble.bias.bayesian_update or ensemble.bias.name == 'NoBias':
-            b = np.expand_dims(y_obs[ti], -1) - np.mean(Ya, -1, keepdims=True)
-            ensemble.bias.update_history(b=b, u=b, update_last_state=True)
-
-
-
+            updated_state = dict(b=ia)
         else:
-            i_data = np.expand_dims(y_obs[ti], axis=-1) - Ya  # Analysis innovations
-            u_hat, r_hat = ensemble.bias.reconstruct_state(i_data, filter_=EnKF, Cdd=Cdd, inflation=1.01,
-                                                           update_reservoir=False)
-            # Update states
-            updated_state = dict(u=u_hat, b=u_hat)
-            if ensemble.bias.update_reservoir:
-                updated_state['r'] = r_hat
-            ensemble.bias.update_history(**updated_state, update_last_state=True)
+            i_data = np.expand_dims(y_obs[ti], axis=-1) - np.mean(Ya, -1, keepdims=True)
+            u_hat, r_hat = ensemble.bias.reconstruct_state(i_data, Cdd=Cdd,
+                                                           inflation=ensemble.bias.inflation, update_reservoir=False)
+
+            if not ensemble.bias.update_reservoir:
+                updated_state = dict(b=u_hat)
+            else:
+                updated_state = dict(b=u_hat, r=r_hat)
+
+        ensemble.bias.update_history(**updated_state, update_last_state=True)
 
         # ------------------------------ FORECAST TO NEXT OBSERVATION ---------------------- #
         ti += 1
@@ -84,6 +83,7 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
         assert ensemble.hist_t[-1] == ensemble.bias.hist_t[-1]
     print('Elapsed time during assimilation: ' + str(time.time() - time1) + ' s')
     return ensemble
+
 
 
 # =================================================================================================================== #

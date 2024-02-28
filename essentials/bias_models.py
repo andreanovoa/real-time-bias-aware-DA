@@ -10,12 +10,16 @@ class Bias:
     def __init__(self, b, t, dt, **kwargs):
         self.dt = dt
         self.precision_t = int(-np.log10(dt)) + 2
-
-        self.augment_data = False
-        self.bayesian_update = False
-        self.biased_observations = False
         self.upsample = 1
         self.m = 1
+        self.augment_data = False
+
+        # Default to not perform bayesian update to state
+        self.bayesian_update = False
+        self.biased_observations = False
+        self.filter = None
+        self.inflation = None
+
         # ========================= Re-DEFINE ESSENTIALS ========================== ##
         for key, val in kwargs.items():
             if hasattr(self, key):
@@ -30,6 +34,11 @@ class Bias:
         self.hist = np.array([b])
         self.hist_t = np.array([t])
 
+        # Add keys to print out
+        self.keys_to_print = ['bayesian_update', 'biased_observations', 'upsample', 'N_ens']
+        if self.bayesian_update:
+            self.keys_to_print += ['filter', 'inflation']
+
     @property
     def N_ens(self):
         return self.hist.shape[-1]
@@ -43,9 +52,20 @@ class Bias:
         current_state = self.hist[-1]
         return self.get_bias(state=current_state)
 
-    def get_bias(self, state):
+    def get_bias(self, state, **kwargs):
         return state
 
+    def get_ML_state(self, **kwargs):
+        return None
+
+    def print_bias_parameters(self):
+        print('\n ---------------- {} bias model parameters --------------- '.format(self.name))
+        for key in sorted(self.keys_to_print):
+            val = getattr(self, key)
+            if type(val) is float:
+                print('\t {} = {:.6}'.format(key, val))
+            else:
+                print('\t {} = {}'.format(key, val))
 
     def update_history(self, b, t=None, reset=False, update_last_state=False, **kwargs):
 
@@ -60,6 +80,8 @@ class Bias:
             if b is not None:
                 self.hist[-1] = b
                 if hasattr(self, 'reset_state'):
+                    if 'u' not in kwargs.keys():
+                        kwargs['u'] = b
                     self.reset_state(**kwargs)
             else:
                 raise ValueError('psi must be provided')
@@ -73,7 +95,7 @@ class Bias:
             if self.hist.ndim < 3:
                 self.hist = np.expand_dims(self.hist, axis=-1)
             if hasattr(self, 'reset_state'):
-                r = np.zeros((self.N_units, self.m))
+                r = np.zeros((self.N_units, self.N_ens))
                 self.reset_state(u=b, r=r)
 
 
@@ -87,21 +109,14 @@ class NoBias(Bias):
         super().__init__(b=np.zeros(y.shape), t=t, dt=dt, **kwargs)
         self.N_dim = self.hist.shape[1]
 
-    def get_ML_state(self):
-        return None
-
     def state_derivative(self):
         return np.zeros([self.N_dim, self.N_dim])
 
     def time_integrate(self, t, **kwargs):
         return np.zeros([len(t), self.N_dim, self.N_ens]), t
 
-    def print_bias_parameters(self):
-        print('\n ----------------  Bias model parameters ---------------- ',
-              '\n Bias model: {}'.format(self.name))
-
-
 # =================================================================================================================== #
+
 
 class ESN(Bias, EchoStateNetwork):
     name = 'ESN'
@@ -119,29 +134,20 @@ class ESN(Bias, EchoStateNetwork):
         self.initialised = False
         self.trained = False
 
-        if 'store_ESN_history' in kwargs.keys():
-            self.store_ESN_history = kwargs['store_ESN_history']
-        else:
-            self.store_ESN_history = False
+        # Add keys to print data
+        extra_keys = ['t_train', 't_val', 'N_wash', 'rho', 'sigma_in',
+                      'N_units', 'perform_test', 'L', 'connect', 'tikh',
+                      'update_reservoir', 'observed_idx']
+        self.keys_to_print += extra_keys
+
 
     def reset_bias(self, u, r=None):
         self.reset_state(u=u, r=r)
 
-    # def state_derivative(self):
-    #     Js = []
-    #     U, R = self.get_reservoir_state()
-    #     for u, r in zip(U.T, R.T):
-    #         Js.append(self.Jacobian(open_loop_J=True, state=(u, r))) # Compute ESN Jacobian
-    #     J = np.array(Js)
-    #     db_dinput = J[self.observed_idx, self.observed_idx]
-    #
-    #     print(db_dinput.shape, J.shape, 'JAC')
-    #     return -db_dinput
-
     def state_derivative(self):
         u, r = [np.mean(xx, axis=-1, keepdims=True) for xx in self.get_reservoir_state()]
         J = self.Jacobian(open_loop_J=True, state=(u, r))  # Compute ESN Jacobian
-        db_din = J[np.array(self.observed_idx), np.array([self.observed_idx]).T]
+        db_din = J[np.array(self.bias_idx), np.array([self.bias_idx]).T]
         return -db_din
 
     def time_integrate(self, t, y=None, wash_t=None, wash_obs=None):
@@ -168,24 +174,17 @@ class ESN(Bias, EchoStateNetwork):
                 self.initialised = True
                 # Run washout phase in open-loop
                 wash_model = interpolate(t, y, wash_t)
+                washout = wash_obs - np.mean(wash_model, axis=-1)
 
-                if wash_obs.ndim < wash_model.ndim:
-                    wash_obs = np.expand_dims(wash_obs, -1)
-
-                if self.N_ens == 1:
-                    washout = wash_obs - np.mean(wash_model, axis=-1, keepdims=True)
-                else:
-                    washout = wash_obs - wash_model
-
-                u_open, r_open = self.openLoop(washout)
+                u_open, r_open = self.openLoop(washout, inflation=self.inflation)
                 u[t1:t1+self.N_wash+1] = u_open
                 r[t1:t1+self.N_wash+1] = r_open
                 Nt -= self.N_wash
 
-                # plt.figure()
-                # plt.plot(wash_t, washout[:, 0])
-                # plt.plot(wash_t, u_open[:, 0])
-                # plt.show()
+                plt.figure()
+                plt.plot(wash_t, washout[:, 0])
+                plt.plot(wash_t, u_open[:, 0])
+                plt.show()
 
                 # Run the rest of the time window in closed-loop
                 if Nt > 0:
@@ -205,17 +204,6 @@ class ESN(Bias, EchoStateNetwork):
 
         return u[1:], t_b[1:]
 
-    def print_bias_parameters(self):
-        print('\n ---------------- {} bias model parameters --------------- '.format(self.name))
-        keys_to_print = sorted(['t_train', 't_val', 'N_wash', 'rho', 'sigma_in', 'upsample',
-                                'N_units', 'perform_test', 'augment_data', 'L', 'connect', 'tikh',
-                                'bayesian_update', 'observed_idx'])
-        for key in keys_to_print:
-            val = getattr(self, key)
-            if type(val) is float:
-                print('\t {} = {:.6}'.format(key, val))
-            else:
-                print('\t {} = {}'.format(key, val))
 
     def train_bias_model(self, **train_data):
         data = train_data['data']
@@ -239,19 +227,21 @@ class ESN(Bias, EchoStateNetwork):
         else:
             return u
 
+    @property
+    def bias_idx(self):
+        if self.biased_observations:
+            return [a for a in np.arange(self.N_dim) if a not in self.observed_idx]
+        else:
+            return self.observed_idx
+
     def get_bias(self, state, mean_bias=True):
         if mean_bias:
             state = np.mean(state, axis=-1, keepdims=True)
 
-        if self.biased_observations:
-            bias_idx = [a for a in np.arange(self.N_dim) if a not in self.observed_idx]
-        else:
-            bias_idx = np.arange(self.N_dim)
-
         if state.shape[0] == self.N_dim:
-            return state[bias_idx]
+            return state[self.bias_idx]
         elif state.shape[1] == self.N_dim:
-            return state[:, bias_idx]
+            return state[:, self.bias_idx]
         else:
             raise AssertionError('state shape = {}'.format(state.shape))
 # =================================================================================================================== #

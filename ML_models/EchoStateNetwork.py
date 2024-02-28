@@ -2,7 +2,7 @@
 import time
 import matplotlib.backends.backend_pdf as plt_pdf
 from essentials.Util import *
-from essentials.DA import EnKF
+from essentials.DA import EnKF, EnSRKF
 
 # Validation methods
 from functools import partial
@@ -157,18 +157,20 @@ class EchoStateNetwork:
     def get_reservoir_state(self):
         return self.u, self.r
 
-    def reconstruct_state(self, observed_data, filter_=EnKF, update_reservoir=True, Cdd=None, inflation=1.0):
+    def reconstruct_state(self, observed_data, filter_=EnSRKF, update_reservoir=True, Cdd=None, inflation=1.01):
 
-        # if not hasattr(self, 'M'):
+        Nq = len(self.observed_idx)
+
+        # if not hasattr(self, 'M') or if self.M.shape[0] != observed_data.shape[0]:
         if update_reservoir:
-            M = np.zeros([len(self.observed_idx), self.N_dim + self.N_units])
+            M = np.zeros([Nq, self.N_dim + self.N_units])
         else:
-            M = np.zeros([len(self.observed_idx), self.N_dim])
+            M = np.zeros([Nq, self.N_dim])
 
         for dim_i, obs_i in enumerate(self.observed_idx):
             M[dim_i, obs_i] = 1.
-            # # Set attribute
-            # setattr(self, 'M', M)
+            # setattr(self, 'M', M) # Set attribute
+
 
         # Define forecast state
         u, r = self.get_reservoir_state()
@@ -177,23 +179,16 @@ class EchoStateNetwork:
         else:
             x = u.copy()
 
-        # Apply ensemble square-root Kalman filter
-        if observed_data.ndim > 1:
-            d = np.mean(observed_data, axis=-1)
-        else:
-            d = observed_data
-
         # Define observation error matrix
         if Cdd is None:
-            if observed_data.ndim > 1 and observed_data.shape[-1] > 1:
-                Cdd = np.cov(observed_data)
-            else:
-                Cdd = (0.05 * np.max(abs(observed_data))) ** 2 * np.eye(len(self.observed_idx))
+            Cdd = (0.1 * np.max(abs(observed_data))) ** 2 * np.eye(Nq)
 
-        # Apply Kalman filter
-        x_hat = filter_(Af=x, d=d, Cdd=Cdd, M=M)
-        x_hat_mean = np.mean(x_hat, -1, keepdims=True)
-        x_hat = x_hat_mean + (x_hat - x_hat_mean) * inflation
+        # Apply filter
+        x_hat = filter_(Af=x, d=observed_data.squeeze(), Cdd=Cdd, M=M)
+
+        if inflation > 1.:
+            x_hat_mean = np.mean(x_hat, -1, keepdims=True)
+            x_hat = x_hat_mean + (x_hat - x_hat_mean) * inflation
 
         # Return updates to u and r
         if update_reservoir:
@@ -267,7 +262,7 @@ class EchoStateNetwork:
         u_out = np.dot(r_aug.T, self.Wout).T
         return u_out, r_out
 
-    def openLoop(self, u_wash, extra_closed=0, force_reconstruct=True):
+    def openLoop(self, u_wash, extra_closed=0, force_reconstruct=True, update_reservoir=True, inflation=1.01):
         """ Initialises ESN in open-loop.
             Input:
                 - U_wash: washout input time series
@@ -283,7 +278,8 @@ class EchoStateNetwork:
         u = np.empty((Nt + 1, self.N_dim, self.u.shape[-1]))
 
         if self.bayesian_update and self.trained and force_reconstruct:
-            u0, r0 = self.reconstruct_state(observed_data=u_wash[0], update_reservoir=True)
+            u0, r0 = self.reconstruct_state(observed_data=u_wash[0],
+                                            update_reservoir=update_reservoir, inflation=inflation)
             self.reset_state(u=u0, r=r0)
         else:
             self.reset_state(u=u_wash[0])
@@ -292,7 +288,8 @@ class EchoStateNetwork:
 
         for ii in range(Nt):
             if self.bayesian_update and self.trained and force_reconstruct:
-                u_in, r_in = self.reconstruct_state(observed_data=u_wash[ii], update_reservoir=True)
+                u_in, r_in = self.reconstruct_state(observed_data=u_wash[ii],
+                                                    update_reservoir=update_reservoir, inflation=inflation)
             else:
                 u_in, r_in = u_wash[ii], r[ii]
 
