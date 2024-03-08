@@ -169,8 +169,6 @@ class EchoStateNetwork:
 
         for dim_i, obs_i in enumerate(self.observed_idx):
             M[dim_i, obs_i] = 1.
-            # setattr(self, 'M', M) # Set attribute
-
 
         # Define forecast state
         u, r = self.get_reservoir_state()
@@ -275,7 +273,7 @@ class EchoStateNetwork:
             Nt += extra_closed
 
         r = np.empty((Nt + 1, self.N_units, self.u.shape[-1]))
-        u = np.empty((Nt + 1, self.N_dim_in, self.u.shape[-1]))
+        u = np.empty((Nt + 1, self.N_dim, self.u.shape[-1]))
 
         if self.bayesian_update and self.trained and force_reconstruct:
             u0, r0 = self.reconstruct_state(observed_data=u_wash[0],
@@ -284,7 +282,7 @@ class EchoStateNetwork:
         else:
             self.reset_state(u=u_wash[0])
 
-        u[0], r[0] = self.get_reservoir_state()
+        u[0, self.observed_idx], r[0] = self.get_reservoir_state()
 
         for ii in range(Nt):
             if self.bayesian_update and self.trained and force_reconstruct:
@@ -306,9 +304,9 @@ class EchoStateNetwork:
         """
 
         r = np.empty((Nt + 1, self.N_units, self.u.shape[-1]))
-        u = np.empty((Nt + 1, self.N_dim_in, self.u.shape[-1]))
+        u = np.empty((Nt + 1, self.N_dim, self.u.shape[-1]))
 
-        u[0], r[0] = self.get_reservoir_state()
+        u[0, self.observed_idx], r[0] = self.get_reservoir_state()
 
         for i in range(Nt):
             u_input = self.outputs_to_inputs(full_state=u[i])
@@ -317,7 +315,6 @@ class EchoStateNetwork:
 
     # _______________________________________________________________________________________ TRAIN & VALIDATE THE ESN
     def train(self, train_data, plot_training=True, folder='./', add_noise=True, **kwargs):
-
 
         # The objective is to initialize the weights in Wout
         self.Wout = np.zeros([self.N_units + 1, self.N_dim])
@@ -466,14 +463,11 @@ class EchoStateNetwork:
         # Make csr matrix
         self.Win = Win.tocsr()
 
-        print('sparsity = ', self.sparsity)
         # Reservoir state matrix: Erdos-Renyi network
         W = csr_matrix(rnd0.uniform(low=-1, high=1, size=(self.N_units, self.N_units)) *
                        (rnd0.random(size=(self.N_units, self.N_units)) < (1 - self.sparsity)))
         # scale W by the spectral radius to have unitary spectral radius
         spectral_radius = np.abs(sparse_eigs(W, k=1, which='LM', return_eigenvectors=False))[0]
-
-        print('rho = ', spectral_radius)
 
         self.W = (1. / spectral_radius) * W
 
@@ -526,7 +520,7 @@ class EchoStateNetwork:
         Y = data[:, ::self.upsample].copy()
 
         # self.bayesian_update = bayesian_update
-        # self.observed_idx = observed_idx
+
 
         # Case I: Full observability .OR. Case II: Partial observability
         if not self.bayesian_update:
@@ -730,6 +724,8 @@ class EchoStateNetwork:
         else:
             errors = []
             for test_i, Li, i0 in zip(np.arange(total_tests), L_indices, initial_times):
+
+
                 # Reset state
                 self.reset_state(u=self.u*0., r=self.r*0.)
 
@@ -738,25 +734,26 @@ class EchoStateNetwork:
 
                 # washout for each interval
                 u_open, r_open = self.openLoop(U_test_l[i0: i0 + self.N_wash])
-                self.reset_state(u=u_open[-1], r=r_open[-1])
+
+                self.reset_state(u=self.outputs_to_inputs(full_state=u_open[-1]), r=r_open[-1])
 
                 # Data to compare with, i.e., labels
-                Y_t = Y_test_l[i0 + self.N_wash: i0 + self.N_wash + N_test].squeeze()
+                Y_labels = Y_test_l[i0 + self.N_wash: i0 + self.N_wash + N_test].squeeze()
 
                 # Closed-loop prediction
-                Yh_t = self.closedLoop(N_test)[0][1:].squeeze()
+                Y_closed = self.closedLoop(N_test)[0][1:].squeeze()
 
                 # compute error
-                err = np.log10(np.mean((Yh_t - Y_t) ** 2) / np.mean(np.expand_dims(self.norm, -1) ** 2))
+                err = np.log10(np.mean((Y_closed - Y_labels) ** 2) / np.mean(np.expand_dims(self.norm, -1) ** 2))
                 errors.append(err)
 
                 # plot test
                 fig, axs = plt.subplots(nrows=Nq, ncols=1, figsize=[10, 2 * Nq], sharex='all', layout='tight')
-                t_ = np.arange(len(Yh_t)) * self.dt_ESN
+                t_ = np.arange(len(Y_closed)) * self.dt_ESN
                 for dim_i, ax in enumerate(axs):
-                    ax.plot(t_, Y_t[:, dim_i], 'k', label='truth dim ' + str(dim_i))
-                    ax.plot(t_, Yh_t[:, dim_i], '--r', label='ESN dim ' + str(dim_i))
-                    ax.legend(title='Test {}: Li = {}'.format(test_i, Li), loc='upper left', bbox_to_anchor=(1.01, 1.01))
+                    ax.plot(t_, Y_labels[:, dim_i], 'k', label='truth dim ' + str(dim_i))
+                    ax.plot(t_, Y_closed[:, dim_i], '--r', label='ESN dim ' + str(dim_i))
+                    ax.legend(title='Test {}: Li = {}'.format(test_i, Li), loc='upper left', bbox_to_anchor=(1, 1))
 
                 # Save to pdf
                 if test_i > 0:

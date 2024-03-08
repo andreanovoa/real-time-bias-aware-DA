@@ -78,7 +78,7 @@ class Bias:
             self.hist_t = np.concatenate((self.hist_t, t))
         elif update_last_state:
             if b is not None:
-                self.hist[-1] = b
+                self.hist[-1, self.observed_idx] = b
                 if hasattr(self, 'reset_state'):
                     if 'u' not in kwargs.keys():
                         kwargs['u'] = b
@@ -108,6 +108,7 @@ class NoBias(Bias):
     def __init__(self, y, t, dt, **kwargs):
         super().__init__(b=np.zeros(y.shape), t=t, dt=dt, **kwargs)
         self.N_dim = self.hist.shape[1]
+        self.observed_idx = np.arange(self.N_dim)
 
     def state_derivative(self):
         return np.zeros([self.N_dim, self.N_dim])
@@ -139,7 +140,6 @@ class ESN(Bias, EchoStateNetwork):
                       'N_units', 'perform_test', 'L', 'connect', 'tikh',
                       'update_reservoir', 'observed_idx']
         self.keys_to_print += extra_keys
-
 
     def reset_bias(self, u, r=None):
         self.reset_state(u=u, r=r)
@@ -181,15 +181,10 @@ class ESN(Bias, EchoStateNetwork):
                 r[t1:t1+self.N_wash+1] = r_open
                 Nt -= self.N_wash
 
-                plt.figure()
-                plt.plot(wash_t, washout[:, 0])
-                plt.plot(wash_t, u_open[:, 0])
-                plt.show()
-
                 # Run the rest of the time window in closed-loop
                 if Nt > 0:
                     # Store open-loop forecast
-                    self.reset_state(u=u_open[-1], r=r_open[-1])
+                    self.reset_state(u=self.outputs_to_inputs(full_state=u_open[-1]), r=r_open[-1])
                     u_close, r_close = self.closedLoop(Nt)
                     u[t1 + self.N_wash + 1:] = u_close[1:]
                     r[t1 + self.N_wash + 1:] = r_close[1:]
@@ -200,9 +195,10 @@ class ESN(Bias, EchoStateNetwork):
             t_b[-1] = t[-1]
 
         # update ESN physical and reservoir states, and store the history if requested
-        self.reset_state(u=u[-1], r=r[-1])
+        self.reset_state(u=self.outputs_to_inputs(full_state=u[-1]), r=r[-1])
 
         return u[1:], t_b[1:]
+
     def train_bias_model(self, **train_data):
         data = train_data['data']
         del train_data['data']
