@@ -1091,7 +1091,12 @@ def plot_RMS_pdf(ensembles, truth, nbins=40):
         R = np.sqrt(np.sum((y_ref - y_est) ** 2, axis=1) / np.sum(y_ref ** 2, axis=1))
         R_u = np.sqrt(np.sum((y_ref - y_est_u) ** 2, axis=1) / np.sum(y_ref ** 2, axis=1))
 
-        for axs_, yy, RR, c in zip([axs_all[ii], axs_all[ii + 1]], [y_est, y_est_u], [R, R_u], colours):
+        Rm = np.sqrt(np.sum((y_ref - y_mean) ** 2, axis=1) / np.sum(y_ref ** 2, axis=1))
+
+        y_mean_u = np.mean(y_est_u, axis=-1, keepdims=True)
+        Rm_u = np.sqrt(np.sum((y_ref - y_mean_u) ** 2, axis=1) / np.sum(y_ref ** 2, axis=1))
+
+        for axs_, yy, RR, RRm, c in zip([axs_all[ii], axs_all[ii + 1]], [y_est, y_est_u], [R, R_u], [Rm, Rm_u], colours):
 
             axs_[0].set(ylabel=ens.filter)
             if axs_[0] == axs_all[ii + 1, 0]:
@@ -1102,9 +1107,9 @@ def plot_RMS_pdf(ensembles, truth, nbins=40):
                 j0, j1 = jjs
                 segment = RR[j0:j1]
                 segment[segment > max_RMS] = max_RMS
-                ax.hist(np.mean(RR[j0:j1], axis=-1), histtype='step', color=c[0], lw=2, **args)
+                ax.hist(RRm[j0:j1], histtype='step', color=c[0], lw=2, **args)
                 ax.hist(segment, histtype='stepfilled', alpha=0.1, stacked=False, color=c, **args)
-                mean = np.mean(RR[j0:j1])
+                mean = np.mean(RRm[j0:j1])
                 if mean > max_RMS:
                     ax.axvline(max_RMS, c='tab:red', lw=1, ls='--')
                 else:
@@ -1332,7 +1337,7 @@ def plot_truth(plot_time=False, Nq=None, filename=None, **truth_dict):
                 ax[qi].set(ylabel=lbl + '$_{}$'.format(qi))
 
     # Plot probability density essentials and power spectral densities
-    ax_pdf = subfigs[1].subplots(Nq, 1, sharey='all')
+    ax_pdf = subfigs[1].subplots(Nq, 1, sharey='all', sharex='all')
     ax_PSD = subfigs[2].subplots(Nq, 1, sharex='all', sharey='all')
     if Nq == 1:
         ax_pdf = [ax_pdf]
@@ -1344,6 +1349,7 @@ def plot_truth(plot_time=False, Nq=None, filename=None, **truth_dict):
         ax_pdf[0].set(title='PDF', ylim=[-max_y, max_y])
         ax_PSD[0].set(title='PSD', xlim=[100, 2e3])
         ax_pdf[-1].set(xlabel='$p$')
+        ax_PSD[-1].set(xlabel='$f$')
         for qi in range(Nq):
             # peaks = find_peaks(abs(yy[:, qi]))[0]
             # ax_pdf[qi].hist(yy[peaks, qi], bins=bins, density=True, orientation='horizontal',
@@ -1410,7 +1416,6 @@ def plot_violins(ax, values, location, color='b', label=None, alpha=0.5, **kwarg
 
 
 # ==================================================================================================================
-
 def print_parameter_results(ensembles, true_values):
     from tabulate import tabulate
     if type(ensembles) is not list:
@@ -1420,15 +1425,16 @@ def print_parameter_results(ensembles, true_values):
     truth_row = ['Truth']
     for key, val in true_values.items():
         headers.append(key)
-        truth_row.append('${}$'.format(val))
+        truth_row.append('${:.8}$'.format(val))
 
     rows = [truth_row]
     for ensemble in ensembles:
         alpha = ensemble.get_alpha()
-        row = ['{} + {}'.format(ensemble.filter, ensemble.bias.name)]
+        row = ['{} \n w/ {}'.format(ensemble.filter, ensemble.bias.name)]
         for key in headers[1:]:
             vals = [a[key] for a in alpha]
-            row.append('${} \\pm {}$'.format(np.mean(vals), np.std(vals)))
+
+            row.append('${:.8} \n \\pm {:.4}$'.format(np.mean(vals), np.std(vals)))
 
         rows.append(row)
 

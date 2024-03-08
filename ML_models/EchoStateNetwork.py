@@ -275,7 +275,7 @@ class EchoStateNetwork:
             Nt += extra_closed
 
         r = np.empty((Nt + 1, self.N_units, self.u.shape[-1]))
-        u = np.empty((Nt + 1, self.N_dim, self.u.shape[-1]))
+        u = np.empty((Nt + 1, self.N_dim_in, self.u.shape[-1]))
 
         if self.bayesian_update and self.trained and force_reconstruct:
             u0, r0 = self.reconstruct_state(observed_data=u_wash[0],
@@ -306,7 +306,7 @@ class EchoStateNetwork:
         """
 
         r = np.empty((Nt + 1, self.N_units, self.u.shape[-1]))
-        u = np.empty((Nt + 1, self.N_dim, self.u.shape[-1]))
+        u = np.empty((Nt + 1, self.N_dim_in, self.u.shape[-1]))
 
         u[0], r[0] = self.get_reservoir_state()
 
@@ -563,7 +563,7 @@ class EchoStateNetwork:
             U_std = np.std(U, axis=1)
             rng_noise = np.random.default_rng(self.seed_noise)
             for ll in range(Y.shape[0]):
-                for dd in range(self.N_dim):
+                for dd in range(self.N_dim_in):
                     U_wtv[ll, :, dd] += rng_noise.normal(loc=0, scale=self.noise * U_std[ll, dd], size=U_wtv.shape[1])
                     U_test[ll, :, dd] += rng_noise.normal(loc=0, scale=self.noise * U_std[ll, dd], size=U_test.shape[1])
 

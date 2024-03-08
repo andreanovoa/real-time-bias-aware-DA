@@ -203,8 +203,6 @@ class ESN(Bias, EchoStateNetwork):
         self.reset_state(u=u[-1], r=r[-1])
 
         return u[1:], t_b[1:]
-
-
     def train_bias_model(self, **train_data):
         data = train_data['data']
         del train_data['data']
