@@ -14,7 +14,8 @@ plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
 rnd = np.random.RandomState(6)
 
 run_ergodic_gif = False
-run_butterfly_gif = True
+run_butterfly_gif = False
+run_parameters_gif = True
 
 dt_model = 0.005
 t_lyap = 0.906 ** (-1)  # Lyapunov Time (inverse of largest Lyapunov exponent
@@ -180,3 +181,129 @@ if __name__ == '__main__':
 
         animation = FuncAnimation(fig, update,  frames=np.arange(Nt//dt_frame), blit=False)
         animation.save('Lorenz_butterfly.gif', fps=5)
+
+    if run_parameters_gif:
+        fig = plt.figure(figsize=(15, 10), dpi=60)
+        ax = fig.add_subplot(111, projection='3d')
+        ax.xaxis.pane.fill = False
+        ax.yaxis.pane.fill = False
+        ax.zaxis.pane.fill = False
+
+        rho_all = [10, 90, 160, 200, 260]
+
+        ax.set(xlabel='$x$', ylabel='$y$', zlabel='$z$')
+
+        colors = ['w', 'y', 'darkmagenta', 'mediumslateblue', 'darkturquoise', 'tab:red', 'violet']
+
+        colors = plt.cm.plasma(np.linspace(0.1, 1, len(rho_all)))[::-1]
+        colors = colors.tolist()
+        colors[2] = 'tab:red'
+
+        colors[3] = colors[-1]
+        colors[-1] = 'c'
+
+        forecast_params = dict(dt=dt_model,
+                               t_transient=10 * t_lyap,
+                               sigma=10,
+                               beta=8./3.,
+                               t_lyap=t_lyap)
+
+        HIST = []
+        RHOS = []
+        CS = []
+
+        psi0 = np.array([40, 100, 100])
+        Nt = Lorenz63.t_transient // dt_model * 2
+
+        for kk in range(len(rho_all)):
+
+            rho, c = rho_all[kk], colors[kk]
+
+            forecast_params['psi0'] = psi0
+            forecast_params['rho'] = rho
+            case = Lorenz63(**forecast_params)
+            psi = case.time_integrate(Nt=Nt)[0]
+
+            HIST.append(psi)
+            RHOS.append(rho*np.ones(psi.shape[0]))
+            CS.append(kk*np.ones(psi.shape[0]))
+
+
+            forecast_params['psi0'] = psi[-1]
+            case = Lorenz63(**forecast_params)
+
+            psi = case.time_integrate(Nt=Nt)[0]
+
+            ax.plot(psi[:, 0], psi[:, 1], psi[:, 2], c=c, lw=.5)
+            ax.plot(psi[-1, 0], psi[-1, 1], psi[-1, 2], c=c, marker='o', markerfacecolor=c)
+
+            HIST.append(psi)
+            RHOS.append(rho*np.ones(psi.shape[0]))
+            CS.append(kk*np.ones(psi.shape[0]))
+
+            psi0 = psi[-1]
+
+
+        def update(frame):
+            ax.view_init(elev=20 + np.sin(np.radians(frame)), azim=frame / 2.)
+            ax.set_xlim(-50, 50)  # Adjust as needed
+            ax.set_ylim(-150, 150)  # Adjust as needed
+            ax.set_zlim(-20, 350)  # Adjust as needed
+            ax.set(xlabel='$x$', ylabel='$y$', zlabel='$z$')
+
+        #
+        # # Set up the figure and axis
+        # # Create an animation
+        animation = FuncAnimation(fig, update, frames=np.arange(300))
+
+        # #
+        # # # Save the animation as a video file
+        animation.save('Lorenz_bifurcations_attractors_quick.gif', writer='ffmpeg', fps=10)
+
+
+        raise
+
+
+        frame_dt = 15
+        window_length = 200
+        offset = 0
+        for kk, H in enumerate(HIST):
+
+            c = colors[kk//2]
+            r = rho_all[kk//2]
+            if kk > 0:
+                offset = len(H) // frame_dt
+
+            print(kk)
+            def update(frame):
+                t1 = frame * frame_dt
+                t0 = max(0, t1 - window_length * frame_dt)
+
+                ax.clear()  # Clear the previous frame
+                ax.view_init(elev=20 + np.sin(np.radians(frame + offset)), azim=(frame + offset) / 2.)
+
+                if kk > 0:
+                    t0_old = - (t1 - window_length * frame_dt)
+                    if t0_old > 0:
+                        old_H = HIST[kk-1]
+                        ax.plot(old_H[-t0_old:, 0],
+                                old_H[-t0_old:, 1], old_H[-t0_old:, 2], lw=1., alpha=0.9, c=colors[(kk - 1) // 2])
+                if t1 == 0:
+                    ax.plot(H[0, 0], H[0, 1], H[0, 2], c=c, marker='o', markerfacecolor=c)
+                else:
+                    psi = H[t0:t1]
+                    ax.plot(psi[:, 0], psi[:, 1], psi[:, 2], lw=1., alpha=0.9, c=c)
+                    ax.plot(psi[-1, 0], psi[-1, 1], psi[-1, 2], c=c, marker='o', markerfacecolor=c)
+
+                ax.set_title('$\\rho={}$'.format(r), c=c)
+
+                ax.set_xlim(-50, 50)  # Adjust as needed
+                ax.set_ylim(-150, 150)  # Adjust as needed
+                ax.set_zlim(-20, 350)  # Adjust as needed
+                ax.set(xlabel='$x$', ylabel='$y$', zlabel='$z$')
+
+
+            # # # Create an animation
+            animation = FuncAnimation(fig, update, frames=np.arange(len(H)//frame_dt))
+            animation.save('Lorenz_bifurcations_quik{}.gif'.format(kk), writer='ffmpeg', fps=10)
+
