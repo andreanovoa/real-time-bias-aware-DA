@@ -32,19 +32,19 @@ def create_ensemble(forecast_params=None, model=None, **filter_params):
     return ensemble
 
 
-def create_truth(model, t_start=1., t_stop=1.5, dt_obs=20, std_obs=0.05, t_max=None,
+def create_truth(model, t_start=1., t_stop=1.5, Nt_obs=20, std_obs=0.05, t_max=None, t_min=0.,
                  noise_type='gauss, add', post_processed=False, manual_bias=None, **kwargs):
     # =========================== LOAD DATA OR CREATE TRUTH FROM LOM ================================ #
     if t_max is None:
         t_max = t_stop + t_start
 
     if type(model) is str:
-        y_raw, y_true, t_true, name_truth = create_observations_from_file(model, t_max=t_max)
+        y_raw, y_true, t_true, name_truth = create_observations_from_file(model, t_max=t_max, t_min=t_min,)
         case_name = model.split('/')[-1]
         name_bias = 'Exp_' + case_name
         b_true = np.zeros(1)
     else:
-        y_true, t_true, name_truth = create_observations(model, t_max=t_max, **kwargs)
+        y_true, t_true, name_truth = create_observations(model, t_max=t_max, t_min=t_min, **kwargs)
 
         #  ADD BIAS TO THE TRUTH #
         if manual_bias is None:
@@ -77,56 +77,53 @@ def create_truth(model, t_start=1., t_stop=1.5, dt_obs=20, std_obs=0.05, t_max=N
 
     # =========================== COMPUTE OBSERVATIONS AT DESIRED TIME =========================== #
     dt_t = t_true[1] - t_true[0]
-    obs_idx = np.arange(t_start // dt_t, t_stop // dt_t + 1, dt_obs, dtype=int)
+    obs_idx = np.arange(t_start // dt_t, t_stop // dt_t + 1, Nt_obs, dtype=int)
 
     # ================================ SAVE DATA TO DICT ==================================== #
     if '/' in name_truth:
         name_truth = '_'.join(name_truth.split('/'))
 
     truth = dict(y_raw=y_raw, y_true=y_true, t=t_true, b=b_true, dt=dt_t,
-                 t_obs=t_true[obs_idx], y_obs=y_raw[obs_idx], dt_obs=dt_obs * dt_t,
+                 t_obs=t_true[obs_idx], y_obs=y_raw[obs_idx], dt_obs=Nt_obs * dt_t,
                  name=name_truth, name_bias=name_bias, noise_type=noise_type,
                  model=model, std_obs=std_obs, true_params=kwargs)
 
     return truth
 
 
-def create_observations_from_file(name, t_max=None):
+def create_observations_from_file(name, t_max, t_min=0.):
     # Wave case: load .mat file ====================================
     try:
         if 'rijke' in name:
             mat = sio.loadmat(name + '.mat')
-            y_raw, y_true, t_obs = [mat[key].transpose() for key in ['p_mic', 'p_mic', 't_mic']]
+            y_raw, y_true, t_true = [mat[key].transpose() for key in ['p_mic', 'p_mic', 't_mic']]
         elif 'annular' in name:
             mat = sio.loadmat(name + '.mat')
-            y_raw, y_true, t_obs = [mat[key] for key in ['y_raw', 'y_filtered', 't']]
+            y_raw, y_true, t_true = [mat[key] for key in ['y_raw', 'y_filtered', 't']]
         else:
             raise FileNotFoundError
     except FileNotFoundError:
         raise 'File ' + name + ' not defined'
 
-    if len(np.shape(t_obs)) > 1:
-        t_obs = np.squeeze(t_obs)
+    if len(np.shape(t_true)) > 1:
+        t_true = np.squeeze(t_true)
 
-    if y_raw.shape[0] != len(t_obs):
+    if y_raw.shape[0] != len(t_true):
         y_raw, y_true = [yy.transpose() for yy in [y_raw, y_true]]
 
-    if t_max is not None:
-        idx = np.argmin(abs(t_obs - t_max))
-        y_raw, y_true, t_obs = [yy[:idx] for yy in [y_raw, y_true, t_obs]]
+    id0, id1 = [np.argmin(abs(t_true - tx)) for tx in [t_min, t_max]]
+    y_raw, y_true, t_true = [yy[id0:id1] for yy in [y_raw, y_true, t_true]]
 
-    return y_raw, y_true, t_obs, name.split('data/')[-1]
+    return y_raw, y_true, t_true, name.split('data/')[-1]
 
 
-def create_observations(model, t_max=None, **true_parameters):
+def create_observations(model, t_max, t_min, **true_parameters):
     try:
         TA_params = true_parameters.copy()
         model = model
     except AttributeError:
         raise 'true_parameters must be dict'
 
-    if t_max is None:
-        t_max = model.t_transient * 5
 
     # ============================================================
     # Add key parameters to filename
@@ -156,11 +153,16 @@ def create_observations(model, t_max=None, **true_parameters):
         print('Save true data: ' + name)
 
     # Retrieve observables
-    p_obs = case.get_observable_hist()
-    if len(np.shape(p_obs)) > 2:
-        p_obs = np.squeeze(p_obs, axis=-1)
+    y_true = case.get_observable_hist()
+    if len(np.shape(y_true)) > 2:
+        y_true = np.squeeze(y_true, axis=-1)
+    t_true = case.hist_t
 
-    return p_obs, case.hist_t, name.split('Truth_')[-1]
+    if t_min > 0.:
+        id0 = np.argmin(abs(t_true - t_min))
+        y_true, t_obs = [yy[id0:] for yy in [y_true, t_true]]
+
+    return y_true, t_true, name.split('Truth_')[-1]
 
 
 def create_noisy_signal(y_clean, noise_level=0.1, noise_type='gauss, add'):

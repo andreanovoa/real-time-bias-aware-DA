@@ -22,12 +22,6 @@ out_dir = folder+"/out/"
 os.makedirs(figs_dir, exist_ok=True)
 
 
-ERs = 0.4875 + np.arange(0, 8) * 0.0125  # equivalence ratios 0.4875-0.575 (by steps of 0.0125)
-ER = ERs[-1]
-true_params = dict(model=data_folder + 'annular/ER_{}'.format(ER),
-                   std_obs=0.1,
-                   noise_type='white'
-                   )
 
 # ==================================== SELECT FILTER PARAMETERS =================================== #
 

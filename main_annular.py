@@ -4,7 +4,23 @@ from default_parameters.annular import *
 
 if __name__ == '__main__':
     # ========================== CREATE TRUTH AND ENSEMBLE  =================================
-    truth = create_truth(true_params, filter_params, post_processed=False)
+
+    t_start = 2. * Annular.t_transient
+    t_stop = t_start + Annular.t_CR * 20
+    Nt_obs = 60
+
+    ERs = 0.4875 + np.arange(0, 4) * 0.025  # equivalence ratios 0.4875-0.575 (by steps of 0.025)
+    ER = ERs[-1]
+    true_params = dict(model=data_folder + 'annular/ER_{}'.format(ER),
+                       t_max=7.,
+                       t_start=t_start,
+                       t_stop=t_stop,
+                       Nt_obs=60
+                       )
+
+    truth = create_truth(true_params,
+                         filter_params, post_processed=False)
+
 
     ensemble = create_ensemble(forecast_params, filter_params)
 

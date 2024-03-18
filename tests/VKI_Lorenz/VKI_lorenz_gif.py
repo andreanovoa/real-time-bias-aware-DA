@@ -237,9 +237,9 @@ if __name__ == '__main__':
             ax.plot(psi[:, 0], psi[:, 1], psi[:, 2], c=c, lw=.5)
             ax.plot(psi[-1, 0], psi[-1, 1], psi[-1, 2], c=c, marker='o', markerfacecolor=c)
 
-            HIST.append(psi)
-            RHOS.append(rho*np.ones(psi.shape[0]))
-            CS.append(kk*np.ones(psi.shape[0]))
+            # HIST.append(psi)
+            # RHOS.append(rho*np.ones(psi.shape[0]))
+            # CS.append(kk*np.ones(psi.shape[0]))
 
             psi0 = psi[-1]
 
@@ -258,10 +258,7 @@ if __name__ == '__main__':
 
         # #
         # # # Save the animation as a video file
-        animation.save('Lorenz_bifurcations_attractors_quick.gif', writer='ffmpeg', fps=10)
-
-
-        raise
+        animation.save('Lorenz_bifurcations_attractors.gif', writer='ffmpeg', fps=10)
 
 
         frame_dt = 15
@@ -269,12 +266,13 @@ if __name__ == '__main__':
         offset = 0
         for kk, H in enumerate(HIST):
 
-            c = colors[kk//2]
-            r = rho_all[kk//2]
+            c = colors[kk]
+            r = rho_all[kk]
             if kk > 0:
                 offset = len(H) // frame_dt
 
             print(kk)
+
             def update(frame):
                 t1 = frame * frame_dt
                 t0 = max(0, t1 - window_length * frame_dt)
@@ -287,7 +285,7 @@ if __name__ == '__main__':
                     if t0_old > 0:
                         old_H = HIST[kk-1]
                         ax.plot(old_H[-t0_old:, 0],
-                                old_H[-t0_old:, 1], old_H[-t0_old:, 2], lw=1., alpha=0.9, c=colors[(kk - 1) // 2])
+                                old_H[-t0_old:, 1], old_H[-t0_old:, 2], lw=1., alpha=0.9, c=colors[kk - 1])
                 if t1 == 0:
                     ax.plot(H[0, 0], H[0, 1], H[0, 2], c=c, marker='o', markerfacecolor=c)
                 else:
@@ -305,5 +303,5 @@ if __name__ == '__main__':
 
             # # # Create an animation
             animation = FuncAnimation(fig, update, frames=np.arange(len(H)//frame_dt))
-            animation.save('Lorenz_bifurcations_quik{}.gif'.format(kk), writer='ffmpeg', fps=10)
+            animation.save('Lorenz_bifurcations_k{}.gif'.format(kk), writer='ffmpeg', fps=10)
 
