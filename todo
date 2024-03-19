@@ -1,0 +1,49 @@
+
+% 1. For 1 EQ only:
+% - Timeseries of one microphone
+% - Parameter convergence
+% - both model bias and observation bias
+% - quaternions
+
+% 2. Compare with bias-unaware
+% - PDF of all pressure locations
+% - Evolution of RMS
+
+% 3. Impact of number of microphones *
+% - xaxis num mics, yaxis RMS
+
+
+% 4. For all EQ: *
+% - Comparison of parameters varying gamma with RMS colorscale (fig. 9 Indlekofer 2022)\\
+% - if (3) nice, do this 3 times
+
+
+
+==========================================================================================
+%The bias in the mean pressure can be due to large scale flow structures which are not
+correlated to the thermoacoustic dynamics.
+
+%The parameter which is of most intesrest for real time inference perspective is
+definitely the linear growth rate, because it gives the “strength” of the instability,
+i.e. how fast is the system repelled from the origin if it would be forced to start from
+it. Knowing this strength tells you how difficult it would be to stabilize the system.
+The stabilization can be achieved for instance by allocating space to acoustic dampers,
+but the damping volume needed will be directly linked to the linear growth
+rate (see https://doi.org/10.1016/j.jsv.2018.12.011).
+
+%It is one of the best papers I’ve co-authored, and also one of the longest to get
+published (probably 2.5 years, JFM was the 4th journal where we’ve submitted it). Although
+the main results were ready from the beginning, the last improvements allowed us to also
+replicate a more subtle feature of the dynamics, the intermittent changes of preferred
+standing wave component direction, governed by these 2 parameters. But after having modeled
+this effect, we decided to simply adjust by hand these parameters and make use of the
+identification of the other parameters already made earlier. It may be that the optimum
+set of parameters vary a bit when all of them are identified at the same time (you’ll
+tell me what you get).
+
+%Somehow same reason as 3: our very first submission was at the same time as the submission
+of [1] and over the course of the iterations, the paper improved (we made identification for
+a larger set of equivalence ratio) and the identified paramteres slightly changed. But overal
+these small relative changes are not relevant given the nature of the problem at hand (see
+figure 9 of [2]).
+

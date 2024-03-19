@@ -12,10 +12,12 @@ from skopt.learning import GaussianProcessRegressor as GPR
 from skopt.learning.gaussian_process.kernels import ConstantKernel, Matern
 from skopt.space import Real
 from skopt.plots import plot_convergence
+from multiprocessing import Pool
 import random
 from scipy.sparse import csr_matrix, lil_matrix
 from scipy.sparse.linalg import eigs as sparse_eigs
 
+pool = Pool()
 XDG_RUNTIME_DIR = 'tmp/'
 
 
@@ -471,11 +473,45 @@ class EchoStateNetwork:
 
         self.W = (1. / spectral_radius) * W
 
+
+
+
+    # def for_func(self, U_wtv, Y_tv, R_RR, U_RR, ll):
+    #     LHS_l, RHS_l = 0., 0.
+    #     # Washout phase. Store the last r value only
+    #     self.r = self.openLoop(U_wtv[ll][:self.N_wash], extra_closed=True)[1][-1]
+    #     # Split training data for faster computations
+    #     U_train = np.array_split(U_wtv[ll][self.N_wash:], self.N_split, axis=0)
+    #     Y_target = np.array_split(Y_tv[ll], self.N_split, axis=0)
+    #     for U_t, Y_t in zip(U_train, Y_target):
+    #         # Open-loop train phase
+    #         u_open, r_open = self.openLoop(U_t, extra_closed=True)
+    #
+    #         self.reset_state(u=u_open[-1], r=r_open[-1])
+    #
+    #         u_open, r_open = u_open[1:].squeeze(), r_open[1:].squeeze()
+    #
+    #         R_RR[ll] = np.append(R_RR[ll], r_open, axis=0)
+    #         U_RR[ll] = np.append(U_RR[ll], u_open, axis=0)
+    #
+    #         # Compute matrices for linear regression system
+    #         bias_out = np.ones([r_open.shape[0], 1]) * self.bias_out
+    #         r_aug = np.hstack((r_open, bias_out))
+    #         LHS_l += np.dot(r_aug.T, r_aug)
+    #         RHS_l += np.dot(r_aug.T, Y_t)
+    #     return LHS_l, RHS_l
+
+
     def compute_RR_terms(self, U_wtv, Y_tv):
         LHS, RHS = 0., 0.
         R_RR = [np.empty([0, self.N_units])] * U_wtv.shape[0]
         U_RR = [np.empty([0, self.N_dim])] * U_wtv.shape[0]
         self.reset_state(u=self.u * 0, r=self.r * 0)
+
+        # part = partial(EchoStateNetwork.for_func, R_RR=R_RR, U_RR=U_RR)
+        # sol = [self.pool.apply_async(part, ) for mi in range(self.m)]
+        # psi = [s.get() for s in sol]
+
         for ll in range(U_wtv.shape[0]):
             # Washout phase. Store the last r value only
             self.r = self.openLoop(U_wtv[ll][:self.N_wash], extra_closed=True)[1][-1]
@@ -502,6 +538,7 @@ class EchoStateNetwork:
                 RHS += np.dot(r_aug.T, Y_t)
 
         return LHS, RHS, U_RR, R_RR
+
 
     def solve_ridge_regression(self, U_wtv, Y_tv):
         LHS, RHS = self.compute_RR_terms(U_wtv, Y_tv)[:2]
