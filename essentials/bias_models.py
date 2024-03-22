@@ -52,7 +52,15 @@ class Bias:
         current_state = self.hist[-1]
         return self.get_bias(state=current_state)
 
+    @property
+    def get_current_innovations(self):
+        current_state = self.hist[-1]
+        return self.get_innovations(state=current_state)
+
     def get_bias(self, state, **kwargs):
+        return state
+
+    def get_innovations(self, state, **kwargs):
         return state
 
     def get_ML_state(self, **kwargs):
@@ -228,14 +236,25 @@ class ESN(Bias, EchoStateNetwork):
         else:
             return self.observed_idx
 
-    def get_bias(self, state, mean_bias=True):
-        if mean_bias:
+    def get_bias(self, state, mean=True):
+        if mean:
             state = np.mean(state, axis=-1, keepdims=True)
 
         if state.shape[0] == self.N_dim:
             return state[self.bias_idx]
         elif state.shape[1] == self.N_dim:
             return state[:, self.bias_idx]
+        else:
+            raise AssertionError('state shape = {}'.format(state.shape))
+
+    def get_innovations(self, state, mean=True):
+        if mean:
+            state = np.mean(state, axis=-1, keepdims=True)
+
+        if state.shape[0] == self.N_dim:
+            return state[self.observed_idx]
+        elif state.shape[1] == self.N_dim:
+            return state[:, self.observed_idx]
         else:
             raise AssertionError('state shape = {}'.format(state.shape))
 # =================================================================================================================== #

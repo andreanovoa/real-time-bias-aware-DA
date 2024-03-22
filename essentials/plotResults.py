@@ -1077,26 +1077,28 @@ def plot_RMS_pdf(ensembles, truth, nbins=40):
         ii += 2
         y_est = ens.get_observable_hist()
         y_est = interpolate(ens.hist_t, y_est, t_ref)
-
         y_mean = np.mean(y_est, axis=-1, keepdims=True)
-        if ens.bias.name != 'NoBias':
-            b_est = ens.bias.get_bias(ens.bias.hist, mean_bias=False)
-            y_est_u = interpolate(t_ref, y_mean, ens.bias.hist_t) + b_est
-            y_est_u = interpolate(ens.bias.hist_t, y_est_u, t_ref)
-        else:
-            y_est_u = y_mean
-
-        colours = [['c'] * ens.m, ['tab:green'] * y_est_u.shape[-1]]
 
         R = np.sqrt(np.sum((y_ref - y_est) ** 2, axis=1) / np.sum(y_ref ** 2, axis=1))
-        R_u = np.sqrt(np.sum((y_ref - y_est_u) ** 2, axis=1) / np.sum(y_ref ** 2, axis=1))
-
         Rm = np.sqrt(np.sum((y_ref - y_mean) ** 2, axis=1) / np.sum(y_ref ** 2, axis=1))
 
-        y_mean_u = np.mean(y_est_u, axis=-1, keepdims=True)
-        Rm_u = np.sqrt(np.sum((y_ref - y_mean_u) ** 2, axis=1) / np.sum(y_ref ** 2, axis=1))
+        if ens.bias.name != 'NoBias':
+            b_est = ens.bias.get_bias(ens.bias.hist)
+            # y_est_u = interpolate(t_ref, y_mean, ens.bias.hist_t) + b_est
+            # y_est_u = interpolate(ens.bias.hist_t, y_est_u, t_ref)
+            b_est_interp = interpolate(ens.bias.hist_t, b_est, t_ref)
+            y_est_u = y_est + b_est_interp
+            y_mean_u = np.mean(y_est_u, axis=-1, keepdims=True)
+            R_u = np.sqrt(np.sum((y_ref - y_est_u) ** 2, axis=1) / np.sum(y_ref ** 2, axis=1))
+            Rm_u = np.sqrt(np.sum((y_ref - y_mean_u) ** 2, axis=1) / np.sum(y_ref ** 2, axis=1))
+            RR, RR_m = [R, R_u], [Rm, Rm_u]
+        else:
+            RR, RR_m = [R], [Rm]
 
-        for axs_, yy, RR, RRm, c in zip([axs_all[ii], axs_all[ii + 1]], [y_est, y_est_u], [R, R_u], [Rm, Rm_u], colours):
+        colours = [[color_bias] * ens.m, ['tab:green'] * ens.m]
+
+
+        for axs_, yy, rr, rrm, c in zip([axs_all[ii], axs_all[ii + 1]], [y_est, y_est_u], RR, RR_m, colours):
 
             axs_[0].set(ylabel=ens.filter)
             if axs_[0] == axs_all[ii + 1, 0]:
@@ -1105,11 +1107,11 @@ def plot_RMS_pdf(ensembles, truth, nbins=40):
             kk = 0
             for jjs, leg, ax in zip(times, legs, axs_):
                 j0, j1 = jjs
-                segment = RR[j0:j1]
+                segment = rr[j0:j1]
                 segment[segment > max_RMS] = max_RMS
-                ax.hist(RRm[j0:j1], histtype='step', color=c[0], lw=2, **args)
+                ax.hist(rrm[j0:j1], histtype='step', color=c[0], lw=2, **args)
                 ax.hist(segment, histtype='stepfilled', alpha=0.1, stacked=False, color=c, **args)
-                mean = np.mean(RRm[j0:j1])
+                mean = np.mean(rrm[j0:j1])
                 if mean > max_RMS:
                     ax.axvline(max_RMS, c='tab:red', lw=1, ls='--')
                 else:
@@ -1147,20 +1149,24 @@ def plot_states_PDF(ensembles, truth, nbins=20, window=None):
         y_est = interpolate(ens.hist_t, y_est, t_ref)
 
         # Plot bias-corrected solutions
-        b_est = ens.bias.get_bias(state=ens.bias.hist, mean_bias=False)
+        b_est = ens.bias.get_bias(state=ens.bias.hist, mean=False)
         y_mean = np.mean(y_est, axis=-1, keepdims=True)
         if ens.bias.name != 'NoBias':
-            y_est_u = interpolate(t_ref, y_mean, ens.bias.hist_t) + b_est
-            y_est_u = interpolate(ens.bias.hist_t, y_est_u, t_ref)
+            b_est_interp = interpolate(ens.bias.hist_t, b_est, t_ref)
+            # y_est_u = interpolate(t_ref, y_est, ens.bias.hist_t) + b_est
+            # y_est_u = interpolate(ens.bias.hist_t, y_est_u, t_ref)
+            y_est_u = y_est + b_est_interp
+            plot_yy = [y_est, y_est_u]
         else:
-            y_est_u = y_mean
+            plot_yy = [y_est]
 
-        for yy, axs_, c in zip([y_est, y_est_u], [axs_all[ii], axs_all[ii + 1]],
-                               [['c', 'tab:blue'], ['tab:green', 'darkgreen']]):
+        for yy, axs_, c in zip(plot_yy, [axs_all[ii], axs_all[ii + 1]],
+                               # [[color_bias, 'tab:blue'], [color_unbias, 'darkgreen']]):
+                               [[color_bias, 'tab:blue'], ['tab:green', 'darkgreen']]):
             for qi, ax in enumerate(axs_):
                 for mi in range(yy.shape[-1]):
                     ax.hist(yy[:, qi, mi], color=c[0], alpha=0.2, **args_2)
-                ax.hist(y_ref_true[:, qi], color='k', alpha=0.7, lw=2, **args_1)
+                ax.hist(y_ref_true[:, qi], color='k', alpha=.7, lw=2, **args_1)
                 ax.hist(y_ref_raw[:, qi], color='tab:red', alpha=0.7, lw=2, **args_1)
                 ax.hist(np.mean(yy[:, qi], axis=-1), color=c[1], alpha=1, ls=(0, (6, 1)), lw=1.5, **args_1)
                 ax.axvline(np.mean(y_ref_true[:, qi]), color='k', ls='-', lw=2)
@@ -1219,7 +1225,6 @@ def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False,
     max_y = np.max(abs(y_raw))
     y_lims = [-max_y - margin, max_y + margin]
 
-    print(y_lims)
     x_lims = [[t_obs[0] - .25 * filter_ens.t_CR, t_obs[0] + filter_ens.t_CR],
               [t_obs[-1] - filter_ens.t_CR, max_time],
               [t[0], max_time]]
@@ -1414,6 +1419,55 @@ def plot_violins(ax, values, location, color='b', label=None, alpha=0.5, **kwarg
     # if label is not None:
     #     ax.legend([violins['bodies'][0]], [label])
 
+
+def plot_covarriance(case):
+    fig, axs = plt.subplots(2, 2, figsize=(10, 10))
+
+    idx = -1
+
+    Af = case.hist[idx]
+    y = case.get_observable_hist()[idx]
+
+    Af = np.vstack((Af, y))
+
+    N, m = Af.shape
+    Nphi, Na, Nq = case.Nphi, case.Na, case.Nq
+
+    tixs = case.state_labels.copy()
+    tixs += [case.params_labels[key] for key in case.est_a]
+    tixs += ['$p_{}$'.format(ii) for ii in np.arange(Nq)]
+
+    # range_psi = np.max(Af, axis=-1, keepdims=True) - np.min(Af, axis=-1, keepdims=True)
+    # Cpp = (Af - np.mean(Af, axis=-1, keepdims=True)) / range_psi
+    # Cpp = np.dot(Cpp, Cpp.T) / (m - 1)
+
+    Cpp = np.corrcoef(Af- np.mean(Af, axis=-1, keepdims=True))
+
+    for ii in range(Cpp.shape[0]):
+        for jj in range(Cpp.shape[1]):
+            if jj < ii:
+                Cpp[ii, jj] = 0
+
+    axs = axs.ravel()
+    vmax = np.max(abs(Cpp))
+    args = dict(cmap="PuOr", vmin=-vmax, vmax=vmax)
+
+    axs[0].matshow(Cpp, **args)
+    axs[0].set(xticks=np.arange(N), xticklabels=tixs)
+    axs[0].set(yticks=np.arange(N), yticklabels=tixs)
+
+    im = axs[1].matshow(Cpp[:Nphi, -Nq:], **args)
+    cbar = plt.colorbar(im, orientation='vertical', shrink=0.5)
+    axs[1].set(xticks=np.arange(Nq), xticklabels=tixs[-Nq:])
+    axs[1].set(yticks=np.arange(Nphi), yticklabels=tixs[:Nphi])
+
+    axs[2].matshow(Cpp[Nphi:Nphi + Na, -Nq:], **args)
+    axs[2].set(xticks=np.arange(Nq), xticklabels=tixs[-Nq:])
+    axs[2].set(yticks=np.arange(Na), yticklabels=tixs[Nphi:Nphi + Na])
+
+    axs[3].matshow(Cpp[:Nphi, Nphi:Nphi + Na].T, **args)
+    axs[3].set(xticks=np.arange(Nphi), xticklabels=tixs[:Nphi])
+    axs[3].set(yticks=np.arange(Na), yticklabels=tixs[Nphi:Nphi + Na])
 
 # ==================================================================================================================
 def print_parameter_results(ensembles, true_values):

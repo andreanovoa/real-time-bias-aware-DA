@@ -17,7 +17,6 @@ import random
 from scipy.sparse import csr_matrix, lil_matrix
 from scipy.sparse.linalg import eigs as sparse_eigs
 
-pool = Pool()
 XDG_RUNTIME_DIR = 'tmp/'
 
 

@@ -100,7 +100,6 @@ if __name__ == '__main__':
 
     fig, ax = plt.subplots(nrows=len(Wouts)+1, ncols=1, height_ratios=wr, layout='tight')
 
-
     maxxx = 0
     for Wout in Wouts:
         maxxx = np.mean([np.mean(abs(Wout)), maxxx])

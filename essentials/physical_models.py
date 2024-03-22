@@ -383,7 +383,7 @@ class VdP(Model):
     params_labels = dict(beta='$\\beta$', zeta='$\\zeta$', kappa='$\\kappa$')
     params_lims = dict(zeta=(5, 120), kappa=(0.1, 20), beta=(5, 120))
     params: list = [*params_labels]  # ,'omega', 'gamma']
-    state_labels: list = ['$\\eta$', '$\mu$']
+    state_labels: list = ['$\\eta$', '$\\mu$']
     fixed_params = ['law', 'omega']
 
     # __________________________ Init method ___________________________ #

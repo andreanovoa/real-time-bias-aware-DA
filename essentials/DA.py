@@ -147,6 +147,12 @@ def analysisStep(case, d, Cdd):
         # ----------------- Retrieve bias and its Jacobian ----------------- #
         b = case.bias.get_current_bias
         J = case.bias.state_derivative()
+
+        if case.bias.biased_observations:
+            bd = np.mean(b - case.bias.get_current_innovations, axis=-1)
+            d += bd
+
+
         # -------------- Define bias Covariance and the weight -------------- #
         k = case.regularization_factor
         Cbb = Cdd.copy()  # Bias covariance matrix same as obs cov matrix for now

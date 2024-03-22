@@ -377,7 +377,8 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble,
         else:
             y_pp_corr = y_pp[:N_corr, :, 0]
             lags = np.linspace(start=0, stop=N_corr, num=N_corr, dtype=int)
-            train_data_model = np.zeros([y_pp.shape[0], y_pp.shape[1], train_ens.m * 3])
+            len_augment_set = 2
+            train_data_model = np.zeros([y_pp.shape[0], y_pp.shape[1], train_ens.m * len_augment_set])
 
             for ii in range(train_ens.m):
                 yy = y_L_model[:, :, ii]
@@ -388,9 +389,10 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble,
                 worst_lag = lags[np.argmax(RS)]  # fully uncorrelated
                 mid_lag = int(np.mean([best_lag, worst_lag]))  # mid-correlated
                 # Store train data
-                train_data_model[:, :, 3 * ii] = yy[worst_lag:worst_lag + Nt]
-                train_data_model[:, :, 3 * ii + 1] = yy[mid_lag:mid_lag + Nt]
-                train_data_model[:, :, 3 * ii + 2] = yy[best_lag:best_lag + Nt]
+                train_data_model[:, :, len_augment_set * ii] = yy[best_lag:best_lag + Nt]
+                train_data_model[:, :, len_augment_set * ii + 1] = yy[mid_lag:mid_lag + Nt]
+                if len_augment_set == 3:
+                    train_data_model[:, :, len_augment_set * ii + 2] = yy[worst_lag:worst_lag + Nt]
 
         # ================ Create training biases as (observations - model estimates) ================= #
         innovations = y_raw - train_data_model
