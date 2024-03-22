@@ -1095,6 +1095,7 @@ def plot_RMS_pdf(ensembles, truth, nbins=40):
         else:
             RR, RR_m = [R], [Rm]
 
+
         colours = [[color_bias] * ens.m, ['tab:green'] * ens.m]
 
 

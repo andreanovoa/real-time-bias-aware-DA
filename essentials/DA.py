@@ -148,9 +148,9 @@ def analysisStep(case, d, Cdd):
         b = case.bias.get_current_bias
         J = case.bias.state_derivative()
 
-        if case.bias.biased_observations:
-            bd = np.mean(b - case.bias.get_current_innovations, axis=-1)
-            d += bd
+        # if case.bias.biased_observations:
+        #     bd = np.mean(b - case.bias.get_current_innovations, axis=-1)
+        #     d += bd
 
 
         # -------------- Define bias Covariance and the weight -------------- #
