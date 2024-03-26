@@ -80,6 +80,7 @@ class Model:
         # ======================== SET RNG ================================== ##
         self.rng = np.random.default_rng(self.seed)
 
+
     @property
     def Nphi(self):
         return len(self.psi0)
@@ -187,8 +188,11 @@ class Model:
 
         return ensemble_
 
-    def init_ensemble(self, **DAdict):
-        DAdict = DAdict.copy()
+    def init_ensemble(self, seed=None, **kwargs):
+        if seed is not None:
+            self.set_rng(seed=seed)
+
+        DAdict = kwargs.copy()
         self.ensemble = True
 
         for key, val in Model.defaults_ens.items():
@@ -361,7 +365,10 @@ class Model:
                 psi = [psi_mean + psi_deviation[:, ii] for ii in range(self.m)]
 
         # Rearrange dimensions to be Nt x N x m and remove initial condition
-        psi = np.array(psi).transpose((1, 2, 0))
+        try:
+            psi = np.array(psi).transpose((1, 2, 0))
+        except ValueError:
+            print(alpha)
         return psi[1:], t[1:]
 
 

@@ -9,6 +9,8 @@ rng = np.random.default_rng(0)
 def create_ensemble(forecast_params=None, dt=None, model=None, alpha0=None, **filter_params):
     if forecast_params is None:
         forecast_params = dict()
+    else:
+        forecast_params = forecast_params.copy()
     if dt is not None:
         forecast_params['dt'] = dt
     if alpha0 is not None:

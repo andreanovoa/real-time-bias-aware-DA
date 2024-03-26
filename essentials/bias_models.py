@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from ML_models.EchoStateNetwork import EchoStateNetwork
 from essentials.Util import interpolate
 import numpy as np
-
+from copy import deepcopy
 
 class Bias:
 
@@ -106,6 +106,8 @@ class Bias:
                 r = np.zeros((self.N_units, self.N_ens))
                 self.reset_state(u=b, r=r)
 
+    def copy(self):
+        return deepcopy(self)
 
 # =================================================================================================================== #
 

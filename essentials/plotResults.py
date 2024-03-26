@@ -1084,8 +1084,9 @@ def plot_RMS_pdf(ensembles, truth, nbins=40):
 
         if ens.bias.name != 'NoBias':
             b_est = ens.bias.get_bias(ens.bias.hist)
-            # y_est_u = interpolate(t_ref, y_mean, ens.bias.hist_t) + b_est
-            # y_est_u = interpolate(ens.bias.hist_t, y_est_u, t_ref)
+
+            b_est[abs(b_est) > np.max(abs(y_ref))] *= 0.
+
             b_est_interp = interpolate(ens.bias.hist_t, b_est, t_ref)
             y_est_u = y_est + b_est_interp
             y_mean_u = np.mean(y_est_u, axis=-1, keepdims=True)
@@ -1103,7 +1104,10 @@ def plot_RMS_pdf(ensembles, truth, nbins=40):
 
             axs_[0].set(ylabel=ens.filter)
             if axs_[0] == axs_all[ii + 1, 0]:
-                axs_[0].set(ylabel='{} \n w/ {}'.format(ens.filter, ens.bias.name))
+                ylabel = '{}+\n{}'.format(ens.filter, ens.bias.name)
+                if hasattr(ens, 'regularization_factor'):
+                    ylabel += ' k={}'.format(ens.regularization_factor)
+                axs_[0].set(ylabel=ylabel)
 
             kk = 0
             for jjs, leg, ax in zip(times, legs, axs_):
@@ -1175,7 +1179,10 @@ def plot_states_PDF(ensembles, truth, nbins=20, window=None):
                 ax.axvline(np.mean(yy[:, qi]), color=c[0], ls=(0, (6, 6)), lw=2)
 
         axs_all[ii, 0].set(ylabel=ens.filter)
-        axs_all[ii + 1, 0].set(ylabel='{}+\n{}'.format(ens.filter, ens.bias.name))
+        ylabel = '{}+\n{}'.format(ens.filter, ens.bias.name)
+        if hasattr(ens, 'regularization_factor'):
+            ylabel += ' k={}'.format(ens.regularization_factor)
+        axs_all[ii + 1, 0].set(ylabel=ylabel)
 
     for ax, lbl in zip(axs_all[-1, :], ens.obs_labels):
         ax.set(xlabel=lbl)

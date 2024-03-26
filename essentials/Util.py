@@ -91,8 +91,17 @@ def RK4(t, q0, func, *kwargs):
     return np.array(qhist)
 
 
-def interpolate(t_y, y, t_eval):
-    interpolator = PchipInterpolator(t_y, y)
+def interpolate(t_y, y, t_eval, fill_values=None):
+    # interpolator = PchipInterpolator(t_y, y)
+
+    if fill_values is None:
+        fill_values = (y[0], y[-1])
+
+    interpolator = interp1d(t_y, y,
+                            axis=0,  # interpolate along columns
+                            bounds_error=False,
+                            kind='linear',
+                            fill_value=fill_values)
     return interpolator(t_eval)
 
 

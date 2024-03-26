@@ -13,7 +13,7 @@ rng = np.random.default_rng(6)
 
 
 def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
-
+    y_obs = y_obs.copy()
     # Print simulation parameters ##
     ensemble.print_model_parameters()
     ensemble.bias.print_bias_parameters()
@@ -148,9 +148,9 @@ def analysisStep(case, d, Cdd):
         b = case.bias.get_current_bias
         J = case.bias.state_derivative()
 
-        # if case.bias.biased_observations:
-        #     bd = np.mean(b - case.bias.get_current_innovations, axis=-1)
-        #     d += bd
+        if case.bias.biased_observations:
+            bd = np.mean(b - case.bias.get_current_innovations, axis=-1)
+            d += bd
 
 
         # -------------- Define bias Covariance and the weight -------------- #
@@ -271,7 +271,7 @@ def checkParams(Aa, case):
                 bound_ = upper_bounds[idx_]
                 if mean_ <= bound_:
                     print('t = {:.3f} r-i: max {} = {:.2f} > {:.2f}'.format(case.get_current_time,
-                                                                            case.est_a[idx_], mean_, bound_))
+                                                                            case.est_a[idx_], max_, bound_))
                 else:
                     print('t = {:.3f} r-i: mean {} = {:.2f} > {:.2f}'.format(case.get_current_time,
                                                                              case.est_a[idx_], mean_, bound_))
