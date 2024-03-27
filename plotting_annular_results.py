@@ -10,12 +10,17 @@ ERs = 0.4875 + np.arange(0, 4) * 0.025
 m = 20
 
 
-folder = '/Users/andreanovoa/OneDrive - Imperial College London/results/'
+# folder = '/Users/andreanovoa/OneDrive - Imperial College London/results/'
 # folder = '/home/an553/Downloads/'
+folder = '/Users/anovoama/Desktop/results/'
+
+
+print(os.getcwd())
 
 plot_nu_beta_ERs = 0
-plot_timeseries_windows = False
-plot_rest_of_params_ERs = True
+plot_timeseries_windows = 1
+plot_rest_of_params_ERs = 0
+
 
 
 
@@ -35,10 +40,69 @@ def R_to_size(R):
 
 
 if plot_timeseries_windows:
-    ER = 0.5625
+    ER = ERs[-1]
     results_dir = folder + 'ER{}/m{}/'.format(ER, m)
 
     truth, results, bias, blank_ensemble = load_from_pickle_file(results_dir + 'simulation_output_all')
+
+    t_ref = truth['t']
+    window = [truth['t_obs'][-1], truth['t_obs'][-1] + Annular.t_CR * 2]
+    jjs = [np.argmin(abs(t_ref - tt)) for tt in window]
+    t_ref, y_ref = [truth[key][jjs[0]:jjs[1]] for key in ['t', 'y_true']]
+
+    bias.t_init = truth['t_obs'][0] - 2 * truth['dt_obs']
+
+    i1 = np.argmin(abs(bias.t_init - truth['t']))
+    i0 = i1 - bias.N_wash * bias.upsample
+
+    truth['wash_obs'] = truth['y_raw'][i0:i1 + 1:bias.upsample]
+    truth['wash_t'] = truth['t'][i0:i1 + 1:bias.upsample]
+
+    best_case = None
+    best_rmse = 1000
+
+    for ens in results[:-1]:
+        y_est = ens.get_observable_hist()
+        y_mean = np.mean(y_est, axis=-1)
+        y_mean = interpolate(ens.hist_t, y_mean, t_ref)
+
+        Rm = np.sqrt(np.sum((y_ref - y_mean) ** 2, axis=1) / np.sum(y_ref ** 2, axis=1))
+        Rm = np.mean(Rm)
+
+        bias = np.mean(ens.bias.get_bias(ens.bias.hist), axis=-1)
+        b_mean = interpolate(ens.bias.hist_t, bias, t_ref)
+        y_mean += b_mean
+
+        Rm_u = np.sqrt(np.sum((y_ref - y_mean) ** 2, axis=1) / np.sum(y_ref ** 2, axis=1))
+        Rm_u = np.mean(Rm_u)
+
+        Rm = (Rm + Rm_u) / 2.
+
+        if Rm < best_rmse:
+            best_rmse = Rm.copy()
+            best_case = ens.copy()
+
+    params_scales = {'kappa': 1e-4, 'epsilon': 1e-2, 'theta_b': np.pi / 180.,
+                     'theta_e': np.pi / 180., 'omega': np.pi * 2}
+
+    pdf_file = plt_pdf.PdfPages(folder + 'timeseries_results_ER{}.pdf'.format(ER))
+
+    def save_fig_to_pdf(fig, file):
+        file.savefig(fig)
+        plt.close(fig)
+
+    for ens in [best_case, results[-1]]:
+        plot_timeseries(ens, truth)
+        save_fig_to_pdf(fig=plt.gcf(), file=pdf_file)
+        plot_parameters(ens, truth, reference_p=params_scales)
+        save_fig_to_pdf(fig=plt.gcf(), file=pdf_file)
+
+    plot_RMS_pdf(ensembles=[best_case, results[-1]], truth=truth)
+    save_fig_to_pdf(fig=plt.gcf(), file=pdf_file)
+    plot_states_PDF(ensembles=[best_case, results[-1]], truth=truth, window=window)
+    save_fig_to_pdf(fig=plt.gcf(), file=pdf_file)
+
+    pdf_file.close()
 
 
 
@@ -80,9 +144,6 @@ if plot_rest_of_params_ERs:
     cs = np.arange(0, 5) * scs
     cs = cs[::-1]
 
-
-
-
     for ER in ERs:
         results_dir = folder + 'ER{}/m{}/'.format(ER, m)
 
@@ -118,7 +179,7 @@ if plot_rest_of_params_ERs:
             Rm_u = np.sqrt(np.sum((y_ref - y_mean) ** 2, axis=1) / np.sum(y_ref ** 2, axis=1))
             Rm_u = np.mean(Rm_u)
 
-            Rm = (Rm + Rm_u) /2.
+            Rm = (Rm + Rm_u) / 2.
 
             ms = R_to_size(Rm)
 

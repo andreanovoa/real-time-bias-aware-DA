@@ -43,10 +43,12 @@ def recover_unbiased_solution(t_b, b, t, y, upsample=True):
     elif b.shape[-1] > 1:
         b = np.mean(b, axis=-1, keepdims=True)
     if upsample:
-        y_unbiased = interpolate(t, y, t_b) + b
-        y_unbiased = interpolate(t_b, y_unbiased, t)
-    else:
-        y_unbiased = y + b
+        b = interpolate(t_b, b, t)
+    #     0
+    #     # y_unbiased = interpolate(t, y, t_b) + b
+    #     # y_unbiased = interpolate(t_b, y_unbiased, t)
+    # else:
+    y_unbiased = y + b
     return y_unbiased
 
 
@@ -1238,8 +1240,8 @@ def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False,
               [t[0], max_time]]
 
     if plot_states:
-        fig1, axs = plt.subplots(Nq, 3, figsize=(12, 5.5), layout="constrained",
-                                 width_ratios=[1, 1, 1.5],
+        fig1, axs = plt.subplots(Nq, 3, figsize=(20, 5), layout="constrained",
+                                 width_ratios=[1, 1, 2],
                                  sharey='row', sharex='col')
         ax_zoom = axs[:, :-1]
         ax_all = axs[:, -1]
