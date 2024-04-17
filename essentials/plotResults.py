@@ -1215,7 +1215,6 @@ def plot_states_PDF(ensembles, truth, nbins=20, window=None):
             plot_yy = [y_est]
 
         for yy, axs_, c in zip(plot_yy, [axs_all[ii], axs_all[ii + 1]],
-                               # [[color_bias, 'tab:blue'], [color_unbias, 'darkgreen']]):
                                [[color_bias, 'tab:blue'], ['tab:green', 'darkgreen']]):
             for qi, ax in enumerate(axs_):
                 for mi in range(yy.shape[-1]):

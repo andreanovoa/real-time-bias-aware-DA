@@ -19,6 +19,7 @@ class Bias:
         self.biased_observations = False
         self.filter = None
         self.inflation = None
+        self.t_init = t
 
         # ========================= Re-DEFINE ESSENTIALS ========================== ##
         for key, val in kwargs.items():

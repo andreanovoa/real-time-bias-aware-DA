@@ -7,15 +7,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 ERs = 0.4875 + np.arange(0, 4) * 0.025
+ER = ERs[2]
+
 m = 20
 
 
-folder = '/Users/andreanovoa/OneDrive - Imperial College London/results/'
-# folder = '/home/an553/Downloads/'
-# folder = '/Users/anovoama/Desktop/results/'
-
-
-print(os.getcwd())
+folder = 'results/'
 
 plot_nu_beta_ERs = 0
 plot_timeseries_windows = 1
@@ -61,9 +58,7 @@ def categorical_cmap(nc, nsc, cmap="tab10", continuous=False):
         return cols
 
 
-
 if plot_biases:
-    ER = ERs[1]
     results_dir = folder + 'ER{}/m{}/'.format(ER, m)
 
     truth, results, bias, blank_ensemble = load_from_pickle_file(results_dir + 'simulation_output_all')
@@ -144,10 +139,7 @@ if plot_biases:
     plt.show()
 
 
-
-
 if plot_experimental_data:
-    ER = ERs[1]
     results_dir = folder + 'ER{}/m{}/'.format(ER, m)
     truth, results, bias, blank_ensemble = load_from_pickle_file(results_dir + 'simulation_output_all')
 
@@ -199,21 +191,11 @@ if plot_experimental_data:
 
 
 if plot_timeseries_windows:
-    ER = ERs[1]
     results_dir = folder + 'ER{}/m{}/'.format(ER, m)
 
     truth_og, results, bias, blank_ensemble = load_from_pickle_file(results_dir + 'simulation_output_all')
-
-    print(results[0].bias.connect)
-    print(results[0].bias.N_folds)
-    print(results[0].bias.N_grid)
-
-    print(truth_og['dt_obs']*1090, len(truth_og['t_obs']))
-    print(1./truth_og['dt_obs'], len(truth_og['t_obs']))
-
-
-    raise
     truth = truth_og.copy()
+
     t_ref = truth['t']
     window = [truth['t_obs'][-1], truth['t_obs'][-1] + Annular.t_CR * 2]
     jjs = [np.argmin(abs(t_ref - tt)) for tt in window]
