@@ -808,7 +808,13 @@ def plot_Lk_contours(folder, filename='contour'):
     post_process_multiple(folder, filename, k_max=20., L_plot=[70])
 
 
-def plot_parameters(filter_ens, truth, filename=None, reference_p=None, twin=False):
+def plot_parameters(ensembles, truth, filename=None, reference_p=None):
+    if type(ensembles) is not list:
+        ensembles = [ensembles]
+
+    filter_ens = ensembles[0]
+
+
     if len(filter_ens.est_a) < 4:
         fig1 = plt.figure(figsize=[6, 1.5 * len(filter_ens.est_a)], layout="constrained")
         axs = fig1.subplots(len(filter_ens.est_a), 1, sharex='col')
@@ -823,14 +829,6 @@ def plot_parameters(filter_ens, truth, filename=None, reference_p=None, twin=Fal
         axs = fig1.subplots(rows, 2, sharex='all')
         axs = axs.ravel()
 
-    hist, hist_t = filter_ens.hist, filter_ens.hist_t
-    hist_mean = np.mean(hist, -1, keepdims=True)
-
-    t_obs = truth['t_obs']
-
-    x_lims = [t_obs[0], t_obs[-1]]
-    mean_p, std_p, labels_p = [], [], []
-
     ref_p = {**filter_ens.alpha0}
     for key in filter_ens.est_a:
         ref_p[key] = 1.
@@ -842,42 +840,84 @@ def plot_parameters(filter_ens, truth, filename=None, reference_p=None, twin=Fal
         for key, val in reference_p.items():
             ref_p[key] = val
 
-    ii = filter_ens.Nphi
-    for p in filter_ens.est_a:
-        m = hist_mean[:, ii].squeeze() / ref_p[p]
-        s = abs(np.std(hist[:, ii] / ref_p[p], axis=1))
-        labels_p.append(norm_lbl(filter_ens.params_labels[p]))
-        mean_p.append(m)
-        std_p.append(s)
-        ii += 1
 
-    for ax, p, m, s, c, lbl in zip(axs, filter_ens.est_a, mean_p, std_p, colors_alpha, labels_p):
-        max_p = np.max(m + abs(s))
-        min_p = np.min(m - abs(s))
-        ax.plot(hist_t, m, color=c, label=lbl)
-        ax.fill_between(hist_t, m + abs(s), m - abs(s), alpha=0.2, color=c)
-        if filter_ens.params_lims[p][0] is not None and filter_ens.params_lims[p][1] is not None:
-            for lim in [filter_ens.params_lims[p][0] / ref_p[p],
-                        filter_ens.params_lims[p][1] / ref_p[p]]:
-                ax.plot([hist_t[0], hist_t[-1]], [lim, lim], '--', color=c, lw=2, alpha=0.5)
+    t_obs = truth['t_obs']
+    x_lims = [t_obs[0], t_obs[-1]]
+    style = ['-', '--']
 
-        if twin:
-            # val = ref_p[p]
-            # min_p, max_p = min(min_p, val) - min(s), max(max_p, val) + max(s)
-            ax.plot((hist_t[0], hist_t[-1]), (1, 1), '-', color='k', linewidth=.6, label='truth')
+    def categorical_cmap(nc, nsc, cmap="tab10", continuous=False):
+        # number of categories(nc) and the number of subcategories(nsc)
+        # and returns a colormap with nc * nsc different colors, where for
+        # each category there are nsc colors of same hue.
 
-        for idx, cl, ll in zip(['num_DA_blind', 'num_SE_only'], ['darkblue', 'darkviolet'], ['BE', 'PE']):
-            idx = getattr(filter_ens, idx)
-            if idx > 0:
-                ax.plot((t_obs[idx], t_obs[idx]), (min_p, max_p), '-.', color=cl)
-                ax.plot((t_obs[idx], t_obs[idx]), (min_p, max_p), '-.', color=cl, label='Start ' + ll)
+        if nc > plt.get_cmap(cmap).N:
+            raise ValueError("Too many categories for colormap.")
+        if continuous:
+            ccolors = plt.get_cmap(cmap)(np.linspace(0, 1, nc))
+        else:
+            ccolors = plt.get_cmap(cmap)(np.arange(nc, dtype=int))
+        cols = np.zeros((nc * nsc, 3))
+        for i, c in enumerate(ccolors):
+            chsv = matplotlib.colors.rgb_to_hsv(c[:3])
+            arhsv = np.tile(chsv, nsc).reshape(nsc, 3)
+            arhsv[:, 1] = np.linspace(chsv[1], 0.25, nsc)
+            arhsv[:, 2] = np.linspace(chsv[2], 1, nsc)
+            rgb = matplotlib.colors.hsv_to_rgb(arhsv)
+            cols[i * nsc:(i + 1) * nsc, :] = rgb
+        # return matplotlib.colors.ListedColormap(cols)
+        return cols
 
-        plot_DA_window(t_obs, ax=ax)
+    colors = []
+    cmap = categorical_cmap(len(filter_ens.est_a), len(ensembles), cmap="Set1")
+    for ii in range(len(ensembles)):
+        colors.append(cmap[ii::len(ensembles)])
 
-        ax.legend(loc='upper right', fontsize='small', ncol=2)
-        ax.set(ylabel='', ylim=[min_p, max_p])
+    for kk, ens in enumerate(ensembles):
+        hist, hist_t = ens.hist, ens.hist_t
+        hist_mean = np.mean(hist, -1, keepdims=True)
 
-    axs[-1].set(xlabel='$t$ [s]', xlim=x_lims)
+        mean_p, std_p, labels_p = [], [], []
+
+
+        ii = ens.Nphi
+        for p in ens.est_a:
+            m = hist_mean[:, ii].squeeze() / ref_p[p]
+            s = abs(np.std(hist[:, ii] / ref_p[p], axis=1))
+            labels_p.append(norm_lbl(ens.params_labels[p]))
+            mean_p.append(m)
+            std_p.append(s)
+            ii += 1
+
+        for ax, p, m, s, c, lbl in zip(axs, ens.est_a, mean_p, std_p, colors[kk], labels_p):
+            max_p = np.max(m + abs(s))
+            min_p = np.min(m - abs(s))
+            ax.plot(hist_t, m, ls=style[kk], color=c, label=lbl)
+            ax.fill_between(hist_t, m + abs(s), m - abs(s), alpha=0.6, color=c)
+            if kk == 0:
+                if filter_ens.params_lims[p][0] is not None and filter_ens.params_lims[p][1] is not None:
+                    for lim in [filter_ens.params_lims[p][0] / ref_p[p],
+                                filter_ens.params_lims[p][1] / ref_p[p]]:
+                        ax.plot([hist_t[0], hist_t[-1]], [lim, lim], '--', color=c, lw=2, alpha=0.5)
+
+                for idx, cl, ll in zip(['num_DA_blind', 'num_SE_only'], ['darkblue', 'darkviolet'], ['BE', 'PE']):
+                    idx = getattr(filter_ens, idx)
+                    if idx > 0:
+                        ax.plot((t_obs[idx], t_obs[idx]), (min_p, max_p), '-.', color=cl)
+                        ax.plot((t_obs[idx], t_obs[idx]), (min_p, max_p), '-.', color=cl, label='Start ' + ll)
+
+                plot_DA_window(t_obs, ax=ax)
+
+            ax.legend(loc='upper right', fontsize='small', ncol=2)
+
+
+            if kk > 0:
+                ylims = ax.get_ylim()
+                min_p = min([ylims[0], min_p])
+                max_p = max([ylims[1], max_p])
+
+            ax.set(ylabel='', ylim=[min_p, max_p])
+
+        axs[-1].set(xlabel='$t$ [s]', xlim=x_lims)
 
     if filename is not None:
         plt.savefig(filename + '_params.svg', dpi=350)
@@ -1057,11 +1097,15 @@ def plot_RMS_pdf(ensembles, truth, nbins=40):
         ensembles = [ensembles]
 
     fig, axs_all = plt.subplots(nrows=2 * len(ensembles), ncols=4, sharex=True, sharey=True,
-                                figsize=(15, 4 * len(ensembles)), layout='tight')
+                                figsize=(10, 3 * len(ensembles)), layout='constrained')
 
-    t_ref, y_ref = [truth[key] for key in ['t', 'y_true']]
+    t_ref, y_ref, y_raw = [truth[key] for key in ['t', 'y_true', 'y_raw']]
     if y_ref.ndim < 3:
         y_ref = np.expand_dims(y_ref, axis=-1)
+    if y_raw.ndim < 3:
+        y_raw = np.expand_dims(y_raw, axis=-1)
+
+    R_truth = np.sqrt(np.sum((y_ref - y_raw) ** 2, axis=1) / np.sum(y_ref ** 2, axis=1))
 
     tts = [[truth['t_obs'][0] - ensembles[0].t_CR, truth['t_obs'][0]],
            [truth['t_obs'][0], truth['t_obs'][0] + ensembles[0].t_CR],
@@ -1097,13 +1141,15 @@ def plot_RMS_pdf(ensembles, truth, nbins=40):
             RR, RR_m = [R, R_u], [Rm, Rm_u]
         else:
             RR, RR_m = [R], [Rm]
+            y_est_u = None
 
 
         colours = [[color_bias] * ens.m, ['tab:green'] * ens.m]
 
 
         for axs_, yy, rr, rrm, c in zip([axs_all[ii], axs_all[ii + 1]], [y_est, y_est_u], RR, RR_m, colours):
-
+            if yy is None:
+                break
             axs_[0].set(ylabel=ens.filter)
             if axs_[0] == axs_all[ii + 1, 0]:
                 ylabel = '{}+\n{}'.format(ens.filter, ens.bias.name)
@@ -1122,10 +1168,13 @@ def plot_RMS_pdf(ensembles, truth, nbins=40):
                 if mean > max_RMS:
                     ax.axvline(max_RMS, c='tab:red', lw=1, ls='--')
                 else:
-                    ax.axvline(mean, c='k', lw=1, ls='--')
+                    ax.axvline(mean, c=c[0], lw=1, ls='--')
+
                 kk += 1
                 ax.legend([leg + '_mean', leg + '_j'])
 
+                ax.hist(R_truth[j0:j1], histtype='step', color='k', lw=1.5, **args)
+                ax.axvline(np.mean(R_truth[j0:j1]), c='k', lw=1, ls='--')
                 if axs_[0] == axs_all[ii + 1, 0]:
                     ax.set(xlabel='RMS error')
 
@@ -1136,7 +1185,7 @@ def plot_states_PDF(ensembles, truth, nbins=20, window=None):
 
     Nq = truth['y_true'].shape[1]
     fig, axs_all = plt.subplots(nrows=2 * len(ensembles), ncols=Nq, sharex='col', sharey=True,
-                                figsize=(15, 4 * len(ensembles)), layout='tight')
+                                figsize=(12, 3 * len(ensembles)), layout='constrained')
 
     if window is None:
         window = (truth['t_obs'][-1], ensembles[0].hist_t[-1])
@@ -1160,8 +1209,6 @@ def plot_states_PDF(ensembles, truth, nbins=20, window=None):
         y_mean = np.mean(y_est, axis=-1, keepdims=True)
         if ens.bias.name != 'NoBias':
             b_est_interp = interpolate(ens.bias.hist_t, b_est, t_ref)
-            # y_est_u = interpolate(t_ref, y_est, ens.bias.hist_t) + b_est
-            # y_est_u = interpolate(ens.bias.hist_t, y_est_u, t_ref)
             y_est_u = y_est + b_est_interp
             plot_yy = [y_est, y_est_u]
         else:

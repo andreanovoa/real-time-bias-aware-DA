@@ -233,7 +233,8 @@ def CR(y_true, y_est):
     y_em = np.mean(y_est, 0, keepdims=True)
 
     # correlation
-    C = np.sum((y_est - y_em) * (y_true - y_tm)) / np.sqrt(np.sum((y_est - y_em) ** 2) * np.sum((y_true - y_tm) ** 2))
+    C = (np.sum((y_est - y_em) * (y_true - y_tm)) /
+         np.sqrt(np.sum((y_est - y_em) ** 2) * np.sum((y_true - y_tm) ** 2)))
     # root-mean square error
     R = np.sqrt(np.sum((y_true - y_est) ** 2) / np.sum(y_true ** 2))
     return C, R
