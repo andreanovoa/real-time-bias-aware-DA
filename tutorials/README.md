@@ -26,8 +26,7 @@ To replicate results in [parper] go directly to tutorials 11-13.
 
 * DA on thermoacoustic experimental data 
    1) [x] 12 - Idealized situation (unbiased observations)
-   2) [x] 13 - Assimilation of raw experimental data assuming unbiased observations
-  3) [ ] 14 - Assimilation of raw experimental data
+   2) [x] 13 - Assimilation of raw experimental data 
  
 ### Echo state network tutorials [1x]
 - [ ] 20 - ESN as model bias estimator and multi-parameter training approach
