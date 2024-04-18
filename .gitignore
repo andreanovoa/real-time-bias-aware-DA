@@ -1,3 +1,4 @@
-results/
-data/annular/
-/data/annular/*.mat
+/results/
+/data/
+/other/
+/tests/

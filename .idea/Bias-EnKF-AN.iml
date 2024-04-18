@@ -6,6 +6,7 @@
       <excludeFolder url="file://$MODULE_DIR$/data" />
       <excludeFolder url="file://$MODULE_DIR$/results" />
       <excludeFolder url="file://$MODULE_DIR$/venv" />
+      <excludeFolder url="file://$MODULE_DIR$/tutorials/results" />
     </content>
     <orderEntry type="jdk" jdkName="C-EnKF" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
