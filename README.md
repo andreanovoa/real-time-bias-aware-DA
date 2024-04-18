@@ -16,13 +16,13 @@
    [Data assimilation methods](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/essentials/DA.py):
    * EnKF - ensemble Kalman filter
    * EnSRKF - ensemble square-root Kalman filter
-   * rBA-EnKF - regularised bias-aware EnKF
+   * rBA-EnKF - regularized bias-aware EnKF
    
    [Physical models](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/essentials/physical_models.py):
-   * Rijke tube model (dimensional with Galerkin discretization)
+   * Rijke tube model (dimensional with Galerkin projection)
    * Van der Pols
    * Lorenz63
-   * Annular combustor
+   * Azimuthal thermoaocustics model
     
    [Bias estimators](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/essentials/bias_models.py):
    * Echo State Network
