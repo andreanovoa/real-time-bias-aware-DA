@@ -1,4 +1,8 @@
 /results/
 /data/
-#/other/
-#/tests/
+/other/
+/tests/
+__pycache__/
+.idea
+.pylint.d
+/tutorials/*TODO*

@@ -15,7 +15,7 @@ XDG_RUNTIME_DIR = 'tmp/'
 plt.rc('text', usetex=True)
 plt.rc('font', family='times', size=14, serif='Times New Roman')
 plt.rc('mathtext', rm='times', bf='times:bold')
-plt.rc('legend', facecolor='white', framealpha=1, edgecolor='white')
+plt.rc('legend', framealpha=0, edgecolor=(0, 0, 1, 0.1))
 
 # Figures colors
 color_true = 'gray'
@@ -26,11 +26,11 @@ color_b = 'indigo'
 colors_alpha = ['green', 'sandybrown', [0.7, 0.7, 0.87], 'blue', 'red', 'gold', 'deepskyblue']
 
 y_unbias_props = dict(marker='none', linestyle='--', dashes=(10, 1), lw=.5, color=color_unbias)
-y_biased_props = dict(marker='none', linestyle='-', lw=.2, color=color_bias, alpha=.7)
-y_biased_mean_props = dict(marker='none', linestyle='--', dashes=(2, .5), lw=.5, color='teal')
+y_biased_props = dict(marker='none', linestyle='-', lw=.2, color=color_bias, alpha=.9)
+y_biased_mean_props = dict(marker='none', linestyle='--', dashes=(2, .5), lw=1, color='teal')
 
 true_noisy_props = dict(marker='none', linestyle='-', lw=1.2, color=color_true, alpha=.3)
-true_props = dict(marker='none', linestyle='-', lw=1.2, color=color_true, alpha=.6)
+true_props = dict(marker='none', linestyle='-', lw=2, color=color_true, alpha=.6)
 obs_props = dict(marker='.', linestyle='none', color=color_obs, markersize=5, markeredgecolor='none')
 bias_props = dict(marker='none', linestyle='--', dashes=(10, 1), lw=.5, color=color_b)
 bias_obs_props = dict(lw=1.5, color='mediumorchid', alpha=0.7)
@@ -59,19 +59,25 @@ def plot_ensemble(ensemble, max_modes=None, reference_params=None, nbins=6):
     for ax, ph, lbl in zip(axs.ravel(), ensemble.get_current_state[:-ensemble.Na, ], ensemble.state_labels):
         ax.hist(ph, bins=nbins, color='tab:green')
         ax.set(xlabel=lbl)
-    fig, axs = plt.subplots(figsize=(12, 1.5), layout='tight', nrows=1, ncols=ensemble.Na, sharey=True)
 
-    reference_alpha = dict()
-    for param in ensemble.est_a:
-        reference_alpha[param] = 1.
-    if type(reference_params) is dict:
-        for param, val in reference_params.items():
-            reference_alpha[param] = val
+    if ensemble.Na > 0:
+        fig, axs = plt.subplots(figsize=(12, 1.5), layout='tight', nrows=1, ncols=ensemble.Na, sharey=True)
+        if ensemble.Na == 1:
+            axs = [axs]
+        else:
+            axs = axs.ravel()
 
-    for ax, a, param in zip(axs.ravel(), ensemble.get_current_state[-ensemble.Na:, ], ensemble.est_a):
-        xlims = np.array(ensemble.std_a[param]) / reference_alpha[param]
-        ax.hist(a / reference_alpha[param], bins=np.linspace(*xlims, nbins))
-        ax.set(xlabel=ensemble.params_labels[param])
+        reference_alpha = dict()
+        for param in ensemble.est_a:
+            reference_alpha[param] = 1.
+        if type(reference_params) is dict:
+            for param, val in reference_params.items():
+                reference_alpha[param] = val
+
+        for ax, a, param in zip(axs, ensemble.get_current_state[-ensemble.Na:, ], ensemble.est_a):
+            xlims = np.array(ensemble.std_a[param]) / reference_alpha[param]
+            ax.hist(a / reference_alpha[param], bins=np.linspace(*xlims, nbins))
+            ax.set(xlabel=ensemble.params_labels[param])
 
 
 def post_process_loopParams(results_dir, k_plot=(None,), figs_dir=None, k_max=100.):
@@ -419,7 +425,7 @@ def post_process_single(filter_ens, truth, filename=None, mic=0, reference_y=1.,
             for p, m, s, c, lbl in zip(filter_ens.est_a, mean_p, std_p, colors_alpha, labels_p):
                 axs[1].plot(hist_t, m, lw=1., color=c, label=lbl)
                 axs[1].set(xlabel=t_label)
-                axs[1].fill_between(hist_t, m + s, m - s, alpha=0.2, color=c)
+                axs[1].fill_between(hist_t, m + s, m - s, alpha=0.6, color=c)
 
             axs[1].set(xlabel=t_label, ylabel="", xlim=x_lims[-1], ylim=[min_p, max_p])
 
@@ -814,9 +820,8 @@ def plot_parameters(ensembles, truth, filename=None, reference_p=None):
 
     filter_ens = ensembles[0]
 
-
     if len(filter_ens.est_a) < 4:
-        fig1 = plt.figure(figsize=[6, 1.5 * len(filter_ens.est_a)], layout="constrained")
+        fig1 = plt.figure(figsize=(6., 1.5 * len(filter_ens.est_a)), layout="constrained")
         axs = fig1.subplots(len(filter_ens.est_a), 1, sharex='col')
         if len(filter_ens.est_a) == 1:
             axs = [axs]
@@ -825,7 +830,7 @@ def plot_parameters(ensembles, truth, filename=None, reference_p=None):
         if len(filter_ens.est_a) % 2:
             rows += 1
 
-        fig1 = plt.figure(figsize=[12, 1.5 * rows], layout="constrained")
+        fig1 = plt.figure(figsize=(12, 1.5 * rows), layout="constrained")
         axs = fig1.subplots(rows, 2, sharex='all')
         axs = axs.ravel()
 
@@ -839,7 +844,6 @@ def plot_parameters(ensembles, truth, filename=None, reference_p=None):
         norm_lbl = lambda x: x + '/' + x + '$^\\mathrm{ref}$'
         for key, val in reference_p.items():
             ref_p[key] = val
-
 
     t_obs = truth['t_obs']
     x_lims = [t_obs[0], t_obs[-1]]
@@ -878,7 +882,6 @@ def plot_parameters(ensembles, truth, filename=None, reference_p=None):
 
         mean_p, std_p, labels_p = [], [], []
 
-
         ii = ens.Nphi
         for p in ens.est_a:
             m = hist_mean[:, ii].squeeze() / ref_p[p]
@@ -908,7 +911,6 @@ def plot_parameters(ensembles, truth, filename=None, reference_p=None):
                 plot_DA_window(t_obs, ax=ax)
 
             ax.legend(loc='upper right', fontsize='small', ncol=2)
-
 
             if kk > 0:
                 ylims = ax.get_ylim()
@@ -1143,9 +1145,7 @@ def plot_RMS_pdf(ensembles, truth, nbins=40):
             RR, RR_m = [R], [Rm]
             y_est_u = None
 
-
         colours = [[color_bias] * ens.m, ['tab:green'] * ens.m]
-
 
         for axs_, yy, rr, rrm, c in zip([axs_all[ii], axs_all[ii + 1]], [y_est, y_est_u], RR, RR_m, colours):
             if yy is None:
@@ -1236,7 +1236,7 @@ def plot_states_PDF(ensembles, truth, nbins=20, window=None):
         ax.set(xlabel=lbl)
 
 
-def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False,
+def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False, plot_ensemble_members=False,
                     filename=None, reference_y=1., reference_t=1., max_time=None):
     t_obs, obs = truth['t_obs'], truth['y_obs']
 
@@ -1262,46 +1262,55 @@ def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False,
     y_raw = interpolate(truth['t'], truth['y_raw'], t)
     y_truth_no_noise = interpolate(truth['t'], truth['y_true'], t)
 
+    if 'wash_t' in truth.keys():
+        t_wash, wash = truth['wash_t'], truth['wash_obs']
+    else:
+        t_wash = 0.
+
     if reference_t == 1.:
         t_label = '$t$ [s]'
-        if 'wash_t' in truth.keys():
-            t_wash, wash = truth['wash_t'], truth['wash_obs']
     else:
         t_label = '$t/T$'
-        t, t_b, t_obs = [tt / reference_t for tt in [t, t_b, t_obs]]
-        if 'wash_t' in truth.keys():
-            t_wash, wash = truth['wash_t'] / reference_t, truth['wash_obs']
+        t, t_b, t_obs, max_time, t_wash = [tt / reference_t for tt in [t, t_b, t_obs, max_time, t_wash]]
 
     # % PLOT time series ------------------------------------------------------------------------------------------
     Nq = filter_ens.Nq
     y_raw, y_unbiased, y_filter, y_mean, obs, y_truth_no_noise = [yy / reference_y for yy in
                                                                   [y_raw, y_unbiased, y_filter,
                                                                    y_mean, obs, y_truth_no_noise]]
-    margin = 0.5
-    max_y = np.max(abs(y_raw))
-    y_lims = [-max_y - margin, max_y + margin]
+    margin = 0.15 * np.mean(abs(y_raw))
+    max_y = np.max(y_raw)
+    min_y = np.min(y_raw)
+    y_lims = [min_y - margin, max_y + margin]
 
     x_lims = [[t_obs[0] - .25 * filter_ens.t_CR, t_obs[0] + filter_ens.t_CR],
               [t_obs[-1] - filter_ens.t_CR, max_time],
               [t[0], max_time]]
 
     if plot_states:
-        fig1, axs = plt.subplots(Nq, 3, figsize=(20, 5), layout="constrained",
-                                 width_ratios=[1, 1, 2],
-                                 sharey='row', sharex='col')
-        ax_zoom = axs[:, :-1]
-        ax_all = axs[:, -1]
+        fig1 = plt.figure(figsize=(10, 10), layout="constrained")
+        sfs = fig1.subfigures(nrows=2, ncols=1)
+        ax_all = sfs[0].subplots(Nq, ncols=1,   sharey='row', sharex='col')
+        ax_zoom = sfs[1].subplots(Nq, ncols=2,   sharey='row', sharex='col')
+
         for qi in range(Nq):
             for ax, xl in zip([ax_zoom[qi, 0], ax_zoom[qi, 1], ax_all[qi]], x_lims):
 
                 # Observables ---------------------------------------------------------------------
-                ax.plot(t, y_raw[:, qi], label='t', **true_noisy_props)
-                ax.plot(t, y_truth_no_noise[:, qi], label='t', **true_props)
-                ax.plot(t, y_unbiased[:, qi], label='u', **y_unbias_props)
-                for mi in range(y_filter.shape[-1]):
-                    ax.plot(t, y_filter[:, qi, mi], **y_biased_props)
-                ax.plot(t, y_mean[:, qi], **y_biased_mean_props)
-                ax.plot(t_obs, obs[:, qi], label='o', **obs_props)
+                ax.plot(t, y_truth_no_noise[:, qi], label='truth', **true_props)
+                if filter_ens.bias.name != 'NoBias':
+                    ax.plot(t, y_unbiased[:, qi], label='ubiased', **y_unbias_props)
+
+                m = np.mean(y_filter[:, qi], axis=-1)
+                ax.plot(t, m, **y_biased_mean_props, label='model estimate')
+                if plot_ensemble_members:
+                    for mi in range(y_filter.shape[-1]):
+                        ax.plot(t, y_filter[:, qi, mi], **y_biased_props)
+                else:
+                    s = np.std(y_filter[:, qi], axis=-1)
+                    ax.fill_between(t, m + s, m - s, alpha=0.5, color=y_biased_props['color'])
+
+                ax.plot(t_obs, obs[:, qi], label='data', **obs_props)
                 if 'wash_t' in truth.keys():
                     ax.plot(t_wash, wash[:, qi], **obs_props)
                 plot_DA_window(t_obs, ax)
@@ -1311,8 +1320,9 @@ def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False,
             if reference_y != 1.:
                 ylbl += ' norm.'
             ax_zoom[qi, 0].set(ylabel=ylbl)
+            ax_all[qi].set(ylabel=ylbl)
 
-        ax_all[0].legend(loc='upper left', bbox_to_anchor=(0., 1.1), ncol=5, fontsize='xx-small')
+        ax_all[0].legend(loc='lower left', bbox_to_anchor=(0.1, 1.1), ncol=5, fontsize='small')
         for ax in [ax_zoom[-1, 0], ax_zoom[-1, 1], ax_all[-1]]:
             ax.set(xlabel=t_label)
 
@@ -1357,23 +1367,37 @@ def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False,
             plt.close()
 
 
-def plot_truth(plot_time=False, Nq=None, filename=None, **truth_dict):
+
+def plot_attractor(psi_cases, color, figsize=(8, 8)):
+    if type(psi_cases) is not list:
+        psi_cases, color = [psi_cases], [color]
+    fig = plt.figure(figsize=figsize)
+    ax3d = fig.add_subplot(111, projection='3d')
+    for axs_ax in [ax3d.xaxis, ax3d.yaxis, ax3d.zaxis]:
+        axs_ax.pane.fill = False
+    ax3d.set(xlabel='$x$', ylabel='$y$', zlabel='$z$')
+    for psi_, c  in zip(psi_cases, color):
+        if psi_.ndim > 2:
+            psi_ = np.mean(psi_, axis=-1)
+        ax3d.plot(psi_[:, 0], psi_[:, 1], psi_[:, 2], lw=1., c=c)
+
+def plot_truth(y_raw, y_true, t, dt,
+               plot_time=False, Nq=None, filename=None, f_max=None, y_obs=None, t_obs=None, model=None, **other):
     if Nq is None:
-        Nq = truth_dict['y_obs'].shape[1]
+        Nq = y_true.shape[1]
+    if t_obs is None:
+        t0 = 0
+        t1 = int(model.t_transient // dt)
+    else:
+        t0 = int(t_obs[0] // dt)
+        t1 = int((t_obs[-1] + model.t_CR) // dt)
 
-    dt, t_obs, y_obs = [truth_dict[key] for key in ['dt', 't_obs', 'y_obs']]
-    t0 = int(t_obs[0] // dt)
-    y_raw, y_pp, t = [truth_dict[key][t0:] for key in ['y_raw', 'y_true', 't']]
-
-    y_obs_pp = interpolate(t, y_pp, t_obs)
-    noise = y_raw - y_pp
-
-    t1 = int((t_obs[-1] + 1.5) // dt)
+    noise = y_raw - y_true
     max_y = np.max(abs(y_raw[:t1 - t0]))
 
     fig1 = plt.figure(figsize=(15, 2 * Nq), layout="constrained")
     subfigs = fig1.subfigures(nrows=1, ncols=4, width_ratios=[2, 0.5, 1, 1])
-    labels = ['Raw', 'Post-processed', 'Noise']
+    labels = ['Raw', 'Post-processed', 'Difference']
     y_labels = ['$\\tilde{y}, y$', '', '$(\\tilde{y}-y)$']
     cols = ['tab:blue', 'mediumseagreen', 'tab:purple']
 
@@ -1381,19 +1405,16 @@ def plot_truth(plot_time=False, Nq=None, filename=None, **truth_dict):
     ax_4 = subfigs[-1].subplots(Nq, 1, sharex='all', sharey='all')
 
     # Plot zoomed timeseries of raw, post-processed and noise
-    for ax, yy, ttl, lbl, c in zip([ax_01[:, 0], ax_01[:, 1], ax_4], [y_raw, y_pp, noise], labels, y_labels, cols):
+    for ax, yy, ttl, lbl, c in zip([ax_01[:, 0], ax_01[:, 1], ax_4], [y_raw, y_true, noise], labels, y_labels, cols):
         if Nq == 1:
             ax = [ax]
         ax[0].set(title=ttl)
-        ax[-1].set(xlabel='$t$', xlim=[t_obs[0], t_obs[-1]])
+        ax[-1].set(xlabel='$t$', xlim=[t[t0], t[t1]])
         for qi in range(Nq):
             ax[qi].plot(t, yy[:, qi], color=c)
             ax[qi].axhline(np.mean(yy[:, qi]), color=c)
-            # ax[qi].set(ylim=[-max_y, max_y])
-            # if ttl != 'Noise':
-            #     ax[qi].plot(t_obs, y_obs[:, qi], 'ṛo')
-            #     if ttl != 'Raw':
-            #         ax[qi].plot(t_obs, y_obs_pp[:, qi], 'o', color=cols[1], markerfacecolor='none')
+            if ttl[0] == 'R' and y_obs is not None:
+                ax[qi].plot(t_obs, y_obs[:, qi], 'ro', ms=3)
             if len(lbl) > 1:
                 ax[qi].set(ylabel=lbl + '$_{}$'.format(qi))
 
@@ -1405,28 +1426,25 @@ def plot_truth(plot_time=False, Nq=None, filename=None, **truth_dict):
         ax_PSD = [ax_PSD]
     binwidth = 0.01 * max_y
     bins = np.arange(-max_y, max_y + binwidth, binwidth)
-    for yy, ttl, lbl, c in zip([y_raw, y_pp], labels[:2], y_labels[:2], cols[:2]):
+    for yy, ttl, lbl, c in zip([y_raw, y_true], labels[:2], y_labels[:2], cols[:2]):
         yy = yy.squeeze()
         ax_pdf[0].set(title='PDF', ylim=[-max_y, max_y])
-        ax_PSD[0].set(title='PSD', xlim=[100, 2e3])
         ax_pdf[-1].set(xlabel='$p$')
         ax_PSD[-1].set(xlabel='$f$')
         for qi in range(Nq):
-            # peaks = find_peaks(abs(yy[:, qi]))[0]
-            # ax_pdf[qi].hist(yy[peaks, qi], bins=bins, density=True, orientation='horizontal',
-            #                 color=c, label=lbl + '$_{}$'.format(qi))
             ax_pdf[qi].hist(yy[:, qi], bins=bins, density=True, orientation='horizontal',
                             color=c, label=lbl + '$_{}$'.format(qi), histtype='step')
         f, PSD = fun_PSD(dt, yy.squeeze())
         for qi in range(Nq):
             ax_PSD[qi].semilogy(f, PSD[qi], color=c, label=lbl + '$_{}$'.format(qi))
+        ax_PSD[0].set(title='PSD', xlim=[0, f_max])
 
     # Plot full timeseries if requested
     figs2 = []
     if plot_time:
-        for y_key, name, c in zip(['y_raw', 'y_true'], labels[:2], cols[:2]):
-            y_pp, t = [truth_dict[key][t0:] for key in [y_key, 't']]
-            max_y = np.max(abs(y_pp))
+        for yy, name, c in zip([y_raw, y_true], labels[:2], cols[:2]):
+            y_true, t = [zz[t0:] for zz in [yy, t_true]]
+            max_y = np.max(abs(y_true))
             fig2 = plt.figure(figsize=(12, 2 * Nq), layout="constrained")
             subfigs = fig2.subfigures(nrows=1, ncols=2, width_ratios=[1, 0.5])
             for sf, xlims in zip(subfigs, [(t[0], t[-1]), (t[-1000], t[-1])]):
@@ -1436,7 +1454,7 @@ def plot_truth(plot_time=False, Nq=None, filename=None, **truth_dict):
                 ax[0].set(title=name)
                 ax[-1].set(xlabel='$t$', xlim=xlims)
                 for qi in range(Nq):
-                    ax[qi].plot(t, y_pp[:, qi], color=c)
+                    ax[qi].plot(t, y_true[:, qi], color=c)
                     ax[qi].set(ylim=[-max_y, max_y])
             figs2.append(fig2)
     # Show or save plots
@@ -1497,7 +1515,7 @@ def plot_covarriance(case):
     # Cpp = (Af - np.mean(Af, axis=-1, keepdims=True)) / range_psi
     # Cpp = np.dot(Cpp, Cpp.T) / (m - 1)
 
-    Cpp = np.corrcoef(Af- np.mean(Af, axis=-1, keepdims=True))
+    Cpp = np.corrcoef(Af - np.mean(Af, axis=-1, keepdims=True))
 
     for ii in range(Cpp.shape[0]):
         for jj in range(Cpp.shape[1]):
@@ -1524,6 +1542,7 @@ def plot_covarriance(case):
     axs[3].matshow(Cpp[:Nphi, Nphi:Nphi + Na].T, **args)
     axs[3].set(xticks=np.arange(Nphi), xticklabels=tixs[:Nphi])
     axs[3].set(yticks=np.arange(Na), yticklabels=tixs[Nphi:Nphi + Na])
+
 
 # ==================================================================================================================
 def print_parameter_results(ensembles, true_values):

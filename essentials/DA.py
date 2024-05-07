@@ -13,7 +13,7 @@ rng = np.random.default_rng(6)
 
 
 def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
-    y_obs = y_obs.copy()
+    y_obs = y_obs.copy().squeeze()
     # Print simulation parameters ##
     ensemble.print_model_parameters()
     ensemble.bias.print_bias_parameters()
@@ -82,6 +82,7 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
 
         assert ensemble.hist_t[-1] == ensemble.bias.hist_t[-1]
     print('Elapsed time during assimilation: ' + str(time.time() - time1) + ' s')
+    ensemble.close()
     return ensemble
 
 
@@ -394,7 +395,7 @@ def EnKF(Af, d, Cdd, M):
     if d.ndim == 2 and d.shape[-1] == m:
         D = d
     else:
-        D = rng.multivariate_normal(d, Cdd, m).transpose()
+        D = rng.multivariate_normal(d.squeeze(), Cdd, m).transpose()
 
     # Mapped forecast matrix M(Af) and mapped deviations M(Af')
     Y = np.dot(M, Af)
