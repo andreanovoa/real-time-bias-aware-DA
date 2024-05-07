@@ -1,3 +1,5 @@
+import os.path
+
 from essentials.Util import *
 from essentials.bias_models import *
 
@@ -8,7 +10,7 @@ rng = np.random.default_rng(0)
 
 def create_ensemble(forecast_params=None, dt=None, model=None, alpha0=None, **filter_params):
     if forecast_params is None:
-        forecast_params = dict()
+        forecast_params = filter_params.copy()
     else:
         forecast_params = forecast_params.copy()
     if dt is not None:
@@ -18,11 +20,12 @@ def create_ensemble(forecast_params=None, dt=None, model=None, alpha0=None, **fi
             forecast_params[alpha] = 0.5 * (lims[0] + lims[1])
 
     # ==============================  INITIALISE MODEL  ================================= #
-
     if model is not None:
         forecast_params['model'] = model
 
     ensemble = forecast_params['model'](**forecast_params)
+
+    print(ensemble.observe_dims)
 
     # Forecast model case to steady state initial condition before initialising ensemble
     state, t_ = ensemble.time_integrate(int(ensemble.t_CR / ensemble.dt))
@@ -30,7 +33,6 @@ def create_ensemble(forecast_params=None, dt=None, model=None, alpha0=None, **fi
 
     # =========================  INITIALISE ENSEMBLE & BIAS  =========================== #
     ensemble.init_ensemble(**filter_params)
-    # ensemble.init_bias()
 
     ensemble.close()
     return ensemble
@@ -47,12 +49,13 @@ def create_truth(model, t_start=1., t_stop=1.5, Nt_obs=20, std_obs=0.05, t_max=N
         case_name = model.split('/')[-1]
         name_bias = 'Exp_' + case_name
         b_true = np.zeros(1)
+        true_case = None
     else:
-        y_true, t_true, name_truth = create_observations(model, t_max=t_max, t_min=t_min, **kwargs)
+        y_true, t_true, name_truth, true_case = create_observations(model, t_max=t_max, t_min=t_min, **kwargs)
 
         #  ADD BIAS TO THE TRUTH #
         if manual_bias is None:
-            b_true = np.zeros(1)
+            b_true = y_true * 0.
             name_bias = 'No_bias'
         elif type(manual_bias) is str:
             name_bias = manual_bias
@@ -73,7 +76,7 @@ def create_truth(model, t_start=1., t_stop=1.5, Nt_obs=20, std_obs=0.05, t_max=N
         y_raw = y_true + b_true
 
     # =========================== ADD NOISE TO THE TRUTH ================================ #
-    if type(model) is dict or post_processed:
+    if type(model) is not str or post_processed:
         y_raw = create_noisy_signal(y_raw, noise_level=std_obs, noise_type=noise_type)
     else:
         noise_type = name_bias
@@ -93,8 +96,7 @@ def create_truth(model, t_start=1., t_stop=1.5, Nt_obs=20, std_obs=0.05, t_max=N
     truth = dict(y_raw=y_raw, y_true=y_true, t=t_true, b=b_true, dt=dt_t,
                  t_obs=t_true[obs_idx], y_obs=y_raw[obs_idx], dt_obs=Nt_obs * dt_t,
                  name=name_truth, name_bias=name_bias, noise_type=noise_type,
-                 model=model, std_obs=std_obs, true_params=kwargs)
-
+                 model=model, std_obs=std_obs, true_params=kwargs, case=true_case)
     return truth
 
 
@@ -124,13 +126,12 @@ def create_observations_from_file(name, t_max, t_min=0.):
     return y_raw, y_true, t_true, name.split('data/')[-1]
 
 
-def create_observations(model, t_max, t_min, **true_parameters):
+def create_observations(model, t_max, t_min, save=False, **true_parameters):
     try:
         TA_params = true_parameters.copy()
         model = model
     except AttributeError:
         raise 'true_parameters must be dict'
-
 
     # ============================================================
     # Add key parameters to filename
@@ -148,33 +149,36 @@ def create_observations(model, t_max, t_min, **true_parameters):
     os.makedirs(name, exist_ok=True)
     name += 'Truth_{}_{}tmax-{:.2}'.format(model.name, suffix, t_max)
 
-    try:
+    if os.path.isfile(name) and save:
         case = load_from_pickle_file(name)
         print('Load true data: ' + name)
-    except ModuleNotFoundError or FileNotFoundError:
+    # except ModuleNotFoundError or FileNotFoundError:
+    else:
         case = model(**TA_params)
         psi, t = case.time_integrate(int(t_max / case.dt))
         case.update_history(psi, t)
         case.close()
-        save_to_pickle_file(name, case)
-        print('Save true data: ' + name)
+        if save:
+            save_to_pickle_file(name, case)
+            print('Save true data: ' + name)
 
     # Retrieve observables
     y_true = case.get_observable_hist()
-    if len(np.shape(y_true)) > 2:
-        y_true = np.squeeze(y_true, axis=-1)
+    y_true = np.squeeze(y_true)
     t_true = case.hist_t
 
     if t_min > 0.:
         id0 = np.argmin(abs(t_true - t_min))
         y_true, t_obs = [yy[id0:] for yy in [y_true, t_true]]
 
-    return y_true, t_true, name.split('Truth_')[-1]
+    return y_true, t_true, name.split('Truth_')[-1], case
 
 
 def create_noisy_signal(y_clean, noise_level=0.1, noise_type='gauss, add'):
+    squeeze = False
     if y_clean.ndim == 2:
         y_clean = np.expand_dims(y_clean, -1)
+        squeeze = True
 
     Nt, q, L = y_clean.shape
     y_noisy = y_clean.copy()
@@ -195,6 +199,8 @@ def create_noisy_signal(y_clean, noise_level=0.1, noise_type='gauss, add'):
             y_noisy[:, :, ll] += noise * np.max(abs(y_clean[:, :, ll]))
         else:
             y_noisy[:, :, ll] += noise * y_noisy[:, :, ll]
+    if squeeze:
+        y_noisy = y_noisy.squeeze()
     return y_noisy
 
 

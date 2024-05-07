@@ -2,3 +2,7 @@
 /data/
 /other/
 /tests/
+__pycache__/
+.idea
+.pylint.d
+/tutorials/*TODO*

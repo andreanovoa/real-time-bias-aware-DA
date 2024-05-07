@@ -592,14 +592,14 @@ class Lorenz63(Model):
     t_transient = 10 * t_lyap
     t_CR = 4 * t_lyap
     defaults: dict = dict(Nq=3, dt=0.02,
-                          rho=28., sigma=10., beta=8. / 3.)
+                          rho=28., sigma=10., beta=8. / 3.,
+                          observe_dims=range(3))
 
     params_labels = dict(rho='$\\rho$', sigma='$\\sigma$', beta='$\\beta$')
     params_lims = dict(rho=(None, None), sigma=(None, None), beta=(None, None))
     params = list([*params_labels])
 
     state_labels = ['$x$', '$y$', '$z$']
-
     fixed_params = []
 
     # __________________________ Init method ___________________________ #
@@ -609,10 +609,19 @@ class Lorenz63(Model):
 
         super().__init__(child_defaults=Lorenz63.defaults, **model_dict)
 
+        if 'observe_dims' in model_dict:
+            self.Nq = len(self.observe_dims)
+
     # _______________ Lorenz63 specific properties and methods ________________ #
     @property
     def obs_labels(self):
-        return ['$x$', '$y$', '$z$']
+        return [self.state_labels[kk] for kk in self.observe_dims]
+
+    def get_observables(self, Nt=1, **kwargs):
+        if Nt == 1:
+            return self.hist[-1, self.observe_dims, :]
+        else:
+            return self.hist[-Nt:, self.observe_dims, :]
 
     @staticmethod
     def time_derivative(t, psi, sigma, rho, beta):
@@ -698,26 +707,20 @@ class Annular(Model):
     def c2beta_from_ER(ER):
         return Annular.c2b_1 * ER + Annular.c2b_2
 
-    def get_observables(self, Nt=1, **kwargs):
+    def get_observables(self, Nt=1, loc=None, measure_modes=False, **kwargs):
         """
         pressure measurements at theta = [0º, 60º, 120º, 240º`]
         p(θ, t) = η1(t) * cos(nθ) + η2(t) * sin(nθ).
         """
-
-        if 'loc' not in kwargs.keys() or kwargs['loc'] is None:
+        if loc is None:
             loc = self.theta_mic
-        else:
-            loc = kwargs['loc']
 
-        if 'measure_modes' not in kwargs.keys() or not kwargs['measure_modes']:
+        if measure_modes:
             eta1, eta2 = self.hist[-Nt:, 0, :], self.hist[-Nt:, 2, :]
-
             if max(loc) > 2 * np.pi:
                 raise ValueError('Theta must be in radians')
 
-            p_mics = np.array([eta1 * np.cos(th) + eta2 * np.sin(th)
-                               for th in np.array(loc)])
-
+            p_mics = np.array([eta1 * np.cos(th) + eta2 * np.sin(th) for th in np.array(loc)])
             p_mics = p_mics.transpose(1, 0, 2)
             if Nt == 1:
                 return p_mics.squeeze(axis=0)
