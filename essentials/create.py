@@ -1,5 +1,7 @@
 import os.path
 
+import numpy as np
+
 from essentials.Util import *
 from essentials.bias_models import *
 
@@ -24,8 +26,6 @@ def create_ensemble(forecast_params=None, dt=None, model=None, alpha0=None, **fi
         forecast_params['model'] = model
 
     ensemble = forecast_params['model'](**forecast_params)
-
-    print(ensemble.observe_dims)
 
     # Forecast model case to steady state initial condition before initialising ensemble
     state, t_ = ensemble.time_integrate(int(ensemble.t_CR / ensemble.dt))
@@ -175,10 +175,8 @@ def create_observations(model, t_max, t_min, save=False, **true_parameters):
 
 
 def create_noisy_signal(y_clean, noise_level=0.1, noise_type='gauss, add'):
-    squeeze = False
     if y_clean.ndim == 2:
         y_clean = np.expand_dims(y_clean, -1)
-        squeeze = True
 
     Nt, q, L = y_clean.shape
     y_noisy = y_clean.copy()
@@ -199,8 +197,12 @@ def create_noisy_signal(y_clean, noise_level=0.1, noise_type='gauss, add'):
             y_noisy[:, :, ll] += noise * np.max(abs(y_clean[:, :, ll]))
         else:
             y_noisy[:, :, ll] += noise * y_noisy[:, :, ll]
-    if squeeze:
-        y_noisy = y_noisy.squeeze()
+
+    y_noisy = y_noisy.squeeze()
+
+    if y_noisy.ndim == 1:
+        y_noisy = np.expand_dims(y_noisy, axis=-1)
+
     return y_noisy
 
 

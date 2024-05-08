@@ -153,7 +153,6 @@ def analysisStep(case, d, Cdd):
             bd = np.mean(b - case.bias.get_current_innovations, axis=-1)
             d += bd
 
-
         # -------------- Define bias Covariance and the weight -------------- #
         k = case.regularization_factor
         Cbb = Cdd.copy()  # Bias covariance matrix same as obs cov matrix for now
