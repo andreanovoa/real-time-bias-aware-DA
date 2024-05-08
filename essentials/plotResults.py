@@ -1288,13 +1288,18 @@ def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False, plot_e
               [t[0], max_time]]
 
     if plot_states:
-        fig1 = plt.figure(figsize=(10, 10), layout="constrained")
+        fig1 = plt.figure(figsize=(10, 5 * Nq), layout="constrained")
         sfs = fig1.subfigures(nrows=2, ncols=1)
-        ax_all = sfs[0].subplots(Nq, ncols=1,   sharey='row', sharex='col')
-        ax_zoom = sfs[1].subplots(Nq, ncols=2,   sharey='row', sharex='col')
+        ax_all = sfs[0].subplots(Nq, ncols=1, sharey='row', sharex='col')
+        ax_zoom = sfs[1].subplots(Nq, ncols=2, sharey='row', sharex='col')
 
         for qi in range(Nq):
-            for ax, xl in zip([ax_zoom[qi, 0], ax_zoom[qi, 1], ax_all[qi]], x_lims):
+            if Nq == 1:
+                q_axes = [ax_zoom[0], ax_zoom[1], ax_all]
+            else:
+                q_axes = [ax_zoom[qi, 0], ax_zoom[qi, 1], ax_all[qi]]
+
+            for ax, xl in zip(q_axes, x_lims):
 
                 # Observables ---------------------------------------------------------------------
                 ax.plot(t, y_truth_no_noise[:, qi], label='truth', **true_props)
@@ -1319,12 +1324,21 @@ def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False, plot_e
             ylbl = '$y_{}$'.format(qi)
             if reference_y != 1.:
                 ylbl += ' norm.'
-            ax_zoom[qi, 0].set(ylabel=ylbl)
-            ax_all[qi].set(ylabel=ylbl)
+            if Nq == 1:
+                ax_zoom[0].set(ylabel=ylbl)
+                ax_all.set(ylabel=ylbl)
+            else:
+                ax_zoom[qi, 0].set(ylabel=ylbl)
+                ax_all[qi].set(ylabel=ylbl)
 
-        ax_all[0].legend(loc='lower left', bbox_to_anchor=(0.1, 1.1), ncol=5, fontsize='small')
-        for ax in [ax_zoom[-1, 0], ax_zoom[-1, 1], ax_all[-1]]:
-            ax.set(xlabel=t_label)
+        if Nq == 1:
+            ax_all.legend(loc='lower left', bbox_to_anchor=(0.1, 1.1), ncol=5, fontsize='small')
+            for ax in [ax_zoom[0], ax_zoom[1], ax_all]:
+                ax.set(xlabel=t_label)
+        else:
+            ax_all[0].legend(loc='lower left', bbox_to_anchor=(0.1, 1.1), ncol=5, fontsize='small')
+            for ax in [ax_zoom[-1, 0], ax_zoom[-1, 1], ax_all[-1]]:
+                ax.set(xlabel=t_label)
 
         if filename is not None:
             plt.savefig(filename + '.svg', dpi=350)
@@ -1568,3 +1582,7 @@ def print_parameter_results(ensembles, true_values):
         rows.append(row)
 
     print(tabulate(tabular_data=rows, headers=headers))
+
+
+if __name__ == '__main__':
+    pass

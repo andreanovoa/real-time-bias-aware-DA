@@ -1,44 +1,69 @@
-# Tutorials 
-This folder includes a collection of jupyter notebooks to ease the introduction to this repository.
+# Intro to data assimilation (DA)  
+This folder includes a collection of interactive (Jupyter notebook) tutorials to ease the introduction to this repository.
 
 
 ***
 ## Getting started
-1. Install the requirements of the main repository [here](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/requirements.txt).
-2. Also install the additional requirements for the tutorials [here](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/tutorials/requirements.txt).
+
+From the terminal:
+
+1. Clone repository: ```git clone https://github.com/andreanovoa/real-time-bias-aware-DA```
+2. Access the repository: ```cd path-to-repo ```
+3. Create virtual environment wih anaconda and activate environment:
+   ```
+   conda create --yes --name my-env python=3.9
+   conda activate my-env
+   ```
+4. Install the requirements of the main repository and the additional requirements for the tutorials:
+   ```
+   pip install -r requirements.txt
+   pip install -r tutorials/requirements.txt
+   ```
+5. Access the tutorials folder and launch the jupyter notebooks:
+   ```
+   cd tutorials
+   jupyter notebook
+   ```
+
+****
+*The tutorials are brand new - please don't hesitate to submit issues or pull requests!*
+
 ***
 ## Where to start?
-Each tutorial file name includes a two-digit code, which indicates the tutorial category. 
-To replicate results in [parper] go directly to tutorials 11-13.
+Each tutorial file name includes a two-digit code, which indicates the category.
 
-
-### Code-specific tutorials [0x]
+### Repo-specific tutorials [0x]
 - [x] 00 - Class Model
-- [ ] 01 - Class Bias
 - [x] 03 - Create truth
+
+[//]: # (- [ ] 01 - Class Bias)
 
 
 ### Data Assimilation tutorials [1x]
-* DA on twin experiments
-   1) [ ] 10 - Bias-unaware DA twin experiment on the Lorenz63
-  2) [x] 11 - Bias-aware DA twin experiment on the annular model 
-
-
-* DA on thermoacoustic experimental data 
-   1) [x] 12 - Idealized situation (unbiased observations)
-   2) [x] 13 - Assimilation of raw experimental data 
+* Bias-unaware DA
+  1) [x] 10 - Introduction to DA and twin experiment on the Van der Pol model
+  2) [x] 11 - Twin experiment on the Lorenz63
+  
+* Bias-unaware DA
+  1) [ ] 12 - Bias-aware DA twin experiment 
  
-### Echo state network tutorials [1x]
-- [ ] 20 - ESN as model bias estimator and multi-parameter training approach
+### Echo state network tutorials [2x]
 - [x] 21 - ESN adaptability with data assimilation
 
+[//]: # (- [ ] 20 - ESN as model bias estimator and multi-parameter training approach)
+
+
  
-### Thermoacosustics tutorials [3x]
-* Azimuthal thermoacoustics (annular combustor)
-  * [x] 30 - Low order model
-  * [x] 31 - Experimental data visualization 
+### Data Assimilation on azimuthal thermoacosustics [3x]
+
+* [x] 30 - Low order model of azimuthal thermoacoustics
+* [x] 31 - Experimental data visualization 
+* [x] 32 - DA on experimental data: ideal scenario
+* [x] 32 - DA on experimental data: realistic scenario
 
 
-* Longitudinal thermoacoustics (Rijke tube) 
-  * [ ] 32 - Low order model 
-  * [ ] 33 - Higher-order model data visualization
+[//]: # ()
+[//]: # (* Longitudinal thermoacoustics &#40;Rijke tube&#41; )
+[//]: # (  * [ ] 32 - Low order model )
+[//]: # (  * [ ] 33 - Higher-order model data visualization)
+

@@ -588,7 +588,7 @@ class Lorenz63(Model):
     """
     name: str = 'Lorenz63'
 
-    t_lyap = 0.906 ** (-1)
+    t_lyap = 0.9056 ** (-1)
     t_transient = 10 * t_lyap
     t_CR = 4 * t_lyap
     defaults: dict = dict(Nq=3, dt=0.02,
