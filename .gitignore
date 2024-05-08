@@ -1,8 +1,5 @@
 /results/
 /data/
-/other/
-/tests/
-__pycache__/
-.idea
-.pylint.d
-/tutorials/todo/
+#/other/
+#/tests/
+#/tutorials/todo/
