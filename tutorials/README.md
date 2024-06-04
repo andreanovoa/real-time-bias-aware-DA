@@ -1,6 +1,5 @@
 # Intro to data assimilation (DA)  
-This folder includes a collection of interactive (Jupyter notebook) tutorials to ease the introduction to this repository.
-
+This folder includes a collection of interactive (Jupyter notebook) tutorials introductory to real-time data assimilation with ensemble Kalman filters. 
 
 ***
 ## Getting started
@@ -11,8 +10,8 @@ From the terminal:
 2. Access the repository: ```cd path-to-repo ```
 3. Create virtual environment wih anaconda and activate environment:
    ```
-   conda create --yes --name my-env python=3.9
-   conda activate my-env
+   conda create --yes --name da-env python=3.9
+   conda activate da-env
    ```
 4. Install the requirements of the main repository and the additional requirements for the tutorials:
    ```
@@ -22,11 +21,11 @@ From the terminal:
 5. Access the tutorials folder and launch the jupyter notebooks:
    ```
    cd tutorials
-   jupyter notebook
+   jupyter lab
    ```
 
 ****
-*The tutorials are brand new - please don't hesitate to submit issues or pull requests!*
+*The tutorials are brand new - don't hesitate to submit issues or pull requests!*
 
 ***
 ## Where to start?
@@ -42,16 +41,13 @@ Each tutorial file name includes a two-digit code, which indicates the category.
 ### Data Assimilation tutorials [1x]
 * Bias-unaware DA
   1) [x] 10 - Introduction to DA and twin experiment on the Van der Pol model
-  2) [x] 11 - Twin experiment on the Lorenz63
+  2) [x] 11 - Twin experiment on a chaotic attractor of the Lorenz63 model
   
 * Bias-unaware DA
-  1) [ ] 12 - Bias-aware DA twin experiment 
+  1) [x] 12 - Introduction to bias-aware DA and twin experiment on the Van der Pol oscillator
  
 ### Echo state network tutorials [2x]
 - [x] 21 - ESN adaptability with data assimilation
-
-[//]: # (- [ ] 20 - ESN as model bias estimator and multi-parameter training approach)
-
 
  
 ### Data Assimilation on azimuthal thermoacosustics [3x]
