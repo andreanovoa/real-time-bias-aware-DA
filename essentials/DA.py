@@ -13,7 +13,7 @@ rng = np.random.default_rng(6)
 
 
 def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
-    y_obs = y_obs.copy().squeeze()
+    y_obs = y_obs.copy()
     # Print simulation parameters ##
     ensemble.print_model_parameters()
     ensemble.bias.print_bias_parameters()
@@ -186,34 +186,6 @@ def analysisStep(case, d, Cdd):
                     case.rejected_analysis.append([(case.get_current_time, np.dot(case.Ma, Aa), np.dot(case.Ma, Af), None)])
                 else:
                     raise NotImplementedError('Constrained filter yet to test')
-                    # # Try assimilating the parameters themselves
-                    # Alphas = np.dot(case.Ma, Af)[idx_alpha]
-                    # M_alpha = np.vstack([M, case.Ma[idx_alpha]])
-                    # Caa = np.eye(len(idx_alpha)) * np.var(Alphas, axis=-1)  # ** 2
-                    # # Store
-                    # case.rejected_analysis.append([(case.t, np.dot(case.Ma, Aa),
-                    #                                 np.dot(case.Ma, Af), (d_alpha, Caa))])
-                    # C_zeros = np.zeros([case.Nq, len(idx_alpha)])
-                    # Cdd_alpha = np.block([[Cdd, C_zeros], [C_zeros.T, Caa]])
-                    # d_alpha = np.concatenate([d, d_alpha])
-                    #
-                    # if case.filter == 'EnSRKF':
-                    #     Aa = EnSRKF(Af, d_alpha, Cdd_alpha, M_alpha)
-                    # elif case.filter == 'EnKF':
-                    #     Aa = EnKF(Af, d_alpha, Cdd_alpha, M_alpha)
-                    # elif case.filter == 'rBA_EnKF':
-                    #     if case.activate_bias_aware:
-                    #         Aa = rBA_EnKF(Af, d_alpha, Cdd_alpha, Cbb, k, M_alpha, b, J)
-                    #     else:
-                    #         Aa = EnKF(Af, d_alpha, Cdd_alpha, M_alpha)
-                    #
-                    # # double check point in case the inflation takes the ensemble out of parameter range
-                    # if checkParams(Aa, case)[0]:
-                    #     print('\t ok c-filter case')
-                    #     Aa = inflateEnsemble(Aa, case.inflation)
-                    # else:
-                    #     print('! not ok c-filter case')
-                    #     Aa = inflateEnsemble(Af, case.inflation)
 
             # Aa = Aa[:-case.Nq, :]
     return Aa
@@ -307,17 +279,12 @@ def checkParams(Aa, case):
             mean_, max_ = np.mean(alpha_), np.max(alpha_)
             bound_ = upper_bounds[idx_]
 
-            # min_ = np.min(alphas[idx_])
             if mean_ < bound_:
-                # vv = alpha_[np.argwhere(alpha_ < bound_)]
                 d_alpha.append(np.min(alpha_) - np.std(alpha_))
-                # elif min_ < bound_:
-                #     d_alpha.append(min_)
                 print('t = {:.3f}: max{}={:.2f}>{:.2f}. d_alph={:.2f}'.format(case.get_current_time, case.est_a[idx_],
                                                                               max_, bound_, d_alpha[-1]))
             else:
                 d_alpha.append(bound_ - 2 * np.std(alphas[idx_]))
-
                 print('t = {:.3f}: mean{}={:.2f}>{:.2f}. d_alph={:.2f}'.format(case.get_current_time, case.est_a[idx_],
                                                                                mean_, bound_, d_alpha[-1]))
 
@@ -394,7 +361,7 @@ def EnKF(Af, d, Cdd, M):
     if d.ndim == 2 and d.shape[-1] == m:
         D = d
     else:
-        D = rng.multivariate_normal(d.squeeze(), Cdd, m).transpose()
+        D = rng.multivariate_normal(d, Cdd, m).transpose()
 
     # Mapped forecast matrix M(Af) and mapped deviations M(Af')
     Y = np.dot(M, Af)

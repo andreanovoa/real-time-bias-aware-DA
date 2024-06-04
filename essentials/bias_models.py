@@ -5,21 +5,21 @@ from essentials.Util import interpolate
 import numpy as np
 from copy import deepcopy
 
+
+
 class Bias:
+    upsample = 1
+    m = 1
+    augment_data = False
+    bayesian_update = False
+    biased_observations = False
+    filter = None
+    inflation = None
+    t_init = None
 
     def __init__(self, b, t, dt, **kwargs):
         self.dt = dt
         self.precision_t = int(-np.log10(dt)) + 2
-        self.upsample = 1
-        self.m = 1
-        self.augment_data = False
-
-        # Default to not perform bayesian update to state
-        self.bayesian_update = False
-        self.biased_observations = False
-        self.filter = None
-        self.inflation = None
-        self.t_init = t
 
         # ========================= Re-DEFINE ESSENTIALS ========================== ##
         for key, val in kwargs.items():
@@ -87,7 +87,7 @@ class Bias:
             self.hist_t = np.concatenate((self.hist_t, t))
         elif update_last_state:
             if b is not None:
-                self.hist[-1, self.observed_idx] = b
+                # self.hist[-1, self.observed_idx] = b
                 if hasattr(self, 'reset_state'):
                     if 'u' not in kwargs.keys():
                         kwargs['u'] = b
@@ -110,6 +110,7 @@ class Bias:
     def copy(self):
         return deepcopy(self)
 
+
 # =================================================================================================================== #
 
 
@@ -127,6 +128,7 @@ class NoBias(Bias):
     def time_integrate(self, t, **kwargs):
         return np.zeros([len(t), self.N_dim, self.N_ens]), t
 
+
 # =================================================================================================================== #
 
 
@@ -142,9 +144,8 @@ class ESN(Bias, EchoStateNetwork):
         # --------------------  Initialise parent EchoStateNetwork  ------------------- #
         EchoStateNetwork.__init__(self, y=self.hist[0], dt=dt, **kwargs)
 
-        # Flags
-        self.initialised = False
-        self.trained = False
+        self.wash_obs = None
+        self.wash_time = None
 
         # Add keys to print data
         extra_keys = ['t_train', 't_val', 'N_wash', 'rho', 'sigma_in',
@@ -170,7 +171,7 @@ class ESN(Bias, EchoStateNetwork):
         if len(t) % self.upsample:
             Nt += 1
             interp_flag = True
-        t_b = np.round(self.get_current_time + np.arange(0, Nt+1) * self.dt_ESN, self.precision_t)
+        t_b = np.round(self.get_current_time + np.arange(0, Nt + 1) * self.dt_ESN, self.precision_t)
 
         # If the time is before the washout initialization, return zeros
         if self.initialised:
@@ -188,8 +189,8 @@ class ESN(Bias, EchoStateNetwork):
                 washout = wash_obs - np.mean(wash_model, axis=-1)
 
                 u_open, r_open = self.openLoop(washout, inflation=self.inflation)
-                u[t1:t1+self.N_wash+1] = u_open
-                r[t1:t1+self.N_wash+1] = r_open
+                u[t1:t1 + self.N_wash + 1] = u_open
+                r[t1:t1 + self.N_wash + 1] = r_open
                 Nt -= self.N_wash
 
                 # Run the rest of the time window in closed-loop
@@ -223,7 +224,8 @@ class ESN(Bias, EchoStateNetwork):
         self.trained = True
         if self.bayesian_update:
             self.update_history(b=np.zeros((self.N_dim, self.m)), reset=True)
-            self.initialise_state(data=data,  N_ens=self.m)
+            self.initialise_state(data=data, N_ens=self.m)
+
 
     def get_ML_state(self, concat_reservoir_state=False):
         u, r = self.get_reservoir_state()

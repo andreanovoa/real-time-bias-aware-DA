@@ -7,8 +7,7 @@ from copy import deepcopy
 import numpy as np
 import os
 
-import essentials.bias_models
-from essentials.Util import Cheb
+from essentials.bias_models import NoBias
 
 num_proc = os.cpu_count()
 if num_proc > 1:
@@ -110,7 +109,7 @@ class Model:
         if hasattr(self, 'bias'):
             return type(self.bias)
         else:
-            return essentials.bias_models.NoBias
+            return NoBias
 
     def set_rng(self, seed):
         self.rng = np.random.default_rng(seed)
@@ -146,7 +145,7 @@ class Model:
         for key in sorted(self.defaults.keys()):
             try:
                 print('\t {} = {:.6}'.format(key, getattr(self, key)))
-            except ValueError:
+            except ValueError or TypeError:
                 print('\t {} = {}'.format(key, getattr(self, key)))
 
     # --------------------- DEFINE OBS-STATE MAP --------------------- ##
@@ -228,7 +227,7 @@ class Model:
         if self.bias is None:
             self.init_bias()
 
-    def init_bias(self, bias_model=essentials.bias_models.NoBias, **Bdict):
+    def init_bias(self, bias_model=NoBias, **Bdict):
 
         if 'bias_type' in Bdict.keys():
             raise 'redefine to bias_model'
@@ -592,8 +591,7 @@ class Lorenz63(Model):
     t_transient = 10 * t_lyap
     t_CR = 4 * t_lyap
     defaults: dict = dict(Nq=3, dt=0.02,
-                          rho=28., sigma=10., beta=8. / 3.,
-                          observe_dims=range(3))
+                          rho=28., sigma=10., beta=8. / 3.)
 
     params_labels = dict(rho='$\\rho$', sigma='$\\sigma$', beta='$\\beta$')
     params_lims = dict(rho=(None, None), sigma=(None, None), beta=(None, None))
@@ -610,7 +608,10 @@ class Lorenz63(Model):
         super().__init__(child_defaults=Lorenz63.defaults, **model_dict)
 
         if 'observe_dims' in model_dict:
+            self.observe_dims = model_dict['observe_dims']
             self.Nq = len(self.observe_dims)
+        else:
+            self.observe_dims=range(self.Nq)
 
     # _______________ Lorenz63 specific properties and methods ________________ #
     @property
