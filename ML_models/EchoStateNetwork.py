@@ -2,12 +2,12 @@
 import time
 import matplotlib.backends.backend_pdf as plt_pdf
 from essentials.Util import *
-from essentials.DA import EnKF, EnSRKF
+from essentials.DA import EnKF
 
 # Validation methods
 from functools import partial
 from itertools import product
-import skopt
+from skopt import gp_minimize
 from skopt.learning import GaussianProcessRegressor as GPR
 from skopt.learning.gaussian_process.kernels import ConstantKernel, Matern
 from skopt.space import Real
@@ -158,7 +158,7 @@ class EchoStateNetwork:
     def get_reservoir_state(self):
         return self.u, self.r
 
-    def reconstruct_state(self, observed_data, filter_=EnSRKF, update_reservoir=True, Cdd=None, inflation=1.01):
+    def reconstruct_state(self, observed_data, filter_=EnKF, update_reservoir=True, Cdd=None, inflation=1.01):
 
         Nq = len(self.observed_idx)
 
@@ -262,7 +262,7 @@ class EchoStateNetwork:
         return u_out, r_out
 
     def openLoop(self, u_wash, extra_closed=0, force_reconstruct=True, update_reservoir=True, inflation=1.01):
-        """ Initialises ESN in open-loop.
+        """ Modified class of the parent class to account for bayesian update to the network
             Input:
                 - U_wash: washout input time series
             Returns:
@@ -306,7 +306,6 @@ class EchoStateNetwork:
 
         r = np.empty((Nt + 1, self.N_units, self.u.shape[-1]))
         u = np.empty((Nt + 1, self.N_dim, self.u.shape[-1]))
-
         u[0, self.observed_idx], r[0] = self.get_reservoir_state()
 
         for i in range(Nt):
@@ -315,7 +314,13 @@ class EchoStateNetwork:
         return u, r
 
     # _______________________________________________________________________________________ TRAIN & VALIDATE THE ESN
-    def train(self, train_data, plot_training=True, folder='./', add_noise=True, **kwargs):
+    def train(self, train_data, add_noise=True, plot_training=True, folder='./', **kwargs):
+        """
+
+        train_data: training data shape [Nt x Ndim]
+        add_noise : flag to add noise to the input training data
+
+        """
 
         # The objective is to initialize the weights in Wout
         self.Wout = np.zeros([self.N_units + 1, self.N_dim])
@@ -422,7 +427,7 @@ class EchoStateNetwork:
         # Flag case as trained
         self.trained = True
 
-    def initialise_state(self, data,  N_ens=1, seed=0):
+    def initialise_state(self, data, N_ens=1, seed=0):
         if hasattr(self, 'seed'):
             seed = self.seed
         rng0 = np.random.default_rng(seed)
@@ -438,13 +443,13 @@ class EchoStateNetwork:
                 replace = True
             dim_ids = rng0.choice(data.shape[0], size=N_ens, replace=replace)
 
-        t_ids = rng0.choice(data.shape[1]-self.N_wash, size=N_ens, replace=False)
+        t_ids = rng0.choice(data.shape[1] - self.N_wash, size=N_ens, replace=False)
 
-        # Open loop for each ensemble memnber
+        # Open loop for each ensemble member
         for ii, ti, dim_i in zip(range(N_ens), t_ids, dim_ids):
             self.reset_state(u=np.zeros((self.N_dim, 1)), r=np.zeros((self.N_units, 1)))
             u_open, r_open = self.openLoop(data[dim_i, ti: ti + self.N_wash], force_reconstruct=False)
-            u_init[:, ii], r_init[:, ii] = u_open[-1].squeeze(), r_open[-1].squeeze()
+            u_init[:, ii], r_init[:, ii] = u_open[-1], r_open[-1]
         # Set physical and reservoir states as ensembles
         self.reset_state(u=u_init, r=r_init)
 
@@ -472,46 +477,19 @@ class EchoStateNetwork:
 
         self.W = (1. / spectral_radius) * W
 
-
-
-
-    # def for_func(self, U_wtv, Y_tv, R_RR, U_RR, ll):
-    #     LHS_l, RHS_l = 0., 0.
-    #     # Washout phase. Store the last r value only
-    #     self.r = self.openLoop(U_wtv[ll][:self.N_wash], extra_closed=True)[1][-1]
-    #     # Split training data for faster computations
-    #     U_train = np.array_split(U_wtv[ll][self.N_wash:], self.N_split, axis=0)
-    #     Y_target = np.array_split(Y_tv[ll], self.N_split, axis=0)
-    #     for U_t, Y_t in zip(U_train, Y_target):
-    #         # Open-loop train phase
-    #         u_open, r_open = self.openLoop(U_t, extra_closed=True)
-    #
-    #         self.reset_state(u=u_open[-1], r=r_open[-1])
-    #
-    #         u_open, r_open = u_open[1:].squeeze(), r_open[1:].squeeze()
-    #
-    #         R_RR[ll] = np.append(R_RR[ll], r_open, axis=0)
-    #         U_RR[ll] = np.append(U_RR[ll], u_open, axis=0)
-    #
-    #         # Compute matrices for linear regression system
-    #         bias_out = np.ones([r_open.shape[0], 1]) * self.bias_out
-    #         r_aug = np.hstack((r_open, bias_out))
-    #         LHS_l += np.dot(r_aug.T, r_aug)
-    #         RHS_l += np.dot(r_aug.T, Y_t)
-    #     return LHS_l, RHS_l
-
-
     def compute_RR_terms(self, U_wtv, Y_tv):
         LHS, RHS = 0., 0.
         R_RR = [np.empty([0, self.N_units])] * U_wtv.shape[0]
         U_RR = [np.empty([0, self.N_dim])] * U_wtv.shape[0]
         self.reset_state(u=self.u * 0, r=self.r * 0)
 
+        # todo: pallallelize summations
         # part = partial(EchoStateNetwork.for_func, R_RR=R_RR, U_RR=U_RR)
         # sol = [self.pool.apply_async(part, ) for mi in range(self.m)]
         # psi = [s.get() for s in sol]
 
         for ll in range(U_wtv.shape[0]):
+
             # Washout phase. Store the last r value only
             self.r = self.openLoop(U_wtv[ll][:self.N_wash], extra_closed=True)[1][-1]
 
@@ -525,7 +503,9 @@ class EchoStateNetwork:
 
                 self.reset_state(u=u_open[-1], r=r_open[-1])
 
-                u_open, r_open = u_open[1:].squeeze(), r_open[1:].squeeze()
+                u_open, r_open = u_open[1:], r_open[1:]
+                if u_open.ndim > 2:
+                    u_open, r_open = u_open.squeeze(axis=-1), r_open.squeeze(axis=-1)
 
                 R_RR[ll] = np.append(R_RR[ll], r_open, axis=0)
                 U_RR[ll] = np.append(U_RR[ll], u_open, axis=0)
@@ -544,6 +524,7 @@ class EchoStateNetwork:
         LHS.ravel()[::LHS.shape[1] + 1] += self.tikh  # Add tikhonov to the diagonal
         return np.linalg.solve(LHS, RHS)  # Solve linear regression problem
 
+
     def format_training_data(self, data=None, add_noise=True):
         """
         :param data: training data labels with dimensions L x Nt x Ndim
@@ -552,11 +533,11 @@ class EchoStateNetwork:
 
         #   APPLY UPSAMPLE AND OBSERVED INDICES ________________________
 
+        if data.ndim == 2:
+            data = np.expand_dims(data, axis=0)
+
         # Set labels always as the full state
         Y = data[:, ::self.upsample].copy()
-
-        # self.bayesian_update = bayesian_update
-
 
         # Case I: Full observability .OR. Case II: Partial observability
         if not self.bayesian_update:
@@ -642,16 +623,16 @@ class EchoStateNetwork:
                   random_state=10  # seed
                   )
         # Bayesian Optimization
-        result = skopt.gp_minimize(val,  # function to minimize
-                                   search_space,  # bounds
-                                   base_estimator=b_e,  # GP kernel
-                                   acq_func="gp_hedge",  # acquisition function
-                                   n_calls=n_calls,  # num of evaluations
-                                   x0=x0,  # Initial grid points
-                                   n_random_starts=n_rand,  # num of random initializations
-                                   n_restarts_optimizer=3,  # tries per acquisition
-                                   random_state=10  # seed
-                                   )
+        result = gp_minimize(val,  # function to minimize
+                             search_space,  # bounds
+                             base_estimator=b_e,  # GP kernel
+                             acq_func="gp_hedge",  # acquisition function
+                             n_calls=n_calls,  # num of evaluations
+                             x0=x0,  # Initial grid points
+                             n_random_starts=n_rand,  # num of random initializations
+                             n_restarts_optimizer=3,  # tries per acquisition
+                             random_state=10  # seed
+                             )
         return result
 
     # ______________________________________________________________________________________________ VALIDATION METHODS
@@ -697,7 +678,7 @@ class EchoStateNetwork:
                     case.reset_state(u=case.outputs_to_inputs(u_open[-1]), r=r_open[-1])
 
                     case.Wout = Wout_tik[tik_j]
-                    U_close = case.closedLoop(case.N_val)[0][1:].squeeze()
+                    U_close = case.closedLoop(case.N_val)[0][1:].squeeze(axis=-1)
 
                     # Compute normalized MSE
                     n_MSE[tik_j] += np.log10(np.mean((Y_val - U_close) ** 2) / np.mean(case.norm ** 2))
@@ -761,9 +742,8 @@ class EchoStateNetwork:
             errors = []
             for test_i, Li, i0 in zip(np.arange(total_tests), L_indices, initial_times):
 
-
                 # Reset state
-                self.reset_state(u=self.u*0., r=self.r*0.)
+                self.reset_state(u=self.u * 0., r=self.r * 0.)
 
                 # Select dataset
                 U_test_l, Y_test_l = U_test[Li], Y_test[Li]
@@ -774,10 +754,10 @@ class EchoStateNetwork:
                 self.reset_state(u=self.outputs_to_inputs(full_state=u_open[-1]), r=r_open[-1])
 
                 # Data to compare with, i.e., labels
-                Y_labels = Y_test_l[i0 + self.N_wash: i0 + self.N_wash + N_test].squeeze()
+                Y_labels = Y_test_l[i0 + self.N_wash: i0 + self.N_wash + N_test]
 
                 # Closed-loop prediction
-                Y_closed = self.closedLoop(N_test)[0][1:].squeeze()
+                Y_closed = self.closedLoop(N_test)[0][1:].squeeze(axis=-1)
 
                 # compute error
                 err = np.log10(np.mean((Y_closed - Y_labels) ** 2) / np.mean(np.expand_dims(self.norm, -1) ** 2))
@@ -786,6 +766,10 @@ class EchoStateNetwork:
                 # plot test
                 fig, axs = plt.subplots(nrows=Nq, ncols=1, figsize=[10, 2 * Nq], sharex='all', layout='tight')
                 t_ = np.arange(len(Y_closed)) * self.dt_ESN
+
+                if Nq == 1:
+                    axs = [axs]
+
                 for dim_i, ax in enumerate(axs):
                     ax.plot(t_, Y_labels[:, dim_i], 'k', label='truth dim ' + str(dim_i))
                     ax.plot(t_, Y_closed[:, dim_i], '--r', label='ESN dim ' + str(dim_i))
