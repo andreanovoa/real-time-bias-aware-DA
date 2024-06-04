@@ -10,7 +10,7 @@ import scipy.io as sio
 rng = np.random.default_rng(0)
 
 
-def create_ensemble(forecast_params=None, dt=None, model=None, alpha0=None, **filter_params):
+def create_ensemble(model=None, forecast_params=None, dt=None, alpha0=None, **filter_params):
     if forecast_params is None:
         forecast_params = filter_params.copy()
     else:
@@ -25,7 +25,10 @@ def create_ensemble(forecast_params=None, dt=None, model=None, alpha0=None, **fi
     if model is not None:
         forecast_params['model'] = model
 
-    ensemble = forecast_params['model'](**forecast_params)
+    if not model.initialized:
+        ensemble = forecast_params['model'](**forecast_params)
+    else:
+        ensemble = model.copy()
 
     # Forecast model case to steady state initial condition before initialising ensemble
     state, t_ = ensemble.time_integrate(int(ensemble.t_CR / ensemble.dt))
@@ -109,6 +112,10 @@ def create_observations_from_file(name, t_max, t_min=0.):
         elif 'annular' in name:
             mat = sio.loadmat(name + '.mat')
             y_raw, y_true, t_true = [mat[key] for key in ['y_raw', 'y_filtered', 't']]
+        elif 'circle' in name:
+            mat = sio.loadmat('data/circle_data.mat')
+            y_raw = np.array([mat['ux'], mat['uy']])
+            y_raw = np.squeeze(y_raw).transpose(0, 3, 2, 1)
         else:
             raise FileNotFoundError
     except FileNotFoundError:
@@ -198,10 +205,8 @@ def create_noisy_signal(y_clean, noise_level=0.1, noise_type='gauss, add'):
         else:
             y_noisy[:, :, ll] += noise * y_noisy[:, :, ll]
 
-    y_noisy = y_noisy.squeeze()
-
-    if y_noisy.ndim == 1:
-        y_noisy = np.expand_dims(y_noisy, axis=-1)
+    if L == 1:
+        y_noisy = y_noisy[..., 0]
 
     return y_noisy
 

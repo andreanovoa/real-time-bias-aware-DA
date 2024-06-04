@@ -77,7 +77,7 @@ def plot_ensemble(ensemble, max_modes=None, reference_params=None, nbins=6):
         for ax, a, param in zip(axs, ensemble.get_current_state[-ensemble.Na:, ], ensemble.est_a):
             xlims = np.array(ensemble.std_a[param]) / reference_alpha[param]
             ax.hist(a / reference_alpha[param], bins=np.linspace(*xlims, nbins))
-            ax.set(xlabel=ensemble.params_labels[param])
+            ax.set(xlabel=ensemble.alpha_labels[param])
 
 
 def post_process_loopParams(results_dir, k_plot=(None,), figs_dir=None, k_max=100.):
@@ -200,7 +200,7 @@ def post_process_multiple(folder, filename=None, k_max=100., L_plot=None, refere
                     reference_p = filter_ens.alpha0
 
                 for pj, p in enumerate(filter_ens.est_a):
-                    p_lbl = filter_ens.params_labels[p]
+                    p_lbl = filter_ens.alpha_labels[p]
                     for idx, a, tt, mk in zip([-1, 0], [1., .2],
                                               ['$(t_\\mathrm{end})/$', '$^0/$'], ['x', '+']):
                         hist_p = filter_ens.hist[idx, N_psi + pj] / reference_p[p]
@@ -292,14 +292,14 @@ def post_process_pdf(filter_ens, truth, params, filename=None, reference_p=None,
         max_p, min_p = max(max_p, np.max(m)), min(min_p, np.min(m))
         if p not in ['C1', 'C2']:
             p = '\\' + p
-        labels_p.append('$' + p + norm_lbl(filter_ens.params_labels[p]) + '$')
+        labels_p.append('$' + p + norm_lbl(filter_ens.alpha_labels[p]) + '$')
         hist_alpha.append(m)
         ii += 1
 
     for ax, p, a, c, lbl in zip(ax_all, filter_ens.est_a, hist_alpha, colors_alpha, labels_p):
         plot_violins(ax, a, t_obs, widths=dt_obs / 2, color=c, label='analysis posterior')
-        alpha_lims = [filter_ens.params_lims[p][0] / reference_p[p],
-                      filter_ens.params_lims[p][1] / reference_p[p]]
+        alpha_lims = [filter_ens.alpha_lims[p][0] / reference_p[p],
+                      filter_ens.alpha_lims[p][1] / reference_p[p]]
         for lim in alpha_lims:
             ax.plot([hist_t[0], hist_t[-1]], [lim, lim], '--', color=c, lw=0.8)
         if twin:
@@ -389,7 +389,7 @@ def post_process_single(filter_ens, truth, filename=None, mic=0, reference_y=1.,
             m = hist_mean[:, ii].squeeze() / reference_p[p]
             s = abs(np.std(hist[:, ii] / reference_p[p], axis=1))
             max_p, min_p = max(max_p, max(m + 2 * s)), min(min_p, min(m - 2 * s))
-            labels_p.append(norm_lbl(filter_ens.params_labels[p]))
+            labels_p.append(norm_lbl(filter_ens.alpha_labels[p]))
             mean_p.append(m)
             std_p.append(s)
             ii += 1
@@ -886,7 +886,7 @@ def plot_parameters(ensembles, truth, filename=None, reference_p=None):
         for p in ens.est_a:
             m = hist_mean[:, ii].squeeze() / ref_p[p]
             s = abs(np.std(hist[:, ii] / ref_p[p], axis=1))
-            labels_p.append(norm_lbl(ens.params_labels[p]))
+            labels_p.append(norm_lbl(ens.alpha_labels[p]))
             mean_p.append(m)
             std_p.append(s)
             ii += 1
@@ -897,9 +897,9 @@ def plot_parameters(ensembles, truth, filename=None, reference_p=None):
             ax.plot(hist_t, m, ls=style[kk], color=c, label=lbl)
             ax.fill_between(hist_t, m + abs(s), m - abs(s), alpha=0.6, color=c)
             if kk == 0:
-                if filter_ens.params_lims[p][0] is not None and filter_ens.params_lims[p][1] is not None:
-                    for lim in [filter_ens.params_lims[p][0] / ref_p[p],
-                                filter_ens.params_lims[p][1] / ref_p[p]]:
+                if filter_ens.alpha_lims[p][0] is not None and filter_ens.alpha_lims[p][1] is not None:
+                    for lim in [filter_ens.alpha_lims[p][0] / ref_p[p],
+                                filter_ens.alpha_lims[p][1] / ref_p[p]]:
                         ax.plot([hist_t[0], hist_t[-1]], [lim, lim], '--', color=c, lw=2, alpha=0.5)
 
                 for idx, cl, ll in zip(['num_DA_blind', 'num_SE_only'], ['darkblue', 'darkviolet'], ['BE', 'PE']):
@@ -1522,7 +1522,7 @@ def plot_covarriance(case):
     Nphi, Na, Nq = case.Nphi, case.Na, case.Nq
 
     tixs = case.state_labels.copy()
-    tixs += [case.params_labels[key] for key in case.est_a]
+    tixs += [case.alpha_labels[key] for key in case.est_a]
     tixs += ['$p_{}$'.format(ii) for ii in np.arange(Nq)]
 
     # range_psi = np.max(Af, axis=-1, keepdims=True) - np.min(Af, axis=-1, keepdims=True)

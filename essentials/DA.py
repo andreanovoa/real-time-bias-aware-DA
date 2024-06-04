@@ -231,7 +231,7 @@ def inflateEnsemble(A, rho, d=None, additive=False):
 def checkParams(Aa, case):
     alphas, lower_bounds, upper_bounds, ii = [], [], [], 0
     for param in case.est_a:
-        lims = case.params_lims[param]
+        lims = case.alpha_lims[param]
         vals = Aa[case.Nphi + ii, :]
         lower_bounds.append(lims[0])
         upper_bounds.append(lims[1])

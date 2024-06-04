@@ -79,7 +79,6 @@ if __name__ == '__main__':
 
     train_data = create_bias_training_dataset(truth['y_raw'], truth['y_true'], ensemble_ESN, **train_params)
     ensemble_ESN.bias.train_bias_model(**train_data)
-
     wash_t, wash_obs = create_washout(ensemble_ESN.bias, truth['t'], truth['y_raw'])
 
     truth = truth_og.copy()

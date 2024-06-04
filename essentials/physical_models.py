@@ -7,7 +7,7 @@ from copy import deepcopy
 import numpy as np
 import os
 
-import essentials.bias_models
+from essentials.bias_models import NoBias
 from essentials.Util import Cheb
 
 num_proc = os.cpu_count()
@@ -19,9 +19,29 @@ if num_proc > 1:
 class Model:
     """ Parent Class with the general model properties and methods definitions.
     """
-    defaults: dict = dict(t=0., seed=6,
-                          psi0=None, alpha0=None, alpha=None,
-                          filename='', governing_eqns_params=dict())
+
+    alpha_labels: dict = dict()
+    alpha_lims: dict = dict()
+
+    state_labels: list = []
+    fixed_params = []
+    governing_eqns_params = dict()
+
+    t = 0.
+    dt = 0.01
+    t_transient = 0.
+    t_CR = 10 * 0.01
+
+    Nq = 1
+    m = 1
+    seed = 6
+    psi0 = None
+    alpha0 = None
+    alpha = None
+    filename = ''
+
+    initialized = False
+
     defaults_ens: dict = dict(filter='EnKF',
                               constrained_filter=False,
                               bias_bayesian_update=False,
@@ -43,18 +63,14 @@ class Model:
                               start_ensemble_forecast=0.
                               )
 
-    # __slots__ = list(defaults.keys()) + list(defaults_ens.keys()) + ['hist', 'hist_t', 'hist_J', '_pool', '_M', '_Ma']
+    def __init__(self, **kwargs):
 
-    def __init__(self, child_defaults, **model_dict):
-
-        # ================= INITIALISE THERMOACOUSTIC MODEL ================== ##
-        default_values = {**child_defaults, **Model.defaults}
-        for key, val in default_values.items():
-            if key in model_dict.keys():
+        # ================= INITIALISE PHYSICAL MODEL ================== ##
+        model_dict = kwargs.copy()
+        for key, val in kwargs.items():
+            if hasattr(self, key):
                 setattr(self, key, model_dict[key])
                 del model_dict[key]
-            else:
-                setattr(self, key, val)
 
         for key, val in Model.defaults_ens.items():
             if key in model_dict.keys():
@@ -65,6 +81,7 @@ class Model:
             print('Model {} not assigned'.format(model_dict.keys()))
 
         # ====================== SET INITIAL CONDITIONS ====================== ##
+        self.params = list([*self.alpha_labels])
         self.alpha0 = {par: getattr(self, par) for par in self.params}
         # Ensure psi0 is ndarray with ndim=2
         if self.psi0.ndim < 2:
@@ -80,14 +97,14 @@ class Model:
         # ======================== SET RNG ================================== ##
         self.rng = np.random.default_rng(self.seed)
 
+        self.print_params = [*self.alpha_labels]
+
+        self.initialized = True
+
 
     @property
     def Nphi(self):
         return len(self.psi0)
-
-    @property
-    def N(self):
-        return self.Nphi + self.Na + self.Nq
 
     @property
     def Na(self):
@@ -96,6 +113,9 @@ class Model:
         else:
             return len(self.est_a)
 
+    @property
+    def N(self):
+        return self.Nphi + self.Na + self.Nq
 
     @property
     def get_current_state(self):
@@ -105,12 +125,16 @@ class Model:
     def get_current_time(self):
         return self.hist_t[-1]
 
+    def set_fixed_params(self):
+        for key in self.fixed_params:
+            self.governing_eqns_params[key] = getattr(self, key)
+
     @property
     def bias_type(self):
         if hasattr(self, 'bias'):
             return type(self.bias)
         else:
-            return essentials.bias_models.NoBias
+            return NoBias
 
     def set_rng(self, seed):
         self.rng = np.random.default_rng(seed)
@@ -143,7 +167,7 @@ class Model:
 
     def print_model_parameters(self):
         print('\n ------------------ {} Model Parameters ------------------ '.format(self.name))
-        for key in sorted(self.defaults.keys()):
+        for key in sorted(self.print_params):
             try:
                 print('\t {} = {:.6}'.format(key, getattr(self, key)))
             except ValueError:
@@ -174,7 +198,7 @@ class Model:
             if method == 'uniform':
                 ensemble_ = [rng.uniform(low=sa[0], high=sa[1], size=m) for sa in std.values()]
             else:
-                ensemble_ = [rng.normal(loc=np.mean(sa), scale=np.mean(sa)/2, size=m) for sa in std.values()]
+                ensemble_ = [rng.normal(loc=np.mean(sa), scale=np.mean(sa) / 2, size=m) for sa in std.values()]
         elif type(std) is float:
             if method == 'uniform':
                 ensemble_ = [ma * (1. + rng.uniform(-std, std, m)) for ma in mean]
@@ -188,7 +212,7 @@ class Model:
 
         return ensemble_
 
-    def init_ensemble(self, seed=None, **kwargs):
+    def init_ensemble(self, seed=None, ensemble_psi0=None, **kwargs):
         if seed is not None:
             self.set_rng(seed=seed)
 
@@ -205,9 +229,10 @@ class Model:
         if hasattr(self, 'modify_settings'):
             self.modify_settings()
         # --------------- RESET INITIAL CONDITION AND HISTORY --------------- ##
-        mean_psi0 = np.mean(self.get_current_state, -1)
-        new_psi0 = self.add_uncertainty(self.rng, mean_psi0, self.std_psi, self.m, method=self.phi_distr,
-                                        ensure_mean=self.ensure_mean)
+        if ensemble_psi0 is None:
+            mean_psi0 = np.mean(self.get_current_state, -1)
+            ensemble_psi0 = self.add_uncertainty(self.rng, mean_psi0, self.std_psi,
+                                                 self.m, method=self.phi_distr, ensure_mean=self.ensure_mean)
 
         for var in [self.est_a, self.std_a]:
             if type(var) is dict:
@@ -215,20 +240,19 @@ class Model:
                 self.est_a = [*var]
 
         if self.est_a:  # Augment ensemble with estimated parameters: psi = [psi; alpha]
-
             mean_a = np.array([getattr(self, pp) for pp in self.est_a])
             new_alpha0 = self.add_uncertainty(self.rng, mean_a, self.std_a, self.m,
                                               method=self.alpha_distr, ensure_mean=self.ensure_mean)
-            new_psi0 = np.vstack((new_psi0, new_alpha0))
+            ensemble_psi0 = np.vstack((ensemble_psi0, new_alpha0))
         else:
             self.est_a = []
 
         # RESET ENSEMBLE HISTORY
-        self.update_history(psi=new_psi0, t=0., reset=True)
+        self.update_history(psi=ensemble_psi0, t=0., reset=True)
         if self.bias is None:
             self.init_bias()
 
-    def init_bias(self, bias_model=essentials.bias_models.NoBias, **Bdict):
+    def init_bias(self, bias_model=NoBias, **Bdict):
 
         if 'bias_type' in Bdict.keys():
             raise 'redefine to bias_model'
@@ -256,17 +280,20 @@ class Model:
                 self.hist_t = t
         else:
             if psi is None:
-                self.hist = np.array(np.array([self.psi0]).T)
-            else:
-                self.hist = np.array([psi])
-                if self.hist.ndim > 3:
-                    self.hist = self.hist.squeeze(axis=0)
+                psi = np.array(np.array([self.psi0]).T)
             if t is None:
-                self.hist_t = np.array([0.])
-            else:
-                self.hist_t = np.array([t])
-                if self.hist_t.ndim > 1:
-                    self.hist_t = self.hist_t.squeeze()
+                t = np.arange(psi.shape[0]) * self.dt
+
+            self.reset_history(psi, t)
+
+    def reset_history(self,  psi, t):
+        self.hist = np.array([psi])
+        if self.hist.ndim > 3:
+            self.hist = self.hist.squeeze(axis=0)
+
+        self.hist_t = np.array([t])
+        if self.hist_t.ndim > 1:
+            self.hist_t = self.hist_t.squeeze()
 
     def is_not_physical(self, print_=False):
         if not hasattr(self, '_physical'):
@@ -383,14 +410,25 @@ class VdP(Model):
     name: str = 'VdP'
     t_transient = 1.5
     t_CR = 0.04
-    defaults: dict = dict(Nq=1, dt=1e-4,
-                          omega=2 * np.pi * 120., law='tan',
-                          zeta=60., beta=70., kappa=4.0, gamma=1.7)  # beta, zeta [rad/s]
+    # defaults: dict = dict(Nq=1, dt=1e-4,
+    #                       omega=2 * np.pi * 120., law='tan',
+    #                       zeta=60., beta=70., kappa=4.0, gamma=1.7)  # beta, zeta [rad/s]
 
-    params_labels = dict(beta='$\\beta$', zeta='$\\zeta$', kappa='$\\kappa$')
-    params_lims = dict(zeta=(5, 120), kappa=(0.1, 20), beta=(5, 120))
-    params: list = [*params_labels]  # ,'omega', 'gamma']
+    Nq = 1
+    dt = 1e-4,
+    law = 'tan',
+
+    beta = 70.
+    kappa = 4.0
+    gamma = 1.7
+    omega = 2 * np.pi * 120.
+    zeta = 60.
+
+    alpha_labels = dict(beta='$\\beta$', zeta='$\\zeta$', kappa='$\\kappa$')
+    alpha_lims = dict(zeta=(5, 120), kappa=(0.1, 20), beta=(5, 120))
+
     state_labels: list = ['$\\eta$', '$\\mu$']
+
     fixed_params = ['law', 'omega']
 
     # __________________________ Init method ___________________________ #
@@ -399,17 +437,14 @@ class VdP(Model):
         if 'psi0' not in model_dict.keys():
             model_dict['psi0'] = np.array([0.1, 0.1])  # initialise eta and mu
 
-        super().__init__(child_defaults=VdP.defaults, **model_dict)
+        super().__init__(**model_dict)
 
-        # _________________________ Add fixed parameters  ________________________ #
+        self.print_params += ['law', 'omega']
+
+        #  Add fixed parameters
         self.set_fixed_params()
 
-    def set_fixed_params(self):
-        for key in VdP.fixed_params:
-            self.governing_eqns_params[key] = getattr(self, key)
-
     # _______________ VdP specific properties and methods ________________ #
-
     @property
     def obs_labels(self):
         return ["$\\eta$"]
@@ -436,28 +471,43 @@ class Rijke(Model):
     name: str = 'Rijke'
     t_transient = 1.
     t_CR = 0.02
-    defaults: dict = dict(Nm=10, Nc=10, Nq=6, dt=1e-4,
-                          beta=4.0, tau=1.5E-3, C1=.05, C2=.01, kappa=1E5, xf=0.2, L=1., law='sqrt')
-    params_labels = dict(beta='$\\beta$', tau='$\\tau$', C1='$C_1$', C2='$C_2$', kappa='$\\kappa$')
-    params_lims = dict(beta=(0.01, 5), tau=[1E-6, None], C1=(0., 1.), C2=(0., 1.), kappa=(1E3, 1E8))
-    params: list = list([*params_labels])
 
-    fixed_params = ['cosomjxf', 'Dc', 'gc', 'jpiL', 'L', 'law', 'meanFlow', 'Nc', 'Nm', 'tau_adv', 'sinomjxf']
+    Nm = 10
+    Nc = 10
+    Nq = 6
+    dt = 1e-4,
+
+    beta, tau = 4.0, 1.5E-3
+    C1, C2 = 0.05, 0.01
+    kappa = 1E5
+    xf, L = 0.2, 1.
+    law = 'sqrt'
+
+    alpha_labels = dict(beta='$\\beta$', tau='$\\tau$', C1='$C_1$', C2='$C_2$', kappa='$\\kappa$')
+    alpha_lims = dict(beta=(0.01, 5), tau=[1E-6, None], C1=(0., 1.), C2=(0., 1.), kappa=(1E3, 1E8))
+
+    fixed_params = ['cosomjxf', 'Dc', 'gc', 'jpiL', 'L',
+                    'law', 'meanFlow', 'Nc', 'Nm', 'tau_adv', 'sinomjxf']
 
     def __init__(self, **model_dict):
 
         if 'psi0' not in model_dict.keys():
-            Nm, Nc = [Rijke.defaults[key] for key in ['Nm', 'Nc']]
             if 'Nm' in model_dict.keys():
                 Nm = model_dict['Nm']
+            else:
+                Nm = self.Nm
             if 'Nc' in model_dict.keys():
                 Nc = model_dict['Nc']
+            else:
+                Nc = self.Nc
             model_dict['psi0'] = .05 * np.hstack([np.ones(2 * Nm), np.zeros(Nc)])
 
-        super().__init__(child_defaults=Rijke.defaults, **model_dict)
+        super().__init__(**model_dict)
 
         self.tau_adv = self.tau
         self.params_lims['tau'][-1] = self.tau_adv
+
+        self.print_params += ['law', 'Nm', 'Nc', 'xf', 'L']
 
         # Chebyshev modes
         self.Dc, self.gc = Cheb(self.Nc, getg=True)
@@ -499,11 +549,6 @@ class Rijke(Model):
             self.update_history(reset=True)
             self.set_fixed_params()
 
-    # _________________________ Governing equations ________________________ #
-    def set_fixed_params(self):
-        for key in Rijke.fixed_params:
-            self.governing_eqns_params[key] = getattr(self, key)
-
     # _______________ Rijke specific properties and methods ________________ #
     @property
     def obsLabels(self, loc=None):
@@ -513,8 +558,8 @@ class Rijke(Model):
 
     @property
     def state_labels(self):
-        lbls0 = ["$\eta_{}$".format(j) for j in np.arange(self.Nm)]
-        lbls1 = ["$\dot{\\eta}_{}$".format(j) for j in np.arange(self.Nm)]
+        lbls0 = ["$\\eta_{}$".format(j) for j in np.arange(self.Nm)]
+        lbls1 = ["$\\dot{\\eta}_{}$".format(j) for j in np.arange(self.Nm)]
         lbls2 = ["$\\nu_{}$".format(j) for j in np.arange(self.Nc)]
         return lbls0 + lbls1 + lbls2
 
@@ -534,8 +579,8 @@ class Rijke(Model):
 
     @staticmethod
     def time_derivative(t, psi,
-                       C1, C2, beta, kappa, tau,
-                       cosomjxf, Dc, gc, jpiL, L, law, meanFlow, Nc, Nm, tau_adv, sinomjxf):
+                        C1, C2, beta, kappa, tau,
+                        cosomjxf, Dc, gc, jpiL, L, law, meanFlow, Nc, Nm, tau_adv, sinomjxf):
         """
             Governing equations of the model.
             Args:
@@ -591,26 +636,31 @@ class Lorenz63(Model):
     t_lyap = 0.9056 ** (-1)
     t_transient = 10 * t_lyap
     t_CR = 4 * t_lyap
-    defaults: dict = dict(Nq=3, dt=0.02,
-                          rho=28., sigma=10., beta=8. / 3.,
-                          observe_dims=range(3))
 
-    params_labels = dict(rho='$\\rho$', sigma='$\\sigma$', beta='$\\beta$')
-    params_lims = dict(rho=(None, None), sigma=(None, None), beta=(None, None))
-    params = list([*params_labels])
+    Nq = 3
+    dt = 0.02,
+    rho = 28.
+    sigma = 10.
+    beta = 8. / 3.,
+
+    observe_dims = range(3)
+
+    alpha_labels = dict(rho='$\\rho$', sigma='$\\sigma$', beta='$\\beta$')
+    alpha_lims = dict(rho=(None, None), sigma=(None, None), beta=(None, None))
 
     state_labels = ['$x$', '$y$', '$z$']
-    fixed_params = []
 
     # __________________________ Init method ___________________________ #
     def __init__(self, **model_dict):
         if 'psi0' not in model_dict.keys():
             model_dict['psi0'] = np.array([1.0, 1.0, 1.0])  # initialise x, y, z
 
-        super().__init__(child_defaults=Lorenz63.defaults, **model_dict)
+        super().__init__(**model_dict)
 
         if 'observe_dims' in model_dict:
             self.Nq = len(self.observe_dims)
+
+        self.print_params += ['observe_dims', 'Nq', 't_lyap']
 
     # _______________ Lorenz63 specific properties and methods ________________ #
     @property
@@ -642,36 +692,45 @@ class Annular(Model):
     t_transient = 0.5
     t_CR = 0.01
 
-    ER_0 = 0.5
+    ER = 0.5
     nu_1, nu_2 = 633.77, -331.39
     c2b_1, c2b_2 = 258.3, -108.27  # values in Matlab codes
 
-    defaults: dict = dict(Nq=4, n=1., ER=ER_0, dt=1. / 51200,
-                          theta_b=0.63, theta_e=0.66, omega=1090 * 2 * np.pi, epsilon=2.3E-3,
-                          nu=nu_1 * ER_0 + nu_2, c2beta=c2b_1 * ER_0 + c2b_2, kappa=1.2E-4)
+    # defaults: dict = dict(Nq=4, n=1., ER=ER_0, dt=1. / 51200,
+    #                       theta_b=0.63, theta_e=0.66, omega=1090 * 2 * np.pi, epsilon=2.3E-3,
+    #                       nu=nu_1 * ER_0 + nu_2, c2beta=c2b_1 * ER_0 + c2b_2, kappa=1.2E-4)
+
+    Nq = 4
+    theta_mic = np.radians([0, 60, 120, 240])
+
+    dt = 1. / 51200
+    theta_b = 0.63
+    theta_e = 0.66
+    omega = 1090 * 2 * np.pi
+    epsilon = 2.3E-3,
+
+    nu = nu_1 * ER + nu_2
+    c2beta = c2b_1 * ER + c2b_2
+    kappa = 1.2E-4
 
     # defaults['nu'], defaults['c2beta'] = 30., 5.  # spin
     # defaults['nu'], defaults['c2beta'] = 1., 25.  # stand
     # defaults['nu'], defaults['c2beta'] = 20., 18.  # mix
 
-    params_labels = dict(omega='$\\omega$', nu='$\\nu$', c2beta='$c_2\\beta $', kappa='$\\kappa$',
-                         epsilon='$\\epsilon$', theta_b='$\\Theta_\\beta$', theta_e='$\\Theta_\\epsilon$')
-    params_lims = dict(omega=(1000 * 2 * np.pi, 1300 * 2 * np.pi),
-                       nu=(-60., 60.), c2beta=(0., 60.), kappa=(None, None),
-                       epsilon=(None, None), theta_b=(0, 2 * np.pi), theta_e=(0, 2 * np.pi))
-    params = list([*params_labels])
+    alpha_labels = dict(omega='$\\omega$', nu='$\\nu$', c2beta='$c_2\\beta $', kappa='$\\kappa$',
+                        epsilon='$\\epsilon$', theta_b='$\\Theta_\\beta$', theta_e='$\\Theta_\\epsilon$')
+    alpha_lims = dict(omega=(1000 * 2 * np.pi, 1300 * 2 * np.pi),
+                      nu=(-60., 60.), c2beta=(0., 60.), kappa=(None, None),
+                      epsilon=(None, None), theta_b=(0, 2 * np.pi), theta_e=(0, 2 * np.pi))
 
     state_labels = ['$\\eta_{a}$', '$\\dot{\\eta}_{a}$', '$\\eta_{b}$', '$\\dot{\\eta}_{b}$']
-    fixed_params = []
 
     # __________________________ Init method ___________________________ #
     def __init__(self, **model_dict):
 
         if 'psi0' not in model_dict.keys():
-            omega = Annular.defaults['omega']
-
             C0, X0, th0, ph0 = 10, 0, 0.63, 0  # %initial values
-            # %Conversion of the initial conditions from the quaternion formalism to the AB formalism
+            # Conversion of the initial conditions from the quaternion formalism to the AB formalism
             Ai = C0 * np.sqrt(np.cos(th0) ** 2 * np.cos(X0) ** 2 + np.sin(th0) ** 2 * np.sin(X0) ** 2)
             Bi = C0 * np.sqrt(np.sin(th0) ** 2 * np.cos(X0) ** 2 + np.cos(th0) ** 2 * np.sin(X0) ** 2)
             phai = ph0 + np.arctan2(np.sin(th0) * np.sin(X0), np.cos(th0) * np.cos(X0))
@@ -679,15 +738,16 @@ class Annular(Model):
 
             # %initial conditions for the fast oscillator equations
             psi0 = [Ai * np.cos(phai),
-                    -omega * Ai * np.sin(phai),
+                    -self.omega * Ai * np.sin(phai),
                     Bi * np.cos(phbi),
-                    -omega * Bi * np.sin(phbi)]
+                    -self.omega * Bi * np.sin(phbi)]
 
             model_dict['psi0'] = np.array(psi0)  # initialise \eta_a, \dot{\eta_a}, \eta_b, \dot{\eta_b}
 
-        super().__init__(child_defaults=Annular.defaults, **model_dict)
+        super().__init__(**model_dict)
 
-        self.theta_mic = np.radians([0, 60, 120, 240])
+        self.print_params += ['law', 'Nm', 'Nc', 'xf', 'L']
+
 
     # _______________  Specific properties and methods ________________ #
     @property
@@ -743,8 +803,7 @@ class Annular(Model):
             return omega ** 2 * (y1 * (1 + sign * epsilon / 2. * np.cos(2. * theta_e)) +
                                  y2 * epsilon / 2. * np.sin(2. * theta_e))
 
-        dz_a = z_a * k1(y_a, y_b, 1) + z_b * k2 - k3(y_a, y_b, 1)
-        dz_b = z_b * k1(y_b, y_a, -1) + z_a * k2 - k3(y_b, y_a, -1)
+        dz_a = z_a * k1(y_a, y_b, sign=1) + z_b * k2 - k3(y_a, y_b, sign=1)
+        dz_b = z_b * k1(y_b, y_a, sign=-1) + z_a * k2 - k3(y_b, y_a, sign=-1)
 
         return (z_a, dz_a, z_b, dz_b) + (0,) * (len(psi) - 4)
-

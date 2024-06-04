@@ -1,68 +1,86 @@
-import numpy as np
-import matplotlib.pyplot as plt
-from essentials.physical_models import Lorenz63
-from essentials.create import create_truth, create_ensemble
-from essentials.DA import dataAssimilation
-from essentials.plotResults import plot_timeseries, plot_parameters, plot_truth, plot_attractor
+from functions.physical_models import Lorenz63
+from functions.bias_models import *
+from run import main
+from functions.create import create_truth, create_ensemble, create_bias_model
+from functions.plotResults import *
 
-t_lyap = Lorenz63.t_lyap
-dt_t = 0.015
+folder = 'results/Lorenz/'
+figs_dir = folder + 'figs/'
 
-rng = np.random.default_rng(0)
+os.makedirs(figs_dir, exist_ok=True)
 
-true_params = dict(model=Lorenz63,
-                   t_start=t_lyap * 10,
-                   t_stop=t_lyap * 80,
-                   t_max=100 * t_lyap,
-                   Nt_obs=(t_lyap * .5) // dt_t,
-                   dt=dt_t,
-                   rho=28.,
-                   sigma=10.,
-                   beta=8. / 3.,
-                   psi0=rng.random(3) + 10,
-                   std_obs=0.005,
-                   noise_type='gauss,additive'
-                   )
 
-forecast_params = dict(filter='EnKF',
-                       m=50,
-                       dt=dt_t,
-                       model=Lorenz63,
-                       est_a=dict(rho=(25., 35.),
-                                  beta=(2, 4),
-                                  sigma=(5, 15)),
-                       std_psi=0.3,
-                       alpha_distr='uniform',
-                       inflation=1.01
-                       )
+# %% ============================= SELECT TRUE AND FORECAST MODELS ================================= #
 
+
+def model_bias(yy, tt):
+    return 0 * yy, 'nobias'
+    # return .3 * np.max(yy, axis=0) + .3 * yy, 'linear'   # Linear bias
+    # return .3 * np.max(yy, axis=0) * (np.cos((yy / np.max(yy, axis=0))**2) + 1), 'nonlinear+offset'  # Non-linear bias
+
+
+true_params = {'model': Lorenz63,
+               't_max': 100.,
+               'std_obs': 0.01,
+               'manual_bias': model_bias,
+               'rho': 28.,
+               'sigma': 10.,
+               'beta': 8. / 3.,
+               }
+
+forecast_params = {'model': Lorenz63,
+                   'rho': 28.,
+                   'sigma': 10.,
+                   'beta': 8. / 3.,
+                   }
+
+# ==================================== SELECT FILTER PARAMETERS =================================== #
+params_IC = dict(rho=(27.5, 32), sigma=(9.5, 12.5))
+
+filter_params = {'filter': 'EnKF',
+                 'constrained_filter': False,
+                 'regularization_factor': 0.,
+                 'm': 10,
+                 'est_a': [*params_IC],
+                 'std_psi': 0.1,
+                 'std_a': params_IC,
+                 'alpha_distr': 'uniform',
+                 # Define the observation time-window
+                 't_start': 5.,
+                 't_stop': 30.,
+                 'dt_obs': 25,
+                 # Inflation
+                 'inflation': 1.0,
+                 }
+
+bias_params = {'bias_type': ESN,
+               'N_wash': 30,
+               'upsample': 3,
+               'N_units': 600,
+               'est_a': filter_params['est_a'],
+               'ensure_mean': True,
+               'connect': 3,
+               # 't_train': Lorenz63.t_transient * 2,
+               # 't_val': Lorenz63.t_CR * 2,
+               'L': 10,
+               'rho_range': [0.5, 1.1],
+               'sigma_in_range': [np.log10(1e-5), np.log10(.5)],
+               'tikh_range': np.array([1e-6, 1e-9, 1e-12]),
+               'augment_data': True,
+               }
 
 if __name__ == '__main__':
+    # ================================================================================== #
 
-    truth = create_truth(**true_params)
-    y_obs, t_obs = [truth[key].copy() for key in ['y_obs', 't_obs']]
-    plot_truth(**truth)
+    ensemble = create_ensemble(forecast_params, filter_params)
+    truth = create_truth(true_params, filter_params)
 
-    ensemble = create_ensemble(**forecast_params)
-    filter_ens = dataAssimilation(ensemble.copy(), y_obs=y_obs, t_obs=t_obs, std_obs=0.005)
+    bias_name = 'ESN_{}_L{}'.format(truth['name_bias'], bias_params['L'])
+    create_bias_model(ensemble, truth, bias_params, bias_name, bias_model_folder=folder, plot_train_data=True)
 
-    # Visualize attractors
-    case0 = truth['case'].copy()
-    case1 = filter_ens.copy()
+    # ================================================================================== #
 
-    # Forecast the ensemble further without assimilation
-    ens = filter_ens.copy()
-    psi, t = ens.time_integrate(int(4 * t_lyap / ens.dt), averaged=False)
-    ens.update_history(psi, t)
-
-    plot_timeseries(ens, truth, reference_t=t_lyap, plot_ensemble_members=False)
-    plot_parameters(ens, truth, reference_p=true_params)
-
-    # Forecast both cases
-    Nt = 40 * int(t_lyap / filter_ens.dt)
-    psi0, t0 = case0.time_integrate(Nt=Nt)
-    psi1, t1 = case1.time_integrate(Nt=Nt, averaged=True)
-
-    plot_attractor([psi0, psi1], color=['w', 'teal'])
+    out = main(ensemble, truth)
+    post_process_single(ensemble, truth, reference_p=Lorenz63.defaults, reference_t=Lorenz63.t_lyap)
 
     plt.show()
