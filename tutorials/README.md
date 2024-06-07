@@ -1,5 +1,6 @@
 # Intro to data assimilation (DA)  
-This folder includes a collection of interactive (Jupyter notebook) tutorials introductory to real-time data assimilation with ensemble Kalman filters. 
+This folder includes a collection of interactive (Jupyter notebook) tutorials to ease the introduction to this repository.
+
 
 ***
 ## Getting started
@@ -25,7 +26,7 @@ From the terminal:
    ```
 
 ****
-*The tutorials are brand new - don't hesitate to submit issues or pull requests!*
+*The tutorials are brand new - please don't hesitate to submit issues or pull requests!*
 
 ***
 ## Where to start?
@@ -41,13 +42,21 @@ Each tutorial file name includes a two-digit code, which indicates the category.
 ### Data Assimilation tutorials [1x]
 * Bias-unaware DA
   1) [x] 10 - Introduction to DA and twin experiment on the Van der Pol model
-  2) [x] 11 - Twin experiment on a chaotic attractor of the Lorenz63 model
+  2) [x] 11 - Twin experiment on the Lorenz63
   
 * Bias-unaware DA
-  1) [x] 12 - Introduction to bias-aware DA and twin experiment on the Van der Pol oscillator
+  1) [x] 12 - Bias-aware DA twin experiment on Van der Pol model
+  2) [ ] 13 - Bias-aware DA twin experiment on Rijke tube model
  
-### Echo state network tutorials [2x]
-- [x] 21 - ESN adaptability with data assimilation
+[//]: # (### Echo state network tutorials [2x])
+[//]: # (- [x] 21 - ESN adaptability with data assimilation)
+[//]: # (- [ ] 20 - ESN as model bias estimator and multi-parameter training approach)
+
+### Data Assimilation on longitudinal thermoacoustics [2x]
+
+* [x] 20 - Low order model of longitudinal thermoacoustics: Rijke tube
+* [ ] 21 - Higher order model visualization (manually added bias)
+* [ ] 22 - Regularized bias-aware DA
 
  
 ### Data Assimilation on azimuthal thermoacosustics [3x]
@@ -56,10 +65,3 @@ Each tutorial file name includes a two-digit code, which indicates the category.
 * [x] 31 - Experimental data visualization 
 * [x] 32 - DA on experimental data: ideal scenario
 * [x] 32 - DA on experimental data: realistic scenario
-
-
-[//]: # ()
-[//]: # (* Longitudinal thermoacoustics &#40;Rijke tube&#41; )
-[//]: # (  * [ ] 32 - Low order model )
-[//]: # (  * [ ] 33 - Higher-order model data visualization)
-
