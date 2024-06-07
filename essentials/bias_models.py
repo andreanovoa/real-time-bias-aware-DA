@@ -8,19 +8,20 @@ from copy import deepcopy
 
 class Bias:
     upsample = 1
-    m = 1
+    L = 1
     augment_data = False
     # Default to not perform bayesian update to state
     bayesian_update = False
+    biased_observations = False
     filter = None
     inflation = None
+    t_init = None
+
     keys_to_print = ['bayesian_update', 'upsample', 'N_ens']
 
     def __init__(self, b, t, dt, **kwargs):
         self.dt = dt
         self.precision_t = int(-np.log10(dt)) + 2
-
-        self.t_init = t
 
         # ========================= Re-DEFINE ESSENTIALS ========================== ##
         for key, val in kwargs.items():
@@ -31,7 +32,6 @@ class Bias:
         if b.ndim == 1:
             b = np.expand_dims(b, axis=-1)
 
-        b = np.concatenate([b, b], axis=0)
         self.hist = np.array([b])
         self.hist_t = np.array([t])
 
@@ -86,11 +86,7 @@ class Bias:
             self.hist_t = np.concatenate((self.hist_t, t))
         elif update_last_state:
             if b is not None:
-                self.hist[-1, self.observed_idx] = b
-                if hasattr(self, 'reset_state'):
-                    if 'u' not in kwargs.keys():
-                        kwargs['u'] = b
-                    self.reset_state(**kwargs)
+                self.update_current_state(b, **kwargs)
             else:
                 raise ValueError('psi must be provided')
             if t is not None:
@@ -98,13 +94,17 @@ class Bias:
         else:
             if t is None:
                 t = self.get_current_time
-            self.hist_t = np.array([t])
-            self.hist = np.array([b])
-            if self.hist.ndim < 3:
-                self.hist = np.expand_dims(self.hist, axis=-1)
-            if hasattr(self, 'reset_state'):
-                r = np.zeros((self.N_units, self.N_ens))
-                self.reset_state(u=b, r=r)
+            t, b = np.array([t]), np.array([b])
+            if b.ndim == 2:
+                np.expand_dims(self.hist, axis=-1)
+            self.reset_history(b, t)
+
+    def update_current_state(self, b, **kwargs):
+        self.hist[-1] = b
+
+    def reset_history(self, b, t):
+        self.hist_t = t
+        self.hist = b
 
     def copy(self):
         return deepcopy(self)
@@ -137,6 +137,8 @@ class ESN(Bias, EchoStateNetwork):
     def __init__(self, y, t, dt, **kwargs):
         self.update_reservoir = False
 
+        y = np.concatenate([y, y], axis=0)
+
         # --------------------------  Initialise parent Bias  ------------------------- #
         Bias.__init__(self, b=y, t=t, dt=dt, **kwargs)
 
@@ -151,8 +153,18 @@ class ESN(Bias, EchoStateNetwork):
                                'N_units', 'perform_test', 'L', 'connect', 'tikh',
                                'update_reservoir', 'observed_idx']
 
-    def reset_bias(self, u, r=None):
-        self.reset_state(u=u, r=r)
+    def reset_history(self, b, t):
+        self.hist_t = t
+        self.hist = b
+        r = np.zeros((self.N_units, self.N_ens))
+        self.reset_state(u=b, r=r)
+
+    def update_current_state(self, b, **kwargs):
+        self.hist[-1, self.observed_idx] = b
+        if hasattr(self, 'reset_state'):
+            if 'u' not in kwargs.keys():
+                kwargs['u'] = b
+            self.reset_state(**kwargs)
 
     def state_derivative(self):
         u, r = [np.mean(xx, axis=-1, keepdims=True) for xx in self.get_reservoir_state()]

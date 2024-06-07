@@ -1,9 +1,4 @@
 /results/
 /data/
-/POD-ESN_figs/
-POD_ESN_case
-
-#/other/
-#/tests/
-#/tutorials/todo/
-
+/dev/
+/*/figs_ESN

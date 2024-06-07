@@ -13,7 +13,8 @@ rng = np.random.default_rng(6)
 
 
 def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
-    y_obs = y_obs.copy().squeeze()
+
+    y_obs = y_obs.copy()
     # Print simulation parameters ##
     ensemble.print_model_parameters()
     ensemble.bias.print_bias_parameters()
@@ -45,6 +46,7 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
 
         # ------------------------------  PERFORM ASSIMILATION ------------------------------ #
         Aa = analysisStep(ensemble, y_obs[ti], Cdd)  # Analysis step
+
 
         # -------------------------  UPDATE STATE AND BIAS ESTIMATES------------------------- #
         ensemble.update_history(Aa[:-ensemble.Nq, :], update_last_state=True)
@@ -84,7 +86,6 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
     print('Elapsed time during assimilation: ' + str(time.time() - time1) + ' s')
     ensemble.close()
     return ensemble
-
 
 
 # =================================================================================================================== #
@@ -165,9 +166,7 @@ def analysisStep(case, d, Cdd):
         raise ValueError('Filter ' + case.filter + ' not defined.')
 
     # ============================ CHECK PARAMETERS AND INFLATE =========================== #
-    if not case.est_a:
-        Aa = inflateEnsemble(Af, case.inflation, d=d, additive=True)
-    else:
+    if case.est_a:
         if not case.activate_parameter_estimation:
             Af_params = Af[-case.Na:, :]
             Aa = inflateEnsemble(Af, case.inflation, d=d, additive=True)
@@ -214,8 +213,9 @@ def analysisStep(case, d, Cdd):
                     # else:
                     #     print('! not ok c-filter case')
                     #     Aa = inflateEnsemble(Af, case.inflation)
+    else:
+        Aa = inflateEnsemble(Aa, case.inflation, d=d, additive=True)
 
-            # Aa = Aa[:-case.Nq, :]
     return Aa
 
 
@@ -394,7 +394,7 @@ def EnKF(Af, d, Cdd, M):
     if d.ndim == 2 and d.shape[-1] == m:
         D = d
     else:
-        D = rng.multivariate_normal(d.squeeze(), Cdd, m).transpose()
+        D = rng.multivariate_normal(d, Cdd, m).transpose()
 
     # Mapped forecast matrix M(Af) and mapped deviations M(Af')
     Y = np.dot(M, Af)

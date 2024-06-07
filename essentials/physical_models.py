@@ -25,6 +25,7 @@ class Model:
 
     state_labels: list = []
     fixed_params = []
+    extra_print_params = []
     governing_eqns_params = dict()
 
     t = 0.
@@ -96,11 +97,11 @@ class Model:
         self.bias = None
         # ======================== SET RNG ================================== ##
         self.rng = np.random.default_rng(self.seed)
-
-        self.print_params = [*self.alpha_labels]
-
+        self.print_params = self.define_print_params()
         self.initialized = True
 
+    def define_print_params(self):
+        return [*self.alpha_labels, *self.extra_print_params]
 
     @property
     def Nphi(self):
@@ -168,10 +169,11 @@ class Model:
     def print_model_parameters(self):
         print('\n ------------------ {} Model Parameters ------------------ '.format(self.name))
         for key in sorted(self.print_params):
-            try:
-                print('\t {} = {:.6}'.format(key, getattr(self, key)))
-            except ValueError:
-                print('\t {} = {}'.format(key, getattr(self, key)))
+            val = getattr(self, key)
+            if type(val) is float:
+                print('\t {} = {:.6}'.format(key, val))
+            else:
+                print('\t {} = {}'.format(key, val))
 
     # --------------------- DEFINE OBS-STATE MAP --------------------- ##
     @property
@@ -196,12 +198,12 @@ class Model:
 
         if type(std) is dict:
             if method == 'uniform':
-                ensemble_ = [rng.uniform(low=sa[0], high=sa[1], size=m) for sa in std.values()]
+                ensemble_ = np.array([rng.uniform(low=sa[0], high=sa[1], size=m) for sa in std.values()])
             else:
                 ensemble_ = [rng.normal(loc=np.mean(sa), scale=np.mean(sa) / 2, size=m) for sa in std.values()]
         elif type(std) is float:
             if method == 'uniform':
-                ensemble_ = [ma * (1. + rng.uniform(-std, std, m)) for ma in mean]
+                ensemble_ = np.array([ma * (1. + rng.uniform(-std, std, m)) for ma in mean])
             else:
                 ensemble_ = rng.multivariate_normal(mean, np.diag((mean * std) ** 2), m).T
         else:
@@ -281,19 +283,18 @@ class Model:
         else:
             if psi is None:
                 psi = np.array(np.array([self.psi0]).T)
+            if psi.ndim == 2:
+                psi = np.array([psi])
             if t is None:
                 t = np.arange(psi.shape[0]) * self.dt
+
+            t = np.array([t]).reshape(-1)
 
             self.reset_history(psi, t)
 
     def reset_history(self,  psi, t):
-        self.hist = np.array([psi])
-        if self.hist.ndim > 3:
-            self.hist = self.hist.squeeze(axis=0)
-
-        self.hist_t = np.array([t])
-        if self.hist_t.ndim > 1:
-            self.hist_t = self.hist_t.squeeze()
+        self.hist = psi
+        self.hist_t = t
 
     def is_not_physical(self, print_=False):
         if not hasattr(self, '_physical'):
@@ -415,8 +416,8 @@ class VdP(Model):
     #                       zeta=60., beta=70., kappa=4.0, gamma=1.7)  # beta, zeta [rad/s]
 
     Nq = 1
-    dt = 1e-4,
-    law = 'tan',
+    dt = 1e-4
+    law = 'tan'
 
     beta = 70.
     kappa = 4.0
@@ -430,6 +431,7 @@ class VdP(Model):
     state_labels: list = ['$\\eta$', '$\\mu$']
 
     fixed_params = ['law', 'omega']
+    extra_print_params = ['law', 'omega']
 
     # __________________________ Init method ___________________________ #
     def __init__(self, **model_dict):
@@ -438,8 +440,6 @@ class VdP(Model):
             model_dict['psi0'] = np.array([0.1, 0.1])  # initialise eta and mu
 
         super().__init__(**model_dict)
-
-        self.print_params += ['law', 'omega']
 
         #  Add fixed parameters
         self.set_fixed_params()
@@ -475,7 +475,7 @@ class Rijke(Model):
     Nm = 10
     Nc = 10
     Nq = 6
-    dt = 1e-4,
+    dt = 1e-4
 
     beta, tau = 4.0, 1.5E-3
     C1, C2 = 0.05, 0.01
@@ -489,6 +489,7 @@ class Rijke(Model):
     fixed_params = ['cosomjxf', 'Dc', 'gc', 'jpiL', 'L',
                     'law', 'meanFlow', 'Nc', 'Nm', 'tau_adv', 'sinomjxf']
 
+    extra_print_params = ['law', 'Nm', 'Nc', 'xf', 'L']
     def __init__(self, **model_dict):
 
         if 'psi0' not in model_dict.keys():
@@ -505,9 +506,8 @@ class Rijke(Model):
         super().__init__(**model_dict)
 
         self.tau_adv = self.tau
-        self.params_lims['tau'][-1] = self.tau_adv
+        self.alpha_lims['tau'][-1] = self.tau_adv
 
-        self.print_params += ['law', 'Nm', 'Nc', 'xf', 'L']
 
         # Chebyshev modes
         self.Dc, self.gc = Cheb(self.Nc, getg=True)
@@ -551,7 +551,7 @@ class Rijke(Model):
 
     # _______________ Rijke specific properties and methods ________________ #
     @property
-    def obsLabels(self, loc=None):
+    def obs_labels(self, loc=None):
         if loc is None:
             loc = np.expand_dims(self.x_mic, axis=1)
         return ["$p'(x = {:.2f})$".format(x) for x in loc[:, 0]]
@@ -638,15 +638,17 @@ class Lorenz63(Model):
     t_CR = 4 * t_lyap
 
     Nq = 3
-    dt = 0.02,
+    dt = 0.02
     rho = 28.
     sigma = 10.
-    beta = 8. / 3.,
+    beta = 8. / 3.
 
     observe_dims = range(3)
 
     alpha_labels = dict(rho='$\\rho$', sigma='$\\sigma$', beta='$\\beta$')
     alpha_lims = dict(rho=(None, None), sigma=(None, None), beta=(None, None))
+
+    extra_print_params = ['observe_dims', 'Nq', 't_lyap']
 
     state_labels = ['$x$', '$y$', '$z$']
 
@@ -659,8 +661,6 @@ class Lorenz63(Model):
 
         if 'observe_dims' in model_dict:
             self.Nq = len(self.observe_dims)
-
-        self.print_params += ['observe_dims', 'Nq', 't_lyap']
 
     # _______________ Lorenz63 specific properties and methods ________________ #
     @property
@@ -707,7 +707,7 @@ class Annular(Model):
     theta_b = 0.63
     theta_e = 0.66
     omega = 1090 * 2 * np.pi
-    epsilon = 2.3E-3,
+    epsilon = 2.3E-3
 
     nu = nu_1 * ER + nu_2
     c2beta = c2b_1 * ER + c2b_2
@@ -728,6 +728,8 @@ class Annular(Model):
     # __________________________ Init method ___________________________ #
     def __init__(self, **model_dict):
 
+
+        print(model_dict['dt'])
         if 'psi0' not in model_dict.keys():
             C0, X0, th0, ph0 = 10, 0, 0.63, 0  # %initial values
             # Conversion of the initial conditions from the quaternion formalism to the AB formalism
@@ -745,8 +747,6 @@ class Annular(Model):
             model_dict['psi0'] = np.array(psi0)  # initialise \eta_a, \dot{\eta_a}, \eta_b, \dot{\eta_b}
 
         super().__init__(**model_dict)
-
-        self.print_params += ['law', 'Nm', 'Nc', 'xf', 'L']
 
 
     # _______________  Specific properties and methods ________________ #

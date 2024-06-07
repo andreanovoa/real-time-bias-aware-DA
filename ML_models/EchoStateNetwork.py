@@ -105,13 +105,6 @@ class EchoStateNetwork:
     def N_test(self):
         return int(round(self.t_test / self.dt_ESN))
 
-    # @property
-    # def len_train_data(self):
-    #     val = self.N_train + self.N_val + self.N_wash
-    #     if self.perform_test:
-    #         val += self.N_test * 5
-    #     return val
-
     @property
     def WCout(self):
         if self._WCout is None:
@@ -684,7 +677,6 @@ class EchoStateNetwork:
         # Select test cases (with a maximum of max_tests)
         total_tests = min(max_tests, L)
         if max_tests != L:
-            # L_indices = np.random.random_integers(low=0, high=L, size=total_tests)
             if total_tests <= L:
                 L_indices = rng0.choice(L, total_tests, replace=False)
             else:
@@ -733,6 +725,8 @@ class EchoStateNetwork:
 
                 # plot test
                 fig, axs = plt.subplots(nrows=Nq, ncols=1, figsize=[10, 2 * Nq], sharex='all', layout='tight')
+                if Nq == 1:
+                    axs = [axs]
                 t_ = np.arange(len(Y_closed)) * self.dt_ESN
                 for dim_i, ax in enumerate(axs):
                     ax.plot(t_, Y_labels[:, dim_i], 'k', label='truth dim ' + str(dim_i))

@@ -10,13 +10,12 @@ import scipy.io as sio
 rng = np.random.default_rng(0)
 
 
-def create_ensemble(model=None, forecast_params=None, dt=None, alpha0=None, **filter_params):
+def create_ensemble(forecast_params=None, dt=None, model=None, alpha0=None, **filter_params):
     if forecast_params is None:
         forecast_params = filter_params.copy()
     else:
         forecast_params = forecast_params.copy()
-    if dt is not None:
-        forecast_params['dt'] = dt
+
     if alpha0 is not None:
         for alpha, lims in alpha0.items():
             forecast_params[alpha] = 0.5 * (lims[0] + lims[1])
@@ -25,10 +24,9 @@ def create_ensemble(model=None, forecast_params=None, dt=None, alpha0=None, **fi
     if model is not None:
         forecast_params['model'] = model
 
-    if not model.initialized:
-        ensemble = forecast_params['model'](**forecast_params)
-    else:
-        ensemble = model.copy()
+    if dt is not None:
+        forecast_params['dt'] = dt
+    ensemble = forecast_params['model'](**forecast_params)
 
     # Forecast model case to steady state initial condition before initialising ensemble
     state, t_ = ensemble.time_integrate(int(ensemble.t_CR / ensemble.dt))
@@ -48,7 +46,7 @@ def create_truth(model, t_start=1., t_stop=1.5, Nt_obs=20, std_obs=0.05, t_max=N
         t_max = t_stop + t_start
 
     if type(model) is str:
-        y_raw, y_true, t_true, name_truth = create_observations_from_file(model, t_max=t_max, t_min=t_min,)
+        y_raw, y_true, t_true, name_truth = create_observations_from_file(model, t_max=t_max, t_min=t_min, )
         case_name = model.split('/')[-1]
         name_bias = 'Exp_' + case_name
         b_true = np.zeros(1)
@@ -76,12 +74,13 @@ def create_truth(model, t_start=1., t_stop=1.5, Nt_obs=20, std_obs=0.05, t_max=N
             # The manual bias is a function of state and/or time
             b_true, name_bias = manual_bias(y_true, t_true)
         # Add bias to the reference data
-        y_raw = y_true + b_true
+        y_true += b_true
 
     # =========================== ADD NOISE TO THE TRUTH ================================ #
     if type(model) is not str or post_processed:
-        y_raw = create_noisy_signal(y_raw, noise_level=std_obs, noise_type=noise_type)
+        y_raw = create_noisy_signal(y_true, noise_level=std_obs, noise_type=noise_type)
     else:
+        y_raw = y_true.copy()
         noise_type = name_bias
         std_obs = None
 
@@ -112,10 +111,6 @@ def create_observations_from_file(name, t_max, t_min=0.):
         elif 'annular' in name:
             mat = sio.loadmat(name + '.mat')
             y_raw, y_true, t_true = [mat[key] for key in ['y_raw', 'y_filtered', 't']]
-        elif 'circle' in name:
-            mat = sio.loadmat('data/circle_data.mat')
-            y_raw = np.array([mat['ux'], mat['uy']])
-            y_raw = np.squeeze(y_raw).transpose(0, 3, 2, 1)
         else:
             raise FileNotFoundError
     except FileNotFoundError:
@@ -143,10 +138,9 @@ def create_observations(model, t_max, t_min, save=False, **true_parameters):
     # ============================================================
     # Add key parameters to filename
     suffix = ''
-    key_save = model.params + ['law']
 
     for key, val in TA_params.items():
-        if key in key_save:
+        if key in model.alpha_labels.keys():
             if type(val) is str:
                 suffix += val + '_'
             else:
@@ -171,7 +165,7 @@ def create_observations(model, t_max, t_min, save=False, **true_parameters):
 
     # Retrieve observables
     y_true = case.get_observable_hist()
-    y_true = np.squeeze(y_true)
+    y_true = np.squeeze(y_true, axis=-1)
     t_true = case.hist_t
 
     if t_min > 0.:
@@ -205,13 +199,17 @@ def create_noisy_signal(y_clean, noise_level=0.1, noise_type='gauss, add'):
         else:
             y_noisy[:, :, ll] += noise * y_noisy[:, :, ll]
 
-    if L == 1:
-        y_noisy = y_noisy[..., 0]
+    y_noisy = y_noisy.squeeze()
+
+    if y_noisy.ndim == 1:
+        y_noisy = np.expand_dims(y_noisy, axis=-1)
 
     return y_noisy
 
 
-def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name=None):
+def create_bias_model(ensemble, truth: dict, bias_params: dict,
+                      wash_t=None, wash_obs=None,
+                      bias_filename=None, folder=None):
     """
     This function creates the bias model for the input ensemble, truth and parameters.
     The bias model is added to the ensemble object as ensemble.bias.
@@ -228,61 +226,55 @@ def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_name=None):
     if bias_params['bias_model'].name == 'None':
         ensemble.init_bias(**bias_params)
         run_bias = False
-    elif bias_name is not None:
+    elif bias_filename is not None:
         # Create bias estimator if the class is not 'NoBias'
-        if os.path.isfile(bias_name):
-            bias = load_from_pickle_file(bias_name)
+        if folder is not None:
+            bias_filename = folder + bias_filename
+        if os.path.isfile(bias_filename):
+            bias, wash_obs, wash_t = load_from_pickle_file(bias_filename)
             if check_valid_file(bias, bias_params) is True:
                 ensemble.bias = bias
                 run_bias = False
 
     if run_bias:
-        # ======================== SET NECESSARY TRAINING PARAMETERS ======================
-        train_params = bias_params.copy()
 
-        ensemble.init_bias(**train_params)
+        ensemble.init_bias(**bias_params)
+
+        train_data_name = bias_filename + '_train_data'
 
         # Create training data on a multi-parameter approach
         train_data = create_bias_training_dataset(y_raw, y_true,
-                                                  ensemble, **train_params)
-
-        # train_data_name = bias_model_folder + 'Train_data_L{}_augment{}'.format(train_data['L'],
-        #                                                                         train_data['augment_data'])
-        # # Save training data
-        # save_to_pickle_file(train_data_name, train_data)
+                                                  ensemble, **bias_params)
+        if bias_filename is not None:
+            save_to_pickle_file(train_data_name, train_data)
 
         # Run bias model training
-
         ensemble.bias.train_bias_model(**train_data)
 
-        # Save bias object
-        if bias_name is not None:
-            save_to_pickle_file(bias_name, ensemble.bias)
+        # Create washout if needed
 
-    ensemble.bias.print_bias_parameters()
+        if ensemble.bias.t_init is None:
+            ensemble.bias.t_init = truth['t_obs'][0]
 
-    if ensemble.bias_bayesian_update:
-        ensemble.bias.bayesian_update = True
-        if ensemble.bias.N_ens != ensemble.m:
-            raise AssertionError(ensemble.bias.N_ens, ensemble.m,
-                                 ensemble.bias.wash_obs.shape)
+        if hasattr(ensemble.bias, 'N_wash') and wash_t is None:
+            wash_t, wash_obs = create_washout(ensemble.bias, truth['t'], truth['y_raw'])
 
-    if not hasattr(ensemble.bias, 't_init'):
-        ensemble.bias.t_init = truth['t_obs'][0] - 2 * truth['dt_obs']
-
-    # Ensure the truth has washout if needed
-    wash_t, wash_obs = None, None
-    if hasattr(ensemble.bias, 'N_wash') and 'wash_t' not in truth.keys():
-        wash_t, wash_obs = create_washout(ensemble.bias, truth['t'], truth['y_raw'])
+        if bias_filename is not None:
+            save_to_pickle_file(bias_filename, ensemble.bias.copy(), wash_obs, wash_t)
 
     return ensemble.bias, wash_obs, wash_t
+
 
 def create_washout(bias_case, t_true, y_raw):
     i1 = np.argmin(abs(bias_case.t_init - t_true))
     i0 = i1 - bias_case.N_wash * bias_case.upsample
 
     if i0 < 0:
-        raise ValueError('increase bias.t_init > t_wash + dt_obs')
+        bias_case.t_init -= (bias_case.N_wash + 1) * bias_case.upsample
+        i1 = np.argmin(abs(bias_case.t_init - t_true))
+        i0 = i1 - bias_case.N_wash * bias_case.upsample
+
+    print(i1, i0, bias_case.N_wash)
 
     wash_obs = y_raw[i0:i1 + 1:bias_case.upsample]
     wash_t = t_true[i0:i1 + 1:bias_case.upsample]
@@ -296,7 +288,6 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble,
                                  N_wash=5,
                                  augment_data=True,
                                  perform_test=True,
-                                 biased_observations=False,
                                  bayesian_update=False,
                                  add_noise=True,
                                  filename='train_data', **train_params):
@@ -312,9 +303,13 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble,
         t_val = ensemble.t_CR
 
     min_train_data = t_train + t_val
+    if min_train_data > y_raw.shape[0] // ensemble.dt:
+        raise ValueError('min_train_data < y_raw length')
     if perform_test:
         min_train_data += t_val * 5
     min_train_data = int(min_train_data / ensemble.dt) + N_wash
+
+    min_train_data = min(min_train_data, y_raw.shape[0])
 
     # =========================== Load training data if available ============================== #
     try:
@@ -339,6 +334,8 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble,
         train_data = load_from_pickle_file(filename)
         print('Loaded multi-parameter training data')
     else:
+        print('Rerun training data')
+
         # =======================  Create ensemble of initial guesses ============================ #
         train_ens = ensemble.copy()
 
@@ -412,25 +409,19 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble,
         # ================ Create training biases as (observations - model estimates) ================= #
         innovations = y_raw - train_data_model
         innovations = innovations.transpose((2, 0, 1))  # Force shape to be (L x Nt x N_dim). Note: N_dim = Nq
+        model_bias = y_pp - train_data_model
+        model_bias = model_bias.transpose((2, 0, 1))
 
         assert innovations.ndim == 3
         assert innovations.shape[1] == Nt
         assert innovations.shape[2] == y_L_model.shape[1]
 
-        if not biased_observations:
-            train_data = dict(data=innovations,
-                              observed_idx=np.arange(ensemble.Nq)
-                              )
-        else:
-            # If the observations are biased, the bias estimator must predict  (1) the difference between the
-            # raw data and the model, which are the observable quantities; and (2) the difference between the
-            # post-processed data (i.e. the truth) and the model, which is the actual model bias.
-            actual_bias = y_pp - train_data_model
-            actual_bias = actual_bias.transpose((2, 0, 1))
+        train_data = dict(data=np.concatenate([model_bias, innovations], axis=2))
+        train_data['observed_idx'] = ensemble.Nq + np.arange(ensemble.Nq)  # only observe innovations
 
-            train_data = dict(data=np.concatenate([actual_bias, innovations], axis=2),
-                              observed_idx=ensemble.Nq + np.arange(ensemble.Nq)  # only observe innovations
-                              )
+        # If the observations are biased, the bias estimator must predict  (1) the difference between the
+        # raw data and the model, which are the observable quantities; and (2) the difference between the
+        # post-processed data (i.e. the truth) and the model, which is the actual model bias.
 
         # =============================== Save train_data dict ================================ #
         # Save key keywords
@@ -440,10 +431,7 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble,
         train_data['add_noise'] = add_noise
         train_data['augment_data'] = augment_data
         train_data['bayesian_update'] = bayesian_update
-        train_data['biased_observations'] = biased_observations
+        train_data['biased_observations'] = True
         train_data['L'] = L
-
-        if filename is not None:
-            save_to_pickle_file(filename, train_data)
 
     return train_data

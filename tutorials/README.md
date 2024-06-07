@@ -11,8 +11,8 @@ From the terminal:
 2. Access the repository: ```cd path-to-repo ```
 3. Create virtual environment wih anaconda and activate environment:
    ```
-   conda create --yes --name my-env python=3.9
-   conda activate my-env
+   conda create --yes --name da-env python=3.9
+   conda activate da-env
    ```
 4. Install the requirements of the main repository and the additional requirements for the tutorials:
    ```
@@ -22,7 +22,7 @@ From the terminal:
 5. Access the tutorials folder and launch the jupyter notebooks:
    ```
    cd tutorials
-   jupyter notebook
+   jupyter lab
    ```
 
 ****
@@ -47,11 +47,17 @@ Each tutorial file name includes a two-digit code, which indicates the category.
 * Bias-unaware DA
   1) [ ] 12 - Bias-aware DA twin experiment 
  
-### Echo state network tutorials [2x]
-- [x] 21 - ESN adaptability with data assimilation
+[//]: # (### Echo state network tutorials [2x])
+
+[//]: # (- [x] 21 - ESN adaptability with data assimilation)
 
 [//]: # (- [ ] 20 - ESN as model bias estimator and multi-parameter training approach)
 
+### Data Assimilation on longitudinal thermoacosustics [3x]
+
+* [ ] 20 - Low order model of longitudinal thermoacoustics: Rijke tube
+* [ ] 21 - Higher order model visualization (manually added bias)
+* [ ] 22 - Regularized bias-aware DA
 
  
 ### Data Assimilation on azimuthal thermoacosustics [3x]
@@ -60,10 +66,3 @@ Each tutorial file name includes a two-digit code, which indicates the category.
 * [x] 31 - Experimental data visualization 
 * [x] 32 - DA on experimental data: ideal scenario
 * [x] 32 - DA on experimental data: realistic scenario
-
-
-[//]: # ()
-[//]: # (* Longitudinal thermoacoustics &#40;Rijke tube&#41; )
-[//]: # (  * [ ] 32 - Low order model )
-[//]: # (  * [ ] 33 - Higher-order model data visualization)
-
