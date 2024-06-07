@@ -44,7 +44,12 @@ def recover_unbiased_solution(t_b, b, t, y, upsample=True):
         b = np.mean(b, axis=-1, keepdims=True)
     if upsample:
         b = interpolate(t_b, b, t)
-    return y + b
+    #     0
+    #     # y_unbiased = interpolate(t, y, t_b) + b
+    #     # y_unbiased = interpolate(t_b, y_unbiased, t)
+    # else:
+    y_unbiased = y + b
+    return y_unbiased
 
 
 def plot_ensemble(ensemble, max_modes=None, reference_params=None, nbins=6):
@@ -72,7 +77,7 @@ def plot_ensemble(ensemble, max_modes=None, reference_params=None, nbins=6):
         for ax, a, param in zip(axs, ensemble.get_current_state[-ensemble.Na:, ], ensemble.est_a):
             xlims = np.array(ensemble.std_a[param]) / reference_alpha[param]
             ax.hist(a / reference_alpha[param], bins=np.linspace(*xlims, nbins))
-            ax.set(xlabel=ensemble.params_labels[param])
+            ax.set(xlabel=ensemble.alpha_labels[param])
 
 
 def post_process_loopParams(results_dir, k_plot=(None,), figs_dir=None, k_max=100.):
@@ -195,7 +200,7 @@ def post_process_multiple(folder, filename=None, k_max=100., L_plot=None, refere
                     reference_p = filter_ens.alpha0
 
                 for pj, p in enumerate(filter_ens.est_a):
-                    p_lbl = filter_ens.params_labels[p]
+                    p_lbl = filter_ens.alpha_labels[p]
                     for idx, a, tt, mk in zip([-1, 0], [1., .2],
                                               ['$(t_\\mathrm{end})/$', '$^0/$'], ['x', '+']):
                         hist_p = filter_ens.hist[idx, N_psi + pj] / reference_p[p]
@@ -287,14 +292,14 @@ def post_process_pdf(filter_ens, truth, params, filename=None, reference_p=None,
         max_p, min_p = max(max_p, np.max(m)), min(min_p, np.min(m))
         if p not in ['C1', 'C2']:
             p = '\\' + p
-        labels_p.append('$' + p + norm_lbl(filter_ens.params_labels[p]) + '$')
+        labels_p.append('$' + p + norm_lbl(filter_ens.alpha_labels[p]) + '$')
         hist_alpha.append(m)
         ii += 1
 
     for ax, p, a, c, lbl in zip(ax_all, filter_ens.est_a, hist_alpha, colors_alpha, labels_p):
         plot_violins(ax, a, t_obs, widths=dt_obs / 2, color=c, label='analysis posterior')
-        alpha_lims = [filter_ens.params_lims[p][0] / reference_p[p],
-                      filter_ens.params_lims[p][1] / reference_p[p]]
+        alpha_lims = [filter_ens.alpha_lims[p][0] / reference_p[p],
+                      filter_ens.alpha_lims[p][1] / reference_p[p]]
         for lim in alpha_lims:
             ax.plot([hist_t[0], hist_t[-1]], [lim, lim], '--', color=c, lw=0.8)
         if twin:
@@ -384,7 +389,7 @@ def post_process_single(filter_ens, truth, filename=None, mic=0, reference_y=1.,
             m = hist_mean[:, ii].squeeze() / reference_p[p]
             s = abs(np.std(hist[:, ii] / reference_p[p], axis=1))
             max_p, min_p = max(max_p, max(m + 2 * s)), min(min_p, min(m - 2 * s))
-            labels_p.append(norm_lbl(filter_ens.params_labels[p]))
+            labels_p.append(norm_lbl(filter_ens.alpha_labels[p]))
             mean_p.append(m)
             std_p.append(s)
             ii += 1
@@ -857,12 +862,13 @@ def plot_parameters(ensembles, truth, filename=None, reference_p=None):
             ccolors = plt.get_cmap(cmap)(np.arange(nc, dtype=int))
         cols = np.zeros((nc * nsc, 3))
         for i, c in enumerate(ccolors):
-            chsv = mpl.colors.rgb_to_hsv(c[:3])
+            chsv = matplotlib.colors.rgb_to_hsv(c[:3])
             arhsv = np.tile(chsv, nsc).reshape(nsc, 3)
             arhsv[:, 1] = np.linspace(chsv[1], 0.25, nsc)
             arhsv[:, 2] = np.linspace(chsv[2], 1, nsc)
-            rgb = mpl.colors.hsv_to_rgb(arhsv)
+            rgb = matplotlib.colors.hsv_to_rgb(arhsv)
             cols[i * nsc:(i + 1) * nsc, :] = rgb
+        # return matplotlib.colors.ListedColormap(cols)
         return cols
 
     colors = []
@@ -880,7 +886,7 @@ def plot_parameters(ensembles, truth, filename=None, reference_p=None):
         for p in ens.est_a:
             m = hist_mean[:, ii].squeeze() / ref_p[p]
             s = abs(np.std(hist[:, ii] / ref_p[p], axis=1))
-            labels_p.append(norm_lbl(ens.params_labels[p]))
+            labels_p.append(norm_lbl(ens.alpha_labels[p]))
             mean_p.append(m)
             std_p.append(s)
             ii += 1
@@ -891,9 +897,9 @@ def plot_parameters(ensembles, truth, filename=None, reference_p=None):
             ax.plot(hist_t, m, ls=style[kk], color=c, label=lbl)
             ax.fill_between(hist_t, m + abs(s), m - abs(s), alpha=0.6, color=c)
             if kk == 0:
-                if filter_ens.params_lims[p][0] is not None and filter_ens.params_lims[p][1] is not None:
-                    for lim in [filter_ens.params_lims[p][0] / ref_p[p],
-                                filter_ens.params_lims[p][1] / ref_p[p]]:
+                if filter_ens.alpha_lims[p][0] is not None and filter_ens.alpha_lims[p][1] is not None:
+                    for lim in [filter_ens.alpha_lims[p][0] / ref_p[p],
+                                filter_ens.alpha_lims[p][1] / ref_p[p]]:
                         ax.plot([hist_t[0], hist_t[-1]], [lim, lim], '--', color=c, lw=2, alpha=0.5)
 
                 for idx, cl, ll in zip(['num_DA_blind', 'num_SE_only'], ['darkblue', 'darkviolet'], ['BE', 'PE']):
@@ -1230,6 +1236,7 @@ def plot_states_PDF(ensembles, truth, nbins=20, window=None):
         ax.set(xlabel=lbl)
 
 
+
 def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False, plot_ensemble_members=False,
                     filename=None, reference_y=1., reference_t=1., max_time=None):
     t_obs, obs = truth['t_obs'], truth['y_obs']
@@ -1400,31 +1407,18 @@ def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False, plot_e
             plt.close()
 
 
-
-def plot_attractor(psi_cases, color, figsize=(8, 8), ensemble_mean=True):
+def plot_attractor(psi_cases, color, figsize=(8, 8)):
     if type(psi_cases) is not list:
         psi_cases, color = [psi_cases], [color]
     fig = plt.figure(figsize=figsize)
-    if psi_cases[0].shape[1] == 2:
-        ax = fig.add_subplot(111)
-        ax.set(xlabel='$x$', ylabel='$y$')
-    else:
-        ax = fig.add_subplot(111, projection='3d')
-        for axs_ax in [ax.xaxis, ax.yaxis, ax.zaxis]:
-            axs_ax.pane.fill = False
-        ax.set(xlabel='$x$', ylabel='$y$', zlabel='$z$')
-
+    ax3d = fig.add_subplot(111, projection='3d')
+    for axs_ax in [ax3d.xaxis, ax3d.yaxis, ax3d.zaxis]:
+        axs_ax.pane.fill = False
+    ax3d.set(xlabel='$x$', ylabel='$y$', zlabel='$z$')
     for psi_, c  in zip(psi_cases, color):
-        lw, a = 1., 1.
         if psi_.ndim > 2:
-            if psi_.shape[2]>10 or ensemble_mean:
-                psi_ = np.mean(psi_, axis=-1)
-            elif psi_.shape[2]>1:
-                lw, a = 0.6, 0.3
-        if psi_.shape[1] == 2:
-            ax.plot(psi_[:, 0], psi_[:, 1], lw=lw, c=c, alpha=a)
-        else:
-            ax.plot(psi_[:, 0], psi_[:, 1], psi_[:, 2], lw=lw, c=c)
+            psi_ = np.mean(psi_, axis=-1)
+        ax3d.plot(psi_[:, 0], psi_[:, 1], psi_[:, 2], lw=1., c=c)
 
 
 def plot_truth(y_raw, y_true, t, dt, fig_width=10, window=None,
@@ -1437,11 +1431,12 @@ def plot_truth(y_raw, y_true, t, dt, fig_width=10, window=None,
     else:
         t0 = int(t_obs[0] // dt)
         t1 = int((t_obs[-1] + model.t_CR) // dt)
+        t1 = min(t1, len(t)-1)
 
     if window is None:
-        xlim=[t[t0], t[t1]]
+        xlim = [t[t0], t[t1]]
     else:
-        xlim=[t[t0], t[t0]+window]
+        xlim = [t[t0], t[t0] + window]
 
     noise = y_raw - y_true
     max_y = np.max(abs(y_raw[:t1 - t0]))
@@ -1525,7 +1520,6 @@ def plot_truth(y_raw, y_true, t, dt, fig_width=10, window=None,
             plt.close(fig)
         pdf_file.close()  # Close results pdf
 
-
 def plot_violins(ax, values, location, color='b', label=None, alpha=0.5, **kwargs):
     violins = ax.violinplot(values, positions=location, **kwargs)
 
@@ -1561,8 +1555,12 @@ def plot_covariance(case):
     Nphi, Na, Nq = case.Nphi, case.Na, case.Nq
 
     tixs = case.state_labels.copy()
-    tixs += [case.params_labels[key] for key in case.est_a]
+    tixs += [case.alpha_labels[key] for key in case.est_a]
     tixs += ['$p_{}$'.format(ii) for ii in np.arange(Nq)]
+
+    # range_psi = np.max(Af, axis=-1, keepdims=True) - np.min(Af, axis=-1, keepdims=True)
+    # Cpp = (Af - np.mean(Af, axis=-1, keepdims=True)) / range_psi
+    # Cpp = np.dot(Cpp, Cpp.T) / (m - 1)
 
     Cpp = np.corrcoef(Af - np.mean(Af, axis=-1, keepdims=True))
 

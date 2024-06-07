@@ -6,17 +6,12 @@ rng = np.random.default_rng(6)
 path_dir = '/'.join(os.path.realpath(__file__).split('/')[:-1]) + '/'
 
 
-def main(filter_ens, truth):
-    observations = dict()
-    for key in ['y_obs', 't_obs', 'std_obs']:
-        observations[key] = truth[key]
-    if 'wash_obs' in truth.keys():
-        for key in ['wash_obs', 'wash_t']:
-            observations[key] = truth[key]
+def main(filter_ens, y_obs, t_obs, std_obs=0.2, wash_obs=None, wash_t=None):
 
     # =========================  PERFORM DATA ASSIMILATION ========================== #
 
-    filter_ens = dataAssimilation(filter_ens, **observations)
+    filter_ens = dataAssimilation(filter_ens, y_obs, t_obs, std_obs=std_obs,
+                                  wash_obs=wash_obs, wash_t=wash_t)
 
     # =========================  EXTRA FORCAST POST-DA  ========================== #
 
@@ -42,8 +37,7 @@ def main(filter_ens, truth):
 
 
 # ------------------------------------------------------------------------------------------------------------------- #
-#
-#
+
 
 def run_Lk_loop(ensemble, truth, bias_params, Ls=10, ks=1., folder=''):
     truth = truth.copy()

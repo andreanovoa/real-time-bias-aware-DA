@@ -11,7 +11,7 @@ from functools import lru_cache
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
-from scipy.interpolate import interp1d, PchipInterpolator
+from scipy.interpolate import interp1d
 from scipy.signal import find_peaks
 
 rng = np.random.default_rng(6)

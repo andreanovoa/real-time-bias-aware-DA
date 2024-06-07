@@ -6,16 +6,18 @@ import numpy as np
 from copy import deepcopy
 
 
-
 class Bias:
     upsample = 1
-    m = 1
+    L = 1
     augment_data = False
+    # Default to not perform bayesian update to state
     bayesian_update = False
     biased_observations = False
     filter = None
     inflation = None
     t_init = None
+
+    keys_to_print = ['bayesian_update', 'upsample', 'N_ens']
 
     def __init__(self, b, t, dt, **kwargs):
         self.dt = dt
@@ -29,14 +31,11 @@ class Bias:
         # ========================== CREATE HISTORY ========================== ##
         if b.ndim == 1:
             b = np.expand_dims(b, axis=-1)
-        if self.biased_observations:
-            b = np.concatenate([b, b], axis=0)
 
         self.hist = np.array([b])
         self.hist_t = np.array([t])
 
         # Add keys to print out
-        self.keys_to_print = ['bayesian_update', 'biased_observations', 'upsample', 'N_ens']
         if self.bayesian_update:
             self.keys_to_print += ['filter', 'inflation']
 
@@ -87,11 +86,7 @@ class Bias:
             self.hist_t = np.concatenate((self.hist_t, t))
         elif update_last_state:
             if b is not None:
-                # self.hist[-1, self.observed_idx] = b
-                if hasattr(self, 'reset_state'):
-                    if 'u' not in kwargs.keys():
-                        kwargs['u'] = b
-                    self.reset_state(**kwargs)
+                self.update_current_state(b, **kwargs)
             else:
                 raise ValueError('psi must be provided')
             if t is not None:
@@ -99,13 +94,17 @@ class Bias:
         else:
             if t is None:
                 t = self.get_current_time
-            self.hist_t = np.array([t])
-            self.hist = np.array([b])
-            if self.hist.ndim < 3:
-                self.hist = np.expand_dims(self.hist, axis=-1)
-            if hasattr(self, 'reset_state'):
-                r = np.zeros((self.N_units, self.N_ens))
-                self.reset_state(u=b, r=r)
+            t, b = np.array([t]), np.array([b])
+            if b.ndim == 2:
+                np.expand_dims(self.hist, axis=-1)
+            self.reset_history(b, t)
+
+    def update_current_state(self, b, **kwargs):
+        self.hist[-1] = b
+
+    def reset_history(self, b, t):
+        self.hist_t = t
+        self.hist = b
 
     def copy(self):
         return deepcopy(self)
@@ -138,6 +137,8 @@ class ESN(Bias, EchoStateNetwork):
     def __init__(self, y, t, dt, **kwargs):
         self.update_reservoir = False
 
+        y = np.concatenate([y, y], axis=0)
+
         # --------------------------  Initialise parent Bias  ------------------------- #
         Bias.__init__(self, b=y, t=t, dt=dt, **kwargs)
 
@@ -147,14 +148,23 @@ class ESN(Bias, EchoStateNetwork):
         self.wash_obs = None
         self.wash_time = None
 
-        # Add keys to print data
-        extra_keys = ['t_train', 't_val', 'N_wash', 'rho', 'sigma_in',
-                      'N_units', 'perform_test', 'L', 'connect', 'tikh',
-                      'update_reservoir', 'observed_idx']
-        self.keys_to_print += extra_keys
+        # Add keys to print keys
+        self.keys_to_print += ['t_train', 't_val', 'N_wash', 'rho', 'sigma_in',
+                               'N_units', 'perform_test', 'L', 'connect', 'tikh',
+                               'update_reservoir', 'observed_idx']
 
-    def reset_bias(self, u, r=None):
-        self.reset_state(u=u, r=r)
+    def reset_history(self, b, t):
+        self.hist_t = t
+        self.hist = b
+        r = np.zeros((self.N_units, self.N_ens))
+        self.reset_state(u=b, r=r)
+
+    def update_current_state(self, b, **kwargs):
+        self.hist[-1, self.observed_idx] = b
+        if hasattr(self, 'reset_state'):
+            if 'u' not in kwargs.keys():
+                kwargs['u'] = b
+            self.reset_state(**kwargs)
 
     def state_derivative(self):
         u, r = [np.mean(xx, axis=-1, keepdims=True) for xx in self.get_reservoir_state()]
@@ -226,7 +236,6 @@ class ESN(Bias, EchoStateNetwork):
             self.update_history(b=np.zeros((self.N_dim, self.m)), reset=True)
             self.initialise_state(data=data, N_ens=self.m)
 
-
     def get_ML_state(self, concat_reservoir_state=False):
         u, r = self.get_reservoir_state()
         if concat_reservoir_state:
@@ -263,6 +272,3 @@ class ESN(Bias, EchoStateNetwork):
         else:
             raise AssertionError('state shape = {}'.format(state.shape))
 # =================================================================================================================== #
-
-
-

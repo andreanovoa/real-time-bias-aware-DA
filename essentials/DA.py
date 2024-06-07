@@ -13,6 +13,7 @@ rng = np.random.default_rng(6)
 
 
 def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
+
     y_obs = y_obs.copy()
     # Print simulation parameters ##
     ensemble.print_model_parameters()
@@ -45,6 +46,7 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
 
         # ------------------------------  PERFORM ASSIMILATION ------------------------------ #
         Aa = analysisStep(ensemble, y_obs[ti], Cdd)  # Analysis step
+
 
         # -------------------------  UPDATE STATE AND BIAS ESTIMATES------------------------- #
         ensemble.update_history(Aa[:-ensemble.Nq, :], update_last_state=True)
@@ -84,7 +86,6 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
     print('Elapsed time during assimilation: ' + str(time.time() - time1) + ' s')
     ensemble.close()
     return ensemble
-
 
 
 # =================================================================================================================== #
@@ -165,9 +166,7 @@ def analysisStep(case, d, Cdd):
         raise ValueError('Filter ' + case.filter + ' not defined.')
 
     # ============================ CHECK PARAMETERS AND INFLATE =========================== #
-    if not case.est_a:
-        Aa = inflateEnsemble(Af, case.inflation, d=d, additive=True)
-    else:
+    if case.est_a:
         if not case.activate_parameter_estimation:
             Af_params = Af[-case.Na:, :]
             Aa = inflateEnsemble(Af, case.inflation, d=d, additive=True)
@@ -186,8 +185,37 @@ def analysisStep(case, d, Cdd):
                     case.rejected_analysis.append([(case.get_current_time, np.dot(case.Ma, Aa), np.dot(case.Ma, Af), None)])
                 else:
                     raise NotImplementedError('Constrained filter yet to test')
+                    # # Try assimilating the parameters themselves
+                    # Alphas = np.dot(case.Ma, Af)[idx_alpha]
+                    # M_alpha = np.vstack([M, case.Ma[idx_alpha]])
+                    # Caa = np.eye(len(idx_alpha)) * np.var(Alphas, axis=-1)  # ** 2
+                    # # Store
+                    # case.rejected_analysis.append([(case.t, np.dot(case.Ma, Aa),
+                    #                                 np.dot(case.Ma, Af), (d_alpha, Caa))])
+                    # C_zeros = np.zeros([case.Nq, len(idx_alpha)])
+                    # Cdd_alpha = np.block([[Cdd, C_zeros], [C_zeros.T, Caa]])
+                    # d_alpha = np.concatenate([d, d_alpha])
+                    #
+                    # if case.filter == 'EnSRKF':
+                    #     Aa = EnSRKF(Af, d_alpha, Cdd_alpha, M_alpha)
+                    # elif case.filter == 'EnKF':
+                    #     Aa = EnKF(Af, d_alpha, Cdd_alpha, M_alpha)
+                    # elif case.filter == 'rBA_EnKF':
+                    #     if case.activate_bias_aware:
+                    #         Aa = rBA_EnKF(Af, d_alpha, Cdd_alpha, Cbb, k, M_alpha, b, J)
+                    #     else:
+                    #         Aa = EnKF(Af, d_alpha, Cdd_alpha, M_alpha)
+                    #
+                    # # double check point in case the inflation takes the ensemble out of parameter range
+                    # if checkParams(Aa, case)[0]:
+                    #     print('\t ok c-filter case')
+                    #     Aa = inflateEnsemble(Aa, case.inflation)
+                    # else:
+                    #     print('! not ok c-filter case')
+                    #     Aa = inflateEnsemble(Af, case.inflation)
+    else:
+        Aa = inflateEnsemble(Aa, case.inflation, d=d, additive=True)
 
-            # Aa = Aa[:-case.Nq, :]
     return Aa
 
 
@@ -203,7 +231,7 @@ def inflateEnsemble(A, rho, d=None, additive=False):
 def checkParams(Aa, case):
     alphas, lower_bounds, upper_bounds, ii = [], [], [], 0
     for param in case.est_a:
-        lims = case.params_lims[param]
+        lims = case.alpha_lims[param]
         vals = Aa[case.Nphi + ii, :]
         lower_bounds.append(lims[0])
         upper_bounds.append(lims[1])
@@ -279,12 +307,17 @@ def checkParams(Aa, case):
             mean_, max_ = np.mean(alpha_), np.max(alpha_)
             bound_ = upper_bounds[idx_]
 
+            # min_ = np.min(alphas[idx_])
             if mean_ < bound_:
+                # vv = alpha_[np.argwhere(alpha_ < bound_)]
                 d_alpha.append(np.min(alpha_) - np.std(alpha_))
+                # elif min_ < bound_:
+                #     d_alpha.append(min_)
                 print('t = {:.3f}: max{}={:.2f}>{:.2f}. d_alph={:.2f}'.format(case.get_current_time, case.est_a[idx_],
                                                                               max_, bound_, d_alpha[-1]))
             else:
                 d_alpha.append(bound_ - 2 * np.std(alphas[idx_]))
+
                 print('t = {:.3f}: mean{}={:.2f}>{:.2f}. d_alph={:.2f}'.format(case.get_current_time, case.est_a[idx_],
                                                                                mean_, bound_, d_alpha[-1]))
 

@@ -15,8 +15,7 @@ def create_ensemble(forecast_params=None, dt=None, model=None, alpha0=None, **fi
         forecast_params = filter_params.copy()
     else:
         forecast_params = forecast_params.copy()
-    if dt is not None:
-        forecast_params['dt'] = dt
+
     if alpha0 is not None:
         for alpha, lims in alpha0.items():
             forecast_params[alpha] = 0.5 * (lims[0] + lims[1])
@@ -25,6 +24,8 @@ def create_ensemble(forecast_params=None, dt=None, model=None, alpha0=None, **fi
     if model is not None:
         forecast_params['model'] = model
 
+    if dt is not None:
+        forecast_params['dt'] = dt
     ensemble = forecast_params['model'](**forecast_params)
 
     # Forecast model case to steady state initial condition before initialising ensemble
@@ -79,6 +80,7 @@ def create_truth(model, t_start=1., t_stop=1.5, Nt_obs=20, std_obs=0.05, t_max=N
     if type(model) is not str or post_processed:
         y_raw = create_noisy_signal(y_true, noise_level=std_obs, noise_type=noise_type)
     else:
+        y_raw = y_true.copy()
         noise_type = name_bias
         std_obs = None
 
@@ -136,10 +138,9 @@ def create_observations(model, t_max, t_min, save=False, **true_parameters):
     # ============================================================
     # Add key parameters to filename
     suffix = ''
-    key_save = model.params + ['law']
 
     for key, val in TA_params.items():
-        if key in key_save:
+        if key in model.alpha_labels.keys():
             if type(val) is str:
                 suffix += val + '_'
             else:
@@ -173,6 +174,7 @@ def create_observations(model, t_max, t_min, save=False, **true_parameters):
 
     return y_true, t_true, name.split('Truth_')[-1], case
 
+
 def create_noisy_signal(y_clean, noise_level=0.1, noise_type='gauss, add'):
     if y_clean.ndim == 2:
         y_clean = np.expand_dims(y_clean, -1)
@@ -205,7 +207,9 @@ def create_noisy_signal(y_clean, noise_level=0.1, noise_type='gauss, add'):
     return y_noisy
 
 
-def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_filename=None):
+def create_bias_model(ensemble, truth: dict, bias_params: dict,
+                      wash_t=None, wash_obs=None,
+                      bias_filename=None, folder=None):
     """
     This function creates the bias model for the input ensemble, truth and parameters.
     The bias model is added to the ensemble object as ensemble.bias.
@@ -224,46 +228,39 @@ def create_bias_model(ensemble, truth: dict, bias_params: dict, bias_filename=No
         run_bias = False
     elif bias_filename is not None:
         # Create bias estimator if the class is not 'NoBias'
+        if folder is not None:
+            bias_filename = folder + bias_filename
         if os.path.isfile(bias_filename):
-            bias = load_from_pickle_file(bias_filename)
+            bias, wash_obs, wash_t = load_from_pickle_file(bias_filename)
             if check_valid_file(bias, bias_params) is True:
                 ensemble.bias = bias
                 run_bias = False
 
     if run_bias:
-        train_params = bias_params.copy()
 
-        # INITIALIZE ESN ======================
-        ensemble.init_bias(**train_params)
+        ensemble.init_bias(**bias_params)
 
-        # TRAIN ESN ======================
+        train_data_name = bias_filename + '_train_data'
+
         # Create training data on a multi-parameter approach
         train_data = create_bias_training_dataset(y_raw, y_true,
-                                                  ensemble, **train_params)
-        # train_data = create_ESN_train_dataset(ensemble, t_true=truth['t'], y_true=truth['y_raw'], **train_params)
+                                                  ensemble, **bias_params)
+        if bias_filename is not None:
+            save_to_pickle_file(train_data_name, train_data)
+
         # Run bias model training
         ensemble.bias.train_bias_model(**train_data)
 
-        # SAVE ESN ======================
+        # Create washout if needed
+
+        if ensemble.bias.t_init is None:
+            ensemble.bias.t_init = truth['t_obs'][0]
+
+        if hasattr(ensemble.bias, 'N_wash') and wash_t is None:
+            wash_t, wash_obs = create_washout(ensemble.bias, truth['t'], truth['y_raw'])
+
         if bias_filename is not None:
-            save_to_pickle_file(bias_filename, ensemble.bias.copy())
-
-    # to be implemented ======================
-    # if ensemble.bias_bayesian_update:
-    #     ensemble.bias.bayesian_update = True
-    #     if ensemble.bias.N_ens != ensemble.m:
-    #         raise AssertionError(ensemble.bias.N_ens, ensemble.m,
-    #                              ensemble.bias.wash_obs.shape)
-
-    # WASHOUT ======================
-    # Ensure the truth has washout if needed
-
-    if ensemble.bias.t_init is None:
-        ensemble.bias.t_init = truth['t_obs'][0]
-
-    wash_t, wash_obs = None, None
-    if hasattr(ensemble.bias, 'N_wash') and 'wash_t' not in truth.keys():
-        wash_t, wash_obs = create_washout(ensemble.bias, truth['t'], truth['y_raw'])
+            save_to_pickle_file(bias_filename, ensemble.bias.copy(), wash_obs, wash_t)
 
     return ensemble.bias, wash_obs, wash_t
 
@@ -277,6 +274,8 @@ def create_washout(bias_case, t_true, y_raw):
         i1 = np.argmin(abs(bias_case.t_init - t_true))
         i0 = i1 - bias_case.N_wash * bias_case.upsample
 
+    print(i1, i0, bias_case.N_wash)
+
     wash_obs = y_raw[i0:i1 + 1:bias_case.upsample]
     wash_t = t_true[i0:i1 + 1:bias_case.upsample]
     return wash_t, wash_obs
@@ -289,7 +288,6 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble,
                                  N_wash=5,
                                  augment_data=True,
                                  perform_test=True,
-                                 biased_observations=False,
                                  bayesian_update=False,
                                  add_noise=True,
                                  filename='train_data', **train_params):
@@ -305,9 +303,13 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble,
         t_val = ensemble.t_CR
 
     min_train_data = t_train + t_val
+    if min_train_data > y_raw.shape[0] // ensemble.dt:
+        raise ValueError('min_train_data < y_raw length')
     if perform_test:
         min_train_data += t_val * 5
     min_train_data = int(min_train_data / ensemble.dt) + N_wash
+
+    min_train_data = min(min_train_data, y_raw.shape[0])
 
     # =========================== Load training data if available ============================== #
     try:
@@ -431,8 +433,5 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble,
         train_data['bayesian_update'] = bayesian_update
         train_data['biased_observations'] = True
         train_data['L'] = L
-
-        if filename is not None:
-            save_to_pickle_file(filename, train_data)
 
     return train_data
