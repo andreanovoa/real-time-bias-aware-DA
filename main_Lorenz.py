@@ -1,68 +1,58 @@
-import numpy as np
-import matplotlib.pyplot as plt
 from essentials.physical_models import Lorenz63
-from essentials.create import create_truth, create_ensemble
-from essentials.DA import dataAssimilation
-from essentials.plotResults import plot_timeseries, plot_parameters, plot_truth, plot_attractor
+from essentials.bias_models import *
+from essentials.run import main
+from essentials.create import create_truth, create_ensemble, create_bias_model
+from essentials.plotResults import *
 
-t_lyap = Lorenz63.t_lyap
-dt_t = 0.015
+folder = 'results/Lorenz/'
 
-rng = np.random.default_rng(0)
+os.makedirs(folder, exist_ok=True)
 
-true_params = dict(model=Lorenz63,
-                   t_start=t_lyap * 10,
-                   t_stop=t_lyap * 80,
-                   t_max=100 * t_lyap,
-                   Nt_obs=(t_lyap * .5) // dt_t,
-                   dt=dt_t,
-                   rho=28.,
-                   sigma=10.,
-                   beta=8. / 3.,
-                   psi0=rng.random(3) + 10,
-                   std_obs=0.005,
-                   noise_type='gauss,additive'
-                   )
+# %% ============================= SELECT TRUE AND FORECAST MODELS ================================= #
 
-forecast_params = dict(filter='EnKF',
-                       m=50,
-                       dt=dt_t,
-                       model=Lorenz63,
-                       est_a=dict(rho=(25., 35.),
-                                  beta=(2, 4),
-                                  sigma=(5, 15)),
-                       std_psi=0.3,
-                       alpha_distr='uniform',
-                       inflation=1.01
-                       )
+from default_parameters.lorenz63 import *
+
+
+def model_bias(yy, tt):
+    return 0 * yy, 'nobias'
+    # return .3 * np.max(yy, axis=0) + .3 * yy, 'linear'  # Linear bias
+    # return .3 * np.max(yy, axis=0) * (np.cos((yy / np.max(yy, axis=0))**2) + 1), 'nonlinear+offset'  # Non-linear bias
+
+
+true_params = {'model': Lorenz63,
+               't_max': 80. * t_lyap,
+               'std_obs': 0.1,
+               'manual_bias': model_bias,
+               'rho': 28.,
+               'sigma': 10.,
+               'beta': 8. / 3.,
+               }
+
+# ==================================== SELECT FILTER PARAMETERS =================================== #
+# params_IC = dict(rho=(27.5, 32),
+#                  sigma=(9.5, 12.5))
 
 
 if __name__ == '__main__':
+    # ================================================================================== #
+    ensemble = create_ensemble(forecast_params, **filter_params)
+    truth = create_truth(**true_params, **filter_params)
 
-    truth = create_truth(**true_params)
-    y_obs, t_obs = [truth[key].copy() for key in ['y_obs', 't_obs']]
-    plot_truth(**truth)
+    bias_name = 'ESN_{}_L{}'.format(truth['name_bias'], bias_params['L'])
+    bias, wash_obs, wash_t = create_bias_model(ensemble, truth, bias_params,
+                                               bias_filename=bias_name, folder=folder)
 
-    ensemble = create_ensemble(**forecast_params)
-    filter_ens = dataAssimilation(ensemble.copy(), y_obs=y_obs, t_obs=t_obs, std_obs=0.005)
+    # ================================================================================== #
 
-    # Visualize attractors
-    case0 = truth['case'].copy()
-    case1 = filter_ens.copy()
+    filter_ens = ensemble.copy()
+    filter_ens.bias = bias.copy()
 
-    # Forecast the ensemble further without assimilation
-    ens = filter_ens.copy()
-    psi, t = ens.time_integrate(int(4 * t_lyap / ens.dt), averaged=False)
-    ens.update_history(psi, t)
+    # ================================================================================== #
 
-    plot_timeseries(ens, truth, reference_t=t_lyap, plot_ensemble_members=False)
-    plot_parameters(ens, truth, reference_p=true_params)
+    filter_ens = main(filter_ens, truth['y_obs'], truth['t_obs'],
+                      std_obs=0.01, wash_obs=wash_obs, wash_t=wash_t)
 
-    # Forecast both cases
-    Nt = 40 * int(t_lyap / filter_ens.dt)
-    psi0, t0 = case0.time_integrate(Nt=Nt)
-    psi1, t1 = case1.time_integrate(Nt=Nt, averaged=True)
-
-    plot_attractor([psi0, psi1], color=['w', 'teal'])
+    plot_timeseries(filter_ens=filter_ens, truth=truth,
+                    reference_t=filter_ens.t_lyap, plot_ensemble_members=True)
 
     plt.show()

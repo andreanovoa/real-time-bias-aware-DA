@@ -11,6 +11,8 @@ from essentials.plotResults import plot_truth, print_parameter_results, plot_sta
 rng = np.random.default_rng(0)
 
 
+### This code does not run without the Azimuthal data. Please contact @andreanovoa for access this data.
+
 if os.path.isdir('/mscott/'):
     data_folder = '/mscott/an553/data/'  # set working directory to
 else:
@@ -79,7 +81,6 @@ if __name__ == '__main__':
 
     train_data = create_bias_training_dataset(truth['y_raw'], truth['y_true'], ensemble_ESN, **train_params)
     ensemble_ESN.bias.train_bias_model(**train_data)
-
     wash_t, wash_obs = create_washout(ensemble_ESN.bias, truth['t'], truth['y_raw'])
 
     truth = truth_og.copy()
