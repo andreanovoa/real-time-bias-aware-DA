@@ -214,6 +214,9 @@ class Model:
 
         return ensemble_
 
+    def modify_settings(self):
+        pass
+
     def init_ensemble(self, seed=None, ensemble_psi0=None, **kwargs):
         if seed is not None:
             self.set_rng(seed=seed)
@@ -228,8 +231,8 @@ class Model:
                 setattr(self, key, val)
 
         self.filename += '{}_ensemble_m{}'.format(self.name, self.m)
-        if hasattr(self, 'modify_settings'):
-            self.modify_settings()
+        self.modify_settings()
+
         # --------------- RESET INITIAL CONDITION AND HISTORY --------------- ##
         if ensemble_psi0 is None:
             mean_psi0 = np.mean(self.get_current_state, -1)
@@ -265,7 +268,9 @@ class Model:
         if 'y0' in Bdict.keys():
             y0 = Bdict['y0']
         else:
-            y0 = np.mean(self.get_observables(), axis=-1, keepdims=True)
+            y0 = np.mean(self.get_observables(), axis=-1)
+            if y0.ndim > 2:
+                y0 = y0.squeeze(axis=-1)
 
         self.bias = bias_model(y=y0, t=self.get_current_time, dt=self.dt, **Bdict)
 
@@ -292,7 +297,7 @@ class Model:
 
             self.reset_history(psi, t)
 
-    def reset_history(self,  psi, t):
+    def reset_history(self, psi, t):
         self.hist = psi
         self.hist_t = t
 
@@ -300,7 +305,7 @@ class Model:
         if not hasattr(self, '_physical'):
             self._physical = 0
         if print_:
-            print('Number of non-physical analysis = ', self._physical)
+            print(f'Number of non-physical analysis = {self._physical}/{self.number_of_analysis_steps}')
         else:
             self._physical += 1
 
@@ -465,7 +470,7 @@ class VdP(Model):
 # %% ==================================== RIJKE TUBE MODEL ============================================== %% #
 class Rijke(Model):
     """
-        Rijke tube model with Galerkin discretisation and gain-delay sqrt heat release law.
+        Rijke tube model with Galerkin discretization and gain-delay sqrt heat release law.
     """
 
     name: str = 'Rijke'
@@ -490,6 +495,7 @@ class Rijke(Model):
                     'law', 'meanFlow', 'Nc', 'Nm', 'tau_adv', 'sinomjxf']
 
     extra_print_params = ['law', 'Nm', 'Nc', 'xf', 'L']
+
     def __init__(self, **model_dict):
 
         if 'psi0' not in model_dict.keys():
@@ -507,7 +513,6 @@ class Rijke(Model):
 
         self.tau_adv = self.tau
         self.alpha_lims['tau'][-1] = self.tau_adv
-
 
         # Chebyshev modes
         self.Dc, self.gc = Cheb(self.Nc, getg=True)
@@ -540,11 +545,13 @@ class Rijke(Model):
         ##############################################################################################################
 
     def modify_settings(self):
-        if self.est_a and 'tau' in self.est_a:
+        if 'tau' in self.est_a:
             extra_Nc = 50 - self.Nc
             self.tau_adv, self.Nc = 1E-2, 50
+            self.alpha_lims['tau'][-1] = self.tau_adv
             psi = self.get_current_state
-            self.psi0 = np.hstack([np.mean(psi, -1), np.zeros(extra_Nc)])
+            self.psi0 = np.hstack([np.mean(psi, -1),
+                                   np.zeros(extra_Nc)])
             self.Dc, self.gc = Cheb(self.Nc, getg=True)
             self.update_history(reset=True)
             self.set_fixed_params()
@@ -558,9 +565,9 @@ class Rijke(Model):
 
     @property
     def state_labels(self):
-        lbls0 = ["$\\eta_{}$".format(j) for j in np.arange(self.Nm)]
-        lbls1 = ["$\\dot{\\eta}_{}$".format(j) for j in np.arange(self.Nm)]
-        lbls2 = ["$\\nu_{}$".format(j) for j in np.arange(self.Nc)]
+        lbls0 = [f"$\\eta_{j}$" for j in np.arange(self.Nm)]
+        lbls1 = ["$\\dot{\\eta}$" + f"$_{j}$" for j in np.arange(self.Nm)]
+        lbls2 = [f"$\\nu_{j}$" for j in np.arange(self.Nc)]
         return lbls0 + lbls1 + lbls2
 
     def get_observables(self, Nt=1, loc=None, **kwargs):
@@ -727,9 +734,6 @@ class Annular(Model):
 
     # __________________________ Init method ___________________________ #
     def __init__(self, **model_dict):
-
-
-        print(model_dict['dt'])
         if 'psi0' not in model_dict.keys():
             C0, X0, th0, ph0 = 10, 0, 0.63, 0  # %initial values
             # Conversion of the initial conditions from the quaternion formalism to the AB formalism
@@ -747,7 +751,6 @@ class Annular(Model):
             model_dict['psi0'] = np.array(psi0)  # initialise \eta_a, \dot{\eta_a}, \eta_b, \dot{\eta_b}
 
         super().__init__(**model_dict)
-
 
     # _______________  Specific properties and methods ________________ #
     @property
@@ -776,6 +779,8 @@ class Annular(Model):
             loc = self.theta_mic
 
         if measure_modes:
+            return self.hist[-Nt:, [0, 2], :]
+        else:
             eta1, eta2 = self.hist[-Nt:, 0, :], self.hist[-Nt:, 2, :]
             if max(loc) > 2 * np.pi:
                 raise ValueError('Theta must be in radians')
@@ -786,8 +791,6 @@ class Annular(Model):
                 return p_mics.squeeze(axis=0)
             else:
                 return p_mics
-        else:
-            return self.hist[-Nt:, [0, 2], :]
 
     @staticmethod
     def time_derivative(t, psi, nu, kappa, c2beta, theta_b, omega, epsilon, theta_e):

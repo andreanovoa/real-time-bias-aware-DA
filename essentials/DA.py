@@ -24,6 +24,8 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
     time1 = time.time()
     Nt = int(np.round((t_obs[0] - ensemble.get_current_time) / ensemble.dt))
 
+    ensemble.number_of_analysis_steps = len(t_obs)
+
     ensemble = forecastStep(ensemble, Nt, **kwargs)
 
     if ensemble.bias_bayesian_update and ensemble.bias.N_ens != ensemble.m:
@@ -256,10 +258,10 @@ def checkParams(Aa, case):
                 mean_, min_ = np.mean(alpha_), np.min(alpha_)
                 bound_ = lower_bounds[idx_]
                 if mean_ >= bound_:
-                    print('t = {:.3f} r-i: min {} = {:.2f} < {:.2f}'.format(case.get_current_time,
+                    print('t = {:.3f} r-i: min {} = {:.2e} < {:.2e}'.format(case.get_current_time,
                                                                             case.est_a[idx_], min_, bound_))
                 else:
-                    print('t = {:.3f} r-i: mean {} = {:.2f} < {:.2f}'.format(case.get_current_time,
+                    print('t = {:.3f} r-i: mean {} = {:.2e} < {:.2e}'.format(case.get_current_time,
                                                                              case.est_a[idx_], mean_, bound_))
         if any(break_up):
             idx = np.argwhere(break_up)
@@ -270,10 +272,10 @@ def checkParams(Aa, case):
                 mean_, max_ = np.mean(alpha_), np.max(alpha_)
                 bound_ = upper_bounds[idx_]
                 if mean_ <= bound_:
-                    print('t = {:.3f} r-i: max {} = {:.2f} > {:.2f}'.format(case.get_current_time,
+                    print('t = {:.3f} r-i: max {} = {:.2e} > {:.2e}'.format(case.get_current_time,
                                                                             case.est_a[idx_], max_, bound_))
                 else:
-                    print('t = {:.3f} r-i: mean {} = {:.2f} > {:.2f}'.format(case.get_current_time,
+                    print('t = {:.3f} r-i: mean {} = {:.2e} > {:.2e}'.format(case.get_current_time,
                                                                              case.est_a[idx_], mean_, bound_))
         return is_physical, None, None
 
@@ -289,11 +291,11 @@ def checkParams(Aa, case):
             if mean_ >= bound_:
                 d_alpha.append(np.max(alpha_) + np.std(alpha_))
 
-                print('t = {:.3f}: min{}={:.2f}<{:.2f}. d_alph={:.2f}'.format(case.get_current_time, case.est_a[idx_],
+                print('t = {:.3f}: min{}={:.2f}<{:.2e}. d_alph={:.2e}'.format(case.get_current_time, case.est_a[idx_],
                                                                               min_, bound_, d_alpha[-1]))
             else:
                 d_alpha.append(bound_ + 2 * np.std(alphas[idx_]))
-                print('t = {:.3f}: mean{}={:.2f}<{:.2f}. d_alph={:.2f}'.format(case.get_current_time, case.est_a[idx_],
+                print('t = {:.3f}: mean{}={:.2f}<{:.2e}. d_alph={:.2e}'.format(case.get_current_time, case.est_a[idx_],
                                                                                mean_, bound_, d_alpha[-1]))
 
     if any(break_up):
@@ -313,12 +315,12 @@ def checkParams(Aa, case):
                 d_alpha.append(np.min(alpha_) - np.std(alpha_))
                 # elif min_ < bound_:
                 #     d_alpha.append(min_)
-                print('t = {:.3f}: max{}={:.2f}>{:.2f}. d_alph={:.2f}'.format(case.get_current_time, case.est_a[idx_],
+                print('t = {:.3f}: max{}={:.2e}>{:.2e}. d_alph={:.2e}'.format(case.get_current_time, case.est_a[idx_],
                                                                               max_, bound_, d_alpha[-1]))
             else:
                 d_alpha.append(bound_ - 2 * np.std(alphas[idx_]))
 
-                print('t = {:.3f}: mean{}={:.2f}>{:.2f}. d_alph={:.2f}'.format(case.get_current_time, case.est_a[idx_],
+                print('t = {:.3f}: mean{}={:.2e}>{:.2e}. d_alph={:.2e}'.format(case.get_current_time, case.est_a[idx_],
                                                                                mean_, bound_, d_alpha[-1]))
 
     return is_physical, np.array(idx_alpha, dtype=int), d_alpha
@@ -458,9 +460,12 @@ def rBA_EnKF(Af, d, Cdd, Cbb, k, M, b, J):
 
     Cinv = ((Nm - 1) * Cdd + np.dot(Iq + J, np.dot(Cqq, (Iq + J).T)) +
             k * np.dot(CdWb, np.dot(J, np.dot(Cqq, J.T))))
+    # Cinv = ((Nm - 1) * Cdd + np.dot(Iq + J.T, np.dot(Cqq, (Iq + J))) +
+    #         k * np.dot(CdWb, np.dot(J.T, np.dot(Cqq, J))))
 
     K = np.dot(Psi_f, np.dot(S.T, linalg.inv(Cinv)))
     Aa = Af + np.dot(K, np.dot(Iq + J, D - Y) - k * np.dot(CdWb, np.dot(J, B)))
+    # Aa = Af + np.dot(K, np.dot(Iq + J.T, D - Y) - k * np.dot(CdWb, np.dot(J.T, B)))
 
 
     if not np.isreal(Aa).all():

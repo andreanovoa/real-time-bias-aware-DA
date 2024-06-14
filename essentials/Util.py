@@ -10,11 +10,29 @@ import pickle
 from functools import lru_cache
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import scipy.io as sio
 
 from scipy.interpolate import interp1d
 from scipy.signal import find_peaks
 
 rng = np.random.default_rng(6)
+
+
+def set_working_directories(subfolder='', change_working_dir=False):
+    results_folder = os.getcwd() + '/results/' + subfolder
+    if os.path.isdir('/mscott/'):
+        working_dir = '/mscott/an553/'
+        results_folder = working_dir + 'results/' + subfolder
+    elif os.path.isdir('/Users/andreanovoa/'):
+        working_dir = '/Users/andreanovoa/'
+    else:
+        working_dir = ""
+
+    if change_working_dir:
+        os.chdir(working_dir)
+
+    data_folder = working_dir + 'data/' + subfolder
+    return data_folder, results_folder
 
 
 def colour_noise(Nt, noise_colour='pink', beta=2):
@@ -132,6 +150,12 @@ def load_from_pickle_file(filename):
         return args
 
 
+def load_from_mat_file(filename):
+    if filename[-4:] != '.mat':
+        filename += '.mat'
+    return sio.loadmat(filename)
+
+
 def add_pdf_page(pdf, fig_to_add, close_figs=True):
     pdf.savefig(fig_to_add)
     if close_figs:
@@ -149,7 +173,7 @@ def fun_PSD(dt, X):
     if X.ndim == 2:
         if X.shape[0] > X.shape[1]:
             X = X.T
-    elif X.ndim ==1:
+    elif X.ndim == 1:
         X = np.expand_dims(X, axis=0)
     else:
         raise AssertionError('X must be 2 dimensional')

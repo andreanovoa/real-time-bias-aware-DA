@@ -46,17 +46,12 @@ Each tutorial file name includes a two-digit code, which indicates the category.
   
 * Bias-unaware DA
   1) [x] 12 - Bias-aware DA twin experiment on Van der Pol model
-  2) [ ] 13 - Bias-aware DA twin experiment on Rijke tube model
+  2) [x] 13 - Bias-aware DA twin experiment on Rijke tube model
  
-[//]: # (### Echo state network tutorials [2x])
-[//]: # (- [x] 21 - ESN adaptability with data assimilation)
-[//]: # (- [ ] 20 - ESN as model bias estimator and multi-parameter training approach)
-
 ### Data Assimilation on longitudinal thermoacoustics [2x]
 
-* [x] 20 - Low order model of longitudinal thermoacoustics: Rijke tube
-* [ ] 21 - Higher order model visualization (manually added bias)
-* [ ] 22 - Regularized bias-aware DA
+* [x] 20 - Low order model of longitudinal thermoacoustics: Rijke tube model, Galerkin method
+* [ ] 21 - Higher order model: Rijke tube model, wave equation with G-equation
 
  
 ### Data Assimilation on azimuthal thermoacosustics [3x]

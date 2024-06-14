@@ -69,11 +69,12 @@ class Bias:
     def print_bias_parameters(self):
         print('\n ---------------- {} bias model parameters --------------- '.format(self.name))
         for key in sorted(self.keys_to_print):
-            val = getattr(self, key)
-            if type(val) is float:
-                print('\t {} = {:.6}'.format(key, val))
-            else:
-                print('\t {} = {}'.format(key, val))
+            if hasattr(self, key):
+                val = getattr(self, key)
+                if type(val) is float:
+                    print('\t {} = {:.6}'.format(key, val))
+                else:
+                    print('\t {} = {}'.format(key, val))
 
     def update_history(self, b, t=None, reset=False, update_last_state=False, **kwargs):
 
@@ -199,6 +200,7 @@ class ESN(Bias, EchoStateNetwork):
                 washout = wash_obs - np.mean(wash_model, axis=-1)
 
                 u_open, r_open = self.openLoop(washout, inflation=self.inflation)
+
                 u[t1:t1 + self.N_wash + 1] = u_open
                 r[t1:t1 + self.N_wash + 1] = r_open
                 Nt -= self.N_wash

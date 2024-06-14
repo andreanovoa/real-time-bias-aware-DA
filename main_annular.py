@@ -1,28 +1,23 @@
-import os
-
 from essentials.DA import *
-from essentials.Util import save_to_pickle_file
-from matplotlib import pyplot as plt
-from essentials.create import create_truth, create_ensemble, create_bias_training_dataset, create_washout
+from essentials.create import *
 from essentials.physical_models import Annular
 from essentials.bias_models import ESN
 from essentials.plotResults import plot_truth, print_parameter_results, plot_states_PDF, plot_RMS_pdf
 
 rng = np.random.default_rng(0)
 
-
-### This code does not run without the Azimuthal data. Please contact @andreanovoa for access this data.
+# This code does not run without the Azimuthal data.
+# Please contact @andreanovoa for access this data.
 
 if os.path.isdir('/mscott/'):
     data_folder = '/mscott/an553/data/'  # set working directory to
 else:
-    data_folder = "../data/"
+    data_folder = "data/"
 
-ER = 0.4875 + 0.025 * 2  # 0.4875 + np.arange(0, 4) * 0.025
+ER = 0.4875 + 0.025 * 3  # 0.4875 + np.arange(0, 4) * 0.025
 
 t_start = Annular.t_transient
 t_stop = t_start + Annular.t_CR * 35
-
 
 truth_og = create_truth(model=data_folder + 'annular/ER_{}'.format(ER),
                         t_start=t_start,
@@ -32,7 +27,6 @@ truth_og = create_truth(model=data_folder + 'annular/ER_{}'.format(ER),
                         post_processed=False
                         )
 truth = truth_og.copy()
-plot_truth(**truth)
 
 alpha0 = dict(nu=(-10., 30.),
               c2beta=(10, 50),
@@ -49,7 +43,6 @@ forecast_params = dict(model=Annular,
                        std_psi=0.3,
                        std_a=alpha0.copy(),
                        )
-
 
 train_params = dict(bias_model=ESN,
                     upsample=5,
@@ -73,15 +66,15 @@ train_params = dict(bias_model=ESN,
                     )
 
 if __name__ == '__main__':
-
+    plot_truth(**truth)
     ensemble = create_ensemble(**forecast_params)
 
-    ensemble_ESN = ensemble.copy()
-    ensemble_ESN.init_bias(**train_params)
+    results_dir = 'results/ER{}/m{}/'.format(ER, ensemble.m)
+    os.makedirs(results_dir, exist_ok=True)
 
-    train_data = create_bias_training_dataset(truth['y_raw'], truth['y_true'], ensemble_ESN, **train_params)
-    ensemble_ESN.bias.train_bias_model(**train_data)
-    wash_t, wash_obs = create_washout(ensemble_ESN.bias, truth['t'], truth['y_raw'])
+    ensemble_ESN = ensemble.copy()
+    bias, wash_obs, wash_t = create_bias_model(ensemble_ESN, truth, train_params,
+                                               folder=results_dir, bias_filename="ESN_case_annular_raw")
 
     truth = truth_og.copy()
 
@@ -132,18 +125,16 @@ if __name__ == '__main__':
 
             out.append(filter_ens.copy())
 
-    results_dir = 'results/ER{}/m{}/'.format(ER, out[0].m)
-    os.makedirs(results_dir, exist_ok=True)
     save_to_pickle_file(results_dir + name, truth, out, ensemble_ESN.bias, ensemble)
 
     truth_params = dict()
-    for param in Annular.params:
+    for param in ens_ba.params:
         if param == 'nu':
-            truth_params[param] = Annular.nu_from_ER(ER)
+            truth_params[param] = ens_ba.nu_from_ER(ER)
         elif param == 'c2beta':
-            truth_params[param] = Annular.c2beta_from_ER(ER)
+            truth_params[param] = ens_ba.c2beta_from_ER(ER)
         else:
-            truth_params[param] = Annular.defaults[param]
+            truth_params[param] = ens_ba.alpha0[param]
 
     print_parameter_results(out, true_values=truth_params)
 

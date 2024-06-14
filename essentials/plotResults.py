@@ -54,7 +54,7 @@ def recover_unbiased_solution(t_b, b, t, y, upsample=True):
 
 def plot_ensemble(ensemble, max_modes=None, reference_params=None, nbins=6):
     if max_modes is None:
-        max_modes = ensemble.Nphi
+        max_modes = min(ensemble.Nphi, 10)
     fig, axs = plt.subplots(figsize=(12, 1.5), layout='tight', nrows=1, ncols=max_modes, sharey=True)
     for ax, ph, lbl in zip(axs.ravel(), ensemble.get_current_state[:-ensemble.Na, ], ensemble.state_labels):
         ax.hist(ph, bins=nbins, color='tab:green')
@@ -1236,7 +1236,6 @@ def plot_states_PDF(ensembles, truth, nbins=20, window=None):
         ax.set(xlabel=lbl)
 
 
-
 def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False, plot_ensemble_members=False,
                     filename=None, reference_y=1., reference_t=1., max_time=None):
     t_obs, obs = truth['t_obs'], truth['y_obs']
@@ -1353,10 +1352,9 @@ def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False, plot_e
         b_filter = filter_ens.bias.get_bias(state=filter_ens.bias.hist)
         t_b = filter_ens.bias.hist_t
 
-
         y_filter, t = filter_ens.get_observable_hist(), filter_ens.hist_t
         y_mean = np.mean(y_filter, axis=-1)
-        y_mean= interpolate(t, y_mean, t_b)
+        y_mean = interpolate(t, y_mean, t_b)
 
         y_true = interpolate(truth['t'], truth['y_true'], t_b)
         b_true = interpolate(truth['t'], truth['b'], t_b)
@@ -1370,7 +1368,6 @@ def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False, plot_e
         max_y = np.max(abs(y_raw[:-N_CR]))
         y_lims = [-max_y - margin, max_y + margin]
 
-
         if Nq == 1:
             q_axes = [ax_zoom[0], ax_zoom[1], ax_all]
         else:
@@ -1380,7 +1377,8 @@ def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False, plot_e
 
             for ax, xl in zip(q_axes, x_lims):
                 # Observables ---------------------------------------------------------------------
-                ax.plot(t_b, innovation[:, qi], label='$\\mathbf{d}^\dagger - \\bar{\\mathbf{y}}$', **bias_obs_noisy_props)
+                ax.plot(t_b, innovation[:, qi], label='$\\mathbf{d}^\dagger - \\bar{\\mathbf{y}}$',
+                        **bias_obs_noisy_props)
                 ax.plot(t_b, b_true[:, qi], label='manually added bias', **bias_obs_props)
                 ax.plot(t_b, b_filter[:, qi], label='ESN prediction', **bias_props)
                 plot_DA_window(t_obs, ax)
@@ -1389,7 +1387,6 @@ def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False, plot_e
             ylbl = '$b_{}$'.format(qi)
             if reference_y != 1.:
                 ylbl += ' norm.'
-
 
             if Nq == 1:
                 ax_zoom[0].set(ylabel=ylbl)
@@ -1415,30 +1412,42 @@ def plot_attractor(psi_cases, color, figsize=(8, 8)):
     for axs_ax in [ax3d.xaxis, ax3d.yaxis, ax3d.zaxis]:
         axs_ax.pane.fill = False
     ax3d.set(xlabel='$x$', ylabel='$y$', zlabel='$z$')
-    for psi_, c  in zip(psi_cases, color):
+    for psi_, c in zip(psi_cases, color):
         if psi_.ndim > 2:
             psi_ = np.mean(psi_, axis=-1)
         ax3d.plot(psi_[:, 0], psi_[:, 1], psi_[:, 2], lw=1., c=c)
 
 
-def plot_truth(y_raw, y_true, t, dt, fig_width=10, window=None,
+def plot_truth(y_raw, y_true, t, dt, fig_width=10, window=None, b=np.array([0.]),
                plot_time=False, Nq=None, filename=None, f_max=None, y_obs=None, t_obs=None, model=None, **other):
     if Nq is None:
         Nq = y_true.shape[1]
     if t_obs is None:
         t0 = 0
-        t1 = int(model.t_transient // dt)
+        if window is None:
+            t1 = int(model.t_transient // dt)
+        else:
+            t1 = int(window // dt)
     else:
-        t0 = int(t_obs[0] // dt)
-        t1 = int((t_obs[-1] + model.t_CR) // dt)
-        t1 = min(t1, len(t)-1)
+        t0 = int((t_obs[0]) // dt)
+        if window is None:
+            if model is not None and not isinstance(model, str):
+                t1 = int((t_obs[-1] + model.t_CR) // dt)
+                t1 = min(t1, len(t) - 1)
+            else:
+                t1 = int((t_obs[-1]) // dt)
+        else:
+            t1 = int((t_obs[0]+window) // dt)
 
-    if window is None:
-        xlim = [t[t0], t[t1]]
+    xlim = [t[t0], t[t1]]
+
+    plot_bias = np.mean(b ** 2) > 0 and isinstance(model, str)
+
+    if plot_bias:
+        noise = y_raw - (y_true - b)
     else:
-        xlim = [t[t0], t[t0] + window]
+        noise = y_raw - y_true
 
-    noise = y_raw - y_true
     max_y = np.max(abs(y_raw[:t1 - t0]))
 
     fig1 = plt.figure(figsize=(fig_width, 2 * Nq), layout="constrained")
@@ -1456,6 +1465,7 @@ def plot_truth(y_raw, y_true, t, dt, fig_width=10, window=None,
     else:
         axss = [ax_01[:, 0], ax_01[:, 1], ax_4]
 
+    dashes = (10, 1)
     for ax, yy, ttl, lbl, c in zip(axss, [y_raw, y_true, noise], labels, y_labels, cols):
         ax[0].set(title=ttl)
         ax[-1].set(xlabel='$t$', xlim=xlim)
@@ -1464,6 +1474,9 @@ def plot_truth(y_raw, y_true, t, dt, fig_width=10, window=None,
             ax[qi].axhline(np.mean(yy[:, qi]), color=c)
             if ttl[0] == 'R' and y_obs is not None:
                 ax[qi].plot(t_obs, y_obs[:, qi], 'ro', ms=3)
+            elif ttl[0] == 'P' and plot_bias:
+                ax[qi].plot(t, yy[:, qi] - b[:, qi], color='k', dashes=dashes, lw=.5)
+                ax[qi].axhline(np.mean(yy[:, qi] - b[:, qi]), color='k', dashes=dashes, lw=.5)
             if len(lbl) > 1:
                 ax[qi].set(ylabel=lbl + '$_{}$'.format(qi))
 
@@ -1476,22 +1489,31 @@ def plot_truth(y_raw, y_true, t, dt, fig_width=10, window=None,
     binwidth = 0.01 * max_y
     bins = np.arange(-max_y, max_y + binwidth, binwidth)
     for yy, ttl, lbl, c in zip([y_raw, y_true], labels[:2], y_labels[:2], cols[:2]):
-        ax_pdf[0].set(title='PDF', ylim=[-max_y, max_y])
+        ax_pdf[0].set(title='PDF')
         ax_pdf[-1].set(xlabel='$p$')
         ax_PSD[-1].set(xlabel='$f$')
         for qi in range(Nq):
             ax_pdf[qi].hist(yy[:, qi], bins=bins, density=True, orientation='horizontal',
                             color=c, label=lbl + '$_{}$'.format(qi), histtype='step')
+            ylims = ax_01[qi, 0].get_ylim()
+            ax_pdf[qi].set(yticklabels=[], ylim=ylims)
         f, PSD = fun_PSD(dt, yy.squeeze())
         for qi in range(Nq):
             ax_PSD[qi].semilogy(f, PSD[qi], color=c, label=lbl + '$_{}$'.format(qi))
         ax_PSD[0].set(title='PSD', xlim=[0, f_max])
+    if plot_bias:
+
+        f, PSD = fun_PSD(dt, (y_true - b).squeeze())
+        for qi in range(Nq):
+            ax_pdf[qi].hist(y_true[:, qi] - b[:, qi], bins=bins, density=True, orientation='horizontal',
+                            color='k', histtype='step', lw=.5)
+            ax_PSD[qi].semilogy(f, PSD[qi], color='k', dashes=dashes, lw=.5)
 
     # Plot full timeseries if requested
     figs2 = []
     if plot_time:
         for yy, name, c in zip([y_raw, y_true], labels[:2], cols[:2]):
-            y_true, t = [zz[t0:] for zz in [yy, t_true]]
+            y_true, t = [zz[t0:] for zz in [yy, t]]
             max_y = np.max(abs(y_true))
             fig2 = plt.figure(figsize=(12, 2 * Nq), layout="constrained")
             subfigs = fig2.subfigures(nrows=1, ncols=2, width_ratios=[1, 0.5])
@@ -1519,6 +1541,7 @@ def plot_truth(y_raw, y_true, t, dt, fig_width=10, window=None,
             pdf_file.savefig(fig)
             plt.close(fig)
         pdf_file.close()  # Close results pdf
+
 
 def plot_violins(ax, values, location, color='b', label=None, alpha=0.5, **kwargs):
     violins = ax.violinplot(values, positions=location, **kwargs)

@@ -1,11 +1,7 @@
 import os.path
-
-import numpy as np
-
 from essentials.Util import *
 from essentials.bias_models import *
 
-import scipy.io as sio
 
 rng = np.random.default_rng(0)
 
@@ -39,9 +35,14 @@ def create_ensemble(forecast_params=None, dt=None, model=None, alpha0=None, **fi
     return ensemble
 
 
-def create_truth(model, t_start=1., t_stop=1.5, Nt_obs=20, std_obs=0.05, t_max=None, t_min=0.,
+def create_truth(model, t_start=None, t_stop=None, Nt_obs=20, std_obs=0.05, t_max=None, t_min=0.,
                  noise_type='gauss, add', post_processed=False, manual_bias=None, **kwargs):
     # =========================== LOAD DATA OR CREATE TRUTH FROM LOM ================================ #
+    if t_start is None:
+        t_start = model.t_transient
+    if t_stop is None:
+        t_stop = t_start + 3 * model.t_CR
+
     if t_max is None:
         t_max = t_stop + t_start
 
@@ -80,7 +81,8 @@ def create_truth(model, t_start=1., t_stop=1.5, Nt_obs=20, std_obs=0.05, t_max=N
     if type(model) is not str or post_processed:
         y_raw = create_noisy_signal(y_true, noise_level=std_obs, noise_type=noise_type)
     else:
-        y_raw = y_true.copy()
+        if post_processed:
+            y_raw = y_true.copy()
         noise_type = name_bias
         std_obs = None
 
@@ -106,15 +108,15 @@ def create_observations_from_file(name, t_max, t_min=0.):
     # Wave case: load .mat file ====================================
     try:
         if 'rijke' in name:
-            mat = sio.loadmat(name + '.mat')
+            mat = load_from_mat_file(name)
             y_raw, y_true, t_true = [mat[key].transpose() for key in ['p_mic', 'p_mic', 't_mic']]
         elif 'annular' in name:
-            mat = sio.loadmat(name + '.mat')
+            mat = load_from_mat_file(name)
             y_raw, y_true, t_true = [mat[key] for key in ['y_raw', 'y_filtered', 't']]
         else:
             raise FileNotFoundError
     except FileNotFoundError:
-        raise 'File ' + name + ' not defined'
+        raise FileNotFoundError('File ' + name + ' not defined')
 
     if len(np.shape(t_true)) > 1:
         t_true = np.squeeze(t_true)
@@ -128,7 +130,7 @@ def create_observations_from_file(name, t_max, t_min=0.):
     return y_raw, y_true, t_true, name.split('data/')[-1]
 
 
-def create_observations(model, t_max, t_min, save=False, **true_parameters):
+def create_observations(model, t_max, t_min, save=False, data_folder=None, **true_parameters):
     try:
         TA_params = true_parameters.copy()
         model = model
@@ -146,14 +148,14 @@ def create_observations(model, t_max, t_min, save=False, **true_parameters):
             else:
                 suffix += key + '{:.2e}'.format(val) + '_'
 
-    name = os.path.join(os.getcwd() + '/data/')
-    os.makedirs(name, exist_ok=True)
-    name += 'Truth_{}_{}tmax-{:.2}'.format(model.name, suffix, t_max)
+    if data_folder is None:
+        data_folder = os.path.join(os.getcwd() + '/data/')
+        os.makedirs(data_folder, exist_ok=True)
+    name = data_folder + 'Truth_{}_{}tmax-{:.2}'.format(model.name, suffix, t_max)
 
     if os.path.isfile(name) and save:
         case = load_from_pickle_file(name)
         print('Load true data: ' + name)
-    # except ModuleNotFoundError or FileNotFoundError:
     else:
         case = model(**TA_params)
         psi, t = case.time_integrate(int(t_max / case.dt))
@@ -229,40 +231,53 @@ def create_bias_model(ensemble, truth: dict, bias_params: dict,
     elif bias_filename is not None:
         # Create bias estimator if the class is not 'NoBias'
         if folder is not None:
+            os.makedirs(folder, exist_ok=True)
             bias_filename = folder + bias_filename
         if os.path.isfile(bias_filename):
             bias, wash_obs, wash_t = load_from_pickle_file(bias_filename)
             if check_valid_file(bias, bias_params) is True:
-                ensemble.bias = bias
                 run_bias = False
+        else:
+            print('Create bias model: ', bias_filename)
 
     if run_bias:
 
         ensemble.init_bias(**bias_params)
+        bias = ensemble.bias
 
         train_data_name = bias_filename + '_train_data'
 
         # Create training data on a multi-parameter approach
-        train_data = create_bias_training_dataset(y_raw, y_true,
-                                                  ensemble, **bias_params)
+        train_data = create_bias_training_dataset(y_raw, y_true, ensemble,
+                                                  filename=train_data_name, **bias_params)
         if bias_filename is not None:
             save_to_pickle_file(train_data_name, train_data)
 
         # Run bias model training
-        ensemble.bias.train_bias_model(**train_data)
+        bias.train_bias_model(**train_data)
 
         # Create washout if needed
 
-        if ensemble.bias.t_init is None:
-            ensemble.bias.t_init = truth['t_obs'][0]
+        if bias.t_init is None:
+            bias.t_init = truth['t_obs'][0]
 
-        if hasattr(ensemble.bias, 'N_wash') and wash_t is None:
-            wash_t, wash_obs = create_washout(ensemble.bias, truth['t'], truth['y_raw'])
+        if hasattr(bias, 'N_wash') and wash_t is None:
+            wash_t, wash_obs = create_washout(bias, truth['t'], truth['y_raw'])
 
         if bias_filename is not None:
-            save_to_pickle_file(bias_filename, ensemble.bias.copy(), wash_obs, wash_t)
+            save_to_pickle_file(bias_filename, bias.copy(), wash_obs, wash_t)
 
-    return ensemble.bias, wash_obs, wash_t
+    if hasattr(bias, 'N_wash') and wash_t[0] > truth['t_obs'][0]:
+        if bias.t_init is None or bias.t_init > truth['t_obs'][0]:
+            bias.t_init = truth['t_obs'][0]
+
+        wash_t, wash_obs = create_washout(bias, truth['t'], truth['y_raw'])
+
+        if bias_filename is not None:
+            save_to_pickle_file(bias_filename, bias.copy(), wash_obs, wash_t)
+
+
+    return bias, wash_obs, wash_t
 
 
 def create_washout(bias_case, t_true, y_raw):
@@ -273,8 +288,6 @@ def create_washout(bias_case, t_true, y_raw):
         bias_case.t_init -= (bias_case.N_wash + 1) * bias_case.upsample
         i1 = np.argmin(abs(bias_case.t_init - t_true))
         i0 = i1 - bias_case.N_wash * bias_case.upsample
-
-    print(i1, i0, bias_case.N_wash)
 
     wash_obs = y_raw[i0:i1 + 1:bias_case.upsample]
     wash_t = t_true[i0:i1 + 1:bias_case.upsample]
@@ -327,7 +340,7 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble,
             rerun = True
     except FileNotFoundError:
         rerun = True
-        print('Run multi-parameter training data: file not found')
+        print(f' Run multi-parameter training data: file {filename} not found')
 
     # Load training data if all the conditions are ok
     if not rerun:
