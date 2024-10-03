@@ -5,6 +5,7 @@
 ## Main publications
 - [x] [Real-time thermoacoustic data assimilation](https://doi.org/10.1017/jfm.2022.653). Journal of Fluid Mechanics (2022).
 - [x] [Inferring unknown unknowns](https://doi.org/10.1016/j.cma.2023.116502). Computer Methods in Applied Mechanics and Engineering (2023).
+- [x] [A real-time digital twin of azimuthal thermoacoustic instabilities](https://arxiv.org/abs/2404.18793). Journal of Fluid Mechanics (_To appear_)
 
 
 ## Getting started
