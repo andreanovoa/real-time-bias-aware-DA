@@ -6,20 +6,13 @@ figs_ESN
 
 # python checkpoints
 .ipynb_checkpoints
-/*/.ipynb_checkpoints
-/*/*/.ipynb_checkpoints
-/*/*/*/.ipynb_checkpoints
+**/*/.ipynb_checkpoints
 .idea
 
 
 
 .DS_Store
-/*/.DS_Store
-/*/*/.DS_Store
-/*/*/*/.DS_Store
+**/*/.DS_Store
 
 
-/*/ESN_case*
-/*/*/*/ESN_case*
-/*/*/*/ESN_Case*
-
+**/*/ESN_case*
