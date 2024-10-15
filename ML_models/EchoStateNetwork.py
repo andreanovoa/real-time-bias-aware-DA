@@ -61,15 +61,13 @@ class EchoStateNetwork:
         :param dt: model dt such that dt_ESN = dt * upsample
         :param kwargs: any argument to re-define the dfault values of the class
         """
-
+        
         if y.ndim == 1:
             y = np.expand_dims(y, -1)
         elif y.ndim > 2:
-            raise AssertionError('The input y must have 2 or less dimension')
+            raise AssertionError(f'y.shape={y.shape}. The input y must have 2 or less dimension')
 
-        # for key, val in kwargs.items():
-        #     if hasattr(self, key):
-        [setattr(self, key, val) for key, val in kwargs.items() if hasattr(self, key)]
+        [setattr(self, key, val) for key, val in kwargs.items() if hasattr(EchoStateNetwork, key)]
 
         # -----------  Initialise state and reservoir state to zeros ------------ #
         self.N_dim = y.shape[0]
@@ -129,12 +127,10 @@ class EchoStateNetwork:
             if u.ndim == 1:
                 u = np.expand_dims(u, axis=-1)
             self.u = u
-            # self.u = np.atleast_2d(u)
 
         if r is not None:
             if r.ndim == 1:
                 r = np.expand_dims(r, axis=-1)
-            # self.r = np.atleast_2d(r)
             self.r = r
 
         if self.r.shape[-1] != self.u.shape[-1]:
@@ -175,11 +171,6 @@ class EchoStateNetwork:
         return RHS.dot(Wout_1.T).T
 
     # ___________________________________________________________________________________ FUNCTIONS TO FORECAST THE ESN
-
-    # @staticmethod
-    # def cast_to_dimension(*arrays, new_dim=None):
-    #     return [np.expand_dims(A, axis=[A.ndim + ii for ii in range(new_dim - A.ndim)])
-    #             for A in arrays]
 
     def step(self, u, r):
         """ Advances one ESN time step.
@@ -262,7 +253,13 @@ class EchoStateNetwork:
         return u, r
 
     # _______________________________________________________________________________________ TRAIN & VALIDATE THE ESN
-    def train(self, train_data, add_noise=True, plot_training=True, folder=None, validation_strategy=None, **kwargs):
+    def train(self, train_data,
+              add_noise=True,
+              plot_training=True,
+              save_ESN_training=False,
+              folder=None,
+              validation_strategy=None,
+              **kwargs):
         """
 
         train_data: training data shape [Nt x Ndim]
@@ -317,60 +314,73 @@ class EchoStateNetwork:
         print(' f {:.4f}'.format(-res.fun))
 
         # =============================  Plot result ================================ ##
-        if plot_training or self.perform_test:
-            if folder is None:
-                folder = self.figs_folder
-            os.makedirs(folder, exist_ok=True)
-            pdf = plt_pdf.PdfPages(f'{folder}{self.filename}_Training.pdf')
-            if plot_training:
-                fig = plt.figure()
-                # Plot Bayesian optimization convergence
-                plot_convergence(res)
+
+        if plot_training:
+            if save_ESN_training:
+                if folder is None:
+                    folder = self.figs_folder
+                os.makedirs(folder, exist_ok=True)
+                pdf = plt_pdf.PdfPages(f'{folder}{self.filename}_Training.pdf')
+            else:
+                pdf = None
+
+            # Plot Bayesian optimization convergence
+            fig = plt.figure()
+            plot_convergence(res)
+
+            if save_ESN_training:
                 add_pdf_page(pdf, fig)
 
-                # Plot Gaussian Process reconstruction for each network in the ensemble after n_tot evaluations.
-                # The GP reconstruction is based on the n_tot function evaluations decided in the search
-                if len(hp_names) >= 2:  # plot GP reconstruction
-                    gp = res.models[-1]
-                    res_x = np.array(res.x_iters)
+            # Plot Gaussian Process reconstruction for each network in the ensemble after n_tot evaluations.
+            # The GP reconstruction is based on the n_tot function evaluations decided in the search
+            if len(hp_names) >= 2:  # plot GP reconstruction
+                gp = res.models[-1]
+                res_x = np.array(res.x_iters)
 
-                    for hpi in range(len(hp_names) - 1):
-                        range_1 = getattr(self, f'{hp_names[hpi]}_range')
-                        range_2 = getattr(self, f'{hp_names[hpi + 1]}_range')
+                for hpi in range(len(hp_names) - 1):
+                    range_1 = getattr(self, f'{hp_names[hpi]}_range')
+                    range_2 = getattr(self, f'{hp_names[hpi + 1]}_range')
 
-                        n_len = 100  # points to evaluate the GP at
-                        xx, yy = np.meshgrid(np.linspace(*range_1, n_len), np.linspace(*range_2, n_len))
+                    n_len = 100  # points to evaluate the GP at
+                    xx, yy = np.meshgrid(np.linspace(*range_1, n_len), np.linspace(*range_2, n_len))
 
-                        x_x = np.column_stack((xx.flatten(), yy.flatten()))
-                        x_gp = res.space.transform(x_x.tolist())  # gp prediction needs norm. format
+                    x_x = np.column_stack((xx.flatten(), yy.flatten()))
+                    x_gp = res.space.transform(x_x.tolist())  # gp prediction needs norm. format
 
-                        # Plot GP Mean
-                        fig = plt.figure(figsize=(10, 5), tight_layout=True)
-                        plt.xlabel(hp_names[hpi])
-                        plt.ylabel(hp_names[hpi + 1])
+                    # Plot GP Mean
+                    fig = plt.figure(figsize=(10, 5), tight_layout=True)
+                    plt.xlabel(hp_names[hpi])
+                    plt.ylabel(hp_names[hpi + 1])
 
-                        # retrieve the gp reconstruction
-                        amin = np.amin([10, np.max(f_iters)])
+                    # retrieve the gp reconstruction
+                    amin = np.amin([10, np.max(f_iters)])
 
-                        # Final GP reconstruction for each realization at the evaluation points
-                        y_pred = np.clip(-gp.predict(x_gp), a_min=-amin, a_max=-np.min(f_iters)).reshape(n_len, n_len)
+                    # Final GP reconstruction for each realization at the evaluation points
+                    y_pred = np.clip(-gp.predict(x_gp), a_min=-amin, a_max=-np.min(f_iters)).reshape(n_len, n_len)
 
-                        plt.contourf(xx, yy, y_pred, levels=20, cmap='Blues')
-                        cbar = plt.colorbar()
-                        cbar.set_label(label='-$\\log_{10}$(MSE)', labelpad=15)
-                        plt.contour(xx, yy, y_pred, levels=20, colors='black', linewidths=1, linestyles='solid',
-                                    alpha=0.3)
-                        #   Plot the n_tot search points
-                        for rx, mk in zip([res_x[:self.N_grid ** 2], res_x[self.N_grid ** 2:]], ['v', 's']):
-                            plt.plot(rx[:, 0], rx[:, 1], mk, c='w', alpha=.8, mec='k', ms=8)
-                        # Plot best point
-                        best_idx = np.argmin(f_iters)
-                        plt.plot(res_x[best_idx, 0], res_x[best_idx, 1], '*r', alpha=.8, mec='r', ms=8)
-                        pdf.savefig(fig)
-                        plt.close(fig)
+                    plt.contourf(xx, yy, y_pred, levels=20, cmap='Blues')
+                    cbar = plt.colorbar()
+                    cbar.set_label(label='-$\\log_{10}$(MSE)', labelpad=15)
+                    plt.contour(xx, yy, y_pred, levels=20, colors='black', linewidths=1, linestyles='solid',
+                                alpha=0.3)
+                    #   Plot the n_tot search points
+                    for rx, mk in zip([res_x[:self.N_grid ** 2], res_x[self.N_grid ** 2:]], ['v', 's']):
+                        plt.plot(rx[:, 0], rx[:, 1], mk, c='w', alpha=.8, mec='k', ms=8)
+                    # Plot best point
+                    best_idx = np.argmin(f_iters)
+                    plt.plot(res_x[best_idx, 0], res_x[best_idx, 1], '*r', alpha=.8, mec='r', ms=8)
+
+                    if pdf is not None:
+                        add_pdf_page(pdf, fig, close_figs=True)
+
             if self.perform_test:
+                print('perform test yes')
                 self.run_test(U_test, Y_test, pdf_file=pdf)  # Run test
-            pdf.close()  # Close training results pdf
+
+            if pdf is not None:
+                pdf.close()  # Close training results pdf
+            else:
+                plt.show()
 
         # ====================  Set flags and initialise state ====================== ##
         self.trained = True  # Flag case as trained
@@ -431,10 +441,6 @@ class EchoStateNetwork:
         R_RR = [np.empty([0, self.N_units])] * U_wtv.shape[0]
         U_RR = [np.empty([0, self.N_dim])] * U_wtv.shape[0]
         self.reset_state(u=self.u * 0, r=self.r * 0)
-
-        # part = partial(EchoStateNetwork.for_func, R_RR=R_RR, U_RR=U_RR)
-        # sol = [self.pool.apply_async(part, ) for mi in range(self.m)]
-        # psi = [s.get() for s in sol]
 
         for ll in range(U_wtv.shape[0]):
             # Washout phase. Store the last r value only
@@ -660,16 +666,11 @@ class EchoStateNetwork:
         return normalized_best_MSE
 
     # ________________________________________________________________________________________________ TESTING FUNCTION
-    def run_test(self, U_test, Y_test, pdf_file=None, folder=None, max_tests=10, seed=0):
+    def run_test(self, U_test, Y_test, pdf_file=None, max_tests=10, seed=0):
         if hasattr(self, 'seed'):
             seed = self.seed
 
         rng0 = np.random.default_rng(seed)
-        if pdf_file is None:
-            if folder is None:
-                folder = self.figs_folder
-            os.makedirs(folder, exist_ok=True)
-            pdf_file = plt_pdf.PdfPages(folder + self.filename + '_Test.pdf')
 
         L, max_test_time, Nq = U_test.shape
         max_test_time -= self.N_wash
@@ -677,12 +678,17 @@ class EchoStateNetwork:
         # Select test cases (with a maximum of max_tests)
         total_tests = min(max_tests, L)
         if max_tests != L:
-            if total_tests <= L:
-                L_indices = rng0.choice(L, total_tests, replace=False)
-            else:
-                L_indices = rng0.choice(L, total_tests, replace=True)
+            L_indices = rng0.choice(L, total_tests, replace=total_tests > L)
         else:
             L_indices = np.arange(L)
+
+        if Nq > 10:
+            nrows = 10
+            dims = rng0.choice(Nq, 10, replace=False)
+        else:
+            nrows = Nq
+            dims = np.arange(Nq)
+            
 
         # Time window of each test
         N_test = self.N_val
@@ -724,19 +730,20 @@ class EchoStateNetwork:
                 errors.append(err)
 
                 # plot test
-                fig, axs = plt.subplots(nrows=Nq, ncols=1, figsize=[10, 2 * Nq], sharex='all', layout='tight')
+                fig, axs = plt.subplots(nrows=nrows, ncols=1, figsize=[8, len(dims)], sharex='all', layout='tight')
                 if Nq == 1:
                     axs = [axs]
+                    Y_labels = np.array([Y_labels])
+                    Y_closed = np.array([Y_closed])
                 t_ = np.arange(len(Y_closed)) * self.dt_ESN
-                for dim_i, ax in enumerate(axs):
+
+                for dim_i, ax in zip(dims, axs):
                     ax.plot(t_, Y_labels[:, dim_i], 'k', label='truth dim ' + str(dim_i))
                     ax.plot(t_, Y_closed[:, dim_i], '--r', label='ESN dim ' + str(dim_i))
-                    ax.legend(title='Test {}: Li = {}'.format(test_i, Li), loc='upper left', bbox_to_anchor=(1, 1))
+                    ax.legend(title='Test {}: Li = {}'.format(test_i, Li), loc='upper left', bbox_to_anchor=(1, 1), fontsize='x-small')
 
                 # Save to pdf
-                if test_i > 0:
-                    add_pdf_page(pdf_file, fig, close_figs=True)
-                else:
-                    add_pdf_page(pdf_file, fig, close_figs=False)
+                if pdf_file is not None:
+                    add_pdf_page(pdf_file, fig, close_figs=test_i > 0)
 
             print('Median and max error in', total_tests, 'tests:', np.median(errors), np.max(errors))
