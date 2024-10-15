@@ -1,6 +1,6 @@
 from essentials.DA import dataAssimilation
 from essentials.create import *
-import numpy as np
+
 
 rng = np.random.default_rng(6)
 path_dir = '/'.join(os.path.realpath(__file__).split('/')[:-1]) + '/'
@@ -17,11 +17,9 @@ def main(filter_ens, y_obs, t_obs, std_obs=0.2, wash_obs=None, wash_t=None, max_
 
     filter_ens.is_not_physical(print_=True)
     # If the true signal very long, integrate only one reference time more
-    if hasattr(filter_ens, 't_max'):
+    if hasattr(filter_ens, 't_max') or max_t is not None:
         Nt_extra = int(min((filter_ens.t_max - filter_ens.hist_t[-1]),
                            filter_ens.t_CR) / filter_ens.dt) + 1
-    elif max_t is not None:
-        Nt_extra = int((max_t - filter_ens.hist_t[-1]) / filter_ens.dt) + 1
     else:
         Nt_extra = int(filter_ens.t_CR / filter_ens.dt) + 1
 
@@ -39,6 +37,8 @@ def main(filter_ens, y_obs, t_obs, std_obs=0.2, wash_obs=None, wash_t=None, max_
 
 
 # ------------------------------------------------------------------------------------------------------------------- #
+
+
 def run_Lk_loop(ensemble, truth, bias_params, Ls=10, ks=1., folder=''):
     truth = truth.copy()
     bias_params = bias_params.copy()

@@ -34,12 +34,10 @@ def set_working_directories(subfolder='', change_working_dir=False):
             working_dir = '/Users/andreanovoa'
         elif os.path.isdir('/home/eidf079/eidf079/anovoa-ai4nz'):
             working_dir = '/home/eidf079/eidf079/anovoa-ai4nz'
-        elif os.path.isdir('/Users/anovoama/'):
-            working_dir = '/Users/anovoama'
         else:
-            raise NotADirectoryError('Computer not recognized. Please, define a working directory.') #working_dir = os.getcwd()
-
+            working_dir = ""
         data_folder = working_dir + '/data/' + subfolder
+    
 
     if change_working_dir:
         os.chdir(working_dir)
@@ -82,29 +80,6 @@ def check_valid_file(load_case, params_dict):
                     print('\t <--- Re-init model!')
                     return False
     return True
-
-
-def categorical_cmap(nc, nsc, cmap='Set2', continuous=False):
-    # number of categories(nc) and the number of subcategories(nsc)
-    # and returns a colormap with nc * nsc different colors, where for
-    # each category there are nsc colors of same hue.
-
-    if nc > plt.get_cmap(cmap).N:
-        raise ValueError("Too many categories for colormap.")
-    if continuous:
-        ccolors = plt.get_cmap(cmap)(np.linspace(0, 1, nc))
-    else:
-        ccolors = plt.get_cmap(cmap)(np.arange(nc, dtype=int))
-    cols = np.zeros((nc * nsc, 3))
-    for i, c in enumerate(ccolors):
-        chsv = mpl.colors.rgb_to_hsv(c[:3])
-        arhsv = np.tile(chsv, nsc).reshape(nsc, 3)
-        arhsv[:, 1] = np.linspace(chsv[1], 0.25, nsc)
-        arhsv[:, 2] = np.linspace(chsv[2], 1, nsc)
-        rgb = mpl.colors.hsv_to_rgb(arhsv)
-        cols[i * nsc:(i + 1) * nsc, :] = rgb
-    # return matplotlib.colors.ListedColormap(cols)
-    return cols
 
 
 @lru_cache(maxsize=10)
@@ -186,13 +161,11 @@ def load_from_pickle_file(filename):
         return args
 
 
-def load_from_mat_file(filename, squeeze_me=True):
-    return sio.loadmat(filename, appendmat=True, squeeze_me=squeeze_me)
+def load_from_mat_file(filename):
+    if filename[-4:] != '.mat':
+        filename += '.mat'
+    return sio.loadmat(filename)
 
-
-def save_to_mat_file(filename, data: dict, oned_as='column', do_compression=True):
-    os.makedirs(os.path.dirname(filename), exist_ok=True)
-    sio.savemat(filename, data, oned_as=oned_as, do_compression=do_compression)
 
 def add_pdf_page(pdf, fig_to_add, close_figs=True):
     pdf.savefig(fig_to_add)
@@ -405,8 +378,4 @@ def get_error_metrics(results_folder):
                 out['error_biased'][ii, jj, a, :] = np.mean(abs(b_obs[ei:ei + N_CR]), axis=0) / scale
                 out['error_unbiased'][ii, jj, a, :] = np.mean(abs(b_obs_u[ei:ei + N_CR]), axis=0) / scale
 
-            save_to_pickle_file(results_folder + 'CR_data', out)
-
-
-
-
+    save_to_pickle_file(results_folder + 'CR_data', out)

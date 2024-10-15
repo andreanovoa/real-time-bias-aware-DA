@@ -1,5 +1,6 @@
 from scipy.interpolate import splrep, splev
 from scipy.integrate import solve_ivp
+import multiprocessing as mp
 from functools import partial
 from copy import deepcopy
 
@@ -9,14 +10,9 @@ import os
 from essentials.bias_models import NoBias
 from essentials.Util import Cheb
 
-
-from sys import platform
-
-if platform == "darwin" or platform == "ios":
-    import multiprocess as mp
-else:
-    import multiprocessing as mp
-
+num_proc = os.cpu_count()
+if num_proc > 1:
+    num_proc = int(num_proc)
 
 
 # %% =================================== PARENT MODEL CLASS ============================================= %% #
@@ -92,15 +88,13 @@ class Model:
         # Ensure psi0 is ndarray with ndim=2
         if self.psi0.ndim < 2:
             self.psi0 = np.array([self.psi0]).T
-
         self.alpha = self.alpha0.copy()
         # ========================== CREATE HISTORY ========================== ##
         self.hist = np.array([self.psi0])
-
         if self.ensemble:
             self.hist = self.hist.reshape(-1, self.N-self.Nq, self.m)
         else:
-            self.hist = self.hist.reshape(-1, self.Nphi, 1)
+            self.hist = self.hist.reshape(-1, self.N-self.Nq, 1)
         self.hist_t = np.array([0.])
         # ========================== DEFINE LENGTHS ========================== ##
         self.precision_t = int(-np.log10(self.dt)) + 2
@@ -109,9 +103,6 @@ class Model:
         self.rng = np.random.default_rng(self.seed)
         self.print_params = self.define_print_params()
         self.initialized = True
-
-
-
 
     def define_print_params(self):
         return [*self.alpha_labels, *self.extra_print_params]
@@ -336,8 +327,7 @@ class Model:
     @property
     def pool(self):
         if not hasattr(self, '_pool'):
-            N_pools = min(self.m, mp.cpu_count())
-            self._pool = mp.Pool(N_pools)
+            self._pool = mp.Pool()
         return self._pool
 
     def close(self):
@@ -688,12 +678,10 @@ class Lorenz63(Model):
         if 'psi0' not in model_dict.keys():
             model_dict['psi0'] = np.array([1.0, 1.0, 1.0])  # initialise x, y, z
 
-        if 'observe_dims' in model_dict:
-            self.observe_dims = model_dict['observe_dims']
-
-        self.Nq = len(self.observe_dims)
-
         super().__init__(**model_dict)
+
+        if 'observe_dims' in model_dict:
+            self.Nq = len(self.observe_dims)
 
     # _______________ Lorenz63 specific properties and methods ________________ #
     @property
@@ -753,7 +741,7 @@ class Annular(Model):
     alpha_labels = dict(omega='$\\omega$', nu='$\\nu$', c2beta='$c_2\\beta $', kappa='$\\kappa$',
                         epsilon='$\\epsilon$', theta_b='$\\Theta_\\beta$', theta_e='$\\Theta_\\epsilon$')
     alpha_lims = dict(omega=(1000 * 2 * np.pi, 1300 * 2 * np.pi),
-                      nu=(-60., 100.), c2beta=(0., 100.), kappa=(None, None),
+                      nu=(-60., 60.), c2beta=(0., 60.), kappa=(None, None),
                       epsilon=(None, None), theta_b=(0, 2 * np.pi), theta_e=(0, 2 * np.pi))
 
     state_labels = ['$\\eta_{a}$', '$\\dot{\\eta}_{a}$', '$\\eta_{b}$', '$\\dot{\\eta}_{b}$']

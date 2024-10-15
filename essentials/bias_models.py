@@ -69,11 +69,12 @@ class Bias:
     def print_bias_parameters(self):
         print('\n ---------------- {} bias model parameters --------------- '.format(self.name))
         for key in sorted(self.keys_to_print):
-            val = getattr(self, key)
-            if type(val) is float:
-                print('\t {} = {:.6}'.format(key, val))
-            else:
-                print('\t {} = {}'.format(key, val))
+            if hasattr(self, key):
+                val = getattr(self, key)
+                if type(val) is float:
+                    print('\t {} = {:.6}'.format(key, val))
+                else:
+                    print('\t {} = {}'.format(key, val))
 
     def update_history(self, b, t=None, reset=False, update_last_state=False, **kwargs):
 
@@ -199,6 +200,7 @@ class ESN(Bias, EchoStateNetwork):
                 washout = wash_obs - np.mean(wash_model, axis=-1)
 
                 u_open, r_open = self.openLoop(washout, inflation=self.inflation)
+
                 u[t1:t1 + self.N_wash + 1] = u_open
                 r[t1:t1 + self.N_wash + 1] = r_open
                 Nt -= self.N_wash
@@ -221,7 +223,11 @@ class ESN(Bias, EchoStateNetwork):
 
         return u[1:], t_b[1:]
 
-    def train_bias_model(self, **train_data):
+    def train_bias_model(self,
+                         plot_training=True,
+                         save_ESN_training=False,
+                         folder=None,
+                         **train_data):
         data = train_data['data']
         del train_data['data']
         dict_items = train_data.copy().items()
@@ -230,7 +236,10 @@ class ESN(Bias, EchoStateNetwork):
                 setattr(self, key, val)
                 del train_data[key]
 
-        self.train(data, **train_data)
+        self.train(data,
+              plot_training=plot_training,
+              save_ESN_training=save_ESN_training,
+              folder=folder, **train_data)
         self.trained = True
         if self.bayesian_update:
             self.update_history(b=np.zeros((self.N_dim, self.m)), reset=True)

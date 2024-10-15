@@ -24,6 +24,8 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
     time1 = time.time()
     Nt = int(np.round((t_obs[0] - ensemble.get_current_time) / ensemble.dt))
 
+    ensemble.number_of_analysis_steps = len(t_obs)
+
     ensemble = forecastStep(ensemble, Nt, **kwargs)
 
     if ensemble.bias_bayesian_update and ensemble.bias.N_ens != ensemble.m:
@@ -46,6 +48,7 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
 
         # ------------------------------  PERFORM ASSIMILATION ------------------------------ #
         Aa = analysisStep(ensemble, y_obs[ti], Cdd)  # Analysis step
+
 
 
         # -------------------------  UPDATE STATE AND BIAS ESTIMATES------------------------- #
@@ -98,14 +101,18 @@ def forecastStep(case, Nt, **kwargs):
             case: ensemble forecast as a class object
             Nt: number of time steps to forecast
             averaged: is the ensemble being forcast averaged?
-            alpha: changeable parameters of the problem 
+            alpha: changeable parameters of the problem
         Returns:
             case: updated case forecast Nt time steps
     """
 
     # Forecast ensemble and update the history
     psi, t = case.time_integrate(Nt)
-    case.update_history(psi, t)
+
+    try:
+        case.update_history(psi, t)
+    except ValueError:
+        print(f"Solver didn't return a homogeneous psi. Check initial conditions and parameters")
 
     # Forecast ensemble bias and update its history
     if case.bias is not None:
@@ -145,7 +152,7 @@ def analysisStep(case, d, Cdd):
         Aa = EnSRKF(Af, d, Cdd, M)
     elif case.filter == 'EnKF':
         Aa = EnKF(Af, d, Cdd, M)
-    elif case.filter == 'rBA_EnKF':
+    elif 'rBA' in case.filter:
         # ----------------- Retrieve bias and its Jacobian ----------------- #
         b = case.bias.get_current_bias
         J = case.bias.state_derivative()
@@ -159,7 +166,13 @@ def analysisStep(case, d, Cdd):
         Cbb = Cdd.copy()  # Bias covariance matrix same as obs cov matrix for now
 
         if case.activate_bias_aware:
-            Aa = rBA_EnKF(Af, d, Cdd, Cbb, k, M, b, J)
+            if case.filter == 'rBA_EnKF':
+                Aa = rBA_EnKF(Af, d, Cdd, Cbb, k, M, b, J)
+            elif case.filter == 'rBA_EnKF_CMAME':
+                Aa = rBA_EnKF_CMAME(Af, d, Cdd, Cbb, k, M, b, J)
+            else:
+                raise ValueError('Filter ' + case.filter + ' not defined.')
+
         else:
             Aa = EnKF(Af, d, Cdd, M)
     else:
@@ -169,20 +182,22 @@ def analysisStep(case, d, Cdd):
     if case.est_a:
         if not case.activate_parameter_estimation:
             Af_params = Af[-case.Na:, :]
-            Aa = inflateEnsemble(Af, case.inflation, d=d, additive=True)
+            Aa = inflateEnsemble(Af, case.inflation, case.Na, d=d, additive=True)
             Aa = np.concatenate((Aa[:-case.Nq, :], Af_params, Aa[-case.Nq:, :]))
         else:
             is_physical, idx_alpha, d_alpha = checkParams(Aa, case)
             if is_physical:
-                Aa = inflateEnsemble(Aa, case.inflation)
+                Aa = inflateEnsemble(Aa, case.inflation, case.Na)
             else:
                 case.is_not_physical()  # Count non-physical parameters
                 if not hasattr(case, 'rejected_analysis'):
                     case.rejected_analysis = []
                 if not case.constrained_filter:
-                    print('reject-inflate')
-                    Aa = inflateEnsemble(Af, case.reject_inflation, d=d, additive=True)
-                    case.rejected_analysis.append([(case.get_current_time, np.dot(case.Ma, Aa), np.dot(case.Ma, Af), None)])
+                    # print('reject-inflate')
+                    Aa = inflateEnsemble(Af, case.reject_inflation, case.Na, d=d, additive=True)
+                    case.rejected_analysis.append([(case.get_current_time,
+                                                    np.dot(case.Ma, Aa), np.dot(case.Ma, Af),
+                                                    None)])
                 else:
                     raise NotImplementedError('Constrained filter yet to test')
                     # # Try assimilating the parameters themselves
@@ -214,19 +229,33 @@ def analysisStep(case, d, Cdd):
                     #     print('! not ok c-filter case')
                     #     Aa = inflateEnsemble(Af, case.inflation)
     else:
-        Aa = inflateEnsemble(Aa, case.inflation, d=d, additive=True)
-
+        Aa = inflateEnsemble(Aa, case.inflation,case.Na,  d=d, additive=True)
     return Aa
 
 
 # =================================================================================================================== #
-def inflateEnsemble(A, rho, d=None, additive=False):
-    if type(additive) is str and 'add' in additive:
+def inflateEnsemble(A, rho, Na, d=None, additive=True):
+    if d is not None and additive is False:
         A[:len(d)] += np.array([d * (rho - 1)]).T
+        raise NotImplementedError('Check this')
 
     A_m = np.mean(A, -1, keepdims=True)
-    return A_m + rho * (A - A_m)
+    Psi = A - A_m
+    A_inflated = A_m + rho * Psi
 
+    if check_std_too_large(A_inflated, Na):
+        return A
+    else:
+        return A_inflated
+
+def check_std_too_large(A, Na):
+    # Check that the spread is not too big.
+    _A = A[-Na:].copy()
+    mean_A = np.mean(_A, axis=-1)
+    std_A = np.std(_A, axis=-1)
+    condition = abs(std_A) / mean_A
+
+    return bool(sum(condition > 1.))
 
 def checkParams(Aa, case):
     alphas, lower_bounds, upper_bounds, ii = [], [], [], 0
@@ -256,11 +285,13 @@ def checkParams(Aa, case):
                 mean_, min_ = np.mean(alpha_), np.min(alpha_)
                 bound_ = lower_bounds[idx_]
                 if mean_ >= bound_:
-                    print('t = {:.3f} r-i: min {} = {:.2f} < {:.2f}'.format(case.get_current_time,
-                                                                            case.est_a[idx_], min_, bound_))
+                    # print('t = {:.3f} r-i: min {} = {:.2e} < {:.2e}'.format(case.get_current_time,
+                    #                                                         case.est_a[idx_], min_, bound_))
+                    print('!', end="")
                 else:
-                    print('t = {:.3f} r-i: mean {} = {:.2f} < {:.2f}'.format(case.get_current_time,
-                                                                             case.est_a[idx_], mean_, bound_))
+                    # print('t = {:.3f} r-i: mean {} = {:.2e} < {:.2e}'.format(case.get_current_time,
+                    #                                                          case.est_a[idx_], mean_, bound_))
+                    print('!', end="")
         if any(break_up):
             idx = np.argwhere(break_up)
             if len(idx.shape) > 1:
@@ -270,11 +301,13 @@ def checkParams(Aa, case):
                 mean_, max_ = np.mean(alpha_), np.max(alpha_)
                 bound_ = upper_bounds[idx_]
                 if mean_ <= bound_:
-                    print('t = {:.3f} r-i: max {} = {:.2f} > {:.2f}'.format(case.get_current_time,
-                                                                            case.est_a[idx_], max_, bound_))
+                    # print('t = {:.3f} r-i: max {} = {:.2e} > {:.2e}'.format(case.get_current_time,
+                    #                                                         case.est_a[idx_], max_, bound_))
+                    print('!', end="")
                 else:
-                    print('t = {:.3f} r-i: mean {} = {:.2f} > {:.2f}'.format(case.get_current_time,
-                                                                             case.est_a[idx_], mean_, bound_))
+                    # print('t = {:.3f} r-i: mean {} = {:.2e} > {:.2e}'.format(case.get_current_time,
+                    #                                                          case.est_a[idx_], mean_, bound_))
+                    print('!', end="")
         return is_physical, None, None
 
     #  -----------------------------------------------------------------
@@ -289,12 +322,14 @@ def checkParams(Aa, case):
             if mean_ >= bound_:
                 d_alpha.append(np.max(alpha_) + np.std(alpha_))
 
-                print('t = {:.3f}: min{}={:.2f}<{:.2f}. d_alph={:.2f}'.format(case.get_current_time, case.est_a[idx_],
-                                                                              min_, bound_, d_alpha[-1]))
+                # print('t = {:.3f}: min{}={:.2f}<{:.2e}. d_alph={:.2e}'.format(case.get_current_time, case.est_a[idx_],
+                #                                                               min_, bound_, d_alpha[-1]))
+                print('!', end="")
             else:
                 d_alpha.append(bound_ + 2 * np.std(alphas[idx_]))
-                print('t = {:.3f}: mean{}={:.2f}<{:.2f}. d_alph={:.2f}'.format(case.get_current_time, case.est_a[idx_],
-                                                                               mean_, bound_, d_alpha[-1]))
+                # print('t = {:.3f}: mean{}={:.2f}<{:.2e}. d_alph={:.2e}'.format(case.get_current_time, case.est_a[idx_],
+                #                                                                mean_, bound_, d_alpha[-1]))
+                print('!', end="")
 
     if any(break_up):
         idx = np.argwhere(break_up)
@@ -313,13 +348,15 @@ def checkParams(Aa, case):
                 d_alpha.append(np.min(alpha_) - np.std(alpha_))
                 # elif min_ < bound_:
                 #     d_alpha.append(min_)
-                print('t = {:.3f}: max{}={:.2f}>{:.2f}. d_alph={:.2f}'.format(case.get_current_time, case.est_a[idx_],
-                                                                              max_, bound_, d_alpha[-1]))
+                # print('t = {:.3f}: max{}={:.2e}>{:.2e}. d_alph={:.2e}'.format(case.get_current_time, case.est_a[idx_],
+                #                                                               max_, bound_, d_alpha[-1]))
+                print('!', end="")
             else:
                 d_alpha.append(bound_ - 2 * np.std(alphas[idx_]))
 
-                print('t = {:.3f}: mean{}={:.2f}>{:.2f}. d_alph={:.2f}'.format(case.get_current_time, case.est_a[idx_],
-                                                                               mean_, bound_, d_alpha[-1]))
+                # print('t = {:.3f}: mean{}={:.2e}>{:.2e}. d_alph={:.2e}'.format(case.get_current_time, case.est_a[idx_],
+                #                                                                mean_, bound_, d_alpha[-1]))
+                print('!', end="")
 
     return is_physical, np.array(idx_alpha, dtype=int), d_alpha
 
@@ -414,7 +451,7 @@ def EnKF(Af, d, Cdd, M):
     return Aa
 
 
-def rBA_EnKF(Af, d, Cdd, Cbb, k, M, b, J):
+def rBA_EnKF_CMAME(Af, d, Cdd, Cbb, k, M, b, J):
     """ Bias-aware Ensemble Kalman Filter.
         Inputs:
             Af: forecast ensemble at time t (augmented with Y) [N x m]
@@ -470,6 +507,65 @@ def rBA_EnKF(Af, d, Cdd, Cbb, k, M, b, J):
     return Aa
 
 
+def rBA_EnKF(Af, d, Cdd, Cbb, k, M, b, J):
+    """ Bias-aware Ensemble Kalman Filter.
+        Inputs:
+            Af: forecast ensemble at time t (augmented with Y) [N x Nm]
+            d: observation at time t [Nq x 1]
+            Cdd: observation error covariance matrix [Nq x Nq]
+            Cbb: bias covariance matrix [Nq x Nq]
+            k: bias penalisation factor
+            M: matrix mapping from state to observation space [Nq x N]
+            b: bias of the forecast observables (Y = MAf + B) [Nq x 1]
+            J: derivative of the bias with respect to the input [Nq x Nq]
+        Returns:
+            Aa: analysis ensemble (or Af is Aa is not real)
+            cost: (optional) calculation of the DA cost function and its derivative
+    """
+    Nm = np.size(Af, axis=1)
+    Nq = len(d)
+
+    Iq = np.eye(Nq)
+    # Mean and deviations of the ensemble
+    Psi_f = Af - np.mean(Af, 1, keepdims=True)
+    S = np.dot(M, Psi_f)
+    Q = np.dot(M, Af)
+
+    # Create an ensemble of observations
+    D = rng.multivariate_normal(d, Cdd, Nm).transpose()
+
+
+    if b.ndim > 1 and b.shape[-1] == Nm:
+        B = b
+    else:
+        if b.ndim == 1:
+            b = np.expand_dims(b, axis=1)
+        # B = rng.multivariate_normal(b.squeeze(), Cbb, Nm).transpose()
+        B = np.repeat(b, Nm, axis=1)
+
+    # B = rng.multivariate_normal(b, Cbb, Nm).transpose()
+
+    Y = Q + B
+
+    Cqq = np.dot(S, S.T)  # covariance of observations M Psi_f Psi_f.T M.T
+    if np.array_equiv(Cdd, Cbb):
+        CdWb = Iq
+    else:
+        CdWb = np.dot(Cdd, linalg.inv(Cbb))
+
+    Cinv = (Nm - 1) * Cdd + np.dot(np.dot(Iq + J.T, Iq + J), Cqq) + k * np.dot(CdWb, np.dot(np.dot(J.T, J), Cqq))
+
+    K = np.dot(Psi_f, np.dot(S.T, linalg.inv(Cinv)))
+    Aa = Af + np.dot(K, np.dot(Iq + J.T, D - Y) - k * np.dot(CdWb, np.dot(J.T, B)))
+
+    # Compute cost function terms (this could be commented out to increase speed)
+    if np.isreal(Aa).all():
+        return Aa
+    else:
+        print('Aa not real')
+        return Af
+
+
 # =================================================================================================================== #
 
 
@@ -480,6 +576,7 @@ def print_DA_parameters(ensemble, t_obs):
           '\t Time steps between analysis = {} \n'.format(ensemble.dt_obs),
           '\t Inferred params = {0} \n'.format(ensemble.est_a),
           '\t Inflation = {0} \n'.format(ensemble.inflation),
+          '\t Reject Inflation = {0} \n'.format(ensemble.reject_inflation),
           '\t Ensemble std(psi0) = {}\n'.format(ensemble.std_psi),
           '\t Ensemble std(alpha0) = {}\n'.format(ensemble.std_a),
           '\t Number of analysis steps = {}, t0={}, t1={}'.format(len(t_obs), t_obs[0], t_obs[-1])
