@@ -1,6 +1,6 @@
 # Bias-aware data assimilation
 
-*This work was developed during the PhD of [A. Nóvoa](https://scholar.google.com/citations?user=X0TjtAgAAAAJ&hl=en).*<br>
+*This work was developed during the PhD of [A. Nóvoa](https://scholar.google.com/citations?user=X0TjtAgAAAAJ&hl=en). The thesis is publicly avaiable [here](https://doi.org/10.17863/CAM.113001).*<br> 
 
 ## Main publications
 - [x] [A real-time digital twin of azimuthal thermoacoustic instabilities](https://arxiv.org/abs/2404.18793). Journal of Fluid Mechanics (_To appear_)
