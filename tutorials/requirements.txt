@@ -1,6 +1,0 @@
-# Additional requrements or the tutorials
-jupyter
-mediapy
-tabulate
-PyQt5
-modulo-vki

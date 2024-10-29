@@ -9,3 +9,8 @@ tabulate
 pyts~=0.12.0
 numba~=0.60.0
 multiprocess~=0.70.17
+# Additional requrements for the tutorials
+jupyter
+tabulate
+PyQt5
+modulo-vki

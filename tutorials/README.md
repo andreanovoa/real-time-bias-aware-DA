@@ -14,10 +14,9 @@ From the terminal:
    conda create --yes --name da-env python=3.9
    conda activate da-env
    ```
-4. Install the requirements of the main repository and the additional requirements for the tutorials:
+4. Install the required packages for the repository:
    ```
    pip install -r requirements.txt
-   pip install -r tutorials/requirements.txt
    ```
 5. Access the tutorials folder and launch the jupyter notebooks:
    ```
@@ -66,5 +65,4 @@ Each tutorial file name includes a two-digit code, which indicates the category.
 
 * [x] 30 - Low order model of azimuthal thermoacoustics
 * [x] 31 - Experimental data visualization 
-* [x] 32 - DA on experimental data: ideal scenario
-* [x] 32 - DA on experimental data: realistic scenario
+* [x] 32 - Real time digital twin of raw experimental data
