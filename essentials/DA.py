@@ -12,7 +12,7 @@ from scipy import linalg
 rng = np.random.default_rng(6)
 
 
-def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
+def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, Nt_extra=None, **kwargs):
 
     y_obs = y_obs.copy()
     # Print simulation parameters ##
@@ -49,8 +49,6 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
         # ------------------------------  PERFORM ASSIMILATION ------------------------------ #
         Aa = analysisStep(ensemble, y_obs[ti], Cdd)  # Analysis step
 
-
-
         # -------------------------  UPDATE STATE AND BIAS ESTIMATES------------------------- #
         ensemble.update_history(Aa[:-ensemble.Nq, :], update_last_state=True)
 
@@ -85,7 +83,13 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, **kwargs):
         # Parallel forecast
         ensemble = forecastStep(ensemble, Nt)
 
+        
         assert ensemble.hist_t[-1] == ensemble.bias.hist_t[-1]
+
+    if Nt_extra is not None:
+        ensemble = forecastStep(ensemble, Nt=Nt_extra)
+
+    
     print('Elapsed time during assimilation: ' + str(time.time() - time1) + ' s')
     ensemble.close()
     return ensemble

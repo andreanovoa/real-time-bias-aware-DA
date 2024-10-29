@@ -110,9 +110,6 @@ class Model:
         self.print_params = self.define_print_params()
         self.initialized = True
 
-
-
-
     def define_print_params(self):
         return [*self.alpha_labels, *self.extra_print_params]
 
@@ -132,6 +129,10 @@ class Model:
         return self.Nphi + self.Na + self.Nq
 
     @property
+    def get_default_params(self):
+        return dict((key, getattr(self.__class__, key)) for key in self.params)
+
+    @property
     def get_current_state(self):
         return self.hist[-1]
 
@@ -140,8 +141,8 @@ class Model:
         return self.hist_t[-1]
 
     def set_fixed_params(self):
-        for key in self.fixed_params:
-            self.governing_eqns_params[key] = getattr(self, key)
+        fixed_params = dict((key, getattr(self, key)) for key in self.fixed_params)
+        self.governing_eqns_params.update(fixed_params)
 
     @property
     def bias_type(self):
@@ -183,10 +184,11 @@ class Model:
         print('\n ------------------ {} Model Parameters ------------------ '.format(self.name))
         for key in sorted(self.print_params):
             val = getattr(self, key)
-            if type(val) is float:
-                print('\t {} = {:.6}'.format(key, val))
-            else:
-                print('\t {} = {}'.format(key, val))
+            print(f'\t {key} = {val:.6f}' if isinstance(val, float) else f'\t {key} = {val}')
+            # if type(val) is float:
+            #     print('\t {} = {:.6}'.format(key, val))
+            # else:
+            #     print('\t {} = {}'.format(key, val))
 
     # --------------------- DEFINE OBS-STATE MAP --------------------- ##
     @property
@@ -234,9 +236,9 @@ class Model:
         if seed is not None:
             self.set_rng(seed=seed)
 
-        DAdict = kwargs.copy()
         self.ensemble = True
 
+        DAdict = kwargs.copy()
         for key, val in Model.defaults_ens.items():
             if key in DAdict.keys():
                 setattr(self, key, DAdict[key])

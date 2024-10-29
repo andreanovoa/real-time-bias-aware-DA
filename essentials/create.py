@@ -1,4 +1,6 @@
 import os.path
+
+import numpy as np
 from numba.cuda import local
 from essentials.Util import *
 from essentials.bias_models import *
@@ -268,9 +270,8 @@ def create_bias_model(ensemble, bias_params: dict,
     edited_file = False
 
     bias = None
-    if bias_params['bias_model'].name == 'None':
-        train_ens.init_bias(**bias_params)
-    elif bias_filename is not None:
+
+    if bias_filename is not None:
         # Create bias estimator if the class is not 'NoBias'
         if folder is not None:
             os.makedirs(folder, exist_ok=True)
@@ -287,12 +288,8 @@ def create_bias_model(ensemble, bias_params: dict,
         train_ens.init_bias(**bias_params)
         bias = train_ens.bias.copy()
 
-        train_data_name = bias_filename + '_train_data'
-
         # Create training data on a multi-parameter approach
-        train_data = create_bias_training_dataset(y_raw, y_true, train_ens,
-                                                  filename=train_data_name,
-                                                  folder=folder,
+        train_data = create_bias_training_dataset(y_raw=y_raw, y_pp=y_true, ensemble=train_ens,
                                                   **bias_params)
 
         # Run bias model training
@@ -309,6 +306,7 @@ def create_bias_model(ensemble, bias_params: dict,
         if hasattr(bias, 'N_wash') and wash_t is None:
             wash_t, wash_obs = create_washout(bias, truth['t'], truth['y_raw'])
 
+    # Create washout if needed
     if hasattr(bias, 'N_wash') and wash_t[0] > truth['t_obs'][0]:
         if bias.t_init is None or bias.t_init > truth['t_obs'][0]:
             bias.t_init = truth['t_obs'][0]
@@ -337,29 +335,27 @@ def create_washout(bias_case, t_true, y_raw):
     return wash_t, wash_obs
 
 
-def create_bias_training_dataset(y_raw, y_pp, ensemble,
+def create_bias_training_dataset(y_raw: list, y_pp: list, ensemble,
                                  t_train=None,
                                  t_val=None,
+                                 t_test=None,
                                  L=10,
                                  N_wash=5,
                                  augment_data=True,
                                  perform_test=True,
                                  bayesian_update=False,
                                  biased_observations=True,
+                                 correlation_based_training=True,
                                  add_noise=True,
                                  filename=None,
                                  len_augment_set=2,
+                                 plot_train_dataset=True,
                                  **train_params):
 
     """
     Multi-parameter data generation for ESN training.
     """
 
-    if not isinstance(y_raw, list):
-        y_raw = [y_raw]
-
-    if not isinstance(y_pp, list):
-        y_pp = [y_pp]
     assert len(y_pp) == len(y_raw)
 
     train_ens = ensemble.copy()
@@ -369,16 +365,50 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble,
     if t_val is None:
         t_val = train_ens.t_CR
 
-    training_keys = ['t_train', 't_val', 'add_noise', 'augment_data', 'bayesian_update', 'biased_observations', 'L']
-    requested_dict = dict((k , v) for k, v in locals().items() if k in training_keys)
+    training_keys = ['t_train', 't_val', 'add_noise', 'augment_data',
+                     'bayesian_update', 'biased_observations', 'L']
+    requested_dict = dict((k, v) for k, v in locals().items() if k in training_keys)
 
-    min_train_data = t_train + t_val
-    if min_train_data > y_raw[0].shape[0] // train_ens.dt:
-        raise ValueError('min_train_data < y_raw length')
+    Nt_min = t_train + t_val
+    if Nt_min > y_raw[0].shape[0] // train_ens.dt:
+        raise ValueError('Nt_min < y_raw length')
     if perform_test:
-        min_train_data += t_val * 5
-    min_train_data = int(min_train_data / train_ens.dt) + N_wash
-    min_train_data = min(min_train_data, y_raw[0].shape[0])
+        if t_test is None:
+            t_test = t_val * 5
+        Nt_min += t_test
+    Nt_min = min(int(Nt_min / train_ens.dt) + N_wash, y_raw[0].shape[0])
+
+    def plot_dataset(plot_data):
+        _L, _Nt, _Ndim = plot_data.shape
+
+        if biased_observations:
+            _nc = 2
+        else:
+            _nc = 1
+        _Ndim = int(round(_Ndim // _nc))
+        _nr = int(min(_Ndim, 10))
+
+        fig, axs = plt.subplots(nrows=_nr, ncols=_nc, figsize=(8*_nc, 2*_nr), sharex=True, layout='constrained')
+        if not isinstance(axs, np.ndarray):
+            axs = [axs]
+        if _nc > 1:
+            axs = axs.T.flatten()
+            [axs[_ii].set(title=_ttl) for _ii, _ttl in zip([0, _nr], ['Model bias', 'Innovations'])]
+        _t_data = np.arange(0, _Nt) * ensemble.dt
+        _Ls = np.random.randint(low=0, high=_L, size=len(axs))
+
+        for kk, ax, Li in zip(range(len(axs)), axs, _Ls):
+            if kk < _nr:
+                ax.plot(_t_data, plot_data[Li, :, kk], lw=1., color='k')
+            else:
+                ax.plot(_t_data, plot_data[Li, :, kk - _nr + _Ndim], lw=1., color='k')
+
+            times = [0, t_train, t_train + t_val, _t_data[-1]]
+            [ax.axvspan(times[_ii], times[_ii+1], facecolor=_c, alpha=0.3, zorder=-100,
+                        label=_lbl) for _ii, _c, _lbl in zip(range(3), ['orange', 'red', 'navy'],
+                                                             [f'Train, Li{Li}', 'Validate', 'Test'])]
+        axs[0].legend(ncols=3, loc='upper center', bbox_to_anchor=(0.5, 1.5))
+        plt.show()
 
     # =========================== Load training data if available ============================== #
     if filename is not None:
@@ -387,25 +417,22 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble,
             try:
                 if check_valid_file(loaded_train_data, dict(**requested_dict, **train_params)):
                     _U = loaded_train_data['data']
-                    if _U.shape[1] < min_train_data:
+                    if _U.shape[1] < Nt_min:
                         print('Re-run multi-parameter training data: Increase the length of the training data')
                     elif augment_data and _U.shape[0] == L:
                         print('Re-run multi-parameter training data: need data augment ')
                     else:
                         print('Loaded multi-parameter training data')
+                        if plot_train_dataset:
+                            plot_dataset(plot_data=loaded_train_data['data'])
                         return loaded_train_data
             except TypeError:
                 print(f'File {filename} type = {type(loaded_train_data)} is not dict')
         except FileNotFoundError:
             print(f'Run multi-parameter training data: file {filename} not found')
-
-
-    # ======================= Run multi-parameter training data generation ========================= #
-    # Load training data if all the conditions are ok
-
     print('Rerun training data')
 
-    # =======================  Create ensemble of initial guesses ============================ #
+    # =================  Create ensemble for multi-parameter training data generation ============================ #
 
     # Create ensemble of training data
     train_params['m'] = L
@@ -416,7 +443,7 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble,
     train_ens.update_history(psi, t)
     y_L_model = train_ens.get_observable_hist()  # N_train x Nq x m
 
-    # =========================  Remove and replace fixed points =================================== #
+    # -------------  Remove and replace fixed points ------------- #
     tol = 1e-1
     N_CR = int(round(train_ens.t_CR / train_ens.dt))
     range_y = np.max(np.max(y_L_model[-N_CR:], axis=0) - np.min(y_L_model[-N_CR:], axis=0), axis=0)
@@ -433,77 +460,82 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble,
     # Reset ensemble with post-transient ICs
     train_ens.update_history(psi=psi0.T, reset=True)
 
-    # =========================  Forecast fixed-point-free ensemble ============================== #
-    Nt = min_train_data
-    N_corr = int(round(train_ens.t_CR / train_ens.dt))
-
-    psi, tt = train_ens.time_integrate(Nt=Nt + N_corr)
+    # -------------  Forecast fixed-point-free ensemble ------------- #
+    N_corr = N_CR
+    psi, tt = train_ens.time_integrate(Nt=Nt_min + N_corr)
     train_ens.update_history(psi, tt)
     train_ens.close()
 
-    # ===============  If data augmentation, correlate observations and estimates ================= #
-    y_L_model = train_ens.get_observable_hist()
-    N_datasets = len(y_raw)
-    lags = np.linspace(start=0, stop=N_corr, num=N_corr, dtype=int)
-
-    model_bias_all, innovations_all = [], []
-    for _y_raw, _y_pp in zip(y_raw, y_pp):
-        _y_raw = _y_raw[-Nt:].copy()
-        _y_pp = _y_pp[-Nt:].copy()
-        if len(_y_raw.shape) < 3:
-            _y_raw = np.expand_dims(_y_raw, -1)
-            _y_pp = np.expand_dims(_y_pp, -1)
-
-        if not augment_data:
-            train_data_model = y_L_model[-Nt:]
-        else:
-            __y_pp_corr = _y_pp[:N_corr, :, 0]
-            train_data_model = np.zeros([_y_pp.shape[0],
-                                         _y_pp.shape[1],
-                                         train_ens.m * len_augment_set])
-            for ii in range(train_ens.m):
-                yy = y_L_model[:, :, ii]
-                # _RS = []
-                # for lag in lags:
-                #     _RS.append(CR(y_pp_corr, yy[lag:N_corr + lag] / np.max(yy[lag:N_corr + lag]))[1])
-
-                _RS = [CR(__y_pp_corr, yy[lag:N_corr + lag] / np.max(yy[lag:N_corr + lag]))[1] for lag in lags]
-                best_lag = lags[np.argmin(_RS)]  # fully correlated
-                worst_lag = lags[np.argmax(_RS)]  # fully uncorrelated
-                mid_lag = int(np.mean([best_lag, worst_lag]))  # mid-correlated
-                # Store train data
-                train_data_model[:, :, len_augment_set * ii] = yy[best_lag:best_lag + Nt]
-                train_data_model[:, :, len_augment_set * ii + 1] = yy[mid_lag:mid_lag + Nt]
-                if len_augment_set == 3:
-                    train_data_model[:, :, len_augment_set * ii + 2] = yy[worst_lag:worst_lag + Nt]
-
-        # ================ Create training biases as (observations - model estimates) ================= #
-        innovations = _y_raw - train_data_model
-        innovations = innovations.transpose((2, 0, 1))  # Force shape to be (L x Nt x N_dim). Note: N_dim = Nq
-        model_bias = _y_pp - train_data_model
-        model_bias = model_bias.transpose((2, 0, 1))
-
-        assert innovations.ndim == 3
-        assert innovations.shape[1] == Nt
-        assert innovations.shape[2] == y_L_model.shape[1]
-
-        model_bias_all.append(model_bias)
-        innovations_all.append(innovations)
-
-    if N_datasets == 1:
-        model_bias_all = model_bias_all[0]
-        innovations_all = innovations_all[0]
-    else:  # If training with more than 1 experimental datasets: shape is (N_datasets*L x Nt x N_dim)
-        model_bias_all = np.concatenate(model_bias_all, axis=0)
-        innovations_all = np.concatenate(innovations_all, axis=0)
-
-    train_data = dict(data=np.concatenate([model_bias_all,
-                                           innovations_all], axis=2))
-    train_data['observed_idx'] = ensemble.Nq + np.arange(ensemble.Nq)  # only observe innovations
+    # ========================================  GENERATE TRAINING DATA ========================================= #
 
     # If the observations are biased, the bias estimator must predict  (1) the difference between the
     # raw data and the model, which are the observable quantities; and (2) the difference between the
     # post-processed data (i.e. the truth) and the model, which is the actual model bias.
+
+    y_L_model = train_ens.get_observable_hist()
+    N_datasets = len(y_raw)
+
+    innovations_all, model_bias_all = [], []
+    for _y_raw, _y_pp in zip(y_raw, y_pp):
+        _y_raw, _y_pp = [yy[-Nt_min:].copy() for yy in [_y_raw, _y_pp]]
+        if _y_raw.ndim < 3:
+            _y_raw, _y_pp = [np.expand_dims(yy, axis=-1) for yy in [_y_raw, _y_pp]]
+
+        if not correlation_based_training:   # (Nóvoa & Magri 2023 CMAME)
+            print('Not correlation_based_training')
+            train_data_model = y_L_model[-Nt_min:]
+
+        else:  # -------- Correlate observations and estimates (Nóvoa et al. 2024 JFM) -------- #
+            print('Yes correlation_based_training')
+            lags = np.linspace(start=0, stop=N_corr, num=N_corr, dtype=int)
+            _y_raw_corr = _y_raw[:N_corr, ..., 0]
+            train_data_model = np.zeros([Nt_min, train_ens.Nq, L * len_augment_set])
+
+            for ii in range(train_ens.m):
+                yy = y_L_model[:, :, ii]
+
+                _RS = [CR(_y_raw_corr, yy[lag:N_corr + lag] / np.max(yy[lag:N_corr + lag]))[1] for lag in lags]
+                best_lag = lags[np.argmin(_RS)]  # fully correlated
+                worst_lag = lags[np.argmax(_RS)]  # fully uncorrelated
+                mid_lag = int(np.mean([best_lag, worst_lag]))  # mid-correlated
+                # Store train data
+                train_data_model[:, :, len_augment_set * ii] = yy[best_lag:best_lag + Nt_min]
+                train_data_model[:, :, len_augment_set * ii + 1] = yy[mid_lag:mid_lag + Nt_min]
+                if len_augment_set == 3:
+                    train_data_model[:, :, len_augment_set * ii + 2] = yy[worst_lag:worst_lag + Nt_min]
+
+        # ================ Create training biases as (observations - model estimates) ================= #
+        innovations = (_y_raw - train_data_model).transpose((2, 0, 1))  # Force shape to be (L x Nt x N_dim). Note: N_dim = Nq
+
+        assert innovations.shape[1] == Nt_min
+        assert innovations.shape[2] == y_L_model.shape[1]
+
+        if biased_observations:
+            model_bias = _y_pp - train_data_model
+            model_bias = model_bias.transpose((2, 0, 1))
+            model_bias_all.append(model_bias)
+        elif augment_data and not correlation_based_training:
+            inn = innovations.copy()
+            innovations = np.zeros([L * 3, Nt_min, train_ens.Nq])
+
+            innovations[:L] = inn
+            innovations[L:-L] = inn * 1e-1
+            innovations[-L:] = inn * -1e-2
+
+        innovations_all.append(innovations)
+
+    # ------------- Combine the innovations (and model biases) --------------- #
+    # If training with more than one experimental dataset, the shape is (N_datasets*L x Nt x N_dim).
+    # Example: Generalization section in Nóvoa et al. (2024 JFM).
+    innovations_all = np.concatenate(innovations_all, axis=0)
+    if not biased_observations:
+        train_data = dict(data=innovations_all,
+                          observed_idx=np.arange(ensemble.Nq))
+    else:
+        model_bias_all = np.concatenate(model_bias_all, axis=0)
+        train_data = dict(data=np.concatenate([model_bias_all,
+                                               innovations_all], axis=2),
+                          observed_idx=ensemble.Nq + np.arange(ensemble.Nq))
 
     # =============================== Save train_data dict ================================ #
     # Save key keywords
@@ -513,162 +545,9 @@ def create_bias_training_dataset(y_raw, y_pp, ensemble,
     if filename is not None:
         save_to_pickle_file(filename, train_data)
 
+    if plot_train_dataset:
+        plot_dataset(plot_data=train_data['data'])
+
     return train_data
-
-
-# def create_bias_training_dataset(y_raw, y_pp, ensemble,
-#                                  t_train=None,
-#                                  t_val=None,
-#                                  L=10,
-#                                  N_wash=5,
-#                                  augment_data=True,
-#                                  perform_test=True,
-#                                  bayesian_update=False,
-#                                  add_noise=True,
-#                                  filename='train_data', **train_params):
-#     """
-#     Multi-parameter data generation for ESN training.
-#     """
-#
-#     ensemble = ensemble.copy()
-#
-#     if t_train is None:
-#         t_train = ensemble.t_transient
-#     if t_val is None:
-#         t_val = ensemble.t_CR
-#
-#     min_train_data = t_train + t_val
-#     if min_train_data > y_raw.shape[0] // ensemble.dt:
-#         raise ValueError('min_train_data < y_raw length')
-#     if perform_test:
-#         min_train_data += t_val * 5
-#     min_train_data = int(min_train_data / ensemble.dt) + N_wash
-#
-#     min_train_data = min(min_train_data, y_raw.shape[0])
-#
-#     # =========================== Load training data if available ============================== #
-#     try:
-#         train_data = load_from_pickle_file(filename)
-#         rerun = True
-#         if type(train_data) is dict:
-#             U = train_data['data']
-#         else:
-#             U = train_data.copy()
-#         if U.shape[1] < min_train_data:
-#             print('Rerun multi-parameter training data: Increase the length of the training data')
-#             rerun = True
-#         if augment_data and U.shape[0] == L:
-#             print('Rerun multi-parameter training data: need data augment ')
-#             rerun = True
-#     except FileNotFoundError:
-#         rerun = True
-#         print(f' Run multi-parameter training data: file {filename} not found')
-#
-#     # Load training data if all the conditions are ok
-#     if not rerun:
-#         train_data = load_from_pickle_file(filename)
-#         print('Loaded multi-parameter training data')
-#     else:
-#         print('Rerun training data')
-#
-#         # =======================  Create ensemble of initial guesses ============================ #
-#         train_ens = ensemble.copy()
-#
-#         # Create ensemble of training data
-#         train_params['m'] = L
-#         train_ens.init_ensemble(**train_params)
-#
-#         # Forecast ensemble
-#         psi, t = train_ens.time_integrate(Nt=int(round(t_train / train_ens.dt)))
-#         train_ens.update_history(psi, t)
-#         y_L_model = train_ens.get_observable_hist()  # N_train x Nq x m
-#
-#         # =========================  Remove and replace fixed points =================================== #
-#         tol = 1e-1
-#         N_CR = int(round(train_ens.t_CR / train_ens.dt))
-#         range_y = np.max(np.max(y_L_model[-N_CR:], axis=0) - np.min(y_L_model[-N_CR:], axis=0), axis=0)
-#         idx_FP = (range_y < tol)
-#         psi0 = psi[-1, :, ~idx_FP]  # Nq x (m - #FPs)
-#         if len(np.flatnonzero(idx_FP)) / len(idx_FP) >= 0.2:
-#             allowed_FPs = np.flatnonzero(idx_FP)[0:int(0.2 * len(idx_FP)) + 1]
-#             idx_FP[allowed_FPs] = 0
-#             psi0 = psi[-1, :, ~idx_FP]  # non-fixed point ICs (keeping one)
-#             print('There are {}/{} fixed points'.format(len(np.flatnonzero(idx_FP)), len(idx_FP)))
-#             new_psi0 = rng.multivariate_normal(np.mean(psi0, axis=0), np.cov(psi0.T), len(np.flatnonzero(idx_FP)))
-#             psi0 = np.concatenate([psi0, new_psi0], axis=0)
-#
-#         # Reset ensemble with post-transient ICs
-#         train_ens.update_history(psi=psi0.T, reset=True)
-#
-#         # =========================  Forecast fixed-point-free ensemble ============================== #
-#
-#         Nt = min_train_data
-#         N_corr = int(round(train_ens.t_CR / train_ens.dt))
-#
-#         psi, tt = train_ens.time_integrate(Nt=Nt + N_corr)
-#         train_ens.update_history(psi, tt)
-#         train_ens.close()
-#
-#         # ===============  If data augmentation, correlate observations and estimates ================= #
-#         y_L_model = train_ens.get_observable_hist()
-#
-#         # Equivalent observation signals (raw and post-processed)
-#         y_raw = y_raw[-Nt:].copy()
-#         y_pp = y_pp[-Nt:].copy()
-#         if len(y_raw.shape) < 3:
-#             y_raw = np.expand_dims(y_raw, -1)
-#             y_pp = np.expand_dims(y_pp, -1)
-#
-#         if not augment_data:
-#             train_data_model = y_L_model[-Nt:]
-#         else:
-#             y_pp_corr = y_pp[:N_corr, :, 0]
-#             lags = np.linspace(start=0, stop=N_corr, num=N_corr, dtype=int)
-#             len_augment_set = 2
-#             train_data_model = np.zeros([y_pp.shape[0], y_pp.shape[1], train_ens.m * len_augment_set])
-#
-#             for ii in range(train_ens.m):
-#                 yy = y_L_model[:, :, ii]
-#                 RS = []
-#                 for lag in lags:
-#                     RS.append(CR(y_pp_corr, yy[lag:N_corr + lag] / np.max(yy[lag:N_corr + lag]))[1])
-#                 best_lag = lags[np.argmin(RS)]  # fully correlated
-#                 worst_lag = lags[np.argmax(RS)]  # fully uncorrelated
-#                 mid_lag = int(np.mean([best_lag, worst_lag]))  # mid-correlated
-#                 # Store train data
-#                 train_data_model[:, :, len_augment_set * ii] = yy[best_lag:best_lag + Nt]
-#                 train_data_model[:, :, len_augment_set * ii + 1] = yy[mid_lag:mid_lag + Nt]
-#                 if len_augment_set == 3:
-#                     train_data_model[:, :, len_augment_set * ii + 2] = yy[worst_lag:worst_lag + Nt]
-#
-#         # ================ Create training biases as (observations - model estimates) ================= #
-#         innovations = y_raw - train_data_model
-#         innovations = innovations.transpose((2, 0, 1))  # Force shape to be (L x Nt x N_dim). Note: N_dim = Nq
-#         model_bias = y_pp - train_data_model
-#         model_bias = model_bias.transpose((2, 0, 1))
-#
-#         assert innovations.ndim == 3
-#         assert innovations.shape[1] == Nt
-#         assert innovations.shape[2] == y_L_model.shape[1]
-#
-#         train_data = dict(data=np.concatenate([model_bias, innovations], axis=2))
-#         train_data['observed_idx'] = ensemble.Nq + np.arange(ensemble.Nq)  # only observe innovations
-#
-#         # If the observations are biased, the bias estimator must predict  (1) the difference between the
-#         # raw data and the model, which are the observable quantities; and (2) the difference between the
-#         # post-processed data (i.e. the truth) and the model, which is the actual model bias.
-#
-#         # =============================== Save train_data dict ================================ #
-#         # Save key keywords
-#         train_data['t_train'] = t_train
-#         train_data['t_val'] = t_val
-#
-#         train_data['add_noise'] = add_noise
-#         train_data['augment_data'] = augment_data
-#         train_data['bayesian_update'] = bayesian_update
-#         train_data['biased_observations'] = True
-#         train_data['L'] = L
-#
-#     return train_data
 
 

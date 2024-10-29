@@ -84,7 +84,7 @@ def check_valid_file(load_case, params_dict):
     return True
 
 
-def categorical_cmap(nc, nsc, cmap='Set2', continuous=False):
+def categorical_cmap(nc, nsc, cmap="tab10", continuous=False):
     # number of categories(nc) and the number of subcategories(nsc)
     # and returns a colormap with nc * nsc different colors, where for
     # each category there are nsc colors of same hue.
@@ -103,7 +103,6 @@ def categorical_cmap(nc, nsc, cmap='Set2', continuous=False):
         arhsv[:, 2] = np.linspace(chsv[2], 1, nsc)
         rgb = mpl.colors.hsv_to_rgb(arhsv)
         cols[i * nsc:(i + 1) * nsc, :] = rgb
-    # return matplotlib.colors.ListedColormap(cols)
     return cols
 
 

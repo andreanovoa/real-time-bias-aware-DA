@@ -68,7 +68,7 @@ class Bias:
 
     def print_bias_parameters(self):
         print('\n ---------------- {} bias model parameters --------------- '.format(self.name))
-        for key in sorted(self.keys_to_print):
+        for key in sorted(set(self.keys_to_print)):
             if hasattr(self, key):
                 val = getattr(self, key)
                 if type(val) is float:
@@ -135,10 +135,13 @@ class NoBias(Bias):
 class ESN(Bias, EchoStateNetwork):
     name = 'ESN'
 
-    def __init__(self, y, t, dt, **kwargs):
+    def __init__(self, y, t, dt,
+                 biased_observations=True, **kwargs):
         self.update_reservoir = False
 
-        y = np.concatenate([y, y], axis=0)
+        if biased_observations:
+            y = np.concatenate([y, y], axis=0)
+
 
         # --------------------------  Initialise parent Bias  ------------------------- #
         Bias.__init__(self, b=y, t=t, dt=dt, **kwargs)
@@ -161,11 +164,11 @@ class ESN(Bias, EchoStateNetwork):
         self.reset_state(u=b, r=r)
 
     def update_current_state(self, b, **kwargs):
-        self.hist[-1, self.observed_idx] = b
-        if hasattr(self, 'reset_state'):
-            if 'u' not in kwargs.keys():
-                kwargs['u'] = b
-            self.reset_state(**kwargs)
+        # self.hist[-1, self.observed_idx] = b
+
+        if 'u' not in kwargs.keys():
+            kwargs['u'] = b
+        self.reset_state(**kwargs)
 
     def state_derivative(self):
         u, r = [np.mean(xx, axis=-1, keepdims=True) for xx in self.get_reservoir_state()]
