@@ -28,6 +28,7 @@ class EchoStateNetwork:
     figs_folder = './figs_ESN/'
     filename = 'my_ESN'  # Default ESN file name
     L = 1  # Number of augmented datasets
+    
     N_folds = 4  # Folds over the training set
     N_func_evals = 20  # Total evals of Bayesian hyperparameter optimization (BHO)
     N_grid = 4  # BHO grid N_grid x N_grid \geq N_func_evals
@@ -35,6 +36,7 @@ class EchoStateNetwork:
     N_split = 4  # Splits of training data for faster computation
     N_units = 100  # Number of neurones
     N_wash = 50  # Number of washout steps
+    
     perform_test = True  # Run tests during training?
     seed_W = 0  # Random seed for Win and W definition
     seed_noise = 0  # Random seed for input training data
@@ -273,6 +275,8 @@ class EchoStateNetwork:
         # =========  Format training data into wash-train-val and test sets ========= ##
         U_wtv, Y_tv, U_test, Y_test = self.format_training_data(data=train_data, add_noise=add_noise)
 
+        # print([x.shape for x in [U_wtv, Y_tv, U_test, Y_test]])
+        
         # ======================  Generate matrices W and Win ======================= ##
         self.generate_W_Win(seed=self.seed_W)
 
@@ -373,8 +377,8 @@ class EchoStateNetwork:
                     if pdf is not None:
                         add_pdf_page(pdf, fig, close_figs=True)
 
-            if self.perform_test:
-                print('perform test yes')
+            if self.perform_test and U_test.shape[1] > 5:
+                print('perform test yes', U_test.shape[1])
                 self.run_test(U_test, Y_test, pdf_file=pdf)  # Run test
 
             if pdf is not None:
@@ -385,32 +389,32 @@ class EchoStateNetwork:
         # ====================  Set flags and initialise state ====================== ##
         self.trained = True  # Flag case as trained
 
-    def initialise_state(self, data, N_ens=1, seed=0):
-        if hasattr(self, 'seed'):
-            seed = self.seed
+    # def initialise_state(self, data, N_ens=1, seed=0):
+    #     if hasattr(self, 'seed'):
+    #         seed = self.seed
 
-        rng0 = np.random.default_rng(seed)
-        # initialise state with a random sample from test data
-        u_init, r_init = np.empty((self.N_dim, N_ens)), np.empty((self.N_units, N_ens))
-        # Random time windows and dimension
-        if data.shape[0] == 1:
-            dim_ids = [0] * N_ens
-        else:
-            if N_ens > data.shape[0]:
-                replace = False
-            else:
-                replace = True
-            dim_ids = rng0.choice(data.shape[0], size=N_ens, replace=replace)
+    #     rng0 = np.random.default_rng(seed)
+    #     # initialise state with a random sample from test data
+    #     u_init, r_init = np.empty((self.N_dim, N_ens)), np.empty((self.N_units, N_ens))
+    #     # Random time windows and dimension
+    #     if data.shape[0] == 1:
+    #         dim_ids = [0] * N_ens
+    #     else:
+    #         if N_ens > data.shape[0]:
+    #             replace = False
+    #         else:
+    #             replace = True
+    #         dim_ids = rng0.choice(data.shape[0], size=N_ens, replace=replace)
 
-        t_ids = rng0.choice(data.shape[1] - self.N_wash, size=N_ens, replace=False)
+    #     t_ids = rng0.choice(data.shape[1] - self.N_wash, size=N_ens, replace=False)
 
-        # Open loop for each ensemble member
-        for ii, ti, dim_i in zip(range(N_ens), t_ids, dim_ids):
-            self.reset_state(u=np.zeros((self.N_dim, 1)), r=np.zeros((self.N_units, 1)))
-            u_open, r_open = self.openLoop(data[dim_i, ti: ti + self.N_wash], force_reconstruct=False)
-            u_init[:, ii], r_init[:, ii] = u_open[-1], r_open[-1]
-        # Set physical and reservoir states as ensembles
-        self.reset_state(u=u_init, r=r_init)
+    #     # Open loop for each ensemble member
+    #     for ii, ti, dim_i in zip(range(N_ens), t_ids, dim_ids):
+    #         self.reset_state(u=np.zeros((self.N_dim, 1)), r=np.zeros((self.N_units, 1)))
+    #         u_open, r_open = self.openLoop(data[dim_i, ti: ti + self.N_wash], force_reconstruct=False)
+    #         u_init[:, ii], r_init[:, ii] = u_open[-1], r_open[-1]
+    #     # Set physical and reservoir states as ensembles
+    #     self.reset_state(u=u_init, r=r_init)
 
     def generate_W_Win(self, seed=1):
         rnd0 = np.random.default_rng(seed)
@@ -440,7 +444,8 @@ class EchoStateNetwork:
         LHS, RHS = 0., 0.
         R_RR = [np.empty([0, self.N_units])] * U_wtv.shape[0]
         U_RR = [np.empty([0, self.N_dim])] * U_wtv.shape[0]
-        self.reset_state(u=self.u * 0, r=self.r * 0)
+
+        self.reset_state(u=np.zeros((self.N_dim, 1)), r=np.zeros((self.N_units, 1)))
 
         for ll in range(U_wtv.shape[0]):
             # Washout phase. Store the last r value only
@@ -500,6 +505,7 @@ class EchoStateNetwork:
         if data.ndim == 2:
             data = np.expand_dims(data, axis=0)
 
+        
         # Set labels always as the full state
         Y = data[:, ::self.upsample].copy()
 
@@ -515,6 +521,8 @@ class EchoStateNetwork:
 
         #   SEPARATE INTO WASH/TRAIN/VAL/TEST SETS _______________
         N_wtv = self.N_train + self.N_val
+
+        
 
         if U.shape[1] < N_wtv:
             print(U.shape, N_wtv)
@@ -679,16 +687,17 @@ class EchoStateNetwork:
         total_tests = min(max_tests, L)
         if max_tests != L:
             L_indices = rng0.choice(L, total_tests, replace=total_tests > L)
+            L_indices = sorted(L_indices)
         else:
             L_indices = np.arange(L)
 
         if Nq > 10:
-            nrows = 10
-            dims = rng0.choice(Nq, 10, replace=False)
+            nrows, dims = 10, rng0.choice(Nq, 10, replace=False)
         else:
-            nrows = Nq
-            dims = np.arange(Nq)
-            
+            nrows, dims = Nq, np.arange(Nq)
+            if Nq == 1:
+                dims = [dims]
+
 
         # Time window of each test
         N_test = self.N_val
@@ -696,7 +705,7 @@ class EchoStateNetwork:
         # Random initial time
         if max_test_time >= self.N_val:
             # initial_times = np.random.random_integers(low=0, high=max_test_time - N_test, size=total_tests)
-            initial_times = rng0.choice(max_test_time - N_test, size=total_tests, replace=False)
+            initial_times = rng0.choice(max_test_time - N_test, size=total_tests, replace=True)
         else:
             initial_times = [0] * total_tests
             N_test = max_test_time
@@ -730,16 +739,17 @@ class EchoStateNetwork:
                 errors.append(err)
 
                 # plot test
-                fig, axs = plt.subplots(nrows=nrows, ncols=1, figsize=[8, len(dims)], sharex='all', layout='tight')
+                fig, axs = plt.subplots(nrows=nrows, ncols=1, figsize=[8, 1.5*len(dims)], sharex='all', layout='tight')
                 if Nq == 1:
                     axs = [axs]
-                    Y_labels = np.array([Y_labels])
-                    Y_closed = np.array([Y_closed])
+                    Y_labels = np.array([Y_labels]).T
+                    Y_closed = np.array([Y_closed]).T
+
                 t_ = np.arange(len(Y_closed)) * self.dt_ESN
 
                 for dim_i, ax in zip(dims, axs):
-                    ax.plot(t_, Y_labels[:, dim_i], 'k', label='truth dim ' + str(dim_i))
-                    ax.plot(t_, Y_closed[:, dim_i], '--r', label='ESN dim ' + str(dim_i))
+                    ax.plot(t_, Y_labels[:, dim_i], 'k', label=f'truth dim {dim_i}')
+                    ax.plot(t_, Y_closed[:, dim_i], '--r', label=f'ESN dim {dim_i}')
                     ax.legend(title='Test {}: Li = {}'.format(test_i, Li), loc='upper left', bbox_to_anchor=(1, 1), fontsize='x-small')
 
                 # Save to pdf
