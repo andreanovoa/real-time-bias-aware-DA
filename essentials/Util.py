@@ -125,43 +125,85 @@ def set_working_directories(subfolder='', current_dir=None, change_working_dir=F
 
     return data_folder, results_folder, figs_folder
 
-
-def colour_noise(Nt, noise_colour='pink', beta=2):
+def colour_noise(dims, noise_colour='pink', beta=2, ff=None):
     """
-    Generates a spectral filter for colored noise.
+    Generates a 1D spectral filter for colored noise.
 
-    Args
-    Nt (int): Number of time steps or spatial points.
-    noise_colour (str): Type of noise ('white', 'pink', 'brown', 'blue', 'violet').
-        - 'white'   -> Flat power spectrum (uncorrelated).
-        - 'pink'    -> 1/f noise (long-range correlation).
-        - 'brown'   -> 1/f^2 noise (strong low-frequency correlation).
-        - 'blue'    -> Increases with frequency (anti-correlated noise).
-        - 'violet'  -> Stronger high-frequency noise.
-    beta : float, optional, default=2
-        Controls the decay of the power spectrum (used in pink noise).
+    Args:
+        dims (int or list): Number of time steps or spatial points.
+        noise_colour (str): Type of noise ('white', 'pink', 'brown', 'blue', 'violet').
+            - 'white'   -> Flat power spectrum (uncorrelated).
+            - 'pink'    -> 1/f noise (long-range correlation).
+            - 'brown'   -> 1/f^2 noise (strong low-frequency correlation).
+            - 'blue'    -> Increases with frequency (anti-correlated noise).
+            - 'violet'  -> Stronger high-frequency noise.
+        beta (float, optional): Controls the decay of the power spectrum (used in pink noise).
 
-    Returns
-        The noise filter in Fourier space.
+    Returns:
+        np.ndarray: 1D array of length Nt//2+1 (for rfft) with the noise filter in Fourier space.
     """
-    ff = np.fft.rfftfreq(Nt)
-    if 'white' in noise_colour.lower():
-        return np.ones(ff.shape)
-    elif 'blue' in noise_colour.lower():
-        return np.sqrt(ff)
-    elif 'violet' in noise_colour.lower():
-        return ff
-    elif 'pink' in noise_colour.lower():
-        number_ids = [int(xx) for xx in noise_colour if xx.isdigit()]
-        if any(number_ids):
-            from re import findall
-            beta = float(findall(r'\d+\.*\d*', noise_colour)[0])
-        return 1 / np.where(ff == 0., float('inf'), ff ** (1 / beta))
-    elif 'brown' in noise_colour.lower():
-        return 1 / np.where(ff == 0., float('inf'), ff)
+    
+
+    # Frequency arrays for each dimension
+    if isinstance(dims, int):
+        ff_dims = np.fft.rfftfreq(dims)
     else:
-        raise ValueError('{} noise type not defined'.format(noise_colour))
+        ff_dims = [np.fft.fftfreq(Nt) for Nt in dims[:-1]] + [np.fft.rfftfreq(dims[-1])]
 
+
+    def create_spectrum(freqs, noise_type):
+        """Create 1D spectrum for a single dimension."""
+        spectrum = np.ones_like(freqs, dtype=np.float32)
+        noise_type = noise_type.lower()
+
+
+        # Handle DC component first
+        mask = (freqs == 0)
+        ff = np.fft.rfftfreq(Nt)
+
+        if 'white' in noise_type:
+            spectrum[:] = 1.0
+        elif 'blue' in noise_type:
+            spectrum = np.sqrt(np.abs(freqs))
+        elif 'violet' in noise_type:
+            spectrum = np.abs(freqs)
+        elif 'pink' in noise_type:
+            numbers = re.findall(r'\d+\.*\d*', noise_type)
+            beta_used = float(numbers[0]) if numbers else beta
+            spectrum = 1 / np.where(mask, np.inf, np.abs(freqs) ** (1/beta_used))
+        elif 'brown' in noise_type:
+            spectrum = 1 / np.where(mask, np.inf, np.abs(freqs))
+        else:
+            raise ValueError(f"Unknown noise type: {noise_type}")
+
+
+        # Zero DC component and normalize
+        spectrum[mask] = 0
+        if np.any(spectrum[~mask]):
+            spectrum /= np.sqrt(np.mean(spectrum[~mask]**2))
+        return spectrum
+
+    # Reshape each frequency array to match the dimensions
+    # and combine them into a single array
+    S_dims = []
+
+    for ii, ff in enumerate(ff_dims):
+        S = create_spectrum(ff, noise_colour)
+        shape = [1] * len(ff_dims)
+        shape[ii] = -1  # -1 preserves original size
+        S_dims.append(S.reshape(shape))
+
+    S = S_dims[0]
+    if len(S_dims) > 1:
+        for spec in S_dims[1:]:
+            S = S * spec
+        
+    
+    return S
+
+
+
+    
 
 def check_valid_file(load_case, params_dict):
     # check that true and forecast model input_parameters
