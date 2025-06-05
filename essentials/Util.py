@@ -2,7 +2,7 @@
 """
 Created on Wed May 11 09:45:48 2022
 
-@author: an553
+@author: Andrea Nóvoa @andrea_novoa
 """
 import os
 import numpy as np
@@ -11,14 +11,88 @@ from functools import lru_cache
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import scipy.io as sio
+import scipy.ndimage as ndimage
 
 from scipy.interpolate import interp1d
 from scipy.signal import find_peaks
+import matplotlib.backends.backend_pdf as plt_pdf
+import re
+
+import glob
+import contextlib
+from PIL import Image
 
 rng = np.random.default_rng(6)
 
 
-def set_working_directories(subfolder='', change_working_dir=False):
+
+def add_noise_to_flow(U, V, noise_level=0.05, noise_type="gauss", spatial_smooth=0):
+    """
+    Adds noise to a 3D velocity field (Nt x Nx x Ny).
+
+    Args
+        U, V : numpy.ndarray
+            3D arrays representing the velocity components (Nt x Nx x Ny).
+        
+        noise_level : float, optional, default=0.05
+            The standard deviation of the noise as a fraction of the maximum absolute velocity.
+        
+        noise_type : str, optional, default="gauss"
+            The type of noise to apply:
+            - 'gauss': Gaussian (white) noise.
+            - 'pink', 'brown', 'blue', 'violet': Colored noise.
+
+        spatial_smooth : float, optional, default=0
+            Standard deviation for Gaussian smoothing (0 means no smoothing).
+
+    Returns
+        U_noisy, V_noisy : numpy.ndarray
+            Noisy velocity fields with the same shape as U and V.
+    """
+    rng = np.random.default_rng()  # Random generator
+
+    U = U.copy()
+    V = V.copy()
+    
+    U[np.isnan(U) | np.isinf(U)] = 0  # Replace NaN/Inf values
+    V[np.isnan(V) | np.isinf(V)] = 0  # Replace NaN/Inf values
+
+    # Compute noise amplitude
+    max_vel = max(np.max(np.abs(U)), np.max(np.abs(V)))
+    noise_amp = noise_level * max_vel
+
+    def generate_noise(shape, noise_type):
+        """Generates 3D noise (Nt x Nx x Ny)."""
+        # Nt, Nx, Ny = shape
+        if noise_type == "gauss":
+            return rng.normal(scale=noise_amp, size=shape)
+        else:
+            noise_white = np.fft.rfftn(rng.standard_normal(shape)) * noise_amp
+            S = colour_noise(shape, noise_colour=noise_type)
+            noise_colored = noise_white * S
+            return np.fft.irfftn(noise_colored, s=shape).real
+
+
+    # Generate noise
+    noise_U = generate_noise(U.shape, noise_type)
+    noise_V = generate_noise(V.shape, noise_type)
+
+    # Apply optional spatial smoothing
+    if spatial_smooth > 0:
+        sigma = (0, spatial_smooth, spatial_smooth)
+        noise_U = ndimage.gaussian_filter(noise_U, sigma=sigma)
+        noise_V = ndimage.gaussian_filter(noise_V, sigma=sigma)
+
+    # Add noise to velocity field
+    
+    U_noisy = U + noise_U
+    V_noisy = V + noise_V
+
+    return U_noisy, V_noisy
+
+
+
+def set_working_directories(subfolder='', current_dir=None, change_working_dir=False):
     if len(subfolder) > 0 and subfolder[-1] != '/':
         subfolder += '/'
     
@@ -28,8 +102,13 @@ def set_working_directories(subfolder='', change_working_dir=False):
         figs_folder = working_dir + '/figs/' + subfolder
         data_folder = working_dir + '/data/' + subfolder
     else:
-        results_folder = os.getcwd() + '/results/' + subfolder
-        figs_folder = os.getcwd() + '/figs/' + subfolder
+        if current_dir is None:
+            current_dir = os.getcwd()
+        elif '..' in current_dir:
+            current_dir = '/'.join(os.getcwd().split('/')[:-1])
+
+        results_folder = current_dir + '/results/' + subfolder
+        figs_folder = current_dir + '/figs/' + subfolder
         if os.path.isdir('/Users/andreanovoa'):
             working_dir = '/Users/andreanovoa'
         elif os.path.isdir('/home/eidf079/eidf079/anovoa-ai4nz'):
@@ -46,29 +125,88 @@ def set_working_directories(subfolder='', change_working_dir=False):
 
     return data_folder, results_folder, figs_folder
 
+def colour_noise(dims, noise_colour='pink', beta=2, ff=None):
+    """
+    Generates a 1D spectral filter for colored noise.
 
-def colour_noise(Nt, noise_colour='pink', beta=2):
-    ff = np.fft.rfftfreq(Nt)
-    if 'white' in noise_colour.lower():
-        return np.ones(ff.shape)
-    elif 'blue' in noise_colour.lower():
-        return np.sqrt(ff)
-    elif 'violet' in noise_colour.lower():
-        return ff
-    elif 'pink' in noise_colour.lower():
-        number_ids = [int(xx) for xx in noise_colour if xx.isdigit()]
-        if any(number_ids):
-            from re import findall
-            beta = float(findall(r'\d+\.*\d*', noise_colour)[0])
-        return 1 / np.where(ff == 0., float('inf'), ff ** (1 / beta))
-    elif 'brown' in noise_colour.lower():
-        return 1 / np.where(ff == 0., float('inf'), ff)
+    Args:
+        dims (int or list): Number of time steps or spatial points.
+        noise_colour (str): Type of noise ('white', 'pink', 'brown', 'blue', 'violet').
+            - 'white'   -> Flat power spectrum (uncorrelated).
+            - 'pink'    -> 1/f noise (long-range correlation).
+            - 'brown'   -> 1/f^2 noise (strong low-frequency correlation).
+            - 'blue'    -> Increases with frequency (anti-correlated noise).
+            - 'violet'  -> Stronger high-frequency noise.
+        beta (float, optional): Controls the decay of the power spectrum (used in pink noise).
+
+    Returns:
+        np.ndarray: 1D array of length Nt//2+1 (for rfft) with the noise filter in Fourier space.
+    """
+    
+
+    # Frequency arrays for each dimension
+    if isinstance(dims, int):
+        ff_dims = [np.fft.rfftfreq(dims)]
     else:
-        raise ValueError('{} noise type not defined'.format(noise_colour))
+        ff_dims = [np.fft.fftfreq(Nt) for Nt in dims[:-1]] + [np.fft.rfftfreq(dims[-1])]
 
+
+    def create_spectrum(freqs, noise_type):
+        """Create 1D spectrum for a single dimension."""
+        spectrum = np.ones_like(freqs, dtype=np.float32)
+        noise_type = noise_type.lower()
+
+        # Handle DC component first
+        # find the zero frequency components into a mask
+    
+        mask = (freqs == 0) # tthuis should return a boolean array where True indicates the zero frequency component
+
+        if 'white' in noise_type:
+            spectrum[:] = 1.0
+        elif 'blue' in noise_type:
+            spectrum = np.sqrt(np.abs(freqs))
+        elif 'violet' in noise_type:
+            spectrum = np.abs(freqs)
+        elif 'pink' in noise_type:
+            numbers = re.findall(r'\d+\.*\d*', noise_type)
+            beta_used = float(numbers[0]) if numbers else beta
+            spectrum = 1 / np.where(mask, np.inf, np.abs(freqs) ** (1/beta_used))
+        elif 'brown' in noise_type:
+            spectrum = 1 / np.where(mask, np.inf, np.abs(freqs))
+        else:
+            raise ValueError(f"Unknown noise type: {noise_type}")
+
+
+        # Zero DC component and normalize
+        spectrum[mask] = 0.
+        if np.any(spectrum[~mask]):
+            spectrum /= np.sqrt(np.mean(spectrum[~mask]**2))
+        return spectrum
+
+    # Reshape each frequency array to match the dimensions
+    # and combine them into a single array
+    S_dims = []
+
+    for ii, ff in enumerate(ff_dims):
+        S = create_spectrum(ff, noise_colour)
+        shape = [1] * len(ff_dims)
+        shape[ii] = -1  # -1 preserves original size
+        S_dims.append(S.reshape(shape))
+
+    S = S_dims[0]
+    if len(S_dims) > 1:
+        for spec in S_dims[1:]:
+            S = S * spec
+        
+    
+    return S
+
+
+
+    
 
 def check_valid_file(load_case, params_dict):
-    # check that true and forecast model parameters
+    # check that true and forecast model input_parameters
     print('Test if loaded file is valid', end='')
     for key, val in params_dict.items():
         if hasattr(load_case, key):
@@ -107,7 +245,7 @@ def categorical_cmap(nc, nsc, cmap="tab10", continuous=False):
 
 
 @lru_cache(maxsize=10)
-def Cheb(Nc, lims=(0, 1), getg=False):  # __________________________________________________
+def Cheb(Nc, lims=(0, 1), getg=False):
     """ Compute the Chebyshev collocation derivative matrix (D)
         and the Chevyshev grid of (N + 1) points in [ [0,1] ] / [-1,1]
     """
@@ -193,10 +331,55 @@ def save_to_mat_file(filename, data: dict, oned_as='column', do_compression=True
     os.makedirs(os.path.dirname(filename), exist_ok=True)
     sio.savemat(filename, data, oned_as=oned_as, do_compression=do_compression)
 
+def save_figs_to_pdf(pdf_name, figs=None):
+
+    pdf_file = plt_pdf.PdfPages(pdf_name)
+    if figs is None:
+        figs = [plt.figure(ii) for ii in plt.get_fignums()]
+    elif not isinstance(figs, list):
+        figs = [figs]
+
+    for fig in figs:
+        pdf_file.savefig(fig, dpi=300)  # Save figure to PDF
+        plt.close(fig)
+
+    pdf_file.close()  # Close results pdf
+
+
 def add_pdf_page(pdf, fig_to_add, close_figs=True):
     pdf.savefig(fig_to_add)
     if close_figs:
         plt.close(fig_to_add)
+
+
+
+def folder_to_gif(folder, img_type='.png', gif_name='movie.gif'):
+    """
+    Convert all the images inside a folder into a gif. 
+    
+    """
+    if img_type[0] != '.':
+        img_type = f'.{img_type}'
+    
+    fp_in = folder + f'*{img_type}'
+    fp_out = folder + gif_name
+    
+    # use exit stack to automatically close opened images
+    with contextlib.ExitStack() as stack:
+    
+        # lazily load images
+        imgs = (stack.enter_context(Image.open(f)) for f in sorted(glob.glob(fp_in)))
+    
+        # extract  first image from iterator
+        img = next(imgs)
+    
+        # https://pillow.readthedocs.io/en/stable/handbook/image-file-formats.html#gif
+        img.save(fp=fp_out, 
+                 format='GIF', 
+                 append_images=imgs,
+                 save_all=True, 
+                 duration=200, 
+                 loop=0)
 
 
 def fun_PSD(dt, X):
@@ -405,7 +588,5 @@ def get_error_metrics(results_folder):
                 out['error_unbiased'][ii, jj, a, :] = np.mean(abs(b_obs_u[ei:ei + N_CR]), axis=0) / scale
 
             save_to_pickle_file(results_folder + 'CR_data', out)
-
-
 
 

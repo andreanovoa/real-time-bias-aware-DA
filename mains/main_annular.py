@@ -2,10 +2,10 @@ from default_parameters.lorenz63 import bias_params
 from essentials.DA import *
 from essentials.create import *
 from essentials.bias_models import ESN
-from plotting_annular_results import *
+from essentials.models_physical import Annular
+from dev.plotting_annular_results import *
 
-# This code does not run without the Azimuthal data.
-# Please contact @andreanovoa for access this data.
+# This code does not run without the Azimuthal data. Contact @andreanovoa for access this data.
 
 name = 'simulation_output_all_new'
 ERs = 0.4875 + np.arange(0, 4) * 0.025
@@ -96,10 +96,8 @@ if __name__ == '__main__':
 
             truth = truth_og.copy()
 
-            if not hasattr(bias_og, 'N_wash'):
-                raise ValueError('????')
-
             out = []
+
 
             for rho in [1.0, 1.001]:
                 results_dir = parent_dir + f'm{m}/rho{rho}{suffix}/'
@@ -147,7 +145,7 @@ if __name__ == '__main__':
                         filter_ens.close()
 
                         out.append(filter_ens.copy())
-                        raise
+
                 save_to_pickle_file(results_dir + name, truth, out, bias_og.copy(), ensemble.copy())
 
             # run_plotting_annular_results(m=m, rho=rho, suffix=suffix)
