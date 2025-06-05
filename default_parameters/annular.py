@@ -1,5 +1,5 @@
 from essentials.create import *
-from essentials.physical_models import *
+from essentials.models_physical import *
 from essentials.Util import *
 from essentials.bias_models import *
 from essentials.plotResults import *

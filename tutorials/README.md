@@ -1,8 +1,3 @@
-# Intro to data assimilation (DA)  
-This folder includes a collection of interactive (Jupyter notebook) tutorials to ease the introduction to this repository.
-
-
-***
 ## Getting started
 
 From the terminal:
@@ -31,38 +26,65 @@ ipython kernel install --user --name=<da-env>
 
 
 
-****
-*The tutorials are brand new - please don't hesitate to submit issues or pull requests!*
-
 ***
-## Where to start?
-Each tutorial file name includes a two-digit code, which indicates the category.
+***
+
+## Structure of the tutorials
+Each tutorial file name starts with a two-digit code, which indicates the category. 
+If the tutorial is not checked is because it is under development. Keep tuned!
 
 ### Repo-specific tutorials [0x]
 - [x] 00 - Class Model
+- [ ] 01 - Class Bias
+- [x] 02 - POD with Modulo
 - [x] 03 - Create truth
-
-[//]: # (- [ ] 01 - Class Bias)
-[//]: # (- [ ] 01 - Create Ensemble)
 
 
 ### Data Assimilation tutorials [1x]
-* Bias-unaware DA
-  1) [x] 10 - Introduction to DA and twin experiment on the Van der Pol model
-  2) [x] 11 - Twin experiment on the Lorenz63
-  
-* Bias-unaware DA
-  1) [x] 12 - Bias-aware DA twin experiment on Van der Pol model
-  2) [x] 13 - Bias-aware DA twin experiment on Rijke tube model
- 
-### Data Assimilation on longitudinal thermoacoustics [2x]
 
-* [x] 20 - Low order model of longitudinal thermoacoustics: Rijke tube model, Galerkin method
-* [ ] 21 - Higher order model: Rijke tube model, wave equation with G-equation
+* [x] 10 - Introduction to real-time DA from a Bayesian perspective. State estimation only.
+* [x] 11 - Introduction to combined state and parameter estimation via augmented formulaiton.
+* [x] 12 - Twin experiment on the Lorenz63
+* [x] 13 - Introduction to bias-aware DA with a twin experiment on Van der Pol model  
 
  
-### Data Assimilation on azimuthal thermoacosustics [3x]
+### Data Assimilation on thermoacoustics [2x]
 
-* [x] 30 - Low order model of azimuthal thermoacoustics
-* [x] 31 - Experimental data visualization 
-* [x] 32 - Real time digital twin of raw experimental data
+* Longitudinal thermoacoustics ([Nóvoa et al. 2023](https://doi.org/10.1016/j.cma.2023.116502))
+    * [x] 20 - Low order model of longitudinal thermoacoustics: Rijke tube model, Galerkin method
+    * [x] 21 - DA twin experiment on the Rijke tube. 
+    * [x] 22 - Bias-aware DA twin experiment on Rijke tube model with added bias.
+
+* Azimuthal thermoacoustics  ([Nóvoa et al. 2024](https://doi.org/10.1017/jfm.2024.1052))
+    * [x] 22 - Low order model of azimuthal thermoacoustics
+    * [x] 23 - Experimental data visualization 
+    * [x] 24 - Real-time digital twin of raw experimental data
+    * [ ] 25 - Generalizability of the real-time digital twin 
+
+
+### Echo state networks as data driven models [3x]
+* [x] 30 - Class EchoStateNetwork
+* [x] 31 - Class ESN_model 
+* [x] 32 - Class POD-ESN 
+ 
+###  Data Assimilation on echo state networks [4x]
+* [ ] 40 - ESN-DA on Lorenz63
+* [ ] 41 - POD-ESN-DA on cylinder flow
+* [ ] 42 - POD-ESN-DA on turbulent wake
+
+****
+*Please don't hesitate to submit issues or pull requests!*
+
+
+
+
+
+
+
+
+
+
+
+
+
+

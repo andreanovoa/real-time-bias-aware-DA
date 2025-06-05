@@ -2,7 +2,7 @@
 """
 Created on Wed May 11 09:45:48 2022
 
-@author: an553
+@author: Andrea Nóvoa @andrea_novoa
 """
 import os
 import numpy as np
@@ -11,14 +11,88 @@ from functools import lru_cache
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import scipy.io as sio
+import scipy.ndimage as ndimage
 
 from scipy.interpolate import interp1d
 from scipy.signal import find_peaks
+import matplotlib.backends.backend_pdf as plt_pdf
+
+import glob
+import contextlib
+from PIL import Image
 
 rng = np.random.default_rng(6)
 
 
-def set_working_directories(subfolder='', change_working_dir=False):
+def add_noise_to_flow(U, V, noise_level=0.05, noise_type="gauss", spatial_smooth=0):
+    """
+    Adds noise to a 3D velocity field (Nt x Nx x Ny).
+
+    Args
+        U, V : numpy.ndarray
+            3D arrays representing the velocity components (Nt x Nx x Ny).
+        
+        noise_level : float, optional, default=0.05
+            The standard deviation of the noise as a fraction of the maximum absolute velocity.
+        
+        noise_type : str, optional, default="gauss"
+            The type of noise to apply:
+            - 'gauss': Gaussian (white) noise.
+            - 'pink', 'brown', 'blue', 'violet': Colored noise.
+
+        spatial_smooth : float, optional, default=0
+            Standard deviation for Gaussian smoothing (0 means no smoothing).
+
+    Returns
+        U_noisy, V_noisy : numpy.ndarray
+            Noisy velocity fields with the same shape as U and V.
+    """
+    rng = np.random.default_rng()  # Random generator
+
+    # Compute noise amplitude
+    max_vel = max(np.max(np.abs(U)), np.max(np.abs(V)))
+    noise_amp = noise_level * max_vel
+
+    def generate_noise(shape, noise_type):
+        """Generates 3D noise (Nt x Nx x Ny)."""
+        Nt, Nx, Ny = shape
+        if noise_type == "gauss":
+            return rng.normal(scale=noise_amp, size=shape)
+        else:
+            noise_white = np.fft.rfftn(rng.standard_normal(shape) * noise_amp)
+
+            # Generate color filters
+            S_time = colour_noise(Nt, noise_colour=noise_type)[:, None, None]
+            S_x = colour_noise(Nx, noise_colour=noise_type)[None, :, None]
+            S_y = colour_noise(Ny, noise_colour=noise_type)[None, None, :]
+
+            S = S_time * S_x * S_y
+            S[np.isnan(S) | np.isinf(S)] = 0  # Replace NaN/Inf values
+
+            power = np.mean(S ** 2)
+            if power > 0:
+                S /= np.sqrt(power)  # Normalize power
+
+            return np.fft.irfftn(noise_white * S).real  # Transform back to space
+
+    # Generate noise
+    noise_U = generate_noise(U.shape, noise_type)
+    noise_V = generate_noise(V.shape, noise_type)
+
+    # Apply optional spatial smoothing
+    if spatial_smooth > 0:
+        noise_U = ndimage.gaussian_filter(noise_U, sigma=(0, spatial_smooth, spatial_smooth))
+        noise_V = ndimage.gaussian_filter(noise_V, sigma=(0, spatial_smooth, spatial_smooth))
+
+    # Add noise to velocity field
+    U_noisy = U + noise_U
+    V_noisy = V + noise_V
+
+    return U_noisy, V_noisy
+
+
+
+def set_working_directories(subfolder='', current_dir=None, change_working_dir=False):
     if len(subfolder) > 0 and subfolder[-1] != '/':
         subfolder += '/'
     
@@ -28,8 +102,13 @@ def set_working_directories(subfolder='', change_working_dir=False):
         figs_folder = working_dir + '/figs/' + subfolder
         data_folder = working_dir + '/data/' + subfolder
     else:
-        results_folder = os.getcwd() + '/results/' + subfolder
-        figs_folder = os.getcwd() + '/figs/' + subfolder
+        if current_dir is None:
+            current_dir = os.getcwd()
+        elif '..' in current_dir:
+            current_dir = '/'.join(os.getcwd().split('/')[:-1])
+
+        results_folder = current_dir + '/results/' + subfolder
+        figs_folder = current_dir + '/figs/' + subfolder
         if os.path.isdir('/Users/andreanovoa'):
             working_dir = '/Users/andreanovoa'
         elif os.path.isdir('/home/eidf079/eidf079/anovoa-ai4nz'):
@@ -48,6 +127,23 @@ def set_working_directories(subfolder='', change_working_dir=False):
 
 
 def colour_noise(Nt, noise_colour='pink', beta=2):
+    """
+    Generates a spectral filter for colored noise.
+
+    Args
+    Nt (int): Number of time steps or spatial points.
+    noise_colour (str): Type of noise ('white', 'pink', 'brown', 'blue', 'violet').
+        - 'white'   -> Flat power spectrum (uncorrelated).
+        - 'pink'    -> 1/f noise (long-range correlation).
+        - 'brown'   -> 1/f^2 noise (strong low-frequency correlation).
+        - 'blue'    -> Increases with frequency (anti-correlated noise).
+        - 'violet'  -> Stronger high-frequency noise.
+    beta : float, optional, default=2
+        Controls the decay of the power spectrum (used in pink noise).
+
+    Returns
+        The noise filter in Fourier space.
+    """
     ff = np.fft.rfftfreq(Nt)
     if 'white' in noise_colour.lower():
         return np.ones(ff.shape)
@@ -68,7 +164,7 @@ def colour_noise(Nt, noise_colour='pink', beta=2):
 
 
 def check_valid_file(load_case, params_dict):
-    # check that true and forecast model parameters
+    # check that true and forecast model input_parameters
     print('Test if loaded file is valid', end='')
     for key, val in params_dict.items():
         if hasattr(load_case, key):
@@ -107,7 +203,7 @@ def categorical_cmap(nc, nsc, cmap="tab10", continuous=False):
 
 
 @lru_cache(maxsize=10)
-def Cheb(Nc, lims=(0, 1), getg=False):  # __________________________________________________
+def Cheb(Nc, lims=(0, 1), getg=False):
     """ Compute the Chebyshev collocation derivative matrix (D)
         and the Chevyshev grid of (N + 1) points in [ [0,1] ] / [-1,1]
     """
@@ -193,10 +289,55 @@ def save_to_mat_file(filename, data: dict, oned_as='column', do_compression=True
     os.makedirs(os.path.dirname(filename), exist_ok=True)
     sio.savemat(filename, data, oned_as=oned_as, do_compression=do_compression)
 
+def save_figs_to_pdf(pdf_name, figs=None):
+
+    pdf_file = plt_pdf.PdfPages(pdf_name)
+    if figs is None:
+        figs = [plt.figure(ii) for ii in plt.get_fignums()]
+    elif not isinstance(figs, list):
+        figs = [figs]
+
+    for fig in figs:
+        pdf_file.savefig(fig, dpi=300)  # Save figure to PDF
+        plt.close(fig)
+
+    pdf_file.close()  # Close results pdf
+
+
 def add_pdf_page(pdf, fig_to_add, close_figs=True):
     pdf.savefig(fig_to_add)
     if close_figs:
         plt.close(fig_to_add)
+
+
+
+def folder_to_gif(folder, img_type='.png', gif_name='movie.gif'):
+    """
+    Convert all the images inside a folder into a gif. 
+    
+    """
+    if img_type[0] != '.':
+        img_type = f'.{img_type}'
+    
+    fp_in = folder + f'*{img_type}'
+    fp_out = folder + gif_name
+    
+    # use exit stack to automatically close opened images
+    with contextlib.ExitStack() as stack:
+    
+        # lazily load images
+        imgs = (stack.enter_context(Image.open(f)) for f in sorted(glob.glob(fp_in)))
+    
+        # extract  first image from iterator
+        img = next(imgs)
+    
+        # https://pillow.readthedocs.io/en/stable/handbook/image-file-formats.html#gif
+        img.save(fp=fp_out, 
+                 format='GIF', 
+                 append_images=imgs,
+                 save_all=True, 
+                 duration=200, 
+                 loop=0)
 
 
 def fun_PSD(dt, X):

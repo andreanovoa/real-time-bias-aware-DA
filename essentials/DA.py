@@ -15,7 +15,7 @@ rng = np.random.default_rng(6)
 def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, Nt_extra=None, **kwargs):
 
     y_obs = y_obs.copy()
-    # Print simulation parameters ##
+    # Print simulation input_parameters ##
     ensemble.print_model_parameters()
     ensemble.bias.print_bias_parameters()
     print_DA_parameters(ensemble, t_obs)
@@ -95,6 +95,72 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, Nt_extra=None, **kwarg
     return ensemble
 
 
+
+
+
+
+def dataAssimilation_bias_blind(ensemble, y_obs, t_obs, std_obs=0.2, Nt_extra=None, **kwargs):
+
+    y_obs = y_obs.copy()
+    ensemble.bias = None
+
+    # Print simulation input_parameters ##
+    ensemble.print_model_parameters()
+    print_DA_parameters(ensemble, t_obs)
+
+    # FORECAST UNTIL FIRST OBS ##
+    time1 = time.time()
+    Nt = int(np.round((t_obs[0] - ensemble.get_current_time) / ensemble.dt))
+
+    ensemble.number_of_analysis_steps = len(t_obs)
+    ensemble = forecastStep(ensemble, Nt, **kwargs)
+
+
+    print('Elapsed time to first observation: ' + str(time.time() - time1) + ' s')
+
+    #  ASSIMILATION LOOP ##
+    ti, ensemble.activate_parameter_estimation = 0, False
+    time1 = time.time()
+    print_i = int(len(t_obs) / 10) * np.array([range(10)])
+
+    # Define observation covariance matrix
+    Cdd = np.diag((std_obs * np.ones(ensemble.Nq))) * np.max(abs(y_obs), axis=0) ** 2
+
+    print('Assimilation progress: \n\t0 % ', end="")
+    while True:
+        ensemble.activate_parameter_estimation = ti >= ensemble.num_SE_only
+
+        # ------------------------------  PERFORM ASSIMILATION ------------------------------ #
+        Aa = analysisStep(ensemble, y_obs[ti], Cdd)  # Analysis step
+
+        # -------------------------  UPDATE STATE AND PARAMETER ESTIMATES------------------------- #
+        ensemble.update_history(Aa[:-ensemble.Nq, :], 
+                                update_last_state=True)
+
+        # ------------------------------ FORECAST TO NEXT OBSERVATION ---------------------- #
+        ti += 1
+        if ti >= len(t_obs):
+            print('100% ----------------\n')
+            break
+        elif ti in print_i:
+            print(int(np.round(ti / len(t_obs) * 100, decimals=0)), end="% ")
+
+        Nt = int(np.round((t_obs[ti] - ensemble.get_current_time) / ensemble.dt))
+        # Parallel forecast
+        ensemble = forecastStep(ensemble, Nt)
+        
+        
+    if Nt_extra is not None:
+        ensemble = forecastStep(ensemble, Nt=Nt_extra)
+
+    
+    print('Elapsed time during assimilation: ' + str(time.time() - time1) + ' s')
+    ensemble.close()
+    return ensemble
+
+
+
+
 # =================================================================================================================== #
 
 
@@ -105,7 +171,7 @@ def forecastStep(case, Nt, **kwargs):
             case: ensemble forecast as a class object
             Nt: number of time steps to forecast
             averaged: is the ensemble being forcast averaged?
-            alpha: changeable parameters of the problem
+            alpha: changeable input_parameters of the problem
         Returns:
             case: updated case forecast Nt time steps
     """
@@ -116,7 +182,7 @@ def forecastStep(case, Nt, **kwargs):
     try:
         case.update_history(psi, t)
     except ValueError:
-        print(f"Solver didn't return a homogeneous psi. Check initial conditions and parameters")
+        print(f"Solver didn't return a homogeneous psi. Check initial conditions and input_parameters")
 
     # Forecast ensemble bias and update its history
     if case.bias is not None:
@@ -124,14 +190,14 @@ def forecastStep(case, Nt, **kwargs):
         b, t_b = case.bias.time_integrate(t=t, y=y, **kwargs)
         case.bias.update_history(b, t_b)
 
-    if case.hist_t[-1] != case.bias.hist_t[-1]:
-        raise AssertionError('t assertion', case.hist_t[-1], case.bias.hist_t[-1])
+        if case.hist_t[-1] != case.bias.hist_t[-1]:
+            raise AssertionError('t assertion', case.hist_t[-1], case.bias.hist_t[-1])
     return case
 
 
 def analysisStep(case, d, Cdd):
     """ Analysis step in the data assimilation algorithm. First, the ensemble
-        is augmented with parameters and/or bias and/or state
+        is augmented with input_parameters and/or bias and/or state
         Inputs:
             case: ensemble forecast as a class object
             d: observation at time t
@@ -144,13 +210,24 @@ def analysisStep(case, d, Cdd):
     M = case.M.copy()
     Cdd = Cdd.copy()
 
+    # print(f'[analysisStep] Shapes: Af{Af.shape}, M{M.shape}, Cdd{Cdd.shape}')
+
     if case.est_a and not case.activate_parameter_estimation:
         Af = Af[:-case.Na, :]
         M = M[:, :-case.Na]
 
+    # print(f'\t[] Shapes: Af{Af.shape}, M{M.shape}, Cdd{Cdd.shape}')
+
+
+
     # --------------- Augment state matrix with biased Y --------------- #
     y = case.get_observables()
     Af = np.vstack((Af, y))
+
+
+    # print(f'\t[] Shapes: Af{Af.shape}, y{y.shape}')
+
+
     # ======================== APPLY SELECTED FILTER ======================== #
     if case.filter == 'EnSRKF':
         Aa = EnSRKF(Af, d, Cdd, M)
@@ -193,7 +270,7 @@ def analysisStep(case, d, Cdd):
             if is_physical:
                 Aa = inflateEnsemble(Aa, case.inflation, case.Na)
             else:
-                case.is_not_physical()  # Count non-physical parameters
+                case.is_not_physical()  # Count non-physical input_parameters
                 if not hasattr(case, 'rejected_analysis'):
                     case.rejected_analysis = []
                 if not case.constrained_filter:
@@ -204,7 +281,7 @@ def analysisStep(case, d, Cdd):
                                                     None)])
                 else:
                     raise NotImplementedError('Constrained filter yet to test')
-                    # # Try assimilating the parameters themselves
+                    # # Try assimilating the input_parameters themselves
                     # Alphas = np.dot(case.Ma, Af)[idx_alpha]
                     # M_alpha = np.vstack([M, case.Ma[idx_alpha]])
                     # Caa = np.eye(len(idx_alpha)) * np.var(Alphas, axis=-1)  # ** 2
@@ -574,17 +651,24 @@ def rBA_EnKF(Af, d, Cdd, Cbb, k, M, b, J):
 
 
 def print_DA_parameters(ensemble, t_obs):
+    def bias_name():
+        if not hasattr(ensemble, 'bias') or ensemble.bias is None:
+            return 'None' 
+        else:
+            return ensemble.bias.name
     print('\n -------------------- ASSIMILATION PARAMETERS -------------------- \n',
-          '\t Filter = {0}  \n\t bias = {1} \n'.format(ensemble.filter, ensemble.bias.name),
+          '\t Filter = {0} \n'.format(ensemble.filter),
+          '\t Bias = {0} \n'.format(bias_name()),
           '\t m = {} \n'.format(ensemble.m),
-          '\t Time steps between analysis = {} \n'.format(ensemble.dt_obs),
+          '\t Time steps between analysis = {} \n'.format(int((t_obs[1]-t_obs[0]) / ensemble.dt)),
           '\t Inferred params = {0} \n'.format(ensemble.est_a),
           '\t Inflation = {0} \n'.format(ensemble.inflation),
           '\t Reject Inflation = {0} \n'.format(ensemble.reject_inflation),
           '\t Ensemble std(psi0) = {}\n'.format(ensemble.std_psi),
           '\t Ensemble std(alpha0) = {}\n'.format(ensemble.std_a),
-          '\t Number of analysis steps = {}, t0={}, t1={}'.format(len(t_obs), t_obs[0], t_obs[-1])
+          '\t Number of analysis steps = {}, t0={}, t1={}'.format(len(t_obs), t_obs[0], t_obs[-1]),
           )
+
+
     if ensemble.filter == 'rBA_EnKF':
         print('\t Bias penalisation factor k = {}\n'.format(ensemble.regularization_factor))
-    print(' --------------------------------------------')

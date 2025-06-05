@@ -1,4 +1,4 @@
-from essentials.physical_models import Lorenz63
+from essentials.models_physical import Lorenz63
 from essentials.bias_models import *
 from essentials.run import main
 from essentials.create import create_truth, create_ensemble, create_bias_model

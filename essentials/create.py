@@ -31,43 +31,32 @@ def create_ensemble(model=None, forecast_params=None, dt=None, alpha0=None, **fi
         ensemble = model.copy()
 
     # Forecast model case to steady state initial condition before initialising ensemble
-    state, t_ = ensemble.time_integrate(int(ensemble.t_CR / ensemble.dt))
+    if 'Nt_transient' in filter_params.keys():
+        Nt = filter_params['Nt_transient']
+    else:
+        Nt = int(ensemble.t_CR / ensemble.dt)
+    state = ensemble.time_integrate(Nt)[0]
+
+
     ensemble.update_history(state[-1], reset=True)
 
     # =========================  INITIALISE ENSEMBLE & BIAS  =========================== #
     ensemble.init_ensemble(**filter_params)
 
+
+
+    # Forecast model case to steady state initial condition before initialising ensemble
+    if 'Nt_transient' in filter_params.keys():
+        Nt = filter_params['Nt_transient']
+    else:
+        Nt = int(ensemble.t_CR / ensemble.dt)
+    state = ensemble.time_integrate(Nt)[0]
+
+
+    ensemble.update_history(state[-1], reset=True)
+
     ensemble.close()
     return ensemble
-
-
-# def create_ensemble(forecast_params=None, dt=None, model=None, alpha0=None, **filter_params):
-#     if forecast_params is None:
-#         forecast_params = filter_params.copy()
-#     else:
-#         forecast_params = forecast_params.copy()
-#
-#     if alpha0 is not None:
-#         for alpha, lims in alpha0.items():
-#             forecast_params[alpha] = 0.5 * (lims[0] + lims[1])
-#
-#     # ==============================  INITIALISE MODEL  ================================= #
-#     if model is not None:
-#         forecast_params['model'] = model
-#
-#     if dt is not None:
-#         forecast_params['dt'] = dt
-#     ensemble = forecast_params['model'](**forecast_params)
-#
-#     # Forecast model case to steady state initial condition before initialising ensemble
-#     state, t_ = ensemble.time_integrate(int(ensemble.t_CR / ensemble.dt))
-#     ensemble.update_history(state[-1], reset=True)
-#
-#     # =========================  INITIALISE ENSEMBLE & BIAS  =========================== #
-#     ensemble.init_ensemble(**filter_params)
-#
-#     ensemble.close()
-#     return ensemble
 
 
 def create_truth(model, t_start=None, t_stop=None, Nt_obs=20, std_obs=0.05, t_max=None, t_min=0.,
@@ -173,7 +162,7 @@ def create_observations(model, t_max, t_min, save=False, data_folder=None, **tru
         raise 'true_parameters must be dict'
 
     # ============================================================
-    # Add key parameters to filename
+    # Add key input_parameters to filename
     suffix = ''
 
     for key, val in TA_params.items():
@@ -245,13 +234,13 @@ def create_noisy_signal(y_clean, noise_level=0.1, noise_type='gauss, add'):
 
 
 def create_bias_model(ensemble, bias_params: dict,
-                      training_dataset: dict or list,
+                      training_dataset: dict or list, # type: ignore
                       wash_t=None,
                       wash_obs=None,
                       bias_filename=None,
                       folder=None):
     """
-    This function creates the bias model for the input ensemble, truth and parameters.
+    This function creates the bias model for the input ensemble, truth and input_parameters.
     The bias model is added to the ensemble object as ensemble.bias.
     If the bias model requires washout (e.g. ESN) the washout observations are added to
     the truth dictionary.
