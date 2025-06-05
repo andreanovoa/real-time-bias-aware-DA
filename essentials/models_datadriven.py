@@ -96,7 +96,7 @@ class ESN_model(EchoStateNetwork, Model):
         if self.perform_test:
             self.t_test = self.t_test or t_total - self.t_train - self.t_val
 
-        assert abs(ts := sum([self.t_train, self.t_val, self.t_test]) - t_total) <= self.dt / 2., \
+        assert abs((ts := sum([self.t_train, self.t_val, self.t_test])) - t_total) <= self.dt / 2., \
             f"t_train + t_val + t_test {ts} <= t_total {t_total}"
 
         # Assign attributes in kwarg

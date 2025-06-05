@@ -16,12 +16,14 @@ import scipy.ndimage as ndimage
 from scipy.interpolate import interp1d
 from scipy.signal import find_peaks
 import matplotlib.backends.backend_pdf as plt_pdf
+import re
 
 import glob
 import contextlib
 from PIL import Image
 
 rng = np.random.default_rng(6)
+
 
 
 def add_noise_to_flow(U, V, noise_level=0.05, noise_type="gauss", spatial_smooth=0):
@@ -49,31 +51,27 @@ def add_noise_to_flow(U, V, noise_level=0.05, noise_type="gauss", spatial_smooth
     """
     rng = np.random.default_rng()  # Random generator
 
+    U = U.copy()
+    V = V.copy()
+    
+    U[np.isnan(U) | np.isinf(U)] = 0  # Replace NaN/Inf values
+    V[np.isnan(V) | np.isinf(V)] = 0  # Replace NaN/Inf values
+
     # Compute noise amplitude
     max_vel = max(np.max(np.abs(U)), np.max(np.abs(V)))
     noise_amp = noise_level * max_vel
 
     def generate_noise(shape, noise_type):
         """Generates 3D noise (Nt x Nx x Ny)."""
-        Nt, Nx, Ny = shape
+        # Nt, Nx, Ny = shape
         if noise_type == "gauss":
             return rng.normal(scale=noise_amp, size=shape)
         else:
-            noise_white = np.fft.rfftn(rng.standard_normal(shape) * noise_amp)
+            noise_white = np.fft.rfftn(rng.standard_normal(shape)) * noise_amp
+            S = colour_noise(shape, noise_colour=noise_type)
+            noise_colored = noise_white * S
+            return np.fft.irfftn(noise_colored, s=shape).real
 
-            # Generate color filters
-            S_time = colour_noise(Nt, noise_colour=noise_type)[:, None, None]
-            S_x = colour_noise(Nx, noise_colour=noise_type)[None, :, None]
-            S_y = colour_noise(Ny, noise_colour=noise_type)[None, None, :]
-
-            S = S_time * S_x * S_y
-            S[np.isnan(S) | np.isinf(S)] = 0  # Replace NaN/Inf values
-
-            power = np.mean(S ** 2)
-            if power > 0:
-                S /= np.sqrt(power)  # Normalize power
-
-            return np.fft.irfftn(noise_white * S).real  # Transform back to space
 
     # Generate noise
     noise_U = generate_noise(U.shape, noise_type)
@@ -81,10 +79,12 @@ def add_noise_to_flow(U, V, noise_level=0.05, noise_type="gauss", spatial_smooth
 
     # Apply optional spatial smoothing
     if spatial_smooth > 0:
-        noise_U = ndimage.gaussian_filter(noise_U, sigma=(0, spatial_smooth, spatial_smooth))
-        noise_V = ndimage.gaussian_filter(noise_V, sigma=(0, spatial_smooth, spatial_smooth))
+        sigma = (0, spatial_smooth, spatial_smooth)
+        noise_U = ndimage.gaussian_filter(noise_U, sigma=sigma)
+        noise_V = ndimage.gaussian_filter(noise_V, sigma=sigma)
 
     # Add noise to velocity field
+    
     U_noisy = U + noise_U
     V_noisy = V + noise_V
 
@@ -146,7 +146,7 @@ def colour_noise(dims, noise_colour='pink', beta=2, ff=None):
 
     # Frequency arrays for each dimension
     if isinstance(dims, int):
-        ff_dims = np.fft.rfftfreq(dims)
+        ff_dims = [np.fft.rfftfreq(dims)]
     else:
         ff_dims = [np.fft.fftfreq(Nt) for Nt in dims[:-1]] + [np.fft.rfftfreq(dims[-1])]
 
@@ -156,10 +156,10 @@ def colour_noise(dims, noise_colour='pink', beta=2, ff=None):
         spectrum = np.ones_like(freqs, dtype=np.float32)
         noise_type = noise_type.lower()
 
-
         # Handle DC component first
-        mask = (freqs == 0)
-        ff = np.fft.rfftfreq(Nt)
+        # find the zero frequency components into a mask
+    
+        mask = (freqs == 0) # tthuis should return a boolean array where True indicates the zero frequency component
 
         if 'white' in noise_type:
             spectrum[:] = 1.0
@@ -178,7 +178,7 @@ def colour_noise(dims, noise_colour='pink', beta=2, ff=None):
 
 
         # Zero DC component and normalize
-        spectrum[mask] = 0
+        spectrum[mask] = 0.
         if np.any(spectrum[~mask]):
             spectrum /= np.sqrt(np.mean(spectrum[~mask]**2))
         return spectrum
@@ -588,7 +588,5 @@ def get_error_metrics(results_folder):
                 out['error_unbiased'][ii, jj, a, :] = np.mean(abs(b_obs_u[ei:ei + N_CR]), axis=0) / scale
 
             save_to_pickle_file(results_folder + 'CR_data', out)
-
-
 
 

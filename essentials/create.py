@@ -58,7 +58,6 @@ def create_ensemble(model=None, forecast_params=None, dt=None, alpha0=None, **fi
     ensemble.close()
     return ensemble
 
-
 def create_truth(model, t_start=None, t_stop=None, Nt_obs=20, std_obs=0.05, t_max=None, t_min=0.,
                  noise_type='gauss, add', post_processed=False, manual_bias=None, **kwargs):
     # =========================== LOAD DATA OR CREATE TRUTH FROM LOM ================================ #
@@ -201,6 +200,7 @@ def create_observations(model, t_max, t_min, save=False, data_folder=None, **tru
     return y_true, t_true, name.split('Truth_')[-1], case
 
 
+
 def create_noisy_signal(y_clean, noise_level=0.1, noise_type='gauss, add'):
     if y_clean.ndim == 2:
         y_clean = np.expand_dims(y_clean, -1)
@@ -216,12 +216,11 @@ def create_noisy_signal(y_clean, noise_level=0.1, noise_type='gauss, add'):
             noise = np.zeros([Nt, q])
             for ii in range(q):
                 noise_white = np.fft.rfft(rng.standard_normal(Nt + i0) * noise_level)
-                # Generate the noise signal
                 S = colour_noise(Nt + i0, noise_colour=noise_type)
-                S = noise_white * S / np.sqrt(np.mean(S ** 2))  # Normalize S
+                S = noise_white * S  # Normalize S
                 noise[:, ii] = np.fft.irfft(S)[i0:]  # transform back into time domain
         if 'add' in noise_type.lower():
-            y_noisy[:, :, ll] += noise * np.max(abs(y_clean[:, :, ll]))
+            y_noisy[:, :, ll] += noise * np.max(abs(y_clean[:, :, ll]), axis=0)
         else:
             y_noisy[:, :, ll] += noise * y_noisy[:, :, ll]
 
@@ -231,6 +230,7 @@ def create_noisy_signal(y_clean, noise_level=0.1, noise_type='gauss, add'):
         y_noisy = np.expand_dims(y_noisy, axis=-1)
 
     return y_noisy
+
 
 
 def create_bias_model(ensemble, bias_params: dict,

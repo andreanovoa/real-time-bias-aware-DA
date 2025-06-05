@@ -201,6 +201,8 @@ class Model:
     #     return self._M
     @property
     def M(self):
+        if not hasattr(self, '_M'):
+            self.M = None # This will trigger the setter to create the default M matrix
         return self._M
     
     @M.setter

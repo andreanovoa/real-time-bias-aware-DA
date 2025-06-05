@@ -1164,6 +1164,7 @@ def plot_states_PDF(ensembles, truth, nbins=20, window=None):
         ax.set(xlabel=lbl)
 
 
+
 def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False, plot_ensemble_members=False,
                     filename=None, reference_y=1., reference_t=1., max_time=None, dims='all'):
 
@@ -1208,10 +1209,9 @@ def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False, plot_e
 
     y_raw, y_unbiased, y_filter, y_mean, obs, y_true = [yy / reference_y for yy in [y_raw, y_unbiased, y_filter,
                                                                                     y_mean, obs, y_true]]
-    margin = 0.15 * np.mean(abs(y_raw))
-    max_y = np.max(y_raw)
-    min_y = np.min(y_raw)
-    y_lims = [min_y - margin, max_y + margin]
+    margin = 0.15 * np.mean(abs(y_raw), axis=0)
+    max_y = np.max(y_raw, axis=0)
+    min_y = np.min(y_raw, axis=0)
 
     x_lims = [[t_obs[0] - .25 * filter_ens.t_CR, t_obs[0] + filter_ens.t_CR],
               [t_obs[-1] - filter_ens.t_CR, max_time],
@@ -1224,6 +1224,8 @@ def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False, plot_e
         ax_zoom = sfs[1].subplots(len(dims), ncols=2, sharey='row', sharex='col')
 
         for axi, qi in enumerate(dims):
+            y_lims = [min_y[axi] - margin[axi], max_y[axi] + margin[axi]]
+            
             if Nq == 1:
                 q_axes = [ax_zoom[0], ax_zoom[1], ax_all]
             else:
@@ -1298,10 +1300,9 @@ def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False, plot_e
 
         innovation, b_filter, b_true = [yy / reference_y for yy in [innovation, b_filter, b_true]]
 
-        max_y = np.max(abs(y_raw[:-N_CR]))
-        y_lims = [-max_y - margin, max_y + margin]
 
         for axi, qi in enumerate(dims):
+            y_lims = [min_y[axi] - margin[axi], max_y[axi] + margin[axi]]
             if Nq == 1:
                 q_axes = [ax_zoom[0], ax_zoom[1], ax_all]
             else:
@@ -1335,7 +1336,6 @@ def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False, plot_e
         if filename is not None:
             plt.savefig(filename + '.svg', dpi=350)
             plt.close()
-
 
 def plot_attractor(psi_cases, color, figsize=(8, 8), ensemble_mean=True):
     if type(psi_cases) is not list:
