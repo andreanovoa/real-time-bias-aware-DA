@@ -51,18 +51,18 @@ pytest tests/ > test_output.txt
 
 
 ## 🌟 What is available?
-   Data assimilation methods [`essentials.DA`](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/essentials/DA.py)
+   Data assimilation methods [`src.DA`](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/src/DA.py)
    * EnKF - ensemble Kalman filter
    * EnSRKF - ensemble square-root Kalman filter
    * rBA-EnKF - regularized bias-aware EnKF
    
-   Physical models [`essentials.models_physical`](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/essentials/models_physical.py)
+   Physical models [`src.models_physical`](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/src/models_physical.py)
    * Rijke tube model (dimensional with Galerkin projection)
    * Van der Pols
    * Lorenz63
    * Azimuthal thermoaocustics model
     
-   Bias estimators[`essentials.bias_models`](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/essentials/bias_models.py)
+   Bias estimators[`src.bias_models`](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/src/bias_models.py)
    * Echo State Network
    * NoBias
 
