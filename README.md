@@ -61,6 +61,10 @@ pytest tests/ > test_output.txt
    * Van der Pols
    * Lorenz63
    * Azimuthal thermoaocustics model
+   
+   Data-driven models [`essentials.models_datadriven`](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/essentials/models_datadriven.py)
+   * ESN_model -- Echo state network as a frorecasting tool
+   * POD-ESN -- Combines Proper Orthogonal Decomposition (POD) and ESN_model
     
    Bias estimators[`essentials.bias_models`](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/essentials/bias_models.py)
    * Echo State Network
