@@ -1,9 +1,9 @@
-from src.bias_models import *
+from src.bias import *
 from src.create import *
 from src.models_physical import *
-from src.plotResults import *
+from src.plot_results import *
 from src.run import *
-from src.Util import *
+from src.utils import *
 
 
 # %% ====================== SELECT TRUE AND FORECAST MODELS ========================== #

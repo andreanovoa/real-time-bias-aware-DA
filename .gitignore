@@ -12,10 +12,12 @@ figs_ESN
 
 
 .DS_Store
-**/*/.DS_Store
-
+**/.DS_Store
 
 **/*/ESN_case*
-test_*
 
-src/.egg*
+src.egg*
+test_out*
+
+__pycache__
+**/__pycache__

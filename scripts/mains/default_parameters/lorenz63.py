@@ -1,5 +1,5 @@
 from src.models_physical import Lorenz63
-from src.bias_models import ESN
+from src.bias import ESN
 import numpy as np
 
 rnd = np.random.RandomState(6)

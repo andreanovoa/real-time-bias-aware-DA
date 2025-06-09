@@ -42,7 +42,7 @@ Checkout the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aw
 
 
 ## 🌟 What is available?
-   Data assimilation methods [`src.DA`](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/src/DA.py)
+   Data assimilation methods [`src.data_assimilation`](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/src/DA.py)
    * EnKF - ensemble Kalman filter
    * EnSRKF - ensemble square-root Kalman filter
    * rBA-EnKF - regularized bias-aware EnKF
@@ -53,7 +53,7 @@ Checkout the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aw
    * Lorenz63
    * Azimuthal thermoaocustics model
     
-   Bias estimators[`src.bias_models`](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/src/bias_models.py)
+   Bias estimators[`src.bias`](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/src/bias.py)
    * Echo State Network
    * NoBias
 

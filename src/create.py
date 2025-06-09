@@ -2,8 +2,8 @@ import os.path
 
 import numpy as np
 from numba.cuda import local
-from src.Util import *
-from src.bias_models import *
+from src.utils import *
+from src.bias import *
 
 
 rng = np.random.default_rng(0)

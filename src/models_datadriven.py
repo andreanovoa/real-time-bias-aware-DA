@@ -1,10 +1,10 @@
 from src.model import *
 
-from ML_models.EchoStateNetwork import EchoStateNetwork
-from ML_models.POD import POD
+from src.ML_models.EchoStateNetwork import EchoStateNetwork
+from src.ML_models.POD import POD
 
 import matplotlib.backends.backend_pdf as plt_pdf
-from src.Util import interpolate, save_figs_to_pdf, add_pdf_page
+from src.utils import interpolate, save_figs_to_pdf, add_pdf_page
 
 import inspect
 import numpy as np

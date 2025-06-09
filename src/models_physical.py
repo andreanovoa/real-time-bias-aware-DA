@@ -1,7 +1,7 @@
 from src.model import *
 
 from scipy.interpolate import splrep, splev
-from src.Util import Cheb
+from src.utils import Cheb
 
 
 # %% =================================== VAN DER POL MODEL ============================================== %% #

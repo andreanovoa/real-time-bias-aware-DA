@@ -1,8 +1,8 @@
 from src.create import *
 from src.models_physical import *
-from src.Util import *
-from src.bias_models import *
-from src.plotResults import *
+from src.utils import *
+from src.bias import *
+from src.plot_results import *
 from src.run import *
 # ============================================================================================== #
 

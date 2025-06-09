@@ -6,10 +6,10 @@ sys.path.append(os.path.abspath(os.path.join(path, '..')))
 
 
 from src.models_datadriven import POD_ESN
-from src.Util import set_working_directories, load_from_mat_file, add_noise_to_flow, save_to_mat_file, save_to_pickle_file, load_from_pickle_file, save_figs_to_pdf
-from src.plotResults import plot_truth, plot_ensemble
+from src.utils import set_working_directories, load_from_mat_file, add_noise_to_flow, save_to_mat_file, save_to_pickle_file, load_from_pickle_file, save_figs_to_pdf
+from src.plot_results import plot_truth, plot_ensemble
 from src.create import create_ensemble
-from src.DA import dataAssimilation_bias_blind
+from src.data_assimilation import dataAssimilation_bias_blind
 
 import numpy as np
 
