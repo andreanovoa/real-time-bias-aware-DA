@@ -9,12 +9,12 @@ path = os.path.dirname(__file__)
 sys.path.append(os.path.abspath(os.path.join(path, '..')))
 
 
-from src.Util import load_from_pickle_file, set_working_directories, interpolate, save_figs_to_pdf
+from src.utils import load_from_pickle_file, set_working_directories, interpolate, save_figs_to_pdf
 
 results_folder = set_working_directories('circle')[1]  
 
 
-from src.plotResults import *
+from src.plot_results import *
 
 
 def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False, plot_ensemble_members=False,

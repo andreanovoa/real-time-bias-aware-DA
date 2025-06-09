@@ -1,4 +1,4 @@
-from src.Util import save_figs_to_pdf
+from src.utils import save_figs_to_pdf
 from copy import deepcopy
 
 import numpy as np

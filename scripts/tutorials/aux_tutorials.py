@@ -1,5 +1,5 @@
 import sys
-sys.path.append('../')
+sys.path.append('../../')
 
 import matplotlib.pyplot as plt
 # plt.style.use('dark_background')
@@ -13,7 +13,7 @@ from matplotlib import rc
 rc('animation', html='jshtml')
 
 from matplotlib.animation import FuncAnimation
-from src.Util import set_working_directories, load_from_mat_file, save_to_mat_file, add_noise_to_flow
+from src.utils import set_working_directories, load_from_mat_file, save_to_mat_file, add_noise_to_flow
 
 
 

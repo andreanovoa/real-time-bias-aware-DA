@@ -1,7 +1,7 @@
 from default_parameters.lorenz63 import bias_params
-from src.DA import *
+from src.data_assimilation import *
 from src.create import *
-from src.bias_models import ESN
+from src.bias import ESN
 from src.models_physical import Annular
 from dev.plotting_annular_results import *
 

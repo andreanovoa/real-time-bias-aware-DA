@@ -7,8 +7,8 @@ import matplotlib.pyplot as plt
 
 sys.path.append('../')
 
-from src.DA import EnKF, EnSRKF
-from src.Util import *
+from src.data_assimilation import EnKF, EnSRKF
+from src.utils import *
 
 # Validation methods
 from functools import partial

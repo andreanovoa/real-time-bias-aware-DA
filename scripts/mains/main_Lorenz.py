@@ -1,8 +1,8 @@
 from src.models_physical import Lorenz63
-from src.bias_models import *
+from src.bias import *
 from src.run import main
 from src.create import create_truth, create_ensemble, create_bias_model
-from src.plotResults import *
+from src.plot_results import *
 
 folder = 'results/Lorenz/'
 

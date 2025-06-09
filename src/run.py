@@ -1,4 +1,4 @@
-from src.DA import dataAssimilation
+from src.data_assimilation import dataAssimilation
 from src.create import *
 import numpy as np
 

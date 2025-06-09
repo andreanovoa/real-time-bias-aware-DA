@@ -4,7 +4,7 @@ from copy import deepcopy
 
 import numpy as np
 
-from src.bias_models import NoBias
+from src.bias import NoBias
 
 from sys import platform
 
@@ -408,7 +408,7 @@ class Model:
         # ODEINT =========================================== THIS WORKS AS IF HARD CODED
         # psi = odeint(fun, y0, t_interp, (params,))
         #
-        # HARD CODED RUGGE KUTTA 4TH from Util ========================
+        # HARD CODED RUGGE KUTTA 4TH from utils ========================
         # psi = RK4(t_interp, y0, fun, params)
         return psi
 

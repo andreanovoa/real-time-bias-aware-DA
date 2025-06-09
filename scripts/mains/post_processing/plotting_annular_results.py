@@ -1,5 +1,5 @@
-from src.plotResults import *
-from src.Util import load_from_pickle_file
+from src.plot_results import *
+from src.utils import load_from_pickle_file
 from src.models_physical import Annular
 import matplotlib.pyplot as plt
 
