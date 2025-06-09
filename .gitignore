@@ -15,4 +15,4 @@ figs_ESN
 **/*/.DS_Store
 
 **/*/ESN_case*
-test_*
+test_out*
