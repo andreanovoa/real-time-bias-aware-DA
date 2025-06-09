@@ -1,0 +1,22 @@
+name: real-time-da
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.9
+  - numpy
+  - scipy
+  - scikit-learn
+  - matplotlib
+  - seaborn
+  - jupyter
+  - ipykernel
+  - ipywidgets
+  - h5py
+  - tqdm
+  - requests
+  - pip
+  - pip:
+      - ipython-genutils
+      - modulo-vki
+      - pyqt5

@@ -21,31 +21,22 @@ cd yourproject
 3. **Create and activate the Conda Environment** 
 ```
 conda env create -f environment.yml
-conda activate da-env
+conda activate real-time-da
+```
+
+4. Install the package in editable mode 
+```
+pip install -e .
+```
+
+5. (Optional) Run the tests and save the output onto a text file
+```
+pytest tests/ > test_output.txt
 ```
 
 Checkout the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aware-DA/tree/main/tutorials), which includes several jupyter notebooks aiming to ease the understanding of the repository.
 
 
-
-### Development
-
-If you want to make changes to the code:
-
-1. Make sure you have activated the environment:
-```
-conda activate sort
-```
-
-2. Install the package in editable mode 
-```
-pip install -e .
-```
-
-3. (Optional) Run the tests and save the output onto a text file
-```
-pytest tests/ > test_output.txt
-```
 
 ---
 
