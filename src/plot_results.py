@@ -1,14 +1,23 @@
 import pickle
 import os
-from matplotlib import colors
-import matplotlib.pyplot as plt
-import matplotlib.animation
-from scipy.interpolate import interp2d
 import numpy as np
+import scipy.ndimage as ndimage
+from scipy.interpolate import interp2d
+from tabulate import tabulate
+from src.utils import interpolate, fun_PSD, categorical_cmap, CR, get_error_metrics
+
+
+import matplotlib.pyplot as plt
 import matplotlib as mpl
 from matplotlib.ticker import FormatStrFormatter
 import matplotlib.backends.backend_pdf as plt_pdf
-from src.utils import interpolate, fun_PSD, categorical_cmap, CR, get_error_metrics
+from matplotlib import colors, rc
+from matplotlib.animation import FuncAnimation
+
+rc('animation', html='jshtml')
+
+
+
 
 XDG_RUNTIME_DIR = 'tmp/'
 
@@ -541,7 +550,6 @@ def post_process_WhyAugment(results_dir, k_plot=None, J_plot=None, figs_dir=None
 
 
 def plot_annular_model(forecast_params=None, animate=False, anim_name=None):
-    from matplotlib.animation import FuncAnimation
     from src.models_physical import Annular
     import datetime
     import time
@@ -831,10 +839,13 @@ def plot_parameters(ensembles, truth=None, filename=None, reference_p=None, plot
 
             ylims = ax.get_ylim()
             if kk == 0:
+                ylim_before = ax.get_ylim()  # Capture limits before lines
                 if filter_ens.alpha_lims[p][0] is not None and filter_ens.alpha_lims[p][1] is not None:
                     for lim in [filter_ens.alpha_lims[p][0] / ref_p[p],
                                 filter_ens.alpha_lims[p][1] / ref_p[p]]:
                         ax.axhline(y=lim, color=c, lw=2, alpha=0.5)
+                ax.set_ylim(ylim_before)  # Reset to original limits
+
 
                 if t_obs is not None:
                     plot_DA_window(t_obs, ax=ax, ens=filter_ens, twin=twin)
@@ -851,175 +862,6 @@ def plot_parameters(ensembles, truth=None, filename=None, reference_p=None, plot
 
     if filename is not None:
         plt.savefig(filename + '_params.svg', dpi=350)
-
-
-def plot_Rijke_animation(folder, figs_dir):
-    files = os.listdir(folder)
-
-    for ff in files:
-        try:
-            with open(folder + ff, 'rb') as f:
-                params = pickle.load(f)
-                truth = pickle.load(f)
-                filter_ens = pickle.load(f)
-        except:
-            continue
-        os.makedirs(figs_dir, exist_ok=True)
-        filename = '{}results_{}_{}_J'.format(figs_dir, filter_ens.filt, filter_ens.bias.name)
-
-        post_process_single(filter_ens, truth, params, filename=filename, mic=0)
-
-        if filter_ens.filt == 'EnKF':
-            filter_ens_BB = filter_ens.copy()
-            print('ok1')
-        elif filter_ens.filt == 'rBA_EnKF':
-            filter_ens_BA = filter_ens.copy()
-            print('ok2')
-
-    # load truth
-    name_truth = truth['name'].split('_{}'.format(truth['true_params']['manual_bias']))[0]
-    with open('data/Truth_{}'.format(name_truth), 'rb') as f:
-        truth_ens = pickle.load(f)
-
-    # extract history of observables along the tube
-    locs = np.linspace(0, filter_ens.L, 20)
-    locs_obs = filter_ens.x_mic
-
-    # Bias-aware EnKF sol
-    y_BA = filter_ens_BA.get_observable_hist(loc=locs)
-    y_BA = np.mean(y_BA, -1)
-    # Bias-blind EnKF sol
-    y_BB = filter_ens_BB.get_observable_hist(loc=locs)
-    y_BB = np.mean(y_BB, -1)
-    # truth
-    y_t = truth_ens.get_observable_hist(loc=locs).squeeze()
-    y_t += .4 * y_t * np.sin((np.expand_dims(truth_ens.hist_t, -1) * np.pi * 2) ** 2)
-    y_t = interpolate(truth_ens.hist_t, y_t, filter_ens.hist_t)
-
-    max_v = [np.max(abs(yy)) for yy in [y_t, y_BA, y_BB]]
-    max_v = np.max(max_v)
-
-    # -----------------------
-
-    fig1 = plt.figure(figsize=[10, 2], layout='constrained')
-    ax1 = fig1.subplots(1, 1)
-
-    fig2 = plt.figure(figsize=[12, 6], layout='constrained')
-    ax2 = fig2.subplots(2, 1)
-
-    t0 = np.argmin(abs(filter_ens.hist_t - (truth['t_obs'][0] - filter_ens.t_CR / 2)))
-    t1 = np.argmin(abs(filter_ens.hist_t - (truth['t_obs'][-1] + filter_ens.t_CR)))
-
-    t_gif = filter_ens.hist_t[t0:t1:5]
-
-    # all pressure points
-    y_BA = filter_ens_BA.get_observable_hist(loc=locs)
-    y_BB = filter_ens_BB.get_observable_hist(loc=locs)
-    y_t, y_BB, y_BA = [interpolate(filter_ens.hist_t, yy, t_gif) for yy in [y_t, y_BB, y_BA]]
-    max_v = np.max(abs(y_t))
-
-    # observation points
-    y_BB_obs = filter_ens_BB.get_observable_hist()
-    y_BA_obs = filter_ens_BA.get_observable_hist()
-
-    y_BA_obs = y_BA_obs + interpolate(filter_ens_BA.bias.hist_t, filter_ens_BA.bias.hist, filter_ens_BA.hist_t)
-
-    y_BA_obs = interpolate(filter_ens_BA.bias.hist_t, y_BA_obs, t_gif)
-    y_BB_obs = interpolate(filter_ens_BB.hist_t, y_BB_obs, t_gif)
-
-    # input_parameters
-    reference_p = filter_ens_BA.alpha0
-    alpha_BA, std_BA, alpha_BB, std_BB = [], [], [], []
-    hist_BA, hist_BB = filter_ens_BA.hist, filter_ens_BB.hist
-    for pi, p in enumerate(filter_ens.est_a):
-        print(pi)
-        ii = filter_ens.Nphi + pi
-        alpha_BA.append(np.mean(hist_BA[:, ii], -1) / reference_p[p])
-        std_BA.append(abs(np.std(hist_BA[:, ii] / reference_p[p], axis=1)))
-        alpha_BB.append(np.mean(hist_BB[:, ii], -1) / reference_p[p])
-        std_BB.append(abs(np.std(hist_BB[:, ii] / reference_p[p], axis=1)))
-
-    max_p = max([np.max(np.array(a) + np.array(s)) for a, s in zip([alpha_BA, alpha_BB], [std_BA, std_BB])])
-    min_p = min([np.min(np.array(a) - np.array(s)) for a, s in zip([alpha_BA, alpha_BB], [std_BA, std_BB])])
-
-    params_legend = []
-    for filter_name in ['EnKF', 'BA-EnKF']:
-        for p in filter_ens.est_a:
-            params_legend.append('$\\' + p + '$ ' + filter_name)
-
-    # timeseries
-    y_BA_tt = filter_ens_BA.get_observable_hist()[:, 0]
-    y_BA_tt_u = y_BA_tt + interpolate(filter_ens_BA.bias.hist_t, filter_ens_BA.bias.hist, filter_ens_BA.hist_t)
-
-    y_BB_tt = filter_ens_BB.get_observable_hist()[:, 0]
-    y_t_tt = truth['y_raw'][:, 0]
-    y_obs_tt = truth['p_obs'][:, 0]
-    pressure_legend = ['Truth', 'Data', 'State + bias  BA', 'State est. BA', 'State est.']
-
-    def animate1(ai):
-        ax1.clear()
-        ax1.set(ylim=[-max_v, max_v], xlim=[0, 1], title='$t={:.4}$'.format(t_gif[ai]),
-                xlabel='$x/L$', ylabel="$p'$ [Pa]")
-        ax1.plot(locs, y_t[ai], color=color_true, linewidth=1.5)
-        for loc in filter_ens.x_mic:
-            ax1.plot([loc, loc], [0.7 * max_v, max_v], '.-', color='black', linewidth=2)
-        ax1.plot([filter_ens.x_mic[0], filter_ens.x_mic[0]], [-max_v, max_v], '--',
-                 color='firebrick', linewidth=4, alpha=0.2)
-        for yy, c, l in zip([y_BA[ai], y_BB[ai]], [color_bias, 'orange'], ['-', '--']):
-            y_mean, y_std = np.mean(yy, -1), abs(np.std(yy, -1))
-            ax1.plot(locs, y_mean, l, color=c)
-            ax1.fill_between(locs, y_mean + y_std, y_mean - y_std, alpha=0.1, color=c)
-
-    def animate2(ai):
-        t_g = t_gif[ai]
-        # Plot timeseries ------------------------------------------------------------------------
-        t11 = np.argmin(abs(filter_ens.hist_t - t_g))
-        t00 = np.argmin(abs(filter_ens.hist_t - (t_g - filter_ens.t_CR / 2.)))
-        tt_ = filter_ens.hist_t[t00:t11]
-        for ax_ in ax2:
-            ax_.clear()
-            ax_.set(xlim=[tt_[0], tt_[-1] + filter_ens.t_CR * .05], xlabel='$t$ [s]')
-        ax2[0].set(ylim=[-max_v, max_v], ylabel="$p'(x/L=0.2)$ [Pa]")
-        yy = interpolate(truth['t'], y_t_tt, tt_)
-        ax2[0].plot(tt_, yy, color=color_true, linewidth=1.5)
-        ax2[0].plot(truth['t_obs'][0], y_obs_tt[0], 'o', color=color_obs, markersize=3,
-                    markerfacecolor=None, markeredgewidth=2)
-        yy = interpolate(filter_ens_BA.bias.hist_t, np.mean(y_BA_tt_u, -1), tt_)
-        ax2[0].plot(tt_, yy, color=color_unbias, linewidth=1)
-        for yy, c, l in zip([y_BA_tt, y_BB_tt], ['lightseagreen', 'orange'], ['-', '--']):
-            yy = interpolate(filter_ens.hist_t, yy, tt_)
-            y_mean, y_std = np.mean(yy, -1), np.std(yy, -1)
-            ax2[0].plot(tt_, y_mean, l, color=c)
-        ax2[0].legend(pressure_legend, bbox_to_anchor=(1., 1.), loc="upper left", ncol=1, fontsize='small')
-        for yy, c, l in zip([y_BA_tt, y_BB_tt], [color_bias, 'orange'], ['-', '--']):
-            yy = interpolate(filter_ens.hist_t, yy, tt_)
-            y_std = abs(np.std(yy, -1))
-            ax2[0].fill_between(tt_, y_mean + y_std, y_mean - y_std, alpha=0.1, color=c)
-        # # Plot obs data ------------------------------------------------------------------------
-        t11_o = np.argmin(abs(truth['t_obs'] - t_g))
-        t00_o = np.argmin(abs(truth['t_obs'] - (t_g - filter_ens.t_CR / 2.)))
-        ax2[0].plot(truth['t_obs'][t00_o:t11_o], y_obs_tt[t00_o:t11_o], 'o', color=color_obs,
-                    markersize=3, markerfacecolor=None, markeredgewidth=2)
-
-        # plot input_parameters ------------------------------------------------------------------------
-        ax2[1].set(ylim=[min_p, max_p], ylabel="")
-        for mean_p, std_p, line_type in zip([alpha_BA, alpha_BB], [std_BA, std_BB], ['-', '--']):
-            cols = ['mediumpurple', 'orchid']
-            for ppi, pp in enumerate(filter_ens.est_a):
-                ax2[1].plot(tt_, mean_p[ppi][t00:t11], line_type, color=cols[ppi], label=pp)
-        ax2[1].legend(params_legend, bbox_to_anchor=(1., 1.), loc="upper left", ncol=1, fontsize='small')
-        for mean_p, std_p, line_type in zip([alpha_BB, alpha_BA], [std_BB, std_BA], ['-', '--']):
-            cols = ['mediumpurple', 'orchid']
-            for ppi, pp in enumerate(filter_ens.est_a):
-                ax2[1].fill_between(tt_, mean_p[ppi][t00:t11] + abs(std_p)[ppi][t00:t11],
-                                    mean_p[ppi][t00:t11] - abs(std_p)[ppi][t00:t11], alpha=0.2, color=cols[ppi])
-
-    # Create and save animations ------------------------------------------------------------------------
-    ani1 = mpl.animation.FuncAnimation(fig1, animate1, frames=len(t_gif), interval=10, repeat=False)
-    ani2 = mpl.animation.FuncAnimation(fig2, animate2, frames=len(t_gif), interval=10, repeat=False)
-    writergif = mpl.animation.PillowWriter(fps=10)
-    ani1.save(figs_dir + 'ani_tube.gif', writer=writergif)
-    ani2.save(figs_dir + 'ani_timeseries.gif', writer=writergif)
 
 
 def plot_RMS_pdf(ensembles, truth, nbins=40):
@@ -1337,6 +1179,7 @@ def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False, plot_e
             plt.savefig(filename + '.svg', dpi=350)
             plt.close()
 
+
 def plot_attractor(psi_cases, color, figsize=(8, 8), ensemble_mean=True):
     if type(psi_cases) is not list:
         psi_cases, color = [psi_cases], [color]
@@ -1512,7 +1355,6 @@ def plot_violins(ax, values, location, color='b', label=None, alpha=0.5, **kwarg
     #     ax.legend([violins['bodies'][0]], [label])
 
 
-
 def plot_MSE_evolution(filter_ens,
                        X_test_raw,
                        X_test_true,
@@ -1614,10 +1456,6 @@ def plot_MSE_evolution(filter_ens,
         cb.set_ticks(yticks, labels=tiks)
 
 
-
-        
-
-
 def plot_covariance(case, idx=-1, tixs=None, plot_correlation=False):
 
     if not isinstance(idx, list):
@@ -1683,7 +1521,6 @@ def plot_covariance(case, idx=-1, tixs=None, plot_correlation=False):
 
 # ==================================================================================================================
 def print_parameter_results(ensembles, true_values=None):
-    from tabulate import tabulate
     if type(ensembles) is not list:
         ensembles = [ensembles]
 
@@ -1713,31 +1550,144 @@ def print_parameter_results(ensembles, true_values=None):
     print(tabulate(tabular_data=rows, headers=headers))
 
 
-def plot_training_data(ensemble):
+def animate_flowfields(datsets, n_frames=40, cmaps=None, titles=None, rms_cmap='Reds'):
 
-    case = ensemble.bias
+    if cmaps is None:
+        cmaps = ['viridis'] * len(datsets)
+    if titles is None:
+        titles = [f'Dataset {i+1}' for i in range(len(datsets))]
 
-    nrows = min(case.Ndim, 20)
-    fig, axs = plt.subplots(nrows=nrows, ncols=1,
-                            figsize=(8, nrows), sharex=True,
-                            layout='constrained')
-    axs = axs.T.flatten()
-    modes_data = case.Phi.copy()
-    Nt = modes_data.shape[0]
-    t_data = np.arange(0, Nt) * case.dt
-    for kk, ax in enumerate(axs):
-        ax.plot(t_data, modes_data[:, kk], lw=1., color='k')
-        ax.axvspan(0, case.t_train, facecolor='orange',
-                   alpha=0.3, zorder=-100,
-                   label='Train')
-        ax.axvspan(case.t_train, case.t_train + case.t_val,
-                   facecolor='red', alpha=0.3, zorder=-100,
-                   label='Validation')
-        ax.axvspan(case.t_train + case.t_val,
-                   case.t_train + case.t_val + case.t_test, facecolor='navy',
-                   alpha=0.2, zorder=-100,
-                   label='Test')
-    leg = axs[0].legend(ncols=3, loc='upper center', bbox_to_anchor=(0.5, 1.5))
+    fig, axs = plt.subplots(1, len(datsets), sharex=True, sharey=True, figsize=(1.5*len(datsets), 4), layout='constrained')
+    if len(datsets) == 1:
+        axs = [axs]
+    ims = []
+    for ax, D, ttl, cmap in zip(axs, datsets, titles, cmaps):
+        if 'RMS' in ttl:
+            ims.append(ax.pcolormesh(D[0], rasterized=True, cmap=plt.get_cmap(rms_cmap), vmin=0, vmax=1))
+        else:
+            ims.append(ax.pcolormesh(D[0], rasterized=True, cmap=plt.get_cmap(cmap)))
+        ax.set(title=ttl, xticks=[], yticks=[])
+        fig.colorbar(ims[-1], ax=ax, orientation='horizontal')
+
+    def animate(ti):
+        [im.set_array(D[ti]) for im, D in zip(ims, datsets)]
+        print(f'Frame {ti + 1}/{n_frames}', flush=True, end='\r')
+        return ims
+
+    plt.close(fig)
+
+    return FuncAnimation(fig, animate, frames=n_frames)
+
+
+def plot_train_dataset(clean_data, noisy_data, t, *split_times):
+    # Visualize the training dataset
+    fig = plt.figure(figsize=(12.5, 5), layout='tight')
+    sfs = fig.subfigures(1, 2, width_ratios=[1.2, 1])
+
+    axs = sfs[0].subplots(nrows=clean_data.shape[1], ncols=1, sharex='col', sharey='row')
+
+    for axi, ax in enumerate(axs):
+        ax.plot(t, clean_data[:, axi], c='k', lw=1.2, label='Truth')
+        if noisy_data is not None:
+            ax.plot(t, noisy_data[:, axi], c='r', lw=0.4, label='Noisy data')
+        for kk, c, lbl in zip(range(1, len(split_times) + 2), ['C2', 'C1', 'C4', 'lightgray'],
+                              ['Train', 'Validation', 'Test', 'Not used']):
+            ax.axvspan(sum(split_times[:kk]), sum(split_times[:kk + 1]), facecolor=c, alpha=0.3,
+                       label=lbl + ' data')
+            ax.axvline(x=sum(split_times[:kk]), color='k', lw=0.5, dashes=[10, 5])
+        if axi == 0:
+            ax.legend(loc='lower center', ncol=10, bbox_to_anchor=(0.5, 1.0))
+    axs[-1].set(xlabel='$t/T$', xlim=[0, t[-1]]);
+
+    ax = sfs[1].add_subplot(111, projection='3d')
+    _nt = 1000
+    ax.plot(clean_data[-_nt:, 0], clean_data[-_nt:, 1], clean_data[-_nt:, 2], '.-',
+            c='k', ms=2, lw=.5, label='Truth')
+    
+    if noisy_data is not None:
+        ax.plot(noisy_data[-_nt:, 0], noisy_data[-_nt:, 1], noisy_data[-_nt:, 2], '.',
+                c='r', ms=1, label='Noisy data')
+    ax.set(xlabel='$x$', ylabel='$y$', zlabel='$z$')
+
+
+def plot_obs_timeseries(*plot_cases, zoom_window=None, add_pdf=False, t_factor=1, dims='all'):
+    """
+    Plot the time evolution of the observables in a object of class model
+    """
+
+    if not isinstance(plot_cases, (list, tuple)):
+        plot_cases = [plot_cases]
+
+
+    # Ensure dims is a list of integers
+    if dims == 'all':
+        dims = list(range(plot_cases[0].Nq))
+    elif isinstance(dims, int):
+        dims = [dims]
+    elif not isinstance(dims, (list, tuple, np.ndarray)):
+        raise ValueError(f"`dims` must be 'all', int, or list of ints. Got: {dims}")
+
+
+    fig = plt.figure(figsize=(10, 2.5*len(dims)), layout="constrained")
+    axs = fig.subplots(len(dims), 2 + add_pdf, sharey='row', sharex='col')
+    if len(dims) == 1:
+        axs = [axs]
+
+    xlabel = '$t$'
+    if t_factor != 1:
+        xlabel += '$/T$'
+
+    for plot_case in plot_cases:
+        y = plot_case.get_observable_hist()  # history of the model observables
+        lbl = plot_case.obs_labels
+
+        t_h = plot_case.hist_t / t_factor
+        if zoom_window is None:
+            zoom_window = [t_h[-1] - plot_case.t_CR, t_h[-1]]
+
+        for ii, ax in zip(dims, axs):
+            [ax[jj].plot(t_h, y[:, ii]) for jj in range(2)]
+            ax[0].set(ylabel=lbl[ii])
+            if add_pdf:
+                ax[2].hist(y[:, ii], alpha=0.5, histtype='stepfilled', bins=20, density=True, orientation='horizontal',
+                           stacked=False)
+
+        axs[-1][0].set(xlabel=xlabel, xlim=[t_h[0], t_h[-1]])
+        axs[-1][1].set(xlabel=xlabel, xlim=zoom_window)
+        if plot_case.ensemble:
+            plt.gcf().legend([f'$mi={mi}$' for mi in range(plot_case.m)], loc='center left', bbox_to_anchor=(1.0, .75),
+                             ncol=1, frameon=False)
+
+
+# def plot_parameters(plot_case):
+#     """
+#     Plot the time evolution of the parameters in a object of class model
+#     """
+
+#     colors_alpha = ['g', 'sandybrown', [0.7, 0.7, 0.87], 'b', 'r', 'gold', 'deepskyblue']
+
+#     t_h = plot_case.hist_t
+#     t_zoom = int(plot_case.t_CR / plot_case.dt)
+
+#     hist_alpha = plot_case.hist[:, -plot_case.Na:]
+#     mean_alpha = np.mean(hist_alpha, axis=-1)
+#     std_alpha = np.std(hist_alpha, axis=-1)
+
+#     fig = plt.figure(figsize=(5, 1.5*plot_case.Na), layout="constrained")
+#     axs = fig.subplots(plot_case.Na, 1, sharex='col')
+#     if isinstance(axs, plt.Axes):
+#         axs = [axs]
+
+#     axs[-1].set(xlabel='$t$', xlim=[plot_case.hist_t[0], plot_case.hist_t[-1]]);
+#     for ii, ax, p, c in zip(range(len(axs)), axs, plot_case.est_a, colors_alpha):
+#         avg, s, all_h = [xx[:, ii] for xx in [mean_alpha, std_alpha, hist_alpha]]
+#         ax.fill_between(t_h, avg + 2 * abs(s), avg - 2 * abs(s), alpha=0.2, color=c, label='2 std')
+#         ax.plot(t_h, avg, color=c, label='mean', lw=2)
+#         ax.plot(t_h, all_h, color=c, lw=1., alpha=0.3)
+#         ax.set(ylabel=plot_case.alpha_labels[p], ylim=[min(avg) - 3 * max(s), max(avg) + 3 * max(s)])
+
+
+
 
 
 if __name__ == '__main__':

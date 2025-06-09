@@ -1,13 +1,9 @@
 import sys
 import os as os
 
-path = os.path.dirname(__file__)
-sys.path.append(os.path.abspath(os.path.join(path, '..')))
-
-
 from src.models_datadriven import POD_ESN
 from src.utils import set_working_directories, load_from_mat_file, add_noise_to_flow, save_to_mat_file, save_to_pickle_file, load_from_pickle_file, save_figs_to_pdf
-from src.plot_results import plot_truth, plot_ensemble
+from src.plot_results import plot_truth, plot_ensemble, animate_flowfields
 from src.create import create_ensemble
 from src.data_assimilation import dataAssimilation_bias_blind
 
@@ -57,35 +53,6 @@ def plot_timeseries(*plot_cases, zoom_window=None, add_pdf=False, t_factor=1):
         if plot_case.ensemble:
             plt.gcf().legend([f'$mi={mi}$' for mi in range(plot_case.m)], loc='center left', bbox_to_anchor=(1.0, .75),
                              ncol=1, frameon=False)
-
-
-
-def animate_flowfields(datsets, n_frames=40, cmaps=None, titles=None, rms_cmap='Reds'):
-
-    if cmaps is None:
-        cmaps = ['viridis'] * len(datsets)
-    if titles is None:
-        titles = [f'Dataset {i+1}' for i in range(len(datsets))]
-
-    fig, axs = plt.subplots(1, len(datsets), sharex=True, sharey=True, figsize=(1.5*len(datsets), 4), layout='constrained')
-
-    ims = []
-    for ax, D, ttl, cmap in zip(axs, datsets, titles, cmaps):
-        if 'RMS' in ttl:
-            ims.append(ax.pcolormesh(D[0], rasterized=True, cmap=plt.get_cmap(rms_cmap), vmin=0, vmax=1))
-        else:
-            ims.append(ax.pcolormesh(D[0], rasterized=True, cmap=plt.get_cmap(cmap)))
-        ax.set(title=ttl, xticks=[], yticks=[])
-        fig.colorbar(ims[-1], ax=ax, orientation='horizontal')
-
-    def animate(ti):
-        [im.set_array(D[ti]) for im, D in zip(ims, datsets)]
-        print(f'Frame {ti + 1}/{n_frames}', flush=True, end='\r')
-        return ims
-
-    plt.close(fig)
-
-    return FuncAnimation(fig, animate, frames=n_frames)
 
 
 

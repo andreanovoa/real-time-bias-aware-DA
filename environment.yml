@@ -6,7 +6,8 @@ dependencies:
   - python=3.9
   - numpy
   - scipy
-  - scikit-learn
+  - scikit-optimize
+  - multiprocess
   - matplotlib
   - seaborn
   - jupyter
@@ -15,6 +16,8 @@ dependencies:
   - h5py
   - tqdm
   - requests
+  - tabulate
+  - pyts
   - pip
   - pip:
       - ipython-genutils

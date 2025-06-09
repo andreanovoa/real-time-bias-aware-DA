@@ -1,7 +1,6 @@
 import os.path
 
 import numpy as np
-from numba.cuda import local
 from src.utils import *
 from src.bias import *
 
@@ -367,7 +366,7 @@ def create_bias_training_dataset(y_raw: list, y_pp: list, ensemble,
         Nt_min += t_test
     Nt_min = min(int(Nt_min / train_ens.dt) + N_wash, y_raw[0].shape[0])
 
-    def plot_dataset(plot_data):
+    def _plot_dataset(plot_data):
         _L, _Nt, _Ndim = plot_data.shape
 
         if biased_observations:
@@ -413,7 +412,7 @@ def create_bias_training_dataset(y_raw: list, y_pp: list, ensemble,
                     else:
                         print('Loaded multi-parameter training data')
                         if plot_train_dataset:
-                            plot_dataset(plot_data=loaded_train_data['data'])
+                            _plot_dataset(plot_data=loaded_train_data['data'])
                         return loaded_train_data
             except TypeError:
                 print(f'File {filename} type = {type(loaded_train_data)} is not dict')
@@ -535,7 +534,7 @@ def create_bias_training_dataset(y_raw: list, y_pp: list, ensemble,
         save_to_pickle_file(filename, train_data)
 
     if plot_train_dataset:
-        plot_dataset(plot_data=train_data['data'])
+        _plot_dataset(plot_data=train_data['data'])
 
     return train_data
 

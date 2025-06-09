@@ -606,6 +606,58 @@ def get_error_metrics(results_folder):
             save_to_pickle_file(results_folder + 'CR_data', out)
 
 
+
+
+
+def create_Lorenz63_dataset(noise_level=0.02, num_lyap_times=300, seed=0, **kwargs):
+    from src.models_physical import Lorenz63
+    # Load or create training data from the Lorenz 63 model
+    data_folder = set_working_directories('Lorenz/')[0]
+
+    model = Lorenz63(**kwargs)
+
+
+
+
+    # Default filename
+    filename = f"{''.join([f'{key}{val:.2f}_' for key, val in model.get_default_params.items()])}Nlyap{num_lyap_times}_noise{noise_level}_seed{seed}"
+
+    t_lyap = model.t_lyap
+    dt = model.dt
+    N_lyap = int(t_lyap / dt)
+
+    try:
+        dataset = load_from_mat_file(data_folder + filename)
+        print('Loaded case')
+    except FileNotFoundError:
+
+
+
+        # Create a time series from the model
+        model.create_long_timeseries(Nt=num_lyap_times * N_lyap)
+
+        # Get the model observables and time
+        t = model.hist_t
+        all_data = model.get_observable_hist()[..., 0].copy()
+        all_data_clean = all_data.copy()
+
+        # Add noise to the data
+        rng_noise = np.random.default_rng(seed)
+        U_std = np.std(all_data, axis=0)
+        for dd in range(all_data.shape[1]):
+            all_data[:, dd] += rng_noise.normal(loc=0, scale=noise_level * U_std[dd], size=all_data.shape[0])
+
+        # Save data for future use
+        dataset = dict(clean_data=all_data_clean,
+                       noisy_data=all_data,
+                       t=t,
+                       N_lyap=N_lyap)
+        save_to_mat_file(data_folder + filename, dataset)
+
+    return dataset
+
+
+
 def download_zenodo_file(download_url, data_folder='./', filename=None):
     """
     Download a file from Zenodo to the data folder if it is missing.
@@ -644,8 +696,8 @@ def download_zenodo_file(download_url, data_folder='./', filename=None):
                 if chunk:
                     f.write(chunk)
                     bar.update(len(chunk))
-        
-        unzip_file(file_path, output_folder=data_folder, remove_first_folder=True)
+        if zipfile.is_zipfile(filename):
+            unzip_file(file_path, output_folder=data_folder, remove_first_folder=True)
 
 def unzip_file(file_path, output_folder=None, remove_first_folder=True):
     """
@@ -696,4 +748,18 @@ def get_annular_data(data_folder=None):
     download_zenodo_file(f'{zenodo_dir}/README.md?download=1', data_folder)
 
     
+
+def get_circle_data(data_folder=None):
+    """
+    Download and unzip the cylindre flow data from Zenodo if not already present.
+    """
+    if data_folder is None:
+        data_folder = set_working_directories('circle/')
+
+    zenodo_dir = "https://zenodo.org/records/15623774/files/"
+    
+    download_zenodo_file(f'{zenodo_dir}/circle_re_100.mat?download=1"', data_folder, 
+                            filename='circle_re_100.mat')
+
+    download_zenodo_file(f'{zenodo_dir}/README.md?download=1', data_folder)
 
