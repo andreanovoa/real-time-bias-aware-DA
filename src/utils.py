@@ -747,19 +747,19 @@ def get_annular_data(data_folder=None):
 
     download_zenodo_file(f'{zenodo_dir}/README.md?download=1', data_folder)
 
-    
 
-def get_circle_data(data_folder=None):
+
+def get_wake_data(data_folder=None, case='circle_re_100'):
     """
-    Download and unzip the cylindre flow data from Zenodo if not already present.
+    Download and unzip the bluff bodies wake flow data from Zenodo if not already present.
     """
     if data_folder is None:
-        data_folder = set_working_directories('circle/')
+        data_folder = set_working_directories('wakes/')
 
     zenodo_dir = "https://zenodo.org/records/15623774/files/"
     
-    download_zenodo_file(f'{zenodo_dir}/circle_re_100.mat?download=1"', data_folder, 
-                            filename='circle_re_100.mat')
+    download_zenodo_file(f'{zenodo_dir}/{case}.mat?download=1"', 
+                         data_folder, filename=f'{case}.mat')
 
     download_zenodo_file(f'{zenodo_dir}/README.md?download=1', data_folder)
 

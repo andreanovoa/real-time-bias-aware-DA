@@ -11,7 +11,7 @@ sys.path.append(os.path.abspath(os.path.join(path, '..')))
 
 from src.utils import load_from_pickle_file, set_working_directories, interpolate, save_figs_to_pdf
 
-results_folder = set_working_directories('circle')[1]  
+results_folder = set_working_directories('wakes')[1]  
 
 
 from src.plot_results import *

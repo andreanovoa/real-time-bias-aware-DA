@@ -17,7 +17,7 @@ import time
 
 
 # Define woking directories
-data_folder, results_folder = set_working_directories('circle')[:2]
+data_folder, results_folder = set_working_directories('wakes')[:2]
 
 
 
