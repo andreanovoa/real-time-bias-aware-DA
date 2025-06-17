@@ -66,17 +66,15 @@ Checkout the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aw
 ## 📂 Structure
 ```
 
-yourproject/
-├── data/     # (if applicable) Data files
-├── docs/     # Doocuments and media used in the notebooks
-├── results/  # (if applicable) Any results generated will be stored here
-├── scripts/  # Includes the files which run by themselves (e.g., main files, tutorials)
+.
+├── data/              # (Generated) Data files
+├── docs/              # Doocuments and media used in the notebooks
+├── results/           # Any results generated will be stored here
+├── scripts/           # Includes the files which run by themselves (e.g., main files, tutorials)
 │   ├── mains/
-│   │   └── default_parameters/
 │   ├── post_process/ 
 │   └── tutorials/ 
-│       └── introduction/
-├── src/  # Source code including all the objects, classes and functions required in scripts
+├── src/               # Source code including all the objects, classes and functions required in scripts
 │   ├── ML_models/
 │   │   │── EchoStateNetwork.py
 │   │   └── POD.py
@@ -89,10 +87,10 @@ yourproject/
 │   ├── plot_fns.py
 │   ├── run.py
 │   └── util.py
-├── tests  # Unit tests
-├─ environment.yml # Conda environment definition
-├─ setup.py # Python package setup
-└─ README.md # This file
+├─ tests_tutorials.py    # Unit tests
+├─ environment.yml       # Conda environment definition
+├─ setup.py              # Python package setup
+└─ README.md             # This file
 
 ``` -->
 
@@ -109,7 +107,7 @@ yourproject/
 - [x] Nóvoa & Magri (2022). Real-time thermoacoustic data assimilation. Journal of Fluid Mechanics. [Published paper](https://doi.org/10.1017/jfm.2022.653) | [_Legacy_ repository](https://github.com/MagriLab/Real-time-TA-DA).
 
 ##### Conference papers and proceedings
-- [x] Nóvoa & Magri (2025). Online model learning with data-assimilated reservoir computers. [Preprint](https://doi.org/10.48550/arXiv.2504.16767).  
+- [x] Nóvoa & Magri (2025). Online model learning with data-assimilated reservoir computers. [Preprint](https://doi.org/10.48550/arXiv.2504.16767) | 🏷️ [v1.1](https://github.com/andreanovoa/real-time-bias-aware-DA/releases/tag/v1.1).
 - [x] Nóvoa & Magri (2024). Real-time digital twins of multiphysics and turbulent flows. [Paper](https://web.stanford.edu/group/ctr/ctrsp24/ii11_NOVOA.pdf).
 - [x] Nóvoa & Magri (2022). Bias-aware thermoacoustic data assimilation. In_ 51st International Congress and Exposition on Noise Control Engineering. [Paper](https://az659834.vo.msecnd.net/eventsairwesteuprod/production-inconference-public/808b4f8c38f944d188db8a326a98c65c). | [_Legacy_ repository](https://github.com/MagriLab/IN22-Bias-aware-TADA).
 
