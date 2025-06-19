@@ -1,4 +1,4 @@
-from essentials.physical_models import Lorenz63
+from essentials.models_physical import Lorenz63
 from essentials.bias_models import ESN
 import numpy as np
 
@@ -53,7 +53,7 @@ filter_params = dict(filter='EnKF',  # 'rBA_EnKF' 'EnKF' 'EnSRKF'
                      t_start=20,
                      t_stop=40.,
                      dt_obs=25,
-                     # Inflation parameters
+                     # Inflation input_parameters
                      inflation=1.00,
                      reject_inflation=1.00
                      )

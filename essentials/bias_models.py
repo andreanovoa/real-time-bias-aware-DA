@@ -10,6 +10,7 @@ class Bias:
     upsample = 1
     L = 1
     augment_data = False
+
     # Default to not perform bayesian update to state
     bayesian_update = False
     biased_observations = False
@@ -23,14 +24,19 @@ class Bias:
         self.dt = dt
         self.precision_t = int(-np.log10(dt)) + 2
 
-        # ========================= Re-DEFINE ESSENTIALS ========================== ##
-        for key, val in kwargs.items():
-            if hasattr(self, key):
-                setattr(self, key, kwargs[key])
+        # ========================= ASSIGN PROVIDED KWARGS ========================== ##
+        # for key, val in kwargs.items():
+        #     if hasattr(self, key):
+        #         setattr(self, key, kwargs[key])
+        #
+        [setattr(self, key, val) for key, val in kwargs.items() if hasattr(self, key)]
 
         # ========================== CREATE HISTORY ========================== ##
         if b.ndim == 1:
             b = np.expand_dims(b, axis=-1)
+
+        if self.biased_observations:
+            b = np.concatenate([b, b], axis=0)
 
         self.hist = np.array([b])
         self.hist_t = np.array([t])
@@ -67,7 +73,7 @@ class Bias:
         return None
 
     def print_bias_parameters(self):
-        print('\n ---------------- {} bias model parameters --------------- '.format(self.name))
+        print('\n ---------------- {} bias model input_parameters --------------- '.format(self.name))
         for key in sorted(set(self.keys_to_print)):
             if hasattr(self, key):
                 val = getattr(self, key)
@@ -133,14 +139,15 @@ class NoBias(Bias):
 
 
 class ESN(Bias, EchoStateNetwork):
-    name = 'ESN'
+    name = 'Bias_ESN'
 
-    def __init__(self, y, t, dt,
-                 biased_observations=True, **kwargs):
-        self.update_reservoir = False
+    biased_observations = True
+    update_reservoir = False
 
-        if biased_observations:
-            y = np.concatenate([y, y], axis=0)
+    wash_obs , wash_time = None, None
+
+    def __init__(self, y, t, dt, **kwargs):
+
 
 
         # --------------------------  Initialise parent Bias  ------------------------- #
@@ -148,9 +155,6 @@ class ESN(Bias, EchoStateNetwork):
 
         # --------------------  Initialise parent EchoStateNetwork  ------------------- #
         EchoStateNetwork.__init__(self, y=self.hist[0], dt=dt, **kwargs)
-
-        self.wash_obs = None
-        self.wash_time = None
 
         # Add keys to print keys
         self.keys_to_print += ['t_train', 't_val', 'N_wash', 'rho', 'sigma_in',
@@ -164,8 +168,6 @@ class ESN(Bias, EchoStateNetwork):
         self.reset_state(u=b, r=r)
 
     def update_current_state(self, b, **kwargs):
-        # self.hist[-1, self.observed_idx] = b
-
         if 'u' not in kwargs.keys():
             kwargs['u'] = b
         self.reset_state(**kwargs)
@@ -202,7 +204,7 @@ class ESN(Bias, EchoStateNetwork):
                 wash_model = interpolate(t, y, wash_t)
                 washout = wash_obs - np.mean(wash_model, axis=-1)
 
-                u_open, r_open = self.openLoop(washout, inflation=self.inflation)
+                u_open, r_open = self.openLoop(washout)
 
                 u[t1:t1 + self.N_wash + 1] = u_open
                 r[t1:t1 + self.N_wash + 1] = r_open
@@ -233,20 +235,22 @@ class ESN(Bias, EchoStateNetwork):
                          **train_data):
         data = train_data['data']
         del train_data['data']
+
+        # Set the provided input_parameters if they are already initialized
         dict_items = train_data.copy().items()
         for key, val in dict_items:
             if hasattr(self, key):
                 setattr(self, key, val)
                 del train_data[key]
-
+        #  Train the network
         self.train(data,
-              plot_training=plot_training,
-              save_ESN_training=save_ESN_training,
-              folder=folder, **train_data)
+                   plot_training=plot_training,
+                   add_noise=train_data['add_noise'])
+        # Set trained flag
         self.trained = True
-        if self.bayesian_update:
-            self.update_history(b=np.zeros((self.N_dim, self.m)), reset=True)
-            self.initialise_state(data=data, N_ens=self.m)
+        # if self.bayesian_update:
+        #     self.update_history(b=np.zeros((self.N_dim, self.m)), reset=True)
+        #     self.initialise_state(data=data, N_ens=self.m)
 
     def get_ML_state(self, concat_reservoir_state=False):
         u, r = self.get_reservoir_state()
