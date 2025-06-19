@@ -7,31 +7,90 @@ Open-source repository for advanced data assimilation techniques, focusing on bi
 --- 
 
 ## 🚀 Getting started
-1. Install the requirements [here](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/requirements.txt).
-2. Checkout the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aware-DA/tree/main/tutorials), which includes several jupyter notebooks aiming to ease the understanding of the repository.
+
+1. **Prerequisites**
+
+- [Anaconda](https://www.anaconda.com/products/distribution) or [Miniconda](https://docs.conda.io/en/latest/miniconda.html) installed.
+
+2. **Clone the Repository**
+```
+git clone https://github.com/andreanovoa/real-time-bias-aware-DA
+cd yourproject
+```
+
+3. **Create and activate the Conda Environment** 
+```
+conda env create -f environment.yml
+conda activate real-time-da
+```
+
+4. Install the package in editable mode 
+```
+pip install -e .
+```
+
+5. (Optional) Run the tests and save the output onto a text file
+```
+pytest test_tutorials.py > test_output.txt
+```
+
+Checkout the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aware-DA/tree/main/tutorials), which includes several jupyter notebooks aiming to ease the understanding of the repository.
+
+
+
+---
 
 
 ## 🌟 What is available?
-   Data assimilation methods [`essentials.DA`](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/essentials/DA.py):
+   Data assimilation methods [`src.data_assimilation`](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/src/DA.py)
    * EnKF - ensemble Kalman filter
    * EnSRKF - ensemble square-root Kalman filter
    * rBA-EnKF - regularized bias-aware EnKF
    
-   Physical models [`essentials.models_physical`](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/essentials/models_physical.py):
+   Physical models [`src.models_physical`](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/src/models_physical.py)
    * Rijke tube model (dimensional with Galerkin projection)
    * Van der Pols
    * Lorenz63
    * Azimuthal thermoaocustics model
     
-   Bias estimators[`essentials.bias_models`](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/essentials/bias_models.py):
+   Bias estimators[`src.bias`](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/src/bias.py)
    * Echo State Network
    * NoBias
 
- <!---
- --- 
 
+---
 ## 📂 Structure
---->
+```
+
+.
+├── data/     # Data files
+├── docs/     # Documents and media used in the notebooks
+├── results/  # Any results generated will be stored here
+├── scripts/  # Includes the files which run by themselves (e.g., main files, tutorials)
+│   ├── mains/
+│   │   └── default_parameters/
+│   ├── post_process/ 
+│   └── tutorials/ 
+├── src/       # Source code including all the objects, classes and functions required in scripts
+│   ├── ML_models/
+│   │   │── EchoStateNetwork.py
+│   │   └── POD.py
+│   ├── bias.py
+│   ├── create.py   
+│   ├── DA.py
+│   ├── model.py
+│   ├── models_datadriven.py
+│   ├── models_physics.py
+│   ├── plot_fns.py
+│   ├── run.py
+│   └── util.py
+├─ tests/               # Unit tests
+├─ environment.yml      # Conda environment definition
+├─ setup.py             # Python package setup
+└─ README.md            # This file
+
+```
+
 
 
 ---
