@@ -8,11 +8,13 @@ figs_ESN
 .ipynb_checkpoints
 **/*/.ipynb_checkpoints
 .idea
-
-
+src.egg-info/
+.pytest_cache/
 
 .DS_Store
 **/.DS_Store
+test_output.txt
+
 
 **/*/ESN_case*
 

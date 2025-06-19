@@ -62,13 +62,13 @@ Checkout the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aw
    * NoBias
 
 
-<!-- ---
+---
 ## 📂 Structure
 ```
 
 .
 ├── data/              # (Generated) Data files
-├── docs/              # Doocuments and media used in the notebooks
+├── docs/              # Documents and media used in the notebooks
 ├── results/           # Any results generated will be stored here
 ├── scripts/           # Includes the files which run by themselves (e.g., main files, tutorials)
 │   ├── mains/
@@ -79,7 +79,7 @@ Checkout the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aw
 │   │   │── EchoStateNetwork.py
 │   │   └── POD.py
 │   ├── bias.py
-│   ├── create.py
+│   ├── create.py   
 │   ├── DA.py
 │   ├── model.py
 │   ├── models_datadriven.py
@@ -92,7 +92,7 @@ Checkout the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aw
 ├─ setup.py              # Python package setup
 └─ README.md             # This file
 
-``` -->
+```
 
 
 
