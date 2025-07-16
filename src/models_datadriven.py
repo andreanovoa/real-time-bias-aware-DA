@@ -656,7 +656,7 @@ class POD_ESN(ESN_model, POD):
         # __________________________ Select sensors ___________________________ #
         if self.measure_modes or skip_sensor_placement:
             self.Nq = self.N_modes
-        elif self.sensor_locations is None:
+        elif self.sensor_locations is not None:
             # self.domain_of_measurement = domain_of_measurement
             # self.down_sample_measurement = down_sample_measurement
             self.sensor_locations = self.define_sensors(N_sensors=self.Nq)
