@@ -591,8 +591,6 @@ class POD_ESN(ESN_model, POD):
                  plot_case=False,
                  pdf_file=None, 
                  skip_sensor_placement=False,
-                 domain_of_measurement = None,
-                 down_sample_measurement = None,
                  train_ESN=True,
                  **kwargs):
         """
