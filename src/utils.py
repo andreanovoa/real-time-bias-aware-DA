@@ -95,7 +95,7 @@ def add_noise_to_flow(U, V, noise_level=0.05, noise_type="gauss", spatial_smooth
 
 
 
-def set_working_directories(subfolder=''):
+def set_working_directories(subfolder='', root=None):
     
     tutorial = 'tutorials' in os.getcwd()
 
@@ -110,7 +110,11 @@ def set_working_directories(subfolder=''):
                 dir_path = parent
 
     # Find the project root directory
-    project_root = find_root(os.getcwd()) 
+    if root is not None:
+        project_root = root
+    else:
+        # Find the project root directory
+        project_root = find_root(os.getcwd()) 
     if project_root is None:
         raise FileNotFoundError("Project root directory not found. Ensure you are in the correct directory structure.")
 

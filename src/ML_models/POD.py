@@ -212,16 +212,37 @@ class POD:
         if Q_mean is None:
             Q_mean = self.Q_mean
 
-        Phi = np.atleast_2d(Phi)
-        if Phi.shape[-2] != self.N_modes:
-            if Phi.ndim > 2:
-                shape_array = np.array(Phi.shape)
-                i_mode = np.argwhere(shape_array == self.N_modes)[0][0]
-                i_m = np.argwhere(shape_array == self.m)[0][0]
-                i_Nt = [ii for ii in np.arange(Phi.ndim) if ii not in [i_m, i_mode]][0]
-                Phi = Phi.transpose(i_Nt, i_mode, i_m)
+        # Ensure Psi and Phi are in the correct shape
+        # Phi = Phi.squeeze()
+        if Phi.ndim < 2:
+            Phi = Phi.reshape(self.N_modes, -1)
+
+        # elif Phi.ndim == 2:
+        #     if Phi.shape[0] != self.N_modes:
+        #         Phi = Phi.transpose(1, 0)
+        
+        elif Phi.shape[-2] != self.N_modes: 
+            shape_array = np.array(Phi.shape)
+            i_mode = np.argwhere(shape_array == self.N_modes)[0]
+            if len(i_mode) > 1:
+                raise ValueError(f'Unsure about the dimensions.')
             else:
-                Phi = Phi.transpose()
+                # Shft the order of dimensions to ensure the modes are in the second to last dimension
+                i_mode = i_mode[0]
+                print(f'Changing the order of dimensions to ensure modes are in the second to last dimension: {i_mode}, {shape_array}--{Phi.shape}')
+
+                new_order = np.arange(Phi.ndim)
+                new_order[-2] = i_mode
+                new_order[i_mode] = Phi.ndim - 2
+
+
+                Phi = Phi.transpose(new_order)
+
+            # shape_array = np.array(Phi.shape)
+            # i_mode = np.argwhere(shape_array == self.N_modes)[0][0]
+            # i_m = np.argwhere(shape_array == self.m)[0][0]
+            # i_Nt = [ii for ii in np.arange(Phi.ndim) if ii not in [i_m, i_mode]][0]
+            # Phi = Phi.transpose(i_Nt, i_mode, i_m)
 
         assert Phi.shape[-2] == self.N_modes, f'Phi must have {self.N_modes} modes.'
 
@@ -230,11 +251,12 @@ class POD:
 
         Sigma = np.reshape(self.Sigma, newshape=new_shape)
 
-        new_shape = list(np.ones(Phi.ndim, dtype=int))
-        new_shape[0] = Q_mean.shape[0]
-        Q_mean = np.reshape(Q_mean, newshape=new_shape)
 
         Q_POD = np.dot(Psi, Sigma * Phi)
+        
+        if Q_POD.ndim > Q_mean.ndim:
+            Q_mean = Q_mean[..., np.newaxis]
+        
         reconstructed_data = Q_mean + Q_POD
 
         if reshape:
