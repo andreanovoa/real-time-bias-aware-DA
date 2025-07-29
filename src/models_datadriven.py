@@ -692,7 +692,7 @@ class POD_ESN(ESN_model, POD):
 
     def get_POD_coefficients(self, Nt=1):
         if Nt == 1:
-            Phi = self.hist[[-1], :self.N_modes]
+            Phi = self.hist[-1, :self.N_modes]
         else:
             Phi = self.hist[-Nt:, :self.N_modes]
         return Phi

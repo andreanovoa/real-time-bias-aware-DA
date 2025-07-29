@@ -3,6 +3,7 @@ import os as os
 import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib.pyplot as plt
+from src.models_datadriven import POD_ESN
 
 
 path = os.path.dirname(__file__)
@@ -96,6 +97,55 @@ def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False, plot_e
 
 
 
+def plot_initial_case(case, 
+                      X_train,
+                      X_train_true,
+                      figs_folder=None,
+                      name='initial_case'):
+    
+    original_data = X_train[..., -1]
+    true_data = X_train_true[..., -1]
+
+    POD_ESN.plot_case(case, 
+                      datasets=[original_data, true_data],
+                      names=['data', 'truth'],
+                      )
+    case.plot_Wout()
+    plot_ensemble(case, 
+                  max_modes=10)
+
+    # Visualize the time evolution of the physical states
+    # Forecast the ensemble
+    def view_ensemble(ens):
+        ens = ens.copy()
+        psi, t = ens.time_integrate(Nt=500)
+        ens.update_history(psi, t, reset=True)
+
+        # Visualize the time evolution of the physical states
+        plot_obs_timeseries(ens, zoom_window=[1.5, 2.5], dims=[0,1,2])
+
+    view_ensemble(case)
+
+    if figs_folder is not None:
+        save_figs_to_pdf(figs_folder+f'{name}.pdf')
+
+
+
+
+def set_sensors(case, n_sensors=0):
+
+    model = case.copy()
+
+    if N_sensors > 0:
+        model.reset_sensors(N_sensors=n_sensors,
+                            domain_of_measurement=[-1, 1,4,7], 
+                            down_sample_measurement=(10, 40),
+                            qr_selection=True
+                            )
+    else:
+        model.reset_sensors(measure_modes=True)
+
+    return model
 
 
 

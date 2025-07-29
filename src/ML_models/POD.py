@@ -760,7 +760,7 @@ class POD:
             X1_r, X2_r = X1.ravel(), X2.ravel()
             idx = case.sensor_locations[case.sensor_locations < len(X1.ravel())]
             dom = case.domain_of_measurement
-            display_dom = case.domain != case.domain_of_measurement
+            display_dom = case.domain != case.domain_of_measurement and dom is not None
         else:
             display_sensors = False
 

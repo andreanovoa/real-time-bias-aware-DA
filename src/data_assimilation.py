@@ -17,7 +17,8 @@ def dataAssimilation(ensemble, y_obs, t_obs, std_obs=0.2, Nt_extra=None, **kwarg
     y_obs = y_obs.copy()
     # Print simulation input_parameters ##
     ensemble.print_model_parameters()
-    ensemble.bias.print_bias_parameters()
+    if ensemble.bias is not None:
+        ensemble.bias.print_bias_parameters()
     print_DA_parameters(ensemble, t_obs)
 
     # FORECAST UNTIL FIRST OBS ##

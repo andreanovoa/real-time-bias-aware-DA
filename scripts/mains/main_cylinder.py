@@ -68,7 +68,7 @@ def load_cylinder_dataset(noise_type = 'gauss', noise_level = 0.1, smoothing = 0
     if not os.path.exists(data_name):
 
         # Load dataset
-        mat = load_from_mat_file(data_folder + 'circle_data.mat')
+        mat = load_from_mat_file(data_folder + 'circle_re_100.mat')
 
         U, V = [mat[key] for key in ['ux', 'uy']]  # Nu, Nt, Ny, Nx 
         U[np.isnan(U)] = 0.
@@ -333,7 +333,7 @@ if __name__ == '__main__':
     sys.stdout = sys.__stdout__
     print("This text appears in the terminal")
 
-    from post_processing.cylinder import plot_loop_Nt_obs
+    from src.post_processing.cylinder import plot_loop_Nt_obs
 
     plot_loop_Nt_obs(results_folder,
                     run_name=run_name,

@@ -96,18 +96,21 @@ def add_noise_to_flow(U, V, noise_level=0.05, noise_type="gauss", spatial_smooth
 
 
 def set_working_directories(subfolder='', root=None):
+    if subfolder[-1] != '/':
+        subfolder += '/'
+
     
     tutorial = 'tutorials' in os.getcwd()
 
     def find_root(start_dir):
-            dir_path = os.path.abspath(start_dir)
-            while True:
-                if 'src' in os.listdir(dir_path) and 'scripts' in os.listdir(dir_path):
-                    return dir_path
-                parent = os.path.dirname(dir_path)
-                if parent == dir_path:  # Reached system root
-                    return None
-                dir_path = parent
+        dir_path = os.path.abspath(start_dir)
+        while True:
+            if 'src' in os.listdir(dir_path) and 'scripts' in os.listdir(dir_path):
+                return dir_path
+            parent = os.path.dirname(dir_path)
+            if parent == dir_path:  # Reached system root
+                return None
+            dir_path = parent
 
     # Find the project root directory
     if root is not None:
@@ -767,3 +770,48 @@ def get_wake_data(data_folder=None, case='circle_re_100'):
 
     download_zenodo_file(f'{zenodo_dir}/README.md?download=1', data_folder)
 
+
+
+
+
+def load_cylinder_dataset(noise_type = 'gauss', noise_level = 0.1, smoothing = 0.1, root_folder= None):
+
+    data_folder, results_folder = set_working_directories('wakes/', root=root_folder)[:2]
+
+
+
+    new_dir = f'{results_folder}/data_noise{noise_level}{noise_type}_smoothing{smoothing}/'
+
+
+    os.makedirs(new_dir, exist_ok=True)
+
+    data_name = f'{new_dir}00_data.mat'
+
+    if not os.path.exists(data_name):
+
+        # Load dataset
+        mat = load_from_mat_file(data_folder + 'circle_re_100.mat')
+
+        U, V = [mat[key] for key in ['ux', 'uy']]  # Nu, Nt, Ny, Nx 
+        U[np.isnan(U)] = 0.
+        V[np.isnan(V)] = 0.
+
+        U_noisy, V_noisy = add_noise_to_flow(U, V, 
+                                            noise_level=noise_level, 
+                                            noise_type=noise_type, 
+                                            spatial_smooth=smoothing)
+
+        all_data = np.array([U, V])                     # Nu, Nt, Ny, Nx
+        all_data_noisy = np.array([U_noisy, V_noisy])   # Nu, Nt, Ny, Nx
+
+        #  Change order of dimensions
+        all_data = all_data.transpose(1, 2, 3, 0)               # Nt, Nx, Ny, Nu
+        all_data_noisy = all_data_noisy.transpose(1, 2, 3, 0)   # Nt, Nx, Ny, Nu
+
+        save_to_mat_file(data_name, dict(all_data=all_data,
+                                         all_data_noisy=all_data_noisy))
+    else:
+        dataset = load_from_mat_file(data_name)
+        all_data, all_data_noisy = [dataset[key] for key in ['all_data', 'all_data_noisy']]
+
+    return all_data, all_data_noisy, new_dir
