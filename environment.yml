@@ -17,6 +17,7 @@ dependencies:
   - tqdm
   - requests
   - tabulate
+  - pytest
   - pyts
   - pip
   - pip:

@@ -31,7 +31,7 @@ pip install -e .
 
 5. (Optional) Run the tests and save the output onto a text file
 ```
-pytest test_tutorials.py > test_output.txt
+pytest -s --log-cli-level=INFO test_tutorials.py >> test_output.txt 2>&1
 ```
 
 Checkout the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aware-DA/tree/main/tutorials), which includes several jupyter notebooks aiming to ease the understanding of the repository.
