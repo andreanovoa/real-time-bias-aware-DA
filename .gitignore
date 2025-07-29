@@ -18,7 +18,7 @@ test_output.txt
 
 **/*/ESN_case*
 
-src.egg*
+*.egg*
 test_out*
 
 __pycache__
