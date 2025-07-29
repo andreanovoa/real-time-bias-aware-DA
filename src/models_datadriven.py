@@ -656,7 +656,7 @@ class POD_ESN(ESN_model, POD):
         # __________________________ Select sensors ___________________________ #
         if self.measure_modes or skip_sensor_placement:
             self.Nq = self.N_modes
-        elif self.sensor_locations is not None:
+        elif self.sensor_locations is None:
             # self.domain_of_measurement = domain_of_measurement
             # self.down_sample_measurement = down_sample_measurement
             self.sensor_locations = self.define_sensors(N_sensors=self.Nq)
@@ -694,7 +694,7 @@ class POD_ESN(ESN_model, POD):
 
     def get_POD_coefficients(self, Nt=1):
         if Nt == 1:
-            Phi = self.hist[-1, :self.N_modes]
+            Phi = self.hist[[-1], :self.N_modes]
         else:
             Phi = self.hist[-Nt:, :self.N_modes]
         return Phi
@@ -707,9 +707,16 @@ class POD_ESN(ESN_model, POD):
             Q_mean = self.Q_mean[self.sensor_locations]
             if Phi is None:
                 Phi = self.get_POD_coefficients(Nt=Nt)
-            obs = self.reconstruct(Phi=Phi, Psi=Psi, Q_mean=Q_mean, reshape=False)
+
+            obs = self.reconstruct(Phi=Phi, 
+                                   Psi=Psi, 
+                                   Q_mean=Q_mean, 
+                                   reshape=False)
+            if obs.ndim == 4:
+                obs = obs[0]
             if obs.ndim == 3:
                 obs = obs.transpose(1, 0, 2)
+            
         return obs
 
     def reset_case(self, reset_POD=False, reset_ESN=False, Phi0=None, **kwargs):

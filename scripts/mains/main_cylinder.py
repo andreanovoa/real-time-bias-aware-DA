@@ -333,7 +333,7 @@ if __name__ == '__main__':
     sys.stdout = sys.__stdout__
     print("This text appears in the terminal")
 
-    from post_process_circle import plot_loop_Nt_obs
+    from post_processing.cylinder import plot_loop_Nt_obs
 
     plot_loop_Nt_obs(results_folder,
                     run_name=run_name,
