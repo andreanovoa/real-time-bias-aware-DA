@@ -797,6 +797,10 @@ def load_cylinder_dataset(noise_type = 'gauss', noise_level = 0.1, smoothing = 0
 
     if not os.path.exists(data_name):
 
+        if not os.path.exists(data_folder + 'circle_re_100.mat'):
+            # Download the dataset if it does not exist
+            get_wake_data(data_folder, case='circle_re_100')
+            
         # Load dataset
         mat = load_from_mat_file(data_folder + 'circle_re_100.mat')
 

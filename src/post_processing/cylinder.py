@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib.pyplot as plt
 from src.models_datadriven import POD_ESN
+from src.plot_results import plot_parameters
 
 
 path = os.path.dirname(__file__)
@@ -12,7 +13,7 @@ sys.path.append(os.path.abspath(os.path.join(path, '..')))
 
 from src.utils import load_from_pickle_file, set_working_directories, interpolate, save_figs_to_pdf
 
-results_folder = set_working_directories('wakes')[1]  
+# results_folder = set_working_directories('wakes')[1]  
 
 
 from src.plot_results import *
@@ -24,36 +25,45 @@ from src.utils import  load_from_pickle_file, save_to_pickle_file
 def plot_timeseries(filter_ens, truth, 
                     plot_states=True,
                     plot_ensemble_members=False,
-                    filename=None, reference_y=1., reference_t=1., max_time=None, dims='all'):
+                    filename=None, reference_y=1., 
+                    reference_t=1., max_time=None, dims='all'):
+    
     def interpolate_obs(truth, t):
-        return interpolate(truth['t'], truth['y_raw'], t), interpolate(truth['t'], truth['y_true'], t)
+        return (interpolate(truth['t'], truth['y_raw'], t), 
+                interpolate(truth['t'], truth['y_true'], t))
     
     def normalize(*arrays, factor):
         return [arr / factor for arr in arrays]
 
     
     t_obs, obs = truth['t_obs'], truth['y_obs']
-    y_filter, t = filter_ens.get_observable_hist(), filter_ens.hist_t
+    y_filter, t_hist = filter_ens.get_observable_hist(), filter_ens.hist_t
+
     y_mean = np.mean(y_filter, -1, keepdims=True)
     Nq = filter_ens.Nq
     dims = range(Nq) if dims == 'all' else dims
     
     N_CR = int(filter_ens.t_CR // filter_ens.dt)
-    max_time = min(truth['t_obs'][-1] + filter_ens.t_CR, t[-1]) if max_time is None else max_time
-    i0, i1 = [np.argmin(abs(t - ttt)) for ttt in [truth['t_obs'][0], max_time]]
-    y_filter, y_mean, t = (yy[i0 - N_CR:i1 + N_CR] for yy in [y_filter, y_mean, t])
+
+    max_time = min(truth['t_obs'][-1] + filter_ens.t_CR, t_hist[-1]) if max_time is None else max_time
+    
+    i0, i1 = [np.argmin(abs(t_hist - ttt)) for ttt in [truth['t_obs'][0], max_time]]
+    y_filter, y_mean, t_hist = (yy[i0 - N_CR:i1 + N_CR] for yy in [y_filter, y_mean, t_hist])
     
     if filter_ens.bias is not None:
         b, t_b = filter_ens.bias.get_bias(state=filter_ens.bias.hist), filter_ens.bias.hist_t
-        y_unbiased = recover_unbiased_solution(t_b, b, t, y_mean, upsample=hasattr(filter_ens.bias, 'upsample'))
+        y_unbiased = recover_unbiased_solution(t_b, b, t_hist, y_mean, 
+                                               upsample=hasattr(filter_ens.bias, 'upsample'))
     else:
         b, t_b, y_unbiased = None, None, None
     
-    y_raw, y_true = interpolate_obs(truth, t)
+    y_raw, y_true = interpolate_obs(truth, t_hist)
     
     t_wash, wash = truth.get('wash_t', 0.), truth.get('wash_obs', np.zeros_like(obs))
     t_label = '$t$ [s]' if reference_t == 1. else '$t/T$'
-    t, t_obs, max_time, t_wash = normalize(t, t_obs, max_time, t_wash, factor=reference_t)
+
+
+    t_hist, t_obs, max_time, t_wash = normalize(t_hist, t_obs, max_time, t_wash, factor=reference_t)
     if t_b is not None:
         t_b = t_b / reference_t
     
@@ -61,20 +71,20 @@ def plot_timeseries(filter_ens, truth,
     if y_unbiased is not None:
         y_unbiased = y_unbiased / reference_y
     
-    margin, max_y, min_y = 0.15 * np.mean(abs(y_raw)), np.max(y_raw), np.min(y_raw)
-    y_lims, x_lims = [min_y - margin, max_y + margin], [[t[0], max_time], [t_obs[-1] - filter_ens.t_CR, max_time]]
+    margin, max_y, min_y = 0.15 * np.mean(abs(y_true)), np.max(y_true), np.min(y_true)
+    y_lims, x_lims = [min_y - margin, max_y + margin], [[t_hist[0], max_time], [t_obs[-1] - filter_ens.t_CR, max_time]]
     
     def plot_series(true, ref, axs, xlim, lbls):
         for qi, ax in enumerate(axs):
-            ax.plot(t, true[:, qi], label=lbls[0], **true_props)
+            ax.plot(t_hist, true[:, qi], label=lbls[0], **true_props)
             
             m = np.mean(ref[:, qi], axis=-1)
-            ax.plot(t, m, **y_biased_mean_props, label=lbls[1])
+            ax.plot(t_hist, m, **y_biased_mean_props, label=lbls[1])
             if plot_ensemble_members:
-                ax.plot(t, ref[:, qi], **y_biased_props)
+                ax.plot(t_hist, ref[:, qi], **y_biased_props)
             else:
                 s = np.std(ref[:, qi], axis=-1)
-                ax.fill_between(t, m + s, m - s, alpha=0.5, color=y_biased_props['color'])
+                ax.fill_between(t_hist, m + s, m - s, alpha=0.5, color=y_biased_props['color'])
 
             ax.plot(t_obs, obs[:, qi], label='data', **obs_props)
 
@@ -82,24 +92,41 @@ def plot_timeseries(filter_ens, truth,
                 ax.plot(t_wash, wash[:, qi], **obs_props)
 
             plot_DA_window(t_obs, ax, ens=filter_ens)
-            ax.set(ylim=y_lims, xlim=xlim)
+            ax.set(xlim=xlim)
 
             if qi == 0:
                 ax.legend(loc='lower left', bbox_to_anchor=(0.1, 1.1), ncol=5, fontsize='small')
         axs[-1].set(xlabel=t_label) 
     
     if plot_states:
-        fig1, fig1_axs = plt.subplots(len(dims), 2, figsize=(8, 1.5 * len(dims)), layout="constrained", sharex='col', sharey='row')
+        fig1, fig1_axs = plt.subplots(len(dims), 2, figsize=(8, 1.5 * len(dims)), layout="constrained", 
+                                      sharex='col', sharey='row')
         if Nq == 0:
             fig1_axs = fig1_axs[np.newaxis, :]
 
         for axx, xl in zip(fig1_axs.T, x_lims):
-            plot_series(axs=axx, true=y_raw, ref=y_filter, xlim=xl, lbls=['True', 'Model estimate'])
+            plot_series(axs=axx, true=y_true, ref=y_filter, xlim=xl, lbls=['True', 'Model estimate'])
 
         if filename:
             plt.savefig(filename + '.svg', dpi=350)
             plt.close()
 
+
+
+
+# Visualize the time evolution of the physical states
+# Forecast the ensemble
+def view_ensemble(ens):
+    ens = ens.copy()
+    psi, t = ens.time_integrate(Nt=500)
+    ens.update_history(psi, t, reset=True)
+
+    # Visualize the time evolution of the physical states
+    plot_obs_timeseries(ens, zoom_window=[1.5, 2.5], dims=[0,1,2])
+
+
+    if ens.Na > 0:
+        plot_parameters(ens, plot_ensemble_members=True)
 
 
 def plot_initial_case(case, 
@@ -118,16 +145,6 @@ def plot_initial_case(case,
     case.plot_Wout()
     plot_ensemble(case, 
                   max_modes=10)
-
-    # Visualize the time evolution of the physical states
-    # Forecast the ensemble
-    def view_ensemble(ens):
-        ens = ens.copy()
-        psi, t = ens.time_integrate(Nt=500)
-        ens.update_history(psi, t, reset=True)
-
-        # Visualize the time evolution of the physical states
-        plot_obs_timeseries(ens, zoom_window=[1.5, 2.5], dims=[0,1,2])
 
     view_ensemble(case)
 
