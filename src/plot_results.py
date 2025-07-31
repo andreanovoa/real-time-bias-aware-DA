@@ -1550,35 +1550,6 @@ def print_parameter_results(ensembles, true_values=None):
     print(tabulate(tabular_data=rows, headers=headers))
 
 
-def animate_flowfields(datsets, n_frames=40, cmaps=None, titles=None, rms_cmap='Reds'):
-
-    if cmaps is None:
-        cmaps = ['viridis'] * len(datsets)
-    if titles is None:
-        titles = [f'Dataset {i+1}' for i in range(len(datsets))]
-
-    fig, axs = plt.subplots(1, len(datsets), sharex=True, sharey=True, figsize=(1.5*len(datsets), 4), layout='constrained')
-    if len(datsets) == 1:
-        axs = [axs]
-    ims = []
-    for ax, D, ttl, cmap in zip(axs, datsets, titles, cmaps):
-        if 'RMS' in ttl:
-            ims.append(ax.pcolormesh(D[0], rasterized=True, cmap=plt.get_cmap(rms_cmap), vmin=0, vmax=1))
-        else:
-            ims.append(ax.pcolormesh(D[0], rasterized=True, cmap=plt.get_cmap(cmap)))
-        ax.set(title=ttl, xticks=[], yticks=[])
-        fig.colorbar(ims[-1], ax=ax, orientation='horizontal')
-
-    def animate(ti):
-        [im.set_array(D[ti]) for im, D in zip(ims, datsets)]
-        print(f'Frame {ti + 1}/{n_frames}', flush=True, end='\r')
-        return ims
-
-    plt.close(fig)
-
-    return FuncAnimation(fig, animate, frames=n_frames)
-
-
 def plot_train_dataset(clean_data, noisy_data, t, *split_times):
     # Visualize the training dataset
     fig = plt.figure(figsize=(12.5, 5), layout='tight')

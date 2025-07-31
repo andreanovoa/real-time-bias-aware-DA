@@ -25,6 +25,13 @@ import glob
 import contextlib
 from PIL import Image
 
+
+from IPython.display import Image, display
+
+from matplotlib.animation import FuncAnimation
+
+
+
 rng = np.random.default_rng(6)
 
 
@@ -774,7 +781,8 @@ def get_wake_data(data_folder=None, case='circle_re_100'):
 
 
 
-def load_cylinder_dataset(noise_type = 'gauss', noise_level = 0.1, smoothing = 0.1, root_folder= None):
+def load_cylinder_dataset(noise_type = 'gauss', noise_level = 0.1, smoothing = 0.1, 
+                          root_folder= None, visualize=False):
 
     data_folder, results_folder = set_working_directories('wakes/', root=root_folder)[:2]
 
@@ -814,4 +822,67 @@ def load_cylinder_dataset(noise_type = 'gauss', noise_level = 0.1, smoothing = 0
         dataset = load_from_mat_file(data_name)
         all_data, all_data_noisy = [dataset[key] for key in ['all_data', 'all_data_noisy']]
 
+    if visualize:
+        visualize_flow_data(all_data, all_data_noisy, simulation_dir=new_dir)
+
+
     return all_data, all_data_noisy, new_dir
+
+
+
+
+
+
+def visualize_flow_data(X_true, X_noisy, simulation_dir=''):
+    """
+    Visualize the true and noisy flow fields.
+    
+    Parameters:
+    - X_true: True flow field data.
+    - X_noisy: Noisy flow field data.
+    - simulation_dir: Directory to save the GIF.
+    """
+
+    # Define the GIF name
+
+    gif_name = f'{simulation_dir}00_data.gif'
+
+    # Visualize the flow fields
+    if not os.path.exists(gif_name):
+        anim = animate_flowfields([X_true[...,0],X_true[...,1], X_noisy[...,0], X_noisy[...,1]], 
+                                titles=['$u_x$', '$u_y$', '$\\tilde{u}_x$', '$\\tilde{u}_y$'], n_frames=20)
+        anim.save(gif_name)
+
+    # Display in notebook
+    display(Image(filename=gif_name))
+
+
+
+
+def animate_flowfields(datsets, n_frames=40, cmaps=None, titles=None, rms_cmap='Reds'):
+
+    if cmaps is None:
+        cmaps = ['viridis'] * len(datsets)
+    if titles is None:
+        titles = [f'Dataset {i+1}' for i in range(len(datsets))]
+
+    fig, axs = plt.subplots(1, len(datsets), sharex=True, sharey=True, figsize=(1.5*len(datsets), 4), layout='constrained')
+    if len(datsets) == 1:
+        axs = [axs]
+    ims = []
+    for ax, D, ttl, cmap in zip(axs, datsets, titles, cmaps):
+        if 'RMS' in ttl:
+            ims.append(ax.pcolormesh(D[0], rasterized=True, cmap=plt.get_cmap(rms_cmap), vmin=0, vmax=1))
+        else:
+            ims.append(ax.pcolormesh(D[0], rasterized=True, cmap=plt.get_cmap(cmap)))
+        ax.set(title=ttl, xticks=[], yticks=[])
+        fig.colorbar(ims[-1], ax=ax, orientation='horizontal')
+
+    def animate(ti):
+        [im.set_array(D[ti]) for im, D in zip(ims, datsets)]
+        print(f'Frame {ti + 1}/{n_frames}', flush=True, end='\r')
+        return ims
+
+    plt.close(fig)
+
+    return FuncAnimation(fig, animate, frames=n_frames)

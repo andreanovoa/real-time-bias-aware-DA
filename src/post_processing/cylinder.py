@@ -18,7 +18,12 @@ results_folder = set_working_directories('wakes')[1]
 from src.plot_results import *
 
 
-def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False, plot_ensemble_members=False,
+from src.utils import  load_from_pickle_file, save_to_pickle_file
+
+
+def plot_timeseries(filter_ens, truth, 
+                    plot_states=True,
+                    plot_ensemble_members=False,
                     filename=None, reference_y=1., reference_t=1., max_time=None, dims='all'):
     def interpolate_obs(truth, t):
         return interpolate(truth['t'], truth['y_raw'], t), interpolate(truth['t'], truth['y_true'], t)
@@ -569,6 +574,41 @@ def plot_converged_parameters(results_folder,
 
     save_figs_to_pdf(pdf_name=f'{dir}Converged_parameters.pdf')
 
+
+
+def set_case_name(folder, N_modes, N_units, Ntrain):
+    return f'{folder}POD{N_modes}_ESN{N_units}_Ntrain{Ntrain}'
+
+
+def load_POD_ESN_case(X_train, folder, N_modes=4, N_units=40, case_filename=None):
+
+    if case_filename is None:
+        case_filename = set_case_name(folder, N_modes, N_units, Ntrain=100)
+
+    if os.path.isfile(case_filename):
+        _case = load_from_pickle_file(case_filename)
+        print('Loaded case')
+    else:
+        _case = POD_ESN(data=X_train,
+                        N_modes=N_modes, 
+                        N_units=N_units, 
+                        domain=[-2, 2, 0, 12],
+                        rho_range = (.2, 1.05), 
+                        figs_folder=results_folder, 
+                        skip_sensor_placement=True,
+                        pdf_file=case_filename,
+                        t_val=t_val,
+                        t_train=t_train,
+                        dt = dt,
+                        t_test=0.
+                        )
+        _case.name = case_filename
+
+        save_to_pickle_file(case_filename, _case)
+
+    return _case
+
+
 if __name__ == "__main__":
     # pass
 
@@ -608,3 +648,5 @@ if __name__ == "__main__":
 
 
     # plt.show()
+
+    
