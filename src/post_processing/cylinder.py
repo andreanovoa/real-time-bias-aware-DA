@@ -580,7 +580,7 @@ def set_case_name(folder, N_modes, N_units, Ntrain):
     return f'{folder}POD{N_modes}_ESN{N_units}_Ntrain{Ntrain}'
 
 
-def load_POD_ESN_case(X_train, folder, N_modes=4, N_units=40, case_filename=None):
+def load_POD_ESN_case(X_train, folder, N_modes=4, N_units=40, case_filename=None, **kwargs):
 
     if case_filename is None:
         case_filename = set_case_name(folder, N_modes, N_units, Ntrain=100)
@@ -590,23 +590,28 @@ def load_POD_ESN_case(X_train, folder, N_modes=4, N_units=40, case_filename=None
         print('Loaded case')
     else:
         _case = POD_ESN(data=X_train,
-                        N_modes=N_modes, 
-                        N_units=N_units, 
-                        domain=[-2, 2, 0, 12],
-                        rho_range = (.2, 1.05), 
-                        figs_folder=results_folder, 
-                        skip_sensor_placement=True,
-                        pdf_file=case_filename,
-                        t_val=t_val,
-                        t_train=t_train,
-                        dt = dt,
-                        t_test=0.
-                        )
+                        **kwargs)
         _case.name = case_filename
 
         save_to_pickle_file(case_filename, _case)
 
     return _case
+
+
+def set_sensors(case, n_sensors=0):
+
+    model = case.copy()
+
+    if n_sensors > 0:
+        model.reset_sensors(N_sensors=n_sensors,
+                            domain_of_measurement=[-1, 1,4,7], 
+                            down_sample_measurement=(10, 40),
+                            qr_selection=True
+                            )
+    else:
+        model.reset_sensors(measure_modes=True)
+
+    return model
 
 
 if __name__ == "__main__":
