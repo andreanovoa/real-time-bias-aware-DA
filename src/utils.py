@@ -824,6 +824,7 @@ def load_cylinder_dataset(noise_type = 'gauss', noise_level = 0.1, smoothing = 0
                                          all_data_noisy=all_data_noisy))
     else:
         dataset = load_from_mat_file(data_name)
+        print(dataset.keys())
         all_data, all_data_noisy = [dataset[key] for key in ['all_data', 'all_data_noisy']]
 
     if visualize:

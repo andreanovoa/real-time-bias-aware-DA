@@ -19,6 +19,7 @@ dependencies:
   - tabulate
   - pytest
   - pyts
+  - numba
   - pip
   - pip:
       - ipython-genutils
