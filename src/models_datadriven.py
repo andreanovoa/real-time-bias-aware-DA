@@ -29,10 +29,8 @@ class ESN_model(EchoStateNetwork, Model):
     name: str = 'ESN_model'
     figs_folder: str = 'figs/ESN_model/'
 
-
     update_reservoir = True
     update_state = True
-
 
     Wout_svd = False
 
@@ -57,14 +55,13 @@ class ESN_model(EchoStateNetwork, Model):
     sigma_in_range = (np.log10(0.5), np.log10(50.))
     tikh_range = [1E-6, 1E-9, 1E-12]
 
-
-
     extra_print_params = ['rho', 'sigma_in', 'N_units', 'N_wash', 'upsample', 
                           'update_reservoir', 'update_state']
 
 
     def __init__(self,
                  data,
+                 dt,
                  plot_training=True, 
                  **kwargs):
         """
@@ -73,37 +70,38 @@ class ESN_model(EchoStateNetwork, Model):
         - psi0: initial state of the ESN prediction (not including the reservoir state).
         - plot_training: whether to plot or not the training data and training convergence.
         """
+
+        self.dt = dt
+
         # Increase ndim if there is only one set of parameters
         if data.ndim == 1:
             data = data[np.newaxis, :, np.newaxis]
         elif data.ndim == 2:
             data = data[np.newaxis, :]
         
+
         # Check that the times are provided and not in time steps
         Nt = data.shape[1]
         for key in ["train", "val", "test"]:
             if f"N_{key}" in kwargs: 
                 setattr(self, f"t_{key}", kwargs.pop(f"N_{key}") * self.dt)
+                # print('setting t_{key} to {getattr(self, f"t_{key}")}, self.dt={self.dt}')s
 
+        # Set other ESN_model attributes provided
         for key in list(kwargs.keys()):
             if key in vars(ESN_model):
                 setattr(self, key, kwargs.pop(key))
 
-
+        # _________________________ Set time attributes _________________________ #
         t_total = Nt * self.dt
         self.t_train = self.t_train or t_total * 0.8
         self.t_val = self.t_val or self.t_train * 0.2
+
         if self.perform_test:
             self.t_test = self.t_test or t_total - self.t_train - self.t_val
 
         assert abs((ts := sum([self.t_train, self.t_val, self.t_test])) - t_total) <= self.dt / 2., \
             f"t_train + t_val + t_test {ts} <= t_total {t_total}"
-
-        # Assign attributes in kwarg
-        # model_dict = kwargs.copy()
-        # for key in kwargs.keys():
-        #     if hasattr(ESN_model, key):
-        #         setattr(self, key, model_dict.pop(key))
 
 
         # _________________________ Init EchoStateNetwork _______________________ #
@@ -166,11 +164,10 @@ class ESN_model(EchoStateNetwork, Model):
         # print(f'[ESN_model] after M.shape={self.M.shape}')
 
         return 
-
+    
 
     @property
     def alpha_labels(self):
-       
         if not hasattr(self, 'est_a'):
             return  dict()
         else:
@@ -278,9 +275,6 @@ class ESN_model(EchoStateNetwork, Model):
     # ______________________ Changed EchoStateNetwork class attributes ______________________ #
 
 
-    
-
-
     def initialise_state(self, data, N_ens=1, seed=0):
         if hasattr(self, 'seed'):
             seed = self.seed
@@ -292,13 +286,8 @@ class ESN_model(EchoStateNetwork, Model):
         if data.shape[0] == 1:
             dim_ids = [0] * N_ens
         else:
-            # if N_ens > data.shape[0]:
-            #     replace = False
-            # else:
-            #     replace = True
-
+            # Choose a random dimension from the data
             replace = N_ens <= data.shape[0]
-
             dim_ids = rng0.choice(data.shape[0], size=N_ens, replace=replace)
 
         # Open loop for each ensemble member
@@ -438,7 +427,7 @@ class ESN_model(EchoStateNetwork, Model):
             Nt += 1
             interp_flag = True
 
-        t = np.round(self.get_current_time + np.arange(0, Nt + 1) * self.dt, self.precision_t)
+        t = np.round(self.get_current_time + np.arange(0, Nt + 1) * self.dt_ESN, self.precision_t)
 
         if averaged:
             u_m, r_m = [np.mean(xx, axis=-1, keepdims=True) for xx in self.get_reservoir_state()]
@@ -453,9 +442,11 @@ class ESN_model(EchoStateNetwork, Model):
             u, r = self.closedLoop(Nt)
 
         # Interpolate if the upsample is not multiple of dt or if upsample > 1
-        if self.upsample > 1 and interp_flag:
-            t_b = np.round(self.get_current_time + np.arange(0, Nt + 1) * self.dt_ESN, self.precision_t)
-            u, r = [interpolate(t_b, xx, t_eval=t) for xx in [u, r]]
+        if self.upsample > 1 or interp_flag:
+            t_physical = np.round(self.get_current_time + np.arange(0, Nt * self.upsample + 1) * self.dt, self.precision_t)
+            u, r = [interpolate(t, xx, t_eval=t_physical) for xx in [u, r]]
+        else:
+            t_physical = t.copy()
 
         # update ESN physical and reservoir states, and store the history if requested
         self.reset_state(u=self.outputs_to_inputs(full_state=u[-1]), r=r[-1])
@@ -467,7 +458,7 @@ class ESN_model(EchoStateNetwork, Model):
             alph = np.tile(alph, reps=(psi.shape[0], 1, 1))
             psi = np.concatenate((psi, alph), axis=1)
 
-        return psi[1:], t[1:]
+        return psi[1:], t_physical[1:]
 
     def get_alpha_matrix(self):
         alpha = np.empty((len(self.est_a), self.m))
@@ -551,7 +542,6 @@ class POD_ESN(ESN_model, POD):
     name: str = 'POD-ESN'
     figs_folder: str = 'figs/POD-ESN/'
 
-    dt = 0.01
     Nq = 10
     t_CR = 0.5
     
@@ -566,6 +556,7 @@ class POD_ESN(ESN_model, POD):
 
     def __init__(self,
                  data,
+                 dt,
                  plot_case=False,
                  pdf_file=None, 
                  skip_sensor_placement=False,
@@ -606,6 +597,7 @@ class POD_ESN(ESN_model, POD):
             ESN_model.__init__(self,
                                psi0=self.Phi[0],
                                data=self.Phi,
+                               dt = dt,
                                plot_training=plot_case,
                                **kwargs)
 

@@ -3,61 +3,54 @@ import os.path
 import numpy as np
 from src.utils import *
 from src.bias import *
+from src.model import Model
 
 
 rng = np.random.default_rng(0)
 
 
-def create_ensemble(model=None, forecast_params=None, dt=None, alpha0=None, **filter_params):
+def create_ensemble(model, forecast_params=None, alpha0=None, **filter_params):
     if forecast_params is None:
         forecast_params = filter_params.copy()
     else:
         forecast_params = forecast_params.copy()
-    if dt is not None:
-        forecast_params['dt'] = dt
 
     if alpha0 is not None:
         for alpha, lims in alpha0.items():
             forecast_params[alpha] = 0.5 * (lims[0] + lims[1])
 
     # ==============================  INITIALISE MODEL  ================================= #
-    if model is not None:
-        forecast_params['model'] = model
+    def is_model_subclass(obj_or_class):
+        if isinstance(obj_or_class, type):
+            return issubclass(obj_or_class, Model)
+        else:
+            return issubclass(obj_or_class.__class__, Model)
 
-    if not model.initialized:
-        ensemble = forecast_params['model'](**forecast_params)
+    if is_model_subclass(model):
+        if not model.initialized:
+            ensemble = model(**forecast_params)
+        elif model.initialized:
+            ensemble = model.copy()
     else:
-        ensemble = model.copy()
+        raise ValueError('Model must be a Model object subclass, got {}'.format(type(model)))
 
     # Forecast model case to steady state initial condition before initialising ensemble
-    if 'Nt_transient' in filter_params.keys():
-        Nt = filter_params['Nt_transient']
-    else:
-        Nt = int(ensemble.t_CR / ensemble.dt)
+    Nt = filter_params.get('Nt_transient', int(ensemble.t_CR / ensemble.dt))
     state = ensemble.time_integrate(Nt)[0]
-
-
     ensemble.update_history(state[-1], reset=True)
 
     # =========================  INITIALISE ENSEMBLE & BIAS  =========================== #
     ensemble.init_ensemble(**filter_params)
-
-
-
     # Forecast model case to steady state initial condition before initialising ensemble
-    if 'Nt_transient' in filter_params.keys():
-        Nt = filter_params['Nt_transient']
-    else:
-        Nt = int(ensemble.t_CR / ensemble.dt)
+    Nt = filter_params.get('Nt_transient', int(ensemble.t_CR / ensemble.dt))
     state = ensemble.time_integrate(Nt)[0]
-
-
     ensemble.update_history(state[-1], reset=True)
-
     ensemble.close()
+
     return ensemble
 
-def create_truth(model, t_start=None, t_stop=None, Nt_obs=20, std_obs=0.05, t_max=None, t_min=0.,
+def create_truth(model, 
+                 t_start=None, t_stop=None, Nt_obs=20, std_obs=0.05, t_max=None, t_min=0.,
                  noise_type='gauss, add', post_processed=False, manual_bias=None, **kwargs):
     # =========================== LOAD DATA OR CREATE TRUTH FROM LOM ================================ #
     if t_start is None:
@@ -69,7 +62,7 @@ def create_truth(model, t_start=None, t_stop=None, Nt_obs=20, std_obs=0.05, t_ma
         t_max = t_stop + t_start
 
     if type(model) is str:
-        y_raw, y_true, t_true, name_truth = create_observations_from_file(model, t_max=t_max, t_min=t_min, )
+        y_raw, y_true, t_true, name_truth = create_observations_from_file(model, t_max=t_max, t_min=t_min)
         case_name = model.split('/')[-1]
         name_bias = 'Exp_' + case_name
         b_true = np.zeros(1)
@@ -170,9 +163,11 @@ def create_observations(model, t_max, t_min, save=False, data_folder=None, **tru
             else:
                 suffix += key + '{:.2e}'.format(val) + '_'
 
-    if data_folder is None:
-        data_folder = os.path.join(os.getcwd() + '/data/')
+    data_folder = os.path.join(os.getcwd() + '/data/')
+    if save and data_folder is None:
+        
         os.makedirs(data_folder, exist_ok=True)
+
     name = data_folder + 'Truth_{}_{}tmax-{:.2}'.format(model.name, suffix, t_max)
 
     if os.path.isfile(name) and save:

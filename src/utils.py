@@ -864,7 +864,7 @@ def visualize_flow_data(X_true, X_noisy, simulation_dir=''):
 
 
 
-def animate_flowfields(datsets, n_frames=40, cmaps=None, titles=None, rms_cmap='Reds'):
+def animate_flowfields(datsets, n_frames=40, cmaps=None, titles=None, rms_cmap='Reds', visualize=True):
 
     if cmaps is None:
         cmaps = ['viridis'] * len(datsets)
@@ -888,6 +888,6 @@ def animate_flowfields(datsets, n_frames=40, cmaps=None, titles=None, rms_cmap='
         print(f'Frame {ti + 1}/{n_frames}', flush=True, end='\r')
         return ims
 
-    plt.close(fig)
+    # plt.close(fig)
 
     return FuncAnimation(fig, animate, frames=n_frames)
