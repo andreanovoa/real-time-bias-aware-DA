@@ -28,7 +28,6 @@ class Model:
     governing_eqns_params = dict()
 
     t = 0.
-    dt = 0.01
     t_transient = 0.
     t_CR = 10 * 0.01
 
@@ -68,7 +67,7 @@ class Model:
 
         # ================= INITIALISE PHYSICAL MODEL ================== ##
         model_dict = kwargs.copy()
-        for key, val in kwargs.items():
+        for key in kwargs.keys():
             if hasattr(self, key):
                 setattr(self, key, model_dict[key])
                 del model_dict[key]
@@ -105,8 +104,21 @@ class Model:
         self.print_params = self.define_print_params()
         self.initialized = True
 
+
+
     def define_print_params(self):
         return [*self.alpha_labels, *self.extra_print_params]
+
+    @property
+    def dt(self):
+        return self._dt
+
+    @dt.setter
+    def dt(self, value):
+        """Setter for the time step."""
+        if value <= 0:
+            raise ValueError("Time step must be positive.")
+        self._dt = value
 
     @property
     def Nphi(self):

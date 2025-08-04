@@ -26,7 +26,7 @@ conda activate real-time-da
 
 4. Install the package in editable mode 
 ```
-pip install -e .
+pip install -e . --use-pep517
 ```
 
 5. (Optional) Run the tests and save the output onto a text file

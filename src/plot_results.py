@@ -1551,6 +1551,9 @@ def print_parameter_results(ensembles, true_values=None):
 
 
 def plot_train_dataset(clean_data, noisy_data, t, *split_times):
+
+
+    
     # Visualize the training dataset
     fig = plt.figure(figsize=(12.5, 5), layout='tight')
     sfs = fig.subfigures(1, 2, width_ratios=[1.2, 1])
@@ -1599,7 +1602,7 @@ def plot_obs_timeseries(*plot_cases, zoom_window=None, add_pdf=False, t_factor=1
         raise ValueError(f"`dims` must be 'all', int, or list of ints. Got: {dims}")
 
 
-    fig = plt.figure(figsize=(10, 2.5*len(dims)), layout="constrained")
+    fig = plt.figure(figsize=(8, 1.5*len(dims)), layout="constrained")
     axs = fig.subplots(len(dims), 2 + add_pdf, sharey='row', sharex='col')
     if len(dims) == 1:
         axs = [axs]
@@ -1617,7 +1620,7 @@ def plot_obs_timeseries(*plot_cases, zoom_window=None, add_pdf=False, t_factor=1
             zoom_window = [t_h[-1] - plot_case.t_CR, t_h[-1]]
 
         for ii, ax in zip(dims, axs):
-            [ax[jj].plot(t_h, y[:, ii]) for jj in range(2)]
+            [ax[jj].plot(t_h, y[:, ii], lw=0.8) for jj in range(2)]
             ax[0].set(ylabel=lbl[ii])
             if add_pdf:
                 ax[2].hist(y[:, ii], alpha=0.5, histtype='stepfilled', bins=20, density=True, orientation='horizontal',

@@ -67,6 +67,7 @@ class EchoStateNetwork:
     t_test = 0.5  # Testing time
     upsample = 5  # Upsample x dt_model = dt_ESN
     Win_type = 'sparse'  # Type of Wim definition [sparse/dense]
+    norm_method = 'range' # Normalization method for input data
 
     # Default hyperparameters and optimization ranges -----------------------
     noise = 1e-10
@@ -79,14 +80,14 @@ class EchoStateNetwork:
     tikh = 1e-12
     tikh_range = [1e-8, 1e-10, 1e-12, 1e-16]
 
-    def __init__(self, y, dt, **kwargs):
+    def __init__(self, y, dt=1, **kwargs):
         """
         Initializes the EchoStateNetwork class with input data, time step, and optional hyperparameters.
         Validates the input dimensions and initializes reservoir states, time steps, and flags.
 
         Args:
             y (np.ndarray): Initial state of the physical system (dimensions: N_dim x N_samples).
-            dt (float): Base time step of the input data, such that dt_ESN = dt * upsample.
+            dt (float): time step of the input data, such that dt_ESN = dt * upsample.
             **kwargs: Optional keyword arguments to override default class attributes.
 
         Raises:
@@ -110,19 +111,115 @@ class EchoStateNetwork:
         self.observed_idx = np.arange(self.N_dim)  # initially, assume full observability.
 
         # ---------------- Define time steps and time windows -------------------- #
-        self.dt = dt
-        self.dt_ESN = self.dt * self.upsample
+        # self.dt = dt
+        self.dt_ESN = dt * self.upsample
 
-        # ------------------------ Empty arrays and flags -------------------------- #
-        self.Wout = None  # (self.N_units+1, self.N_dim))
-        self.Win = None  # (self.N_units, self.N_dim+1)
-        self.W = None  # (self.N_units, self.N_units)
-        self.val_k = 0
-
-        self.norm = None
-        self._WCout = None
-        self.trained = False  # Flag for training
+        # ------------------------ Initialize ESN matrices -------------------------- #
+        # self.Win = kwargs.get('Win', None)  # Input matrix (self.N_units, self.N_dim+1)  
+        # self.Wout = kwargs.get('Wout', None)  # Output matrix (self.N_units+1, self.N_dim)
+        # self.W = kwargs.get('W', None)  # Reservoir state matrix (self.N_units, self.N_units)
+        
+        self.trained = all([getattr(self, key) is not None for key in ['Wout', 'Win', 'W', 'norm']])
+        self.val_k = kwargs.get('val_k', 0)  # Validation counter
         self.initialised = False  # Flag for washout
+
+    @property
+    def W(self):
+        """
+        Returns the reservoir state matrix (W) in CSR format.
+        """
+        if not hasattr(self, '_W'):
+            return None
+        return self._W
+    
+    @W.setter
+    def W(self, value):
+        """
+        Setter for the reservoir state matrix (W). Converts the input to CSR format.
+        """
+        if not isinstance(value, csr_matrix):
+            value = csr_matrix(value)
+
+        # Ensure the matrix is square and has the correct dimensions
+        assert value.shape == (self.N_units, self.N_units), \
+            f'W must be a square matrix of shape ({self.N_units}, {self.N_units}), but got {value.shape}'
+        
+        # Set the reservoir state matrix
+        self._W = value
+    
+    @property
+    def Win(self):
+        """
+        Returns the input matrix (Win).
+        """
+        if not hasattr(self, '_Win'):
+            return None
+        return self._Win
+    
+    @Win.setter
+    def Win(self, value):
+        """
+        Setter for the input matrix (Win). Converts the input to CSR format if sparse.
+        """
+        if self.Win_type == 'sparse':
+            value = csr_matrix(value)
+        elif self.Win_type == 'dense':
+            value = value.toarray() 
+        else:
+            raise ValueError(f"Win type {self.Win_type} not implemented ['sparse', 'dense']")
+
+        # Ensure the matrix has the correct dimensions
+        assert value.shape ==  (self.N_units, self.N_dim_in+1), \
+            f'Win must be a square matrix of shape ({self.N_units}, {self.N_dim_in + 1}), but got {value.shape}'
+        
+        # Set the input matrix
+        self._Win = value
+
+
+    @property
+    def Wout(self):
+        """
+        Returns the output matrix (Wout).
+        """
+        if not hasattr(self, '_Wout'):
+            return None
+        return self._Wout
+
+    @Wout.setter
+    def Wout(self, value):
+        """
+        Setter for the reservoir state matrix (W). 
+        """
+        # Ensure the matrix has the correct dimensions
+        assert value.shape == (self.N_units + 1, self.N_dim), \
+            f'Wout must be a matrix of shape ({self.N_units + 1}, {self.N_dim}), but got {value.shape}'
+        # Set the output matrix
+        self._Wout = value
+
+    @property
+    def val_k(self):
+        """
+        Returns the current validation counter.
+        """
+        if not hasattr(self, '_val_k'):
+            return 0
+        return self._val_k
+    
+    @val_k.setter
+    def val_k(self, value):
+        """
+        Setter for the validation counter.
+        """
+        if not isinstance(value, int):
+            raise TypeError('val_k must be an integer')
+        self._val_k = value
+
+    @property
+    def dt_physical(self):
+        """
+        Computes the physical time step based on the ESN time step and upsample factor.
+        """
+        return self.dt_ESN / self.upsample
 
     @property
     def N_train(self):
@@ -151,9 +248,37 @@ class EchoStateNetwork:
         Lazily computes the closed-loop reservoir weight matrix (W Cout) if it has not been precomputed.
         This matrix is only computed if the Jacobian in closed loop is needed.
         """
+        if not hasattr(self, '_WCout'):
+            return None
+        return self._WCout
+    
+    @WCout.setter
+    def WCout(self, value=None):
+        """
+        Setter for the closed-loop reservoir weight matrix (W Cout).
+        """
         if self._WCout is None:
             self._WCout = np.linalg.lstsq(self.Wout[:-1], self.W.toarray(), rcond=None)[0]
-        return self._WCout
+        else:
+            self._WCout = value
+
+    @property
+    def norm(self):
+        """
+        Returns the normalization factor for the input data.
+        """
+        if not hasattr(self, '_norm'):
+            return None
+        return self._norm
+
+    @norm.setter
+    def norm(self, value):
+        """
+        Setter for the normalization factor. Ensures it is N_dim.
+        """
+        assert value.shape[0] == self.N_dim_in, \
+            f'Normalization factor must be dimension Ndim={self.N_dim}, got {value.shape}'
+        self._norm = value
 
     @property
     def sparsity(self):
@@ -323,8 +448,14 @@ class EchoStateNetwork:
         u_out = self.reservoir_to_physical(r_aug)
         return u_out, r_out
 
-    def reservoir_to_physical(self, r_aug=None):
-        return np.dot(r_aug.T, self.Wout).T
+    def reservoir_to_physical(self, r_aug):
+
+        """ Converts the reservoir state to the physical state using the output weight matrix (Wout).
+        Args:
+            r_aug (np.ndarray): Augmented reservoir state including output bias.
+        """
+        # print(f'Wout shape: {self.Wout.shape}, r_aug shape: {r_aug.shape}')
+        return np.dot(self.Wout.T, r_aug)
 
     def openLoop(self, u_wash, extra_closed=0):
         """
@@ -353,7 +484,10 @@ class EchoStateNetwork:
 
         for ii in range(Nt):
             u_in, r_in = u_wash[ii], r[ii]
-            u[ii + 1], r[ii + 1] = self.step(u_in, r_in)
+
+            u1, r1 = self.step(u_in, r_in)
+
+            u[ii + 1], r[ii + 1]  = u1, r1
         return u, r
 
     def closedLoop(self, Nt):
@@ -394,6 +528,10 @@ class EchoStateNetwork:
             folder (str): Directory to save training plots (if save_ESN_training=True).
             validation_strategy (function): Custom validation function for hyperparameter tuning.
         """
+        if self.trained:
+            print("ESN is already trained. Skipping training.")
+            return
+
         # ========================== STEP 1: DATA FORMATTING ==========================
         # Format data into washout, train/validation, and test sets
         U_wtv, Y_tv, U_test, Y_test = self.format_training_data(train_data, add_noise=add_noise)
@@ -449,26 +587,31 @@ class EchoStateNetwork:
         rnd0 = np.random.default_rng(seed)
 
         # Input matrix: Sparse random matrix where only one element per row is different from zero
-        Win = lil_matrix((self.N_units,
-                          self.N_dim_in + 1))  # +1 accounts for input bias
-        if self.Win_type == 'sparse':
-            for j in range(self.N_units):
-                Win[j, rnd0.choice(self.N_dim_in + 1)] = rnd0.uniform(low=-1, high=1)
-        elif self.Win_type == 'dense':
-            for j in range(self.N_units):
-                Win[j, :] = rnd0.uniform(low=-1, high=1, size=self.N_dim_in + 1)
+        if self.Win is None:
+            Win = lil_matrix((self.N_units,
+                              self.N_dim_in + 1))  # +1 accounts for input bias
+            if self.Win_type == 'sparse':
+                for j in range(self.N_units):
+                    Win[j, rnd0.choice(self.N_dim_in + 1)] = rnd0.uniform(low=-1, high=1)
+            elif self.Win_type == 'dense':
+                for j in range(self.N_units):
+                    Win[j, :] = rnd0.uniform(low=-1, high=1, size=self.N_dim_in + 1)
+            else:
+                raise ValueError("Win type {} not implemented ['sparse', 'dense']".format(self.Win_type))
+            # Store
+            self.Win = Win
         else:
-            raise ValueError("Win type {} not implemented ['sparse', 'dense']".format(self.Win_type))
-        # Make csr matrix
-        self.Win = Win.tocsr()
+            print('Skipping Win generation, using provided Win matrix.')
 
         # Reservoir state matrix: Erdos-Renyi network
-        W = csr_matrix(rnd0.uniform(low=-1, high=1, size=(self.N_units, self.N_units)) *
-                       (rnd0.random(size=(self.N_units, self.N_units)) < (1 - self.sparsity)))
-        # scale W by the spectral radius to have unitary spectral radius
-        spectral_radius = np.abs(sparse_eigs(W, k=1, which='LM', return_eigenvectors=False))[0]
-
-        self.W = (1. / spectral_radius) * W
+        if self.W is None:
+            W = csr_matrix(rnd0.uniform(low=-1, high=1, size=(self.N_units, self.N_units)) *
+                        (rnd0.random(size=(self.N_units, self.N_units)) < (1 - self.sparsity)))
+            # scale W by the spectral radius to have unitary spectral radius
+            spectral_radius = np.abs(sparse_eigs(W, k=1, which='LM', return_eigenvectors=False))[0]
+            self.W = (1. / spectral_radius) * W
+        else:
+            print('Skipping W generation, using provided W matrix.')
 
     def _compute_RR_terms(self, U_wtv, Y_tv):
         """
@@ -587,9 +730,7 @@ class EchoStateNetwork:
         Y_test = Y[:, N_wtv:].copy()
 
         # compute norm (normalize inputs by component range)
-        m = np.mean(U_wtv.min(axis=1), axis=0)
-        M = np.mean(U_wtv.max(axis=1), axis=0)
-        self.norm = M - m
+        self.norm = EchoStateNetwork.__set_norm(U_wtv, method=self.norm_method)
 
         if add_noise:
             #  ==================== ADD NOISE TO TRAINING INPUT ====================== ##
@@ -603,6 +744,33 @@ class EchoStateNetwork:
                     U_test[ll, :, dd] += rng_noise.normal(loc=0, scale=self.noise * U_std[ll, dd], size=U_test.shape[1])
 
         return U_wtv, Y_tv, U_test, Y_test
+    
+    @staticmethod
+    def __set_norm(train_data, method='range'):
+        """
+        Computes the normalization factor for the input data.
+        Args:
+            U_wtv (np.ndarray): Wash-train-validation training input data. (Nens x Nt x Ndim).
+        Returns:
+            float: Normalization factor based on the range of the input data. 
+        """
+        assert train_data.ndim == 3, f'U_wtv must be a 3D array, got {train_data.ndim}D: ({train_data.shape})'
+
+        if method == 'std':
+            return np.mean(np.std(train_data, axis=1), axis=0)
+        elif method == 'max':
+            return np.mean(np.max(train_data, axis=1), axis=0)
+        elif method == 'mean':
+            return np.mean(np.mean(train_data, axis=1), axis=0)
+        elif method == 'range':
+            m = np.mean(train_data.min(axis=1), axis=0)
+            M = np.mean(train_data.max(axis=1), axis=0)
+            if np.any(M == m):
+                raise ValueError("Normalization range cannot be zero. Check the input data.")
+            return M - m
+        else:
+            raise ValueError(f"Unknown normalization method: {method}")
+        
 
     def initialise_state(self, data, N_ens=1, seed=0):
         if hasattr(self, 'seed'):

@@ -165,7 +165,7 @@ class POD:
         m = Modulo(data=data, eig_solver=self.eig_solver, n_Modes=self.N_modes)
 
         if self.method == 'snapshot':
-            return m.compute_POD_K()
+            return m.POD()
         else:
             raise NotImplementedError(f'Method {self.method} not implemented')
 

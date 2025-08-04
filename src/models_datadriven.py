@@ -1,9 +1,10 @@
 from src.model import *
-from ML_models.EchoStateNetwork import EchoStateNetwork
-from ML_models.POD import POD
+
+from src.ML_models.EchoStateNetwork import EchoStateNetwork
+from src.ML_models.POD import POD
 
 import matplotlib.backends.backend_pdf as plt_pdf
-from src.Util import interpolate, save_figs_to_pdf, add_pdf_page
+from src.utils import interpolate, add_pdf_page
 
 import inspect
 import numpy as np
@@ -28,14 +29,12 @@ class ESN_model(EchoStateNetwork, Model):
     name: str = 'ESN_model'
     figs_folder: str = 'figs/ESN_model/'
 
-
     update_reservoir = True
     update_state = True
 
-
     Wout_svd = False
 
-    t_train, t_val, t_test = None, None, None
+    t_train, t_val, t_test = None, None, 0.
 
     perform_test = True
     save_ESN_training = False
@@ -56,13 +55,13 @@ class ESN_model(EchoStateNetwork, Model):
     sigma_in_range = (np.log10(0.5), np.log10(50.))
     tikh_range = [1E-6, 1E-9, 1E-12]
 
-
-
-    extra_print_params = ['rho', 'sigma_in', 'N_units', 'N_wash', 'upsample', 'update_reservoir', 'update_state']
+    extra_print_params = ['rho', 'sigma_in', 'N_units', 'N_wash', 'upsample', 
+                          'update_reservoir', 'update_state']
 
 
     def __init__(self,
                  data,
+                 dt,
                  plot_training=True, 
                  **kwargs):
         """
@@ -71,28 +70,46 @@ class ESN_model(EchoStateNetwork, Model):
         - psi0: initial state of the ESN prediction (not including the reservoir state).
         - plot_training: whether to plot or not the training data and training convergence.
         """
+
+        self.dt = dt
+
         # Increase ndim if there is only one set of parameters
         if data.ndim == 1:
             data = data[np.newaxis, :, np.newaxis]
         elif data.ndim == 2:
             data = data[np.newaxis, :]
+        
 
-        # Assign attributes in kwarg
-        model_dict = kwargs.copy()
-        for key, val in kwargs.items():
-            if hasattr(ESN_model, key):
-                setattr(self, key, model_dict[key])
-                del model_dict[key]
+        # Check that the times are provided and not in time steps
+        Nt = data.shape[1]
+        for key in ["train", "val", "test"]:
+            if f"N_{key}" in kwargs: 
+                setattr(self, f"t_{key}", kwargs.pop(f"N_{key}") * self.dt)
+                # print('setting t_{key} to {getattr(self, f"t_{key}")}, self.dt={self.dt}')s
 
-        Na, Nt, Ndim = data.shape
+        # Set other ESN_model attributes provided
+        for key in list(kwargs.keys()):
+            if key in vars(ESN_model):
+                setattr(self, key, kwargs.pop(key))
+
+        # _________________________ Set time attributes _________________________ #
+        t_total = Nt * self.dt
+        self.t_train = self.t_train or t_total * 0.8
+        self.t_val = self.t_val or self.t_train * 0.2
+
+        if self.perform_test:
+            self.t_test = self.t_test or t_total - self.t_train - self.t_val
+
+        assert abs((ts := sum([self.t_train, self.t_val, self.t_test])) - t_total) <= self.dt / 2., \
+            f"t_train + t_val + t_test {ts} <= t_total {t_total}"
+
 
         # _________________________ Init EchoStateNetwork _______________________ #
 
         ESN_dict = dict()
-        for key, val in model_dict.items():
-            if hasattr(EchoStateNetwork, key):
-                ESN_dict[key] = val
-                del model_dict[key]
+        for key in list(kwargs.keys()):
+            if key in vars(EchoStateNetwork):
+                ESN_dict[key] = kwargs.pop(key)
 
 
         EchoStateNetwork.__init__(self,
@@ -100,38 +117,23 @@ class ESN_model(EchoStateNetwork, Model):
                                   dt=self.dt,
                                   **ESN_dict)
 
-
-        # ______________________ Train the EchoStateNetwork _______________________ #
-        t_total = Nt * self.dt
-
-        if self.t_train is None:
-            self.t_train = t_total * 0.8
-
-        if self.t_val is None:
-            self.t_val = 0.2 * self.t_train
-
         self.t_CR = self.t_val
 
-        if self.t_test is None:
-            self.t_test = t_total - self.t_train - self.t_val
-
-        assert self.t_train + self.t_val + self.t_test - t_total <= self.dt * .5, \
-            f"self.t_train + self.t_val + self.t_test <= t_total {t_total}"
-
+        # ______________________ Train the EchoStateNetwork _______________________ #
         # Train the network
         self.train_network(data=data, 
                            plot_training=plot_training, 
-                           **model_dict)
+                           **kwargs)
 
-        # Initialise SVD Wout terms
+        # Initialise SVD Wout terms if required
         if self.Wout_svd:
             [self.Wout_U, self.Wout_Sigma0, self.Wout_Vh] = sla.svd(self.Wout, full_matrices=False)
             self.Wout_Sigma = self.Wout_Sigma0
 
         # ________________________________ Init Model _______________________________ #
         
-        psi0 = np.concatenate(self.get_reservoir_state(), axis=0)
-        Model.__init__(self, psi0=psi0, **model_dict)
+        kwargs['psi0'] = np.concatenate(self.get_reservoir_state(), axis=0)
+        Model.__init__(self, **kwargs)
 
 
 
@@ -144,7 +146,7 @@ class ESN_model(EchoStateNetwork, Model):
             else:
                 raise ValueError(f'Key {key} not in ESN_model class')
             
-        if 'Wout' in self.est_a:
+        if self.est_a and 'Wout' in self.est_a:
             if not self.Wout_svd:
                 self.Wout_svd = True
                 [self.Wout_U, self.Wout_Sigma0, self.Wout_Vh] = sla.svd(self.Wout, full_matrices=False)
@@ -159,14 +161,13 @@ class ESN_model(EchoStateNetwork, Model):
                 setattr(self, key, self.Wout_Sigma0[qj])
 
         self.M = None 
-        print(f'[ESN_model] after M.shape={self.M.shape}')
+        # print(f'[ESN_model] after M.shape={self.M.shape}')
 
         return 
-
+    
 
     @property
     def alpha_labels(self):
-       
         if not hasattr(self, 'est_a'):
             return  dict()
         else:
@@ -274,9 +275,6 @@ class ESN_model(EchoStateNetwork, Model):
     # ______________________ Changed EchoStateNetwork class attributes ______________________ #
 
 
-    
-
-
     def initialise_state(self, data, N_ens=1, seed=0):
         if hasattr(self, 'seed'):
             seed = self.seed
@@ -288,13 +286,8 @@ class ESN_model(EchoStateNetwork, Model):
         if data.shape[0] == 1:
             dim_ids = [0] * N_ens
         else:
-            # if N_ens > data.shape[0]:
-            #     replace = False
-            # else:
-            #     replace = True
-
+            # Choose a random dimension from the data
             replace = N_ens <= data.shape[0]
-
             dim_ids = rng0.choice(data.shape[0], size=N_ens, replace=replace)
 
         # Open loop for each ensemble member
@@ -311,13 +304,8 @@ class ESN_model(EchoStateNetwork, Model):
 
     def train_network(self, data, plot_training=True, **kwargs):
 
-        if isinstance(self.pdf_file, str):
-            self.pdf_file = plt_pdf.PdfPages(f'{self.pdf_file}.pdf')
-
         if plot_training:
             ESN_model.plot_training_data(train_data=data, case=self)
-            if self.pdf_file:
-                add_pdf_page(self.pdf_file, plt.gcf())
         
         # Get the arguments of interest
         possible_args = inspect.getfullargspec(self.train)[0]
@@ -340,9 +328,8 @@ class ESN_model(EchoStateNetwork, Model):
         self.train_network(data, **kwargs)
 
         # Reset model class
-        psi0 = np.concatenate(self.get_reservoir_state(), axis=0)
-        self.reset_model(psi0=psi0, 
-                         **kwargs) 
+        kwargs['psi0'] = np.concatenate(self.get_reservoir_state(), axis=0)
+        self.reset_model(**kwargs) 
 
 
     # ______________________ Changed Model class attributes ______________________ #
@@ -385,8 +372,6 @@ class ESN_model(EchoStateNetwork, Model):
             raise ValueError
 
 
-        # print(f'[m_dd] u,r.shape {u.shape, r.shape}')
-
         return u, r
 
     def reset_history(self, hist, t):
@@ -415,25 +400,7 @@ class ESN_model(EchoStateNetwork, Model):
         if not self.Wout_svd:
             return np.dot(r_aug.T, self.Wout).T
         else:
-
-            # Use np.einsum for faster multiplications. The result is the same as the comented out options.
-            # Wout_U shape = N x q
-            # Wout_Sigma shape = m x q x q
-            # Wout_Vh shape = q x q
-            
-            # Wout1 = np.dot(self.Wout_U, np.dot(self.Wout_Sigma, self.Wout_Vh)).transpose(0, 2, 1)
             Wout = np.einsum('ij,kjl,lm->imk', self.Wout_U, self.Wout_Sigma, self.Wout_Vh)
-            # assert np.allclose(Wout1, Wout)
-
-            # assert Wout.shape == (*self.Wout.shape, self.m), \
-            #     f"Expected shape {*self.Wout.shape, self.m}, got {Wout.shape}"
-            
-            # Wout shape = N x q x m 
-            # r_aug shape = N x m
-            # expected output shape = q x m
-            # result1 = np.empty((self.N_dim, self.m))
-            # for mi in range(self.m):
-            #     result1[:, mi] = np.dot(r_aug[:, mi], Wout[:, :, mi])
             
             return np.einsum('ij,ikj->kj', r_aug, Wout)
 
@@ -460,7 +427,7 @@ class ESN_model(EchoStateNetwork, Model):
             Nt += 1
             interp_flag = True
 
-        t = np.round(self.get_current_time + np.arange(0, Nt + 1) * self.dt, self.precision_t)
+        t = np.round(self.get_current_time + np.arange(0, Nt + 1) * self.dt_ESN, self.precision_t)
 
         if averaged:
             u_m, r_m = [np.mean(xx, axis=-1, keepdims=True) for xx in self.get_reservoir_state()]
@@ -475,9 +442,11 @@ class ESN_model(EchoStateNetwork, Model):
             u, r = self.closedLoop(Nt)
 
         # Interpolate if the upsample is not multiple of dt or if upsample > 1
-        if self.upsample > 1 and interp_flag:
-            t_b = np.round(self.get_current_time + np.arange(0, Nt + 1) * self.dt_ESN, self.precision_t)
-            u, r = [interpolate(t_b, xx, t_eval=t) for xx in [u, r]]
+        if self.upsample > 1 or interp_flag:
+            t_physical = np.round(self.get_current_time + np.arange(0, Nt * self.upsample + 1) * self.dt, self.precision_t)
+            u, r = [interpolate(t, xx, t_eval=t_physical) for xx in [u, r]]
+        else:
+            t_physical = t.copy()
 
         # update ESN physical and reservoir states, and store the history if requested
         self.reset_state(u=self.outputs_to_inputs(full_state=u[-1]), r=r[-1])
@@ -489,7 +458,7 @@ class ESN_model(EchoStateNetwork, Model):
             alph = np.tile(alph, reps=(psi.shape[0], 1, 1))
             psi = np.concatenate((psi, alph), axis=1)
 
-        return psi[1:], t[1:]
+        return psi[1:], t_physical[1:]
 
     def get_alpha_matrix(self):
         alpha = np.empty((len(self.est_a), self.m))
@@ -546,9 +515,6 @@ class ESN_model(EchoStateNetwork, Model):
 
             for W, ax, title in zip([Wout, self.Wout_U, eigs, self.Wout_Vh], axs, 
                                     ['$\\bar{\\mathbf{W_{out}}} = $', '$\\mathbf{U}$', '$\\bar{\\Sigma}$', '$\\mathbf{V}^\\mathrm{T}$']):
-                # if 'out' in title:
-                #     cmap = 'PRGn'
-                # else:
                 cmap = 'PuOr'
                 im = ax.imshow(W, cmap=cmap, vmin=-np.max(W), vmax=np.max(W))
                 ax.set(title=title)
@@ -576,56 +542,54 @@ class POD_ESN(ESN_model, POD):
     name: str = 'POD-ESN'
     figs_folder: str = 'figs/POD-ESN/'
 
-    dt = 0.01
     Nq = 10
-    t_CR = 100. * dt
+    t_CR = 0.5
+    
 
-    measure_modes = False  # Measurements are the POD coefficients
+    measure_modes = False  # Wether measurements are the POD coefficients
     sensor_locations = None
-    qr_selection = False
+    qr_selection = True
 
+    perform_test = False # Wether to perform testing of the ESN model
 
     extra_print_params = [*ESN_model.extra_print_params, 'Nq', 'measure_modes', 'N_modes']
 
     def __init__(self,
                  data,
-                 domain=None,
-                 plot_case=True,
+                 dt,
+                 plot_case=False,
                  pdf_file=None, 
                  skip_sensor_placement=False,
                  train_ESN=True,
-                 domain_of_measurement = None,
-                 down_sample_measurement = None,
+                 domain_of_measurement=None,
+                 down_sample_measurement=None,
                  **kwargs):
         """
         Initialize the POD-ESN model.
         
         Args:
             - data  (np.ndarray): Data to be used for the POD decomposition and ESN training  [Nu x ... x Nt]
-            - domain (optional): Domain of the data.
             - plot_case (bool, optional): Whether to plot the case. Defaults to True.
             - pdf_file (None or str, optional): Whether to save the plot case. If a string is provided, it is used as the filename. Defaults to None.
             - skip_sensor_placement (bool, optional): Whether to skip sensor placement. Defaults to False.
             - train_ESN (bool, optional): Whether to train the ESN. Defaults to True.
             - **kwargs: Additional keyword arguments to configure the parent classes Model/ESN/POD.
-                e.g.,   t_CR (float): Time constant for the ESN.
+                e.g.,   domain (list): Domain of the data.
+                        grid_shape (tuple): Shape of the grid.
+                        t_CR (float): Time constant for the ESN.
                         Nq (int): Number of measurements or sensors.
                         sensor_locations (list): Locations of the sensors.
-                        figs_folder (str): Folder to save figures.
                         etc.
         """
 
-        model_dict = kwargs.copy()
-        for key in kwargs.keys():
-            if hasattr(POD_ESN, key):
-                setattr(self, key, model_dict[key])
-                del model_dict[key]
+        for key in list(kwargs.keys()):
+            if key in vars(POD_ESN):
+                setattr(self, key, kwargs.pop(key))
 
         # __________________________ Init POD ___________________________ #
         POD.__init__(self,
                      X=data,
-                     domain=domain,
-                     **model_dict)  # Initialize POD class and run decomposition
+                     **kwargs)  # Initialize POD class and run decomposition
 
         # __________________________ Init ESN ___________________________ #
         # Initialize ESN to forecast the POD coefficients
@@ -633,30 +597,31 @@ class POD_ESN(ESN_model, POD):
             ESN_model.__init__(self,
                                psi0=self.Phi[0],
                                data=self.Phi,
-                               **model_dict)
+                               dt = dt,
+                               plot_training=plot_case,
+                               **kwargs)
 
         # __________________________ Select sensors ___________________________ #
         if self.measure_modes or skip_sensor_placement:
             self.Nq = self.N_modes
-        else:
-            print('========= POD-ESN model: defining sensors =========')
-
-            # Set the possible points for sensor placement
+        elif self.sensor_locations is None:
             self.domain_of_measurement = domain_of_measurement
             self.down_sample_measurement = down_sample_measurement
-
-            # define sensors
             self.sensor_locations = self.define_sensors(N_sensors=self.Nq)
-            # The number of measurements is the number of sensors
+            self.Nq = len(self.sensor_locations)
+        else:
+            # If the sensors are already defined, use them
             self.Nq = len(self.sensor_locations)
 
-        
+
+
         if plot_case:
             POD.plot_POD_modes(case=self, num_modes=self.N_modes, cmap='viridis')
             POD.plot_time_coefficients(case=self)
             POD.plot_spectrum(case=self)
             display_sensors = self.sensor_locations is not None
-            POD.plot_flows_rms(case=self, datasets=[data], names=['original'], display_sensors=display_sensors)
+            POD.plot_flows_rms(case=self, datasets=[data], names=['original'], 
+                               display_sensors=display_sensors)
 
             if pdf_file is not None:
                 self.pdf_file = pdf_file
@@ -689,7 +654,6 @@ class POD_ESN(ESN_model, POD):
             labels +=[f'$\\Phi_{j+1}$' for j in np.arange(self.N_modes)]
         if self.update_reservoir:
             labels += [f'$r_{j+1}$' for j in np.arange(self.N_units)]
-            
         return labels
 
     @property
@@ -714,9 +678,16 @@ class POD_ESN(ESN_model, POD):
             Q_mean = self.Q_mean[self.sensor_locations]
             if Phi is None:
                 Phi = self.get_POD_coefficients(Nt=Nt)
-            obs = self.reconstruct(Phi=Phi, Psi=Psi, Q_mean=Q_mean, reshape=False)
+
+            obs = self.reconstruct(Phi=Phi, 
+                                   Psi=Psi, 
+                                   Q_mean=Q_mean, 
+                                   reshape=False)
+            if obs.ndim == 4:
+                obs = obs[0]
             if obs.ndim == 3:
                 obs = obs.transpose(1, 0, 2)
+            
         return obs
 
     def reset_case(self, reset_POD=False, reset_ESN=False, Phi0=None, **kwargs):
@@ -730,12 +701,8 @@ class POD_ESN(ESN_model, POD):
             self.reset_ESN(psi0=Phi0, **kwargs)
 
 
-    def reset_sensors(self, 
-                      measure_modes=False, 
-                      domain_of_measurement=None, 
-                      down_sample_measurement=None, 
-                      N_sensors=None, 
-                      qr_selection=False):
+    def reset_sensors(self, measure_modes=False, 
+                      domain_of_measurement=None, down_sample_measurement=None, N_sensors=None, qr_selection=False):
         
         self.measure_modes = measure_modes
         if measure_modes:
@@ -751,17 +718,22 @@ class POD_ESN(ESN_model, POD):
 
     @property
     def domain_of_measurement(self):
+        if not hasattr(self, '_domain_of_measurement'):
+            self._domain_of_measurement = None
         return self._domain_of_measurement
 
     @domain_of_measurement.setter
     def domain_of_measurement(self, dom):
         if dom is None:
-            dom = self.domain.copy()
+            dom = self.domain
         self._domain_of_measurement = dom
 
     @property
     def down_sample_measurement(self):
+        if not hasattr(self, '_down_sample_measurement'):
+            self.down_sample_measurement = None
         return self._down_sample_measurement
+        
     
     @down_sample_measurement.setter
     def down_sample_measurement(self, dsm):
