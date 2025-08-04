@@ -163,12 +163,15 @@ def create_observations(model, t_max, t_min, save=False, data_folder=None, **tru
             else:
                 suffix += key + '{:.2e}'.format(val) + '_'
 
-    data_folder = os.path.join(os.getcwd() + '/data/')
-    if save and data_folder is None:
-        
-        os.makedirs(data_folder, exist_ok=True)
 
-    name = data_folder + 'Truth_{}_{}tmax-{:.2}'.format(model.name, suffix, t_max)
+    
+
+    if save and data_folder is None:
+        data_folder = os.path.join(os.getcwd() + '/data/')
+        os.makedirs(data_folder, exist_ok=True)
+        name = f'{data_folder}Truth_{model.name}_{suffix}tmax-{t_max:.2}'
+    else:
+        name = f'Truth_{model.name}_{suffix}tmax-{t_max:.2}'
 
     if os.path.isfile(name) and save:
         case = load_from_pickle_file(name)
