@@ -914,7 +914,8 @@ def animate_flowfields(datsets, n_frames=40, cmaps=None, titles=None, rms_cmap='
     return FuncAnimation(fig, animate, frames=len(frame_indices), cache_frame_data=False)
 
 
-def get_figsize_based_on_domain(domain, total_width=10, ncols=2, nrows=1):
+
+def get_figsize_based_on_domain(domain, total_subplots, max_cols=5, total_width=6):
 # def get_figsize_with_total_width(domain, total_width=12, min_height=4, ncols=2, nrows=1):
     """
     Returns a (fig_width, fig_height) figsize in inches, 
@@ -931,14 +932,20 @@ def get_figsize_based_on_domain(domain, total_width=10, ncols=2, nrows=1):
     """
     x_span = abs(domain[1] - domain[0])
     y_span = abs(domain[3] - domain[2])
-    
-    if x_span == 0:
-        aspect_ratio = 1
-    else:
-        aspect_ratio = y_span / x_span
 
-    fig_width = total_width
-    # Height for each subplot column using aspect ratio, scale for all subplot rows
-    fig_height =  (total_width / ncols) * aspect_ratio * nrows
-    return (fig_width, fig_height)
+    aspect_ratio = y_span / x_span if x_span != 0 else 1
 
+    # Favor rows if aspect ratio is tall; favor cols if wide
+    if aspect_ratio > 1:
+        ncols = min(max_cols, total_subplots)
+        nrows = int(np.ceil(total_subplots / ncols))
+        fig_width = total_width
+        fig_height =   (total_width / ncols) * aspect_ratio * nrows
+
+    elif aspect_ratio < 1:
+        nrows = min(max_cols, total_subplots)
+        ncols = int(np.ceil(total_subplots / nrows))
+        fig_height = total_width
+        fig_width =   (total_width / nrows) / aspect_ratio * ncols
+        
+    return (fig_width, fig_height), ncols, nrows

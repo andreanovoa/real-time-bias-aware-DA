@@ -536,6 +536,7 @@ class POD:
             - cmap: Colormap for visualization.
             - dim: Dimensions to plot.
         """
+       
         if Psi is None:
             Psi = case.Psi.copy()
 
@@ -552,14 +553,15 @@ class POD:
 
         X1, X2 = POD.domain_mesh(case.domain, case.grid_shape)[:-1]
 
-        if case.N_modes == 1:
-            n_col, n_row = 1, 1
-        else:
-            n_col = min(num_modes, 5)
-            n_row = int((num_modes + 1) // n_col)
+        # if case.N_modes == 1:
+        #     n_col, n_row = 1, 1
+        # else:
+        #     n_col = min(num_modes, 5)
+        #     n_row = int((num_modes + 1) // n_col)
 
 
-        figsize = get_figsize_based_on_domain(case.domain_of_interest, total_width=12, ncols=n_col, nrows=n_row)
+        # n_col, n_row = calculate_subplot_grid(case.domain_of_interest, total_subplots=num_modes)
+        figsize, n_col, n_row = get_figsize_based_on_domain(case.domain_of_interest, total_width=8, total_subplots=num_modes)
 
         for jj, data in enumerate(POD_modes):
             fig1 = plt.figure(figsize=figsize, layout='constrained')
@@ -577,18 +579,18 @@ class POD:
                     ax.set(xlabel='$y$')
                 if kk % n_col == 0:
                     ax.set(ylabel='$x$')
-                # if (kk + 1) % n_col == 0:
-                #     fig1.colorbar(mappable=im0, ax=ax)
 
                 ax.set_title(f'mode {kk}', fontsize='xx-small')
 
-            fig1.colorbar(mappable=im0, ax=axs)
+            fig1.colorbar(mappable=im0, ax=axs, shrink=0.5, aspect=20)
+
 
             if num_modes < len(axs):
                 for jj_del in np.arange(jj, num_modes, 1):
                     fig1.delaxes(axs[jj_del])
             if save:
                 plt.savefig(f'POD_first_{num_modes}_modes_dim{jj}', dpi=300)
+                
 
     @staticmethod
     def plot_time_coefficients(case, Phi=None, num_modes=None, plot_recurrence=False):
@@ -683,7 +685,7 @@ class POD:
 
 
     @staticmethod
-    def plot_spectrum(case, u=None, v=None, max_mode=None):
+    def plot_spectrum(case, max_mode=None):
         """
         Plot the spectrum of the POD decomposition.
         The energy of each POD mode is given by λ_i / 2, where λ_i = sigma_i^2
@@ -717,7 +719,7 @@ class POD:
         [ax.set(ylim=[0, 1.05], xlim=[-1, None]) for ax in axs]
 
         # Zoom insets
-        if max_mode is not None:
+        if max_mode is not None and max_mode < case.N_modes:
             # Spectrum inset
             ax_zoom0 = fig.add_axes([0.3, 0.5, 0.15, 0.35])  # [left, bottom, width, height] in figure coordinates
             ax_zoom0.bar(np.arange(max_mode)+1, normalized_Lambda[:max_mode], color='C4')
@@ -835,7 +837,7 @@ class POD:
 
         ncols = len(_datasets)
 
-        figsize = get_figsize_based_on_domain(case.domain_of_interest, total_width=10, ncols=ncols, nrows=nrows)
+        figsize = get_figsize_based_on_domain(case.domain_of_interest, total_width=10, total_subplots=ncols*nrows)[0]
 
         sub_figs = plt.figure(figsize=figsize,
                               layout='constrained').subfigures(nrows=nrows, ncols=1)

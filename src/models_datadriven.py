@@ -795,7 +795,7 @@ class POD_ESN(ESN_model, POD):
 
         POD.plot_POD_modes(case=case, num_modes=num_modes, cmap='viridis')
         POD.plot_time_coefficients(case=case,  num_modes=num_modes)
-        POD.plot_spectrum(case=case,  num_modes=num_modes)
+        POD.plot_spectrum(case=case,  max_mode=num_modes)
 
         if datasets is not None:
             display_sensors = case.sensor_locations is not None
@@ -847,10 +847,10 @@ class POD_ESN(ESN_model, POD):
                                          ravel=True)[-1]
 
 
-        figsize = get_figsize_based_on_domain(domain=case.domain_of_interest, ncols=2)
+        figsize, ncols, nrows = get_figsize_based_on_domain(domain=case.domain_of_interest, total_subplots=2)
     
 
-        fig, axs = plt.subplots(ncols=2, nrows=1, figsize=figsize, sharey=True, sharex=True)
+        fig, axs = plt.subplots(ncols=ncols, nrows=nrows, figsize=figsize, sharey=True, sharex=True)
 
         norms = [mpl.colors.Normalize(vmin=np.min(u), vmax=np.max(u)) for u in [Ux[0], Ux[1]]]
 
