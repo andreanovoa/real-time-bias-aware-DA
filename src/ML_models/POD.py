@@ -37,9 +37,9 @@ class POD:
 
 
     domain = [-1, 1, -1, 1]
-    domain_og = None
-    domain_of_interest = None
-    down_sample = None
+    # domain_og = None
+    # domain_of_interest = None
+    # down_sample = None
 
     name = 'POD'
     figs_folder = 'figs/POD/'
@@ -49,6 +49,8 @@ class POD:
                  X=None,
                  plot_decomposition=False,
                  save_decomposition=False,
+                 domain_of_interest = None,   ## TODO: if provided, cut the data and down sample it
+                 down_sample = None,
                  **kwargs):
         """
         Initialize the POD class.
@@ -90,25 +92,33 @@ class POD:
 
         elif isinstance(X, np.ndarray):
 
-            # Save original data domain and shape
-            self.domain_og = self.domain.copy()
-            self.grid_shape_og = X.shape[:-1]
+            # # Save original data domain and shape
+            # self.domain_og = self.domain.copy()
+            # self.grid_shape_og = X.shape[:-1]
 
             # Downsample and cut the domain of interest
-            if self.domain_of_interest is None:
-                self.domain_of_interest = self.domain.copy()
-            if self.down_sample is None:
-                self.down_sample = [1, 1]
-            elif isinstance(self.down_sample, int):
-                self.down_sample = [self.down_sample, self.down_sample]
+            if down_sample is not None:
+                if isinstance(down_sample, int):
+                    down_sample = [down_sample, down_sample]
+                else:
+                    assert isinstance(down_sample, list)
+            
+            if domain_of_interest is not None:
+                
+                Q, indices = crop_data_to_domain_of_interest()
 
-            Q, domain_new, grid_shape_new, grid_idx = POD.set_domain(data=X.copy(),
-                                                                      domain=self.domain_og,
-                                                                      down_sample=self.down_sample.copy(),
-                                                                      domain_of_interest=self.domain_of_interest
-                                                                      )
-            self.domain, self.grid_shape = domain_new, grid_shape_new
-            self.indices_original_to_domain = grid_idx
+                self.grid_shape = Q.shape[]
+
+                # ÷÷÷÷÷÷÷÷÷ TODO: use crop_data_to_domain_of_interest() from src.utils here ÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷÷
+
+                # Q, domain_new, grid_shape_new, grid_idx = POD.set_domain(data=X.copy(),
+                #                                                         domain=self.domain_og,
+                #                                                         down_sample=self.down_sample.copy(),
+                #                                                         )
+                
+                self.domain, self.grid_shape = domain_new, grid_shape_new
+                self.indices_original_to_domain = grid_idx
+
 
             # Remove NaN values and the mean fields
             Q[np.isnan(Q)] = 0.
@@ -121,10 +131,10 @@ class POD:
             self.Psi, self.Phi, self.Sigma = self.run_modulo_POD(data=Q)
 
             # Compute Total kinetic energy in the data
-            if self.grid_shape != self.grid_shape_og:
+            if self.grid_shape != self.original_grid_shape:
                 U = X.copy()
                 U[np.isnan(U)] = 0.
-                U = self.original_to_domain_of_interest(U)
+                # U = self.original_to_domain_of_interest(U)
                 u, v = [U[ii] - np.mean(U[ii], axis=-1, keepdims=True) for ii in [0, 1]]
             else:
                 u, v = self.restore_shape(Q)
@@ -344,7 +354,7 @@ class POD:
     
 
     @staticmethod
-    def domain_mesh(domain, grid_shape, domain_of_interest=None, down_sample=1, ravel=False):
+    def domain_mesh(domain, grid_shape, down_sample=1, ravel=False):
         """
         Generate a mesh grid for the given domain.
 
@@ -369,16 +379,6 @@ class POD:
         grid_idx_bool = np.zeros(X1.shape, dtype=bool)
         grid_idx_number = np.arange(0, len(X1.ravel())).reshape(X1.shape)
 
-        if domain_of_interest is not None:
-            # Apply domain of interest
-            domain_mask_x1 = (x1 >= domain_of_interest[0]) & (x1 <= domain_of_interest[1])
-            domain_mask_x2 = (x2 >= domain_of_interest[2]) & (x2 <= domain_of_interest[3])
-
-            x1_indices = np.where(domain_mask_x1)[0]
-            x2_indices = np.where(domain_mask_x2)[0]
-
-            x1 = x1[domain_mask_x1]
-            x2 = x2[domain_mask_x2]
 
         if isinstance(down_sample, int):
             step_x1 = step_x2 = down_sample
@@ -392,11 +392,6 @@ class POD:
         downsample_indices_x1 = np.arange(0, len(x1), step_x1)
         downsample_indices_x2 = np.arange(0, len(x2), step_x2)
 
-        if domain_of_interest is not None:
-            # Convert domain indices to original grid indices
-            downsample_indices_x1 = x1_indices[downsample_indices_x1]
-            downsample_indices_x2 = x2_indices[downsample_indices_x2]
-
         # Update grid_idx for the down sampled points
         grid_idx_bool[np.ix_(downsample_indices_x1, downsample_indices_x2)] = True
         grid_idx_number = grid_idx_number[grid_idx_bool]
@@ -405,59 +400,6 @@ class POD:
             return X1.ravel(), X2.ravel(), grid_idx_number.ravel()
         else:
             return X1, X2, grid_idx_number
-        
-
-    @staticmethod
-    def set_domain(data,
-                   domain=None,
-                   grid_shape=None,
-                   down_sample=None,
-                   domain_of_interest=None):
-        """
-        Adjust the domain and grid shape for a given dataset.
-
-        Args:
-            - data: The dataset to process.
-            - domain: The original domain tuple.
-            - grid_shape: The original shape of the grid.
-            - down_sample: Factor for downsampling.
-            - domain_of_interest: Specific region of interest within the domain.
-
-        Returns:
-            - Processed dataset, new domain, new grid shape, and the index mapping.
-        """
-        if domain is None:
-            raise ValueError('domain must be defined')
-
-        if data is not None:
-            if grid_shape is None:
-                grid_shape = data.shape[:-1]
-            else:
-                assert grid_shape == data.shape[:-1]
-
-        grid_shape = list(grid_shape)
-        X1, X2, grid_idx = POD.domain_mesh(domain=domain,
-                                           grid_shape=grid_shape,
-                                           down_sample=down_sample,
-                                           domain_of_interest=domain_of_interest,
-                                           ravel=False)
-
-        domain_new = domain.copy()
-        grid_shape_new = grid_shape.copy()
-        if domain_of_interest is not None or down_sample is not None:
-            grid_idx_bool = np.zeros(grid_shape[1:], dtype=bool).ravel()
-            grid_idx_bool[grid_idx.ravel()] = True
-            grid_idx_bool = grid_idx_bool.reshape(grid_shape[1:])
-
-            data_new = data[:, grid_idx_bool, :].copy()
-
-            grid_shape_new[1], grid_shape_new[2] = X1.shape
-            if domain_of_interest is not None:
-                domain_new = domain_of_interest.copy()
-        else:
-            data_new = data.copy()
-
-        return data_new, domain_new, grid_shape_new, grid_idx
 
 
 
@@ -496,25 +438,26 @@ class POD:
 
             self.Psi, self.Phi, self.Sigma = self.run_modulo_POD(data)
 
-    def original_to_domain_of_interest(self, original_data):
-        if np.array_equal( original_data.shape[:3], self.grid_shape):
-            return original_data
-        else:
-            original_data = original_data.copy()
-            if original_data.ndim < 4:
-                original_data = np.expand_dims(original_data, axis=-1)
 
-            grid_shape_og = original_data.shape[:-1]
-            grid_idx_bool = np.zeros(grid_shape_og[1:], dtype=bool).ravel()
+    # def original_to_domain_of_interest(self, data):
+    #     if self.original_data_to_cropped_grid_indices is None:
+    #         return original_data
+    #     else:
+    #         original_data = original_data.copy()
+    #         if original_data.ndim < 4:
+    #             original_data = np.expand_dims(original_data, axis=-1)
 
-            grid_idx_bool[self.indices_original_to_domain.ravel()] = True
-            grid_idx_bool = grid_idx_bool.reshape(grid_shape_og[1:])
+    #         grid_shape_og = original_data.shape[:-1]
+    #         grid_idx_bool = np.zeros(grid_shape_og[1:], dtype=bool).ravel()
 
-            new_shape = list(self.grid_shape)
-            if original_data.shape[-1] > 1:
-                new_shape.append(original_data.shape[-1])
+    #         grid_idx_bool[self.indices_original_to_domain.ravel()] = True
+    #         grid_idx_bool = grid_idx_bool.reshape(grid_shape_og[1:])
 
-            return original_data[:, grid_idx_bool, :].reshape(new_shape)
+    #         new_shape = list(self.grid_shape)
+    #         if original_data.shape[-1] > 1:
+    #             new_shape.append(original_data.shape[-1])
+
+    #         return original_data[:, grid_idx_bool, :].reshape(new_shape)
         
 
     def copy(self):
@@ -771,8 +714,10 @@ class POD:
             _data[np.isnan(_data)] = 0
             if _data.ndim > 3:
                 _data = _data[..., -1]
+
             if _data.shape != _target_shape:
-                return case.original_to_domain_of_interest(_data)
+                # return case.original_to_domain_of_interest(_data)
+                raise ValueError(f'Provided data is not the correct shape, maybe it was cropped? data.shape={_data.shape}, but _target_shape-{_target_shape}')
             else:
                 return _data
 

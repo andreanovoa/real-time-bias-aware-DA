@@ -865,7 +865,7 @@ def visualize_flow_data(X_true, X_noisy, simulation_dir=''):
 
 
 
-def animate_flowfields(datsets, n_frames=40, cmaps=None, titles=None, rms_cmap='Reds', step=1):
+def animate_flowfields(datsets, n_frames=40, cmaps=None, titles=None, rms_cmap='Reds', step=1, rows=False, figsize=None):
     """
     Create an animation of flow fields from multiple datasets.
     Inputs:
@@ -882,23 +882,32 @@ def animate_flowfields(datsets, n_frames=40, cmaps=None, titles=None, rms_cmap='
     if titles is None:
         titles = [f'Dataset {i+1}' for i in range(len(datsets))]
 
+    if rows:
+        if figsize is None:
+            figsize = (1.5*len(datsets), 4)
+        fig, axs = plt.subplots(len(datsets), 1,  sharex=True, sharey=True, figsize=figsize, layout='constrained')
+        cbar_orientation = 'vertical'
+    else:
+        if figsize is None:
+            figsize = (4, 1.5*len(datsets))
+        fig, axs = plt.subplots(1, len(datsets), sharex=True, sharey=True, figsize=figsize, layout='constrained')
+        cbar_orientation = 'horizontal'
 
-    fig, axs = plt.subplots(1, len(datsets), sharex=True, sharey=True, figsize=(1.5*len(datsets), 4), layout='constrained')
     if len(datsets) == 1:
         axs = [axs]
 
     ims = []
 
-    # for ax_i, dim_i in enumerate(dims):
     for ax, D, ttl, cmap in zip(axs, datsets, titles, cmaps):
         if 'RMS' in ttl:
             ims.append(ax.pcolormesh(D[0], rasterized=True, cmap=plt.get_cmap(rms_cmap), vmin=0, vmax=1))
         else:
-            ims.append(ax.pcolormesh(D[0], rasterized=True, cmap=plt.get_cmap(cmap)))
+            norm = mpl.colors.Normalize(vmin=np.min(D), vmax=np.max(D))
+            ims.append(ax.pcolormesh(D[0], rasterized=True, cmap=plt.get_cmap(cmap), norm=norm))
         
-        ax.set(title=ttl, xticks=[], yticks=[])
+        ax.set(xticks=[], yticks=[])
 
-        fig.colorbar(ims[-1], ax=ax, orientation='horizontal')
+        fig.colorbar(ims[-1], ax=ax, orientation=cbar_orientation, label=ttl)
 
 
     def animate(ti):
@@ -949,3 +958,70 @@ def get_figsize_based_on_domain(domain, total_subplots, max_cols=5, total_width=
         fig_width =   (total_width / nrows) / aspect_ratio * ncols
         
     return (fig_width, fig_height), ncols, nrows
+
+
+
+
+def crop_data_to_domain_of_interest(data,
+                                    original_domain,
+                                    domain_of_interest,
+                                    visualize=True):
+        """
+        Adjust the domain and grid shape for a given dataset.
+
+        Args:
+            - data: The dataset to process. Shape: (Nu, Nt), Nx, Ny
+            - original_domain: (x_min, x_max, y_min, y_max) tuple for the entire data domain
+            - domain_of_interest: (x_min, x_max, y_min, y_max) tuple specifying subdomain to crop to
+
+        Returns:
+            - Processed dataset, new domain, new grid shape, and the index mapping.
+        """
+
+        if data.ndim <= 4 and data.ndim >= 2:
+            original_grid = list(data.shape[-2:])
+        else:
+            raise ValueError(f'data input shape must be [(Nu)x Nx x Ny x (Nt)], got {data.shape}')
+
+        # Extract original and DOI boundaries
+        Nx, Ny = original_grid
+        x_min, x_max, y_min, y_max = original_domain
+        doi_x_min, doi_x_max, doi_y_min, doi_y_max = domain_of_interest
+
+        # Generate 1D spatial grids for original domain
+        x = np.linspace(x_min, x_max, Nx)
+        y = np.linspace(y_min, y_max, Ny)
+
+        # Find indices within domain_of_interest along each axis
+        x_idx = np.where((x >= doi_x_min) & (x <= doi_x_max))[0]
+        y_idx = np.where((y >= doi_y_min) & (y <= doi_y_max))[0]
+
+
+
+        if len(x_idx) == 0 or len(y_idx) == 0:
+            raise ValueError('Domain of interest does not overlap with original domain grid.')
+
+        # if data.ndim ==3:
+        data_cropped = data[..., x_idx[:, None], y_idx].copy()
+
+            
+       
+        cropped_grid_indices = (x_idx, y_idx)
+
+        if visualize:
+
+            fig, ax = plt.subplots(figsize=(12, 3), layout='constrained', nrows=1, ncols=1, sharex=True, sharey=True)
+            
+            X, Y = np.meshgrid(x, y, indexing='ij')
+
+            only_u_i = np.zeros(data.ndim, dtype=object)
+            only_u_i[-2:] = slice(None)
+
+            u = data[tuple(only_u_i)].copy()
+            u_c = data_cropped[tuple(only_u_i)].copy()
+
+            im0 = ax.pcolormesh(X, Y, u, cmap='Grays', rasterized=True)
+            im1 = ax.pcolormesh(X[np.ix_(*cropped_grid_indices)], Y[np.ix_(*cropped_grid_indices)], u_c, cmap='viridis', rasterized=True)
+            
+
+        return data_cropped, cropped_grid_indices
