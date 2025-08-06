@@ -1,4 +1,4 @@
-from src.utils import save_figs_to_pdf
+from src.utils import save_figs_to_pdf, get_figsize_based_on_domain
 from copy import deepcopy
 
 import numpy as np
@@ -11,6 +11,7 @@ from matplotlib.gridspec import GridSpec
 from mpl_toolkits.axes_grid1 import ImageGrid
 from pyts.image import RecurrencePlot
 from modulo_vki.modulo import ModuloVKI as Modulo
+
 
 
 class POD:
@@ -104,7 +105,8 @@ class POD:
             Q, domain_new, grid_shape_new, grid_idx = POD.set_domain(data=X.copy(),
                                                                       domain=self.domain_og,
                                                                       down_sample=self.down_sample.copy(),
-                                                                      domain_of_interest=self.domain_of_interest)
+                                                                      domain_of_interest=self.domain_of_interest
+                                                                      )
             self.domain, self.grid_shape = domain_new, grid_shape_new
             self.indices_original_to_domain = grid_idx
 
@@ -495,7 +497,7 @@ class POD:
             self.Psi, self.Phi, self.Sigma = self.run_modulo_POD(data)
 
     def original_to_domain_of_interest(self, original_data):
-        if original_data.shape[:3] == self.grid_shape:
+        if np.array_equal( original_data.shape[:3], self.grid_shape):
             return original_data
         else:
             original_data = original_data.copy()
@@ -556,8 +558,11 @@ class POD:
             n_col = min(num_modes, 5)
             n_row = int((num_modes + 1) // n_col)
 
+
+        figsize = get_figsize_based_on_domain(case.domain_of_interest, total_width=12, ncols=n_col, nrows=n_row)
+
         for jj, data in enumerate(POD_modes):
-            fig1 = plt.figure(figsize=(1.5 * n_col + 1., 3 * n_row), layout='constrained')
+            fig1 = plt.figure(figsize=figsize, layout='constrained')
             axs = fig1.subplots(nrows=n_row, ncols=n_col, sharex=True, sharey=True)
             if case.N_modes == 1:
                 axs = [axs]
@@ -575,7 +580,7 @@ class POD:
                 # if (kk + 1) % n_col == 0:
                 #     fig1.colorbar(mappable=im0, ax=ax)
 
-                ax.set(title=f'mode {kk}')
+                ax.set_title(f'mode {kk}', fontsize='xx-small')
 
             fig1.colorbar(mappable=im0, ax=axs)
 
@@ -586,7 +591,7 @@ class POD:
                 plt.savefig(f'POD_first_{num_modes}_modes_dim{jj}', dpi=300)
 
     @staticmethod
-    def plot_time_coefficients(case, Phi=None, num_modes=None, nrows= 1):
+    def plot_time_coefficients(case, Phi=None, num_modes=None, plot_recurrence=False):
         """
         Plot the time evolution of POD coefficients.
 
@@ -604,48 +609,77 @@ class POD:
         else:
             num_modes = Phi.shape[-1]
 
+
         Nt = Phi.shape[0]
-        window = 20 * case.N_modes
 
 
-        fig1 = plt.figure(figsize=(20, 3*nrows), layout='constrained')  #timeseries
+        # window = int(Nt // nrows)
+        if num_modes < 10:
+            window = Nt
+        elif num_modes < 50:
+            window = 200
+        else:
+            window = num_modes
+                    
+        nrows = max(int(Nt // window), 1)
+
+
+        time_coeffs = [Phi[i0*window:(i0+1)*window] for i0 in range(nrows)]
+        # time_windows = [times[i*window : min((i+1)*window, Nt)] for i in range(nrows)]
+
+
+        fig1 = plt.figure(figsize=(10, 1.5*nrows), layout='tight')  #timeseries
 
         axs1 = fig1.subplots(nrows=nrows, ncols=1, sharey=False, sharex=False)
         norm = mpl.colors.Normalize(vmin=np.min(Phi), vmax=np.max(Phi))
-        i0 = 0
+        i0 = -1
+
         if nrows == 1:
             axs1 = [axs1]
-        for ax in axs1:
-            i1 = min(i0 + window, Nt)
-            im0 = ax.imshow(Phi.T, cmap=mpl.cm.viridis, norm=norm)
-            ax.set(xlim=(i0, i1))
-            i0 += 100
+        for ax, phi in zip(axs1, time_coeffs):
+            i0 += 1
+            extent = [i0*window, (i0+1)*window, 0, num_modes]
+            im0 = ax.imshow(phi.T, cmap=mpl.cm.viridis, 
+                            norm=norm, 
+                aspect='auto',
+                extent=extent,
+                origin='lower')
+            ax.set(xlim=(i0*window,(i0+1)*window-1))
+            # POD.new_method()
 
         fig1.colorbar(mappable=im0, ax=axs1[0], shrink=0.75, orientation='vertical')
 
-        # Get the recurrence plots for all the time series
-        rp = RecurrencePlot(threshold='point', percentage=20)
-        X_rp = rp.fit_transform(Phi.T)
+        if plot_recurrence:
+            if num_modes < 5:
+                ncols1 = 2
+                nrows1 =num_modes // ncols1 + (num_modes % ncols1 > 0)
+            else:
+                nrows1 = int(np.ceil(num_modes / 10))
+                ncols1 = num_modes // nrows1 + (num_modes % (nrows1 * 10) > 0)
+            fig1.colorbar(mappable=im0, ax=axs1[0], shrink=0.75, orientation='vertical')
 
-        if case.N_modes < 5:
-            ncols1 = 2
-            nrows1 = case.N_modes // ncols1 + (case.N_modes % ncols1 > 0)
-        else:
-            nrows1 = int(np.ceil(case.N_modes / 10))
-            ncols1 = case.N_modes // nrows1 + (case.N_modes % (nrows1 * 10) > 0)
 
-        fig2 = plt.figure(figsize=(4 * ncols1, 3 * nrows1)) #recurrent plot
-        gs = GridSpec(1, 1, figure=fig2)  # Define a single GridSpec slot
-        grid = ImageGrid(fig2, gs[0, 0], nrows_ncols=(nrows1, ncols1), axes_pad=0.1, share_all=True)
-        for i, xx in enumerate(X_rp):
-            grid[i].imshow(xx, cmap='binary', origin='lower')
+            # Get the recurrence plots for all the time series
+            rp = RecurrencePlot(threshold='point', percentage=20)
+            X_rp = rp.fit_transform(Phi.T)
 
-        grid[0].get_yaxis().set_ticks([])
-        grid[0].get_xaxis().set_ticks([])
-        
-        if num_modes < len(grid):
-            for jj_del in np.arange(i, num_modes, 1):
-                fig1.delaxes(grid[jj_del])
+
+            fig2 = plt.figure(figsize=(4 * ncols1, 3 * nrows1)) #recurrent plot
+            gs = GridSpec(1, 1, figure=fig2)  # Define a single GridSpec slot
+            grid = ImageGrid(fig2, gs[0, 0], nrows_ncols=(nrows1, ncols1), axes_pad=0.1, share_all=True)
+            for i, xx in enumerate(X_rp):
+                grid[i].imshow(xx, cmap='binary', origin='lower')
+
+            grid[0].get_yaxis().set_ticks([])
+            grid[0].get_xaxis().set_ticks([])
+            
+            if num_modes < len(grid):
+                for jj_del in np.arange(i, num_modes, 1):
+                    fig1.delaxes(grid[jj_del])
+
+    @staticmethod
+    def new_method():
+        i0 += 100
 
 
     @staticmethod
@@ -662,25 +696,42 @@ class POD:
 
         """
 
-        _fig, _axs = plt.subplots(nrows=1, ncols=2, figsize=(8, 4))
-        _Lambda = case.Sigma ** 2
-        _normalized_Lambda = _Lambda / _Lambda[0]
+        fig, axs = plt.subplots(nrows=1, ncols=2, figsize=(10, 4))
+        Lambda = case.Sigma ** 2
+        normalized_Lambda = Lambda / Lambda[0]
 
-        _axs[0].bar(np.arange(case.N_modes), _normalized_Lambda, color='C4')
-        _axs[0].set(xlabel='Mode number $j$', title='$\\lambda_j / \\lambda_0$',
-                    xlim=[-1, max(case.N_modes, 10)])
-        _axs[1].plot(np.arange(case.N_modes), np.cumsum(_Lambda) / sum(_Lambda), color='C4',
-                     label='$\\dfrac{\\sum_{j}{\,\\lambda_j}}{ \\sum_{k=0}^{' + f'{case.N_modes}' + '}\\lambda_k}$')
+        axs[0].bar(np.arange(case.N_modes)+1, normalized_Lambda, color='C4')
+        axs[0].set(xlabel='Mode number $j$', title='$\\lambda_j / \\lambda_0$',
+                    xlim=[0, max(case.N_modes, 10)])
+        axs[1].plot(np.arange(case.N_modes)+1, np.cumsum(Lambda) / sum(Lambda), color='C4',
+                        label='$\\dfrac{\\sum_{j}{\,\\lambda_j}}{ \\sum_{k=0}^{' + f'{case.N_modes}' + '}\\lambda_k}$')
 
         if case._TKE is not None:
-            _energy = _Lambda / 2 / case.Phi.shape[0]
-            _axs[1].plot(np.arange(case.N_modes), np.cumsum(_energy) / case._TKE,
-                         dashes=[10, 10], color='k', label='$\\dfrac{\\sum_{j}{\,\\lambda_j}}{\mathrm{TKE}}$')
+            energy = Lambda / 2 / case.Phi.shape[0]
+            axs[1].plot(np.arange(case.N_modes)+1, np.cumsum(energy) / case._TKE,
+                            dashes=[10, 5], color='k', label='$\\dfrac{\\sum_{j}{\,\\lambda_j}}{\mathrm{TKE}}$')
 
-        _axs[1].grid(visible=True, linestyle='--', alpha=0.5)
-        _axs[1].set(xlabel='Mode number $j$', title='Cumulative energy', xlim=[-1, max_mode])
-        _axs[1].legend(ncol=2)
-        _axs[0].set(ylim=[0, None], xlim=[-1, max_mode])
+        axs[1].grid(visible=True, linestyle='--', alpha=0.5)
+        axs[1].set(xlabel='Mode number $j$', title='Cumulative energy')
+        axs[1].legend(ncol=1, bbox_to_anchor=[1, 1], loc='upper left')
+        [ax.set(ylim=[0, 1.05], xlim=[-1, None]) for ax in axs]
+
+        # Zoom insets
+        if max_mode is not None:
+            # Spectrum inset
+            ax_zoom0 = fig.add_axes([0.3, 0.5, 0.15, 0.35])  # [left, bottom, width, height] in figure coordinates
+            ax_zoom0.bar(np.arange(max_mode)+1, normalized_Lambda[:max_mode], color='C4')
+            ax_zoom0.set_xlim([0, max_mode+1])
+            ax_zoom0.set_ylim([0, None])
+
+            # Cumulative energy inset
+            ax_zoom1 = fig.add_axes([0.72, 0.2, 0.15, 0.35])
+            ax_zoom1.grid(visible=True, linestyle='--', alpha=0.5)
+            ax_zoom1.plot(np.arange(max_mode)+1, np.cumsum(Lambda[:max_mode]) / np.sum(Lambda), color='C4')
+            if case._TKE is not None:
+                ax_zoom1.plot(np.arange(max_mode)+1, np.cumsum(energy[:max_mode]) / case._TKE, dashes=[5, 2], color='k')
+            ax_zoom1.set_xlim([0, max_mode+1])
+
 
     @staticmethod
     def plot_flows_rms(case,
@@ -784,7 +835,9 @@ class POD:
 
         ncols = len(_datasets)
 
-        sub_figs = plt.figure(figsize=(ncols * 2.5, nrows * 4),
+        figsize = get_figsize_based_on_domain(case.domain_of_interest, total_width=10, ncols=ncols, nrows=nrows)
+
+        sub_figs = plt.figure(figsize=figsize,
                               layout='constrained').subfigures(nrows=nrows, ncols=1)
 
         for jj, (fig, norm_f) in enumerate(zip(sub_figs if nrows > 1 else [sub_figs], norm_flow)):

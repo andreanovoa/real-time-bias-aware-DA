@@ -125,6 +125,7 @@ def set_working_directories(subfolder='', root=None):
     else:
         # Find the project root directory
         project_root = find_root(os.getcwd()) 
+        
     if project_root is None:
         raise FileNotFoundError("Project root directory not found. Ensure you are in the correct directory structure.")
 
@@ -864,30 +865,80 @@ def visualize_flow_data(X_true, X_noisy, simulation_dir=''):
 
 
 
-def animate_flowfields(datsets, n_frames=40, cmaps=None, titles=None, rms_cmap='Reds', visualize=True):
+def animate_flowfields(datsets, n_frames=40, cmaps=None, titles=None, rms_cmap='Reds', step=1):
+    """
+    Create an animation of flow fields from multiple datasets.
+    Inputs:
+    - datsets: List of datasets, each containing flow field data. Each of shape: Nt x Ny x Nx
+    - n_frames: Number of frames in the animation.
+    - cmaps: List of colormaps for each dataset.
+    - titles: List of titles for each dataset.
+    - rms_cmap: Colormap for RMS datasets.
+    """
+
 
     if cmaps is None:
         cmaps = ['viridis'] * len(datsets)
     if titles is None:
         titles = [f'Dataset {i+1}' for i in range(len(datsets))]
 
+
     fig, axs = plt.subplots(1, len(datsets), sharex=True, sharey=True, figsize=(1.5*len(datsets), 4), layout='constrained')
     if len(datsets) == 1:
         axs = [axs]
+
     ims = []
+
+    # for ax_i, dim_i in enumerate(dims):
     for ax, D, ttl, cmap in zip(axs, datsets, titles, cmaps):
         if 'RMS' in ttl:
             ims.append(ax.pcolormesh(D[0], rasterized=True, cmap=plt.get_cmap(rms_cmap), vmin=0, vmax=1))
         else:
             ims.append(ax.pcolormesh(D[0], rasterized=True, cmap=plt.get_cmap(cmap)))
+        
         ax.set(title=ttl, xticks=[], yticks=[])
+
         fig.colorbar(ims[-1], ax=ax, orientation='horizontal')
+
 
     def animate(ti):
         [im.set_array(D[ti]) for im, D in zip(ims, datsets)]
         print(f'Frame {ti + 1}/{n_frames}', flush=True, end='\r')
         return ims
 
-    # plt.close(fig)
+    frame_indices = list(range(0, n_frames, step))  # Only these time indices will be plotted
 
-    return FuncAnimation(fig, animate, frames=n_frames)
+
+    plt.close(fig)
+
+    return FuncAnimation(fig, animate, frames=len(frame_indices), cache_frame_data=False)
+
+
+def get_figsize_based_on_domain(domain, total_width=10, ncols=2, nrows=1):
+# def get_figsize_with_total_width(domain, total_width=12, min_height=4, ncols=2, nrows=1):
+    """
+    Returns a (fig_width, fig_height) figsize in inches, 
+    where fig_width is set by total_width, and fig_height is scaled by domain aspect ratio.
+    
+    Parameters:
+    - domain: [xmin, xmax, ymin, ymax]
+    - total_width: total width of the figure in inches
+    - min_height: minimum height in inches (for readability)
+    - ncols, nrows: subplot layout (for multi-panel figures)
+    
+    Returns:
+    - Tuple: (fig_width, fig_height)
+    """
+    x_span = abs(domain[1] - domain[0])
+    y_span = abs(domain[3] - domain[2])
+    
+    if x_span == 0:
+        aspect_ratio = 1
+    else:
+        aspect_ratio = y_span / x_span
+
+    fig_width = total_width
+    # Height for each subplot column using aspect ratio, scale for all subplot rows
+    fig_height =  (total_width / ncols) * aspect_ratio * nrows
+    return (fig_width, fig_height)
+

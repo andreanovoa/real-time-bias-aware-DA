@@ -4,7 +4,7 @@ from src.ML_models.EchoStateNetwork import EchoStateNetwork
 from src.ML_models.POD import POD
 
 import matplotlib.backends.backend_pdf as plt_pdf
-from src.utils import interpolate, add_pdf_page
+from src.utils import interpolate, add_pdf_page, get_figsize_based_on_domain
 
 import inspect
 import numpy as np
@@ -100,8 +100,8 @@ class ESN_model(EchoStateNetwork, Model):
         if self.perform_test:
             self.t_test = self.t_test or t_total - self.t_train - self.t_val
 
-        assert abs((ts := sum([self.t_train, self.t_val, self.t_test])) - t_total) <= self.dt / 2., \
-            f"t_train + t_val + t_test {ts} <= t_total {t_total}"
+            assert abs((ts := sum([self.t_train, self.t_val, self.t_test])) - t_total) <= self.dt / 2., \
+                f"t_train + t_val + t_test {ts} <= t_total {t_total}"
 
 
         # _________________________ Init EchoStateNetwork _______________________ #
@@ -479,6 +479,7 @@ class ESN_model(EchoStateNetwork, Model):
 
         nrows = min(Ndim, 20)
         for data_l in train_data:
+
             fig, axs = plt.subplots(nrows=nrows, ncols=1,
                                     figsize=(8, nrows), sharex=True,
                                     layout='constrained')
@@ -725,7 +726,7 @@ class POD_ESN(ESN_model, POD):
     @domain_of_measurement.setter
     def domain_of_measurement(self, dom):
         if dom is None:
-            dom = self.domain
+            dom = self.domain_of_interest
         self._domain_of_measurement = dom
 
     @property
@@ -787,18 +788,25 @@ class POD_ESN(ESN_model, POD):
 
 
     @staticmethod
-    def plot_case(case, datasets=None, names=None):
+    def plot_case(case, datasets=None, names=None, num_modes=None):
 
-        POD.plot_POD_modes(case=case, num_modes=case.N_modes, cmap='viridis')
-        POD.plot_time_coefficients(case=case)
-        POD.plot_spectrum(case=case)
+        if num_modes is None:
+            num_modes = case.N_modes
+
+        POD.plot_POD_modes(case=case, num_modes=num_modes, cmap='viridis')
+        POD.plot_time_coefficients(case=case,  num_modes=num_modes)
+        POD.plot_spectrum(case=case,  num_modes=num_modes)
 
         if datasets is not None:
             display_sensors = case.sensor_locations is not None
             POD.plot_flows_rms(case=case, datasets=datasets, names=names, display_sensors=display_sensors)
 
         if case.trained:
-            ESN_model.plot_training_data(case=case, train_data=case.Phi)
+            if num_modes is None:
+                train_data=case.Phi
+            else:
+                train_data=case.Phi[:, :num_modes]
+            ESN_model.plot_training_data(case=case, train_data=train_data)
 
 
 
@@ -813,14 +821,15 @@ class POD_ESN(ESN_model, POD):
         # Original domain of the data
         Ux = background_data.copy()
 
-        subset = case.domain_og != case.domain_of_interest
-        if subset:
-            X1_og, X2_og = POD.domain_mesh(domain=case.domain_og,
-                                           grid_shape=case.grid_shape_og,
-                                           ravel=False)[:2]
+        # subset = not np.array_equal(case.domain_og, case.domain_of_interest)
+        # if subset:
+        #     X1_og, X2_og = POD.domain_mesh(domain=case.domain_og,
+        #                                    grid_shape=case.grid_shape_og,
+        #                                    ravel=False)[:2]
 
         # Domain of interest, i.e., cut version of the original
         Ux_focus = case.original_to_domain_of_interest(original_data=Ux)
+
         X1, X2, grid_idx = POD.domain_mesh(domain=case.domain_og,
                                            grid_shape=case.grid_shape_og,
                                            down_sample=case.down_sample,
@@ -837,16 +846,21 @@ class POD_ESN(ESN_model, POD):
                                          domain_of_interest=case.domain_of_measurement,
                                          ravel=True)[-1]
 
-        fig, axs = plt.subplots(ncols=2, nrows=1, figsize=(4, 5), sharey=True, sharex=True)
+
+        figsize = get_figsize_based_on_domain(domain=case.domain_of_interest, ncols=2)
+    
+
+        fig, axs = plt.subplots(ncols=2, nrows=1, figsize=figsize, sharey=True, sharex=True)
 
         norms = [mpl.colors.Normalize(vmin=np.min(u), vmax=np.max(u)) for u in [Ux[0], Ux[1]]]
 
-        windowed = case.domain_og != case.domain_of_measurement
+        # windowed = case.domain_og != case.domain_of_measurement
+        windowed = not np.array_equal(case.domain_of_interest, case.domain_of_measurement)
 
         for ii, ax in enumerate(axs):
-            if subset:
-                ax.pcolormesh(X1_og, X2_og, Ux[ii],
-                              cmap=mpl.colormaps['Greys'], norm=norms[ii], rasterized=True)
+            # if subset:
+            #     ax.pcolormesh(X1_og, X2_og, Ux[ii],
+            #                   cmap=mpl.colormaps['Greys'], norm=norms[ii], rasterized=True)
             ax.pcolormesh(X1, X2, Ux_focus[ii],
                           cmap=mpl.colormaps['viridis'], norm=norms[ii], rasterized=True)
             if windowed:
@@ -864,6 +878,12 @@ class POD_ESN(ESN_model, POD):
             ax.scatter(X1.ravel()[idx_s], X2.ravel()[idx_s],
                        c=np.arange(len(X2.ravel()[idx_s])),
                        cmap='YlOrRd', edgecolors='k', s=3.5 ** 2, lw=.5, label="Sensor locations")
+
+
+
+
+
+
 
     # @staticmethod
     # def plot_MSE_evolution(case,
