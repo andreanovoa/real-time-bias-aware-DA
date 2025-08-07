@@ -963,8 +963,9 @@ def get_figsize_based_on_domain(domain, total_subplots, max_cols=5, total_width=
 
 
 def crop_data_to_domain_of_interest(data,
-                                    original_domain,
-                                    domain_of_interest,
+                                    original_domain: 'list | tuple',
+                                    domain_of_interest: 'list | tuple',
+                                    down_sample: 'int | list | tuple' = None,
                                     visualize=True):
         """
         Adjust the domain and grid shape for a given dataset.
@@ -981,7 +982,7 @@ def crop_data_to_domain_of_interest(data,
         if data.ndim <= 4 and data.ndim >= 2:
             original_grid = list(data.shape[-2:])
         else:
-            raise ValueError(f'data input shape must be [(Nu)x Nx x Ny x (Nt)], got {data.shape}')
+            raise ValueError(f'data input shape must be [(Nu, Nt) x Nx x Ny], got {data.shape}')
 
         # Extract original and DOI boundaries
         Nx, Ny = original_grid
@@ -997,20 +998,30 @@ def crop_data_to_domain_of_interest(data,
         y_idx = np.where((y >= doi_y_min) & (y <= doi_y_max))[0]
 
 
-
         if len(x_idx) == 0 or len(y_idx) == 0:
             raise ValueError('Domain of interest does not overlap with original domain grid.')
 
-        # if data.ndim ==3:
-        data_cropped = data[..., x_idx[:, None], y_idx].copy()
 
-            
-       
-        cropped_grid_indices = (x_idx, y_idx)
+        if down_sample is not None:
+            if isinstance(down_sample, int):
+                down_sample = [down_sample]
+            if len(down_sample) == 1:
+                step_x = step_y = down_sample[0]
+            elif len(down_sample) == 2:
+                step_x, step_y = down_sample
+            else:
+                raise AssertionError(f'Too many downsample entries: {down_sample}')
+
+            x_idx = x_idx[::step_x]
+            y_idx = y_idx[::step_y]
+
+
+        cropped_grid_indices = np.ix_(x_idx, y_idx)
+        data_cropped = data[..., cropped_grid_indices[0], cropped_grid_indices[1]].copy()
 
         if visualize:
 
-            fig, ax = plt.subplots(figsize=(12, 3), layout='constrained', nrows=1, ncols=1, sharex=True, sharey=True)
+            _, ax = plt.subplots(figsize=(12, 3), layout='constrained', nrows=1, ncols=1, sharex=True, sharey=True)
             
             X, Y = np.meshgrid(x, y, indexing='ij')
 
@@ -1021,7 +1032,8 @@ def crop_data_to_domain_of_interest(data,
             u_c = data_cropped[tuple(only_u_i)].copy()
 
             im0 = ax.pcolormesh(X, Y, u, cmap='Grays', rasterized=True)
-            im1 = ax.pcolormesh(X[np.ix_(*cropped_grid_indices)], Y[np.ix_(*cropped_grid_indices)], u_c, cmap='viridis', rasterized=True)
+            im1 = ax.pcolormesh(X[cropped_grid_indices], Y[cropped_grid_indices], u_c, cmap='viridis', rasterized=True)
             
-
         return data_cropped, cropped_grid_indices
+
+
