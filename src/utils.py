@@ -168,22 +168,6 @@ def set_working_directories(subfolder='', root='.'):
     
     tutorial = 'tutorials' in os.getcwd()
 
-    # def find_root(start_dir):
-    #     dir_path = os.path.abspath(start_dir)
-    #     while True:
-    #         if 'src' in os.listdir(dir_path) and 'scripts' in os.listdir(dir_path):
-    #             return dir_path
-    #         parent = os.path.dirname(dir_path)
-    #         if parent == dir_path:  # Reached system root
-    #             return None
-    #         dir_path = parent
-    # # Find the project root directory
-    # if root is not None:
-    #     project_root = root
-    # else:
-
-    # Find the project root directory
-    # if root is None:
     project_root, found = find_first_ascending_folder(root, ['src', 'dev']) 
     if found[0] == 'dev':
         project_root = os.path.join(project_root, 'real_public')
@@ -391,6 +375,10 @@ def save_to_pickle_file(filename, *args):
 
 
 def load_from_pickle_file(filename):
+
+    if not os.path.exists(filename):
+        return False
+    
     args = []
     with open(filename, 'rb') as f:
         while True:
@@ -840,17 +828,19 @@ def load_cylinder_dataset(noise_type = 'gauss', noise_level = 0.1, smoothing = 0
 
 
 
-    new_dir = f'{results_folder}/data_noise{noise_level}{noise_type}_smoothing{smoothing}/'
+    new_results_dir = f'{results_folder}/data_noise{noise_level}{noise_type}_smoothing{smoothing}/'
 
+    # new_data_dir = f'{data_folder}/data_noise{noise_level}{noise_type}_smoothing{smoothing}/'
+    os.makedirs(new_results_dir, exist_ok=True)
 
-    os.makedirs(new_dir, exist_ok=True)
-
-    data_name = f'{new_dir}00_data.mat'
+    data_name = f'{new_results_dir}00_data.mat'
 
     if not os.path.exists(data_name):
 
         if not os.path.exists(data_folder + 'circle_re_100.mat'):
             # Download the dataset if it does not exist
+            
+            # pri(f'folder/file not found {data_folder}')
             get_wake_data(data_folder, case='circle_re_100')
             
         # Load dataset
@@ -875,6 +865,7 @@ def load_cylinder_dataset(noise_type = 'gauss', noise_level = 0.1, smoothing = 0
         save_to_mat_file(data_name, dict(all_data=all_data,
                                          all_data_noisy=all_data_noisy))
     else:
+        print(f'Loading...{data_name}')
         dataset = load_from_mat_file(data_name)
         all_data, all_data_noisy = [dataset[key] for key in ['all_data', 'all_data_noisy']]
 
@@ -882,7 +873,7 @@ def load_cylinder_dataset(noise_type = 'gauss', noise_level = 0.1, smoothing = 0
         visualize_flow_data(all_data, all_data_noisy, simulation_dir=new_dir)
 
 
-    return all_data, all_data_noisy, new_dir
+    return all_data, all_data_noisy, new_results_dir
 
 
 

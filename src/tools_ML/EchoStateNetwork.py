@@ -937,6 +937,8 @@ class EchoStateNetwork:
         # This must result in L-Xa timeseries
         LHS, RHS, U_train, R_train = case._compute_RR_terms(U_wtv, Y_tv)
         Wout_tik = np.empty((N_tikh, case.N_units + 1, case.N_dim))
+
+        
         for tik_j in range(N_tikh):
             LHS_ = LHS.copy()
             LHS_.ravel()[::LHS.shape[1] + 1] += case.tikh_range[tik_j]
