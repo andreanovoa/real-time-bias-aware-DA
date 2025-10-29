@@ -38,7 +38,7 @@ class VdP(Model):
         if 'psi0' not in model_dict.keys():
             model_dict['psi0'] = np.array([0.1, 0.1])  # initialise eta and mu
 
-        super().__init__(**model_dict)
+        super().__init__(integrator_class=IVPIntegrator, **model_dict)
 
         #  Add fixed input_parameters
         self.set_fixed_params()

@@ -121,7 +121,7 @@ class ESN_model(EchoStateNetwork, Model):
         # ________________________________ Init Model _______________________________ #
         
         kwargs['psi0'] = np.concatenate(self.get_reservoir_state(), axis=0)
-        Model.__init__(self, **kwargs)
+        Model.__init__(self, integrator_class=DiscreteIntegrator, **kwargs)
 
 
 
@@ -389,8 +389,24 @@ class ESN_model(EchoStateNetwork, Model):
             Wout = np.einsum('ij,kjl,lm->imk', self.Wout_U, self.Wout_Sigma, self.Wout_Vh)
             
             return np.einsum('ij,ikj->kj', r_aug, Wout)
+        
 
 
+    def time_integrate(self, Nt=10, averaged=False, alpha=None):
+            # Call the generic integrator to get the raw ESN steps
+            psi_raw, t_raw = self.integrator.advance(Nt=Nt, averaged=averaged, alpha=alpha)
+            
+            # --- ESN-specific Post-Processing ---
+            # (This is where the interpolation and state reset from your original code goes)
+            
+            t_physical = t_raw # Placeholder: The actual interpolation logic must go here
+            
+            # Update ESN state (assuming state is in psi_raw[-1])
+            # self.reset_state(...)
+            
+            return psi_raw, t_physical
+    
+    
 
     def time_integrate(self, Nt=10, averaged=False, alpha=None):
         """

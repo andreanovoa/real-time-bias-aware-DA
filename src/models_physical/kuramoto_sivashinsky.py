@@ -1,9 +1,14 @@
+
+
+# %%
+
+
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm as cm
 import warnings
 
-from model import Model
+from model import *
 
 
 
@@ -16,7 +21,7 @@ class KS(Model):
 	B.C.s : u(t,0) = u(t,L)
 	        u_x(t,0) = u_x(t,L)
 
-	on the domain x in (0,L], where L = (2pi/nu)^2
+	on the domain x in (0,L], where nu = (2pi/L)^2
     """
 
     name: str = 'KS'
@@ -25,10 +30,10 @@ class KS(Model):
     dt = 0.25
 
     Nq = 1
-    Nx = 256                # Spatial discretization
-    nu = 1.                 # 'Viscosity' parameter of the KS equation.
-    L = 2*np.pi             # Domain length (0, L]
-    couple_L_and_nu = True
+    Nx = 256             # Spatial discretization
+    nu = None            # 'Viscosity' parameter of the KS equation.
+    L = None             # Domain length (0, L]
+    
     seed = 0
     initial_amplitude = 0.01
 
@@ -68,8 +73,14 @@ class KS(Model):
         if self.Nx % 2 != 0:
             raise ValueError("Nx must be even.")
 		
-        if self.couple_L_and_nu:
-            self.L = 2 * np.pi / np.sqrt(np.array(nu))
+        if self.L is None and self.nu is None:
+            raise ValueError("Either L or nu must be specified.")
+        elif self.L is None:
+            self.L = 2 * np.pi / np.sqrt(self.nu)
+        elif self.nu is None:
+            # self.nu = (2 * np.pi / self.L)**2
+            self.nu = 1
+
         
         # Define Fourier wavenumbers k on the nondimensional domain
         self.k = 2 * np.pi * np.fft.rfftfreq(self.Nx, d=self.L / self.Nx)
@@ -103,7 +114,7 @@ class KS(Model):
             
 
 
-        super().__init__(**model_dict)
+        super().__init__(integrator_class=DiscreteIntegrator, **model_dict)
 
         
 
@@ -113,6 +124,7 @@ class KS(Model):
     @property
     def obs_labels(self):
         return [f"$\\u(x_{j+1})$" for j in np.arange(self.Nq)]
+
 
     def get_observables(self, Nt=1, loc=None, **kwargs):
         """
@@ -126,7 +138,6 @@ class KS(Model):
             return KS.fourier_to_physical(self.hist[-1, :self.Nk])[loc]
         else:
             return KS.fourier_to_physical(self.hist[-Nt:, :self.Nk])[:, loc]
-
 
 
     # _______________ KS specific properties and methods ________________ #
@@ -201,17 +212,15 @@ class KS(Model):
     @property
     def __linear_operator(self):
         # ÷ Fourier multipliers for linear term
-    
-
-        if not self.couple_L_and_nu:
-            return (self.k**2 - self.nu * self.k**4)[:, None] 
-        else:
-            return (self.k**2 - self.k**4)[:, None] 
+        # return (self.k**2 - self.nu * self.k**4)[:, None] 
+        # else:
+        return (self.k**2 - self.k**4)[:, None] 
         
 
     @property
     def ETDRK4_f_terms(self):
         return self._ETDRK4_f_terms
+
 
 
     @ETDRK4_f_terms.setter
@@ -247,9 +256,11 @@ class KS(Model):
         zero_mask = (L[:,0] <= 1e-10)
         for key, val in zip(['f1', 'f2', 'f3'], [f1, f2, f3]):
             f_raw = val.astype(complex)
-
-            if np.any(zero_mask):
-                terms[key][zero_mask] = self.dt / 6 
+            
+            if key in ['f1', 'f2']:
+                terms[key][zero_mask] = self.dt * 0.5  # For intermediate steps
+            elif key == 'f3':
+                terms[key][zero_mask] = self.dt * (1/6) # For intermediate steps
                 
             for kk in range(self.Nk):
                 f = val[kk]
@@ -344,7 +355,7 @@ class KS(Model):
 
 
 
-    def time_integrate(self, Nt=10, averaged=False, alpha=None):
+    def time_step(self, Nt=10, averaged=False, alpha=None):
         """
         Integrator for the KS model that supports ensembles and averaged ensemble propagation.
         Matches interface conventions of other models.
@@ -373,7 +384,6 @@ class KS(Model):
         
         t = np.round(self.get_current_time + np.arange(Nt + 1) * self.dt, self.precision_t)
         
-
 
         if averaged and self.ensemble:
             u0_hat_mean = np.mean(u0_hat, axis=1, keepdims=True)
@@ -498,7 +508,7 @@ class KS(Model):
             ax.set_yticklabels(tick_labels)
                 
             
-        axs[0].set(title=rf"KS spatiotemporal evolution. $L={model.L:.2f}, \nu={model.nu}$")
+        axs[0].set(title=rf"KS spatiotemporal evolution. $L={model.L/np.pi:.2f}\pi, \nu={model.nu}$")
         axs[-1].set(xlabel="$t$")
 
         fig.colorbar(im, ax=axs, orientation='vertical') 
@@ -534,14 +544,15 @@ class KS(Model):
 
     
 
+# %%
 
 
 if __name__ == "__main__":
 
     nu = .08
     dt = 0.25
-    Nt = int(1000 / dt)
-    Nx = 128
+    Nt = int(100 / dt)
+    Nx = 256
     # L = 36
 
     import time
@@ -585,3 +596,44 @@ if __name__ == "__main__":
     plt.show()
 
 
+
+
+    Nt_transient = int(10 / dt)
+    for T in [25, 1000]:
+
+        model = KS( Nx=Nx,
+                    dt=dt,
+                    seed=seed,
+                    initial_amplitude=1.,
+                    L=48*np.pi)   
+
+        Nt = int(T / model.dt)
+
+        # remove transient
+        solution, times = model.time_integrate(Nt=Nt_transient)
+        model.update_history(psi=solution[[-1]], t=times[[0]], reset=True)
+
+        comp_time = []
+        n_runs = 10
+        for _ in range(n_runs):
+            t1 = time.time()
+            solution, times = model.time_integrate(Nt=Nt)
+            t2 = time.time()
+            comp_time.append(t2 - t1)
+
+        print(f'Computation time for T={T} over {n_runs} runs: \n ')
+        print(f'\t Mean: {np.mean(comp_time):.4f} s')
+        print(f'\t Std: {np.std(comp_time):.4f} s')
+        print(f'\t Min: {np.min(comp_time):.4f} s')
+        print(f'\t Max: {np.max(comp_time):.4f} s')
+        
+
+        model.update_history(psi=solution, t=times)
+        
+        KS.plot_spatiotemporal_u(model=model)
+        KS.plot_temporal_E(model=model)
+
+    plt.show()
+
+
+# %%

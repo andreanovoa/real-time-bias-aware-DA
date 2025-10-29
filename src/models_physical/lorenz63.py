@@ -36,7 +36,7 @@ class Lorenz63(Model):
 
         self.Nq = len(self.observe_dims)
 
-        super().__init__(**model_dict)
+        super().__init__(integrator_class=IVPIntegrator, **model_dict)
 
     # _______________ Lorenz63 specific properties and methods ________________ #
     @property
@@ -56,3 +56,14 @@ class Lorenz63(Model):
         dx2 = x1 * (rho - x3) - x2
         dx3 = x1 * x2 - beta * x3
         return (dx1, dx2, dx3) + (0,) * (len(psi) - 3)
+    
+
+
+if __name__ == "__main__":
+    # test Lorenz63 model
+    model = Lorenz63()
+    model.time_integrate(Nt=1000)
+
+    model.close()
+    print(model.get_observables(Nt=5))
+    

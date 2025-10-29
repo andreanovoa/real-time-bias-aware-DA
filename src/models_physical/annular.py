@@ -65,7 +65,7 @@ class Annular(Model):
 
             model_dict['psi0'] = np.array(psi0)  # initialise \eta_a, \dot{\eta_a}, \eta_b, \dot{\eta_b}
 
-        super().__init__(**model_dict)
+        super().__init__(integrator_class=IVPIntegrator, **model_dict)
 
     # _______________  Specific properties and methods ________________ #
     @property
