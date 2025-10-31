@@ -9,6 +9,7 @@ from model import Model
 rng = np.random.default_rng(0)
 
 
+
 def create_ensemble(model, forecast_params=None, alpha0=None, **filter_params):
     if forecast_params is None:
         forecast_params = filter_params.copy()
@@ -48,6 +49,9 @@ def create_ensemble(model, forecast_params=None, alpha0=None, **filter_params):
     ensemble.close()
 
     return ensemble
+
+
+
 
 def create_truth(model, 
                  t_start=None, t_stop=None, Nt_obs=20, std_obs=0.05, t_max=None, t_min=0.,

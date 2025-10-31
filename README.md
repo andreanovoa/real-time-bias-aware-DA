@@ -19,6 +19,7 @@ cd yourproject
 ```
 
 3. **Create and activate the Conda Environment** 
+NB. The `environment.yml` installation works in MacOS. For Linux use `environment_linux.yml`
 ```
 conda env create -f environment.yml
 conda activate real-time-da
@@ -79,6 +80,7 @@ Checkout the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aw
 │   ├── bias.py
 │   ├── create.py   
 │   ├── data_assimilation.py
+│   ├── integrator.py
 │   ├── model.py
 │   ├── models_datadriven
 │   │   │── EchoStateNetwork.py

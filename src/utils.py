@@ -362,9 +362,9 @@ def interpolate(t_y, y, t_eval, fill_values=None):
 
 
 def getEnvelope(timeseries_x, timeseries_y, fill_value=0):
-    peaks, peak_properties = find_peaks(timeseries_y, distance=200)
-    u_p = interp1d(timeseries_x[peaks], timeseries_y[peaks], bounds_error=False, fill_value=fill_value)
-    return u_p
+    peaks, _ = find_peaks(timeseries_y, distance=200)
+    return interp1d(timeseries_x[peaks], timeseries_y[peaks], bounds_error=False, fill_value=fill_value)
+    # return u_p
 
 
 def save_to_pickle_file(filename, *args):
@@ -665,9 +665,9 @@ def get_error_metrics(results_folder):
 
 def create_Lorenz63_dataset(noise_level=0.02, num_lyap_times=300, seed=0, **kwargs):
     from models_physical import Lorenz63
+
     # Load or create training data from the Lorenz 63 model
     data_folder = set_working_directories('Lorenz/')[0]
-
     model = Lorenz63(**kwargs)
 
 
@@ -750,7 +750,7 @@ def download_zenodo_file(download_url, data_folder='./', filename=None):
                 if chunk:
                     f.write(chunk)
                     bar.update(len(chunk))
-        if zipfile.is_zipfile(filename):
+        if zipfile.is_zipfile(file_path):
             unzip_file(file_path, output_folder=data_folder, remove_first_folder=True)
 
 def unzip_file(file_path, output_folder=None, remove_first_folder=True):
@@ -793,11 +793,11 @@ def get_annular_data(data_folder=None):
     if data_folder is None:
         data_folder = set_working_directories('annular/')
 
-    zip_file = os.path.join(data_folder, 'annular_data.zip')
     zenodo_dir = "https://zenodo.org/records/15609832/files"
     
-    download_zenodo_file(f'{zenodo_dir}/annular.zip?download=1', data_folder, 
-                            filename='annular_data.zip')
+    download_zenodo_file(f'{zenodo_dir}/annular.zip?download=1', 
+                         data_folder, 
+                        filename='annular_data.zip')
 
     download_zenodo_file(f'{zenodo_dir}/README.md?download=1', data_folder)
 
@@ -870,7 +870,7 @@ def load_cylinder_dataset(noise_type = 'gauss', noise_level = 0.1, smoothing = 0
         all_data, all_data_noisy = [dataset[key] for key in ['all_data', 'all_data_noisy']]
 
     if visualize:
-        visualize_flow_data(all_data, all_data_noisy, simulation_dir=new_dir)
+        visualize_flow_data(all_data, all_data_noisy, simulation_dir=new_results_dir)
 
 
     return all_data, all_data_noisy, new_results_dir

@@ -191,14 +191,6 @@ class IVPIntegrator(Integrator):
         else:
             pass
 
-    # @staticmethod
-    # def __forecast_ivp(y0, fun, t, params):
-    #     # Helper function for scipy.solve_ivp
-    #     assert len(t) > 1
-    #     part_fun = partial(fun, **params)
-    #     out = solve_ivp(part_fun, t_span=(t[0], t[-1]), y0=y0, t_eval=t, method='RK45')
-    #     return out.y.T
-
 
     def time_derivative(self, t, psi, **params):
         """ Governing equations: d(psi)/dt = f(t, psi, alpha). 
