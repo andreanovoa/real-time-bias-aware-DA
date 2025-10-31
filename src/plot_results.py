@@ -1206,132 +1206,132 @@ def plot_attractor(psi_cases, color, figsize=(8, 8), ensemble_mean=True):
             ax.plot(psi_[:, 0], psi_[:, 1], psi_[:, 2], lw=lw, c=c)
 
 
-def plot_truth(y_raw, y_true, t, dt, fig_width=10, window=None, b=np.array([0.]),
-               plot_time=False, Nq=None, filename=None, f_max=None, y_obs=None, t_obs=None, model=None, **other):
-    if Nq is None:
-        Nq = y_true.shape[1]
-    if t_obs is None:
-        t0 = 0
-        if window is None:
-            t1 = int(model.t_transient // dt)
-        else:
-            t1 = int(window // dt)
-    else:
-        t0 = int((t_obs[0]) // dt)
-        if window is None:
-            if model is not None and not isinstance(model, str):
-                t1 = int((t_obs[-1] + model.t_CR) // dt)
-                t1 = min(t1, len(t) - 1)
-            else:
-                t1 = int((t_obs[-1]) // dt)
-        else:
-            t1 = int((t_obs[0] + window) // dt)
+# def plot_truth(y_raw, y_true, t, dt, fig_width=10, window=None, b=np.array([0.]),
+#                plot_time=False, Nq=None, filename=None, f_max=None, y_obs=None, t_obs=None, model=None, **other):
+#     if Nq is None:
+#         Nq = y_true.shape[1]
+#     if t_obs is None:
+#         t0 = 0
+#         if window is None:
+#             t1 = int(model.t_transient // dt)
+#         else:
+#             t1 = int(window // dt)
+#     else:
+#         t0 = int((t_obs[0]) // dt)
+#         if window is None:
+#             if model is not None and not isinstance(model, str):
+#                 t1 = int((t_obs[-1] + model.t_CR) // dt)
+#                 t1 = min(t1, len(t) - 1)
+#             else:
+#                 t1 = int((t_obs[-1]) // dt)
+#         else:
+#             t1 = int((t_obs[0] + window) // dt)
 
-    xlim = [t[t0], t[t1]]
+#     xlim = [t[t0], t[t1]]
 
-    plot_bias = np.mean(b ** 2) > 0 and isinstance(model, str)
+#     plot_bias = np.mean(b ** 2) > 0 and isinstance(model, str)
 
-    if plot_bias:
-        noise = y_raw - (y_true - b)
-    else:
-        noise = y_raw - y_true
+#     if plot_bias:
+#         noise = y_raw - (y_true - b)
+#     else:
+#         noise = y_raw - y_true
 
-    max_y = np.max(abs(y_raw[:t1 - t0]))
+#     max_y = np.max(abs(y_raw[:t1 - t0]))
 
-    fig1 = plt.figure(figsize=(fig_width, 2 * Nq), layout="constrained")
-    subfigs = fig1.subfigures(nrows=1, ncols=4, width_ratios=[2, 0.5, 1, 1])
-    labels = ['Raw', 'Post-processed', 'Difference']
-    y_labels = ['$\\tilde{y}, y$', '', '$(\\tilde{y}-y)$']
-    cols = ['tab:blue', 'mediumseagreen', 'tab:purple']
+#     fig1 = plt.figure(figsize=(fig_width, 2 * Nq), layout="constrained")
+#     subfigs = fig1.subfigures(nrows=1, ncols=4, width_ratios=[2, 0.5, 1, 1])
+#     labels = ['Raw', 'Post-processed', 'Difference']
+#     y_labels = ['$\\tilde{y}, y$', '', '$(\\tilde{y}-y)$']
+#     cols = ['tab:blue', 'mediumseagreen', 'tab:purple']
 
-    ax_01 = subfigs[0].subplots(Nq, 2, sharex='all', sharey='all')
-    ax_4 = subfigs[-1].subplots(Nq, 1, sharex='all', sharey='all')
+#     ax_01 = subfigs[0].subplots(Nq, 2, sharex='all', sharey='all')
+#     ax_4 = subfigs[-1].subplots(Nq, 1, sharex='all', sharey='all')
 
-    # Plot zoomed timeseries of raw, post-processed and noise
-    if Nq == 1:
-        axss = [[ax_01[0]], [ax_01[1]], [ax_4]]
-    else:
-        axss = [ax_01[:, 0], ax_01[:, 1], ax_4]
+#     # Plot zoomed timeseries of raw, post-processed and noise
+#     if Nq == 1:
+#         axss = [[ax_01[0]], [ax_01[1]], [ax_4]]
+#     else:
+#         axss = [ax_01[:, 0], ax_01[:, 1], ax_4]
 
-    dashes = (10, 1)
-    for ax, yy, ttl, lbl, c in zip(axss, [y_raw, y_true, noise], labels, y_labels, cols):
-        ax[0].set(title=ttl)
-        ax[-1].set(xlabel='$t$', xlim=xlim)
-        for qi in range(Nq):
-            ax[qi].plot(t, yy[:, qi], color=c)
-            ax[qi].axhline(np.mean(yy[:, qi]), color=c)
-            if ttl[0] == 'R' and y_obs is not None:
-                ax[qi].plot(t_obs, y_obs[:, qi], 'ro', ms=3)
-            elif ttl[0] == 'P' and plot_bias:
-                ax[qi].plot(t, yy[:, qi] - b[:, qi], color='k', dashes=dashes, lw=.5)
-                ax[qi].axhline(np.mean(yy[:, qi] - b[:, qi]), color='k', dashes=dashes, lw=.5)
-            if len(lbl) > 1:
-                ax[qi].set(ylabel=lbl + '$_{}$'.format(qi))
+#     dashes = (10, 1)
+#     for ax, yy, ttl, lbl, c in zip(axss, [y_raw, y_true, noise], labels, y_labels, cols):
+#         ax[0].set(title=ttl)
+#         ax[-1].set(xlabel='$t$', xlim=xlim)
+#         for qi in range(Nq):
+#             ax[qi].plot(t, yy[:, qi], color=c)
+#             ax[qi].axhline(np.mean(yy[:, qi]), color=c)
+#             if ttl[0] == 'R' and y_obs is not None:
+#                 ax[qi].plot(t_obs, y_obs[:, qi], 'ro', ms=3)
+#             elif ttl[0] == 'P' and plot_bias:
+#                 ax[qi].plot(t, yy[:, qi] - b[:, qi], color='k', dashes=dashes, lw=.5)
+#                 ax[qi].axhline(np.mean(yy[:, qi] - b[:, qi]), color='k', dashes=dashes, lw=.5)
+#             if len(lbl) > 1:
+#                 ax[qi].set(ylabel=lbl + '$_{}$'.format(qi))
 
-    # Plot probability density src and power spectral densities
-    ax_pdf = subfigs[1].subplots(Nq, 1, sharey='all', sharex='all')
-    ax_PSD = subfigs[2].subplots(Nq, 1, sharex='all', sharey='all')
-    if Nq == 1:
-        ax_pdf = [ax_pdf]
-        ax_PSD = [ax_PSD]
-    binwidth = 0.01 * max_y
-    bins = np.arange(-max_y, max_y + binwidth, binwidth)
-    for yy, ttl, lbl, c in zip([y_raw, y_true], labels[:2], y_labels[:2], cols[:2]):
-        ax_pdf[0].set(title='PDF')
-        ax_pdf[-1].set(xlabel='$p$')
-        ax_PSD[-1].set(xlabel='$f$')
-        for qi in range(Nq):
-            ax_pdf[qi].hist(yy[:, qi], bins=bins, density=True, orientation='horizontal',
-                            color=c, label=lbl + '$_{}$'.format(qi), histtype='step')
-            if Nq == 1:
-                ylims = ax_01[qi].get_ylim()
-            else:
-                ylims = ax_01[qi, 0].get_ylim()
-            ax_pdf[qi].set(yticklabels=[], ylim=ylims)
-        f, PSD = fun_PSD(dt, yy.squeeze())
-        for qi in range(Nq):
-            ax_PSD[qi].semilogy(f, PSD[qi], color=c, label=lbl + '$_{}$'.format(qi))
-        ax_PSD[0].set(title='PSD', xlim=[0, f_max])
-    if plot_bias:
+#     # Plot probability density src and power spectral densities
+#     ax_pdf = subfigs[1].subplots(Nq, 1, sharey='all', sharex='all')
+#     ax_PSD = subfigs[2].subplots(Nq, 1, sharex='all', sharey='all')
+#     if Nq == 1:
+#         ax_pdf = [ax_pdf]
+#         ax_PSD = [ax_PSD]
+#     binwidth = 0.01 * max_y
+#     bins = np.arange(-max_y, max_y + binwidth, binwidth)
+#     for yy, ttl, lbl, c in zip([y_raw, y_true], labels[:2], y_labels[:2], cols[:2]):
+#         ax_pdf[0].set(title='PDF')
+#         ax_pdf[-1].set(xlabel='$p$')
+#         ax_PSD[-1].set(xlabel='$f$')
+#         for qi in range(Nq):
+#             ax_pdf[qi].hist(yy[:, qi], bins=bins, density=True, orientation='horizontal',
+#                             color=c, label=lbl + '$_{}$'.format(qi), histtype='step')
+#             if Nq == 1:
+#                 ylims = ax_01[qi].get_ylim()
+#             else:
+#                 ylims = ax_01[qi, 0].get_ylim()
+#             ax_pdf[qi].set(yticklabels=[], ylim=ylims)
+#         f, PSD = fun_PSD(dt, yy.squeeze())
+#         for qi in range(Nq):
+#             ax_PSD[qi].semilogy(f, PSD[qi], color=c, label=lbl + '$_{}$'.format(qi))
+#         ax_PSD[0].set(title='PSD', xlim=[0, f_max])
+#     if plot_bias:
 
-        f, PSD = fun_PSD(dt, (y_true - b).squeeze())
-        for qi in range(Nq):
-            ax_pdf[qi].hist(y_true[:, qi] - b[:, qi], bins=bins, density=True, orientation='horizontal',
-                            color='k', histtype='step', lw=.5)
-            ax_PSD[qi].semilogy(f, PSD[qi], color='k', dashes=dashes, lw=.5)
+#         f, PSD = fun_PSD(dt, (y_true - b).squeeze())
+#         for qi in range(Nq):
+#             ax_pdf[qi].hist(y_true[:, qi] - b[:, qi], bins=bins, density=True, orientation='horizontal',
+#                             color='k', histtype='step', lw=.5)
+#             ax_PSD[qi].semilogy(f, PSD[qi], color='k', dashes=dashes, lw=.5)
 
-    # Plot full timeseries if requested
-    figs2 = []
-    if plot_time:
-        for yy, name, c in zip([y_raw, y_true], labels[:2], cols[:2]):
-            y_true, t = [zz[t0:] for zz in [yy, t]]
-            max_y = np.max(abs(y_true))
-            fig2 = plt.figure(figsize=(12, 2 * Nq), layout="constrained")
-            subfigs = fig2.subfigures(nrows=1, ncols=2, width_ratios=[1, 0.5])
-            for sf, xlims in zip(subfigs, [(t[0], t[-1]), (t[-1000], t[-1])]):
-                ax = sf.subplots(Nq, 1, sharex='all')
-                if Nq == 1:
-                    ax = [ax]
-                ax[0].set(title=name)
-                ax[-1].set(xlabel='$t$', xlim=xlims)
-                for qi in range(Nq):
-                    ax[qi].plot(t, y_true[:, qi], color=c)
-                    ax[qi].set(ylim=[-max_y, max_y])
-            figs2.append(fig2)
-    # Show or save plots
-    if filename is None:
-        plt.show()
-    else:
-        if filename[-len('.pdf'):] != '.pdf':
-            filename += '.pdf'
-        os.makedirs('/'.join(filename.split('/')[:-1]), exist_ok=True)
-        pdf_file = plt_pdf.PdfPages(filename)
-        pdf_file.savefig(fig1)
-        plt.close(fig1)
-        for fig in figs2:
-            pdf_file.savefig(fig)
-            plt.close(fig)
-        pdf_file.close()  # Close results pdf
+#     # Plot full timeseries if requested
+#     figs2 = []
+#     if plot_time:
+#         for yy, name, c in zip([y_raw, y_true], labels[:2], cols[:2]):
+#             y_true, t = [zz[t0:] for zz in [yy, t]]
+#             max_y = np.max(abs(y_true))
+#             fig2 = plt.figure(figsize=(12, 2 * Nq), layout="constrained")
+#             subfigs = fig2.subfigures(nrows=1, ncols=2, width_ratios=[1, 0.5])
+#             for sf, xlims in zip(subfigs, [(t[0], t[-1]), (t[-1000], t[-1])]):
+#                 ax = sf.subplots(Nq, 1, sharex='all')
+#                 if Nq == 1:
+#                     ax = [ax]
+#                 ax[0].set(title=name)
+#                 ax[-1].set(xlabel='$t$', xlim=xlims)
+#                 for qi in range(Nq):
+#                     ax[qi].plot(t, y_true[:, qi], color=c)
+#                     ax[qi].set(ylim=[-max_y, max_y])
+#             figs2.append(fig2)
+#     # Show or save plots
+#     if filename is None:
+#         plt.show()
+#     else:
+#         if filename[-len('.pdf'):] != '.pdf':
+#             filename += '.pdf'
+#         os.makedirs('/'.join(filename.split('/')[:-1]), exist_ok=True)
+#         pdf_file = plt_pdf.PdfPages(filename)
+#         pdf_file.savefig(fig1)
+#         plt.close(fig1)
+#         for fig in figs2:
+#             pdf_file.savefig(fig)
+#             plt.close(fig)
+#         pdf_file.close()  # Close results pdf
 
 
 def plot_violins(ax, values, location, color='b', label=None, alpha=0.5, **kwargs):

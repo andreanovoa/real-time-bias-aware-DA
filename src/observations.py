@@ -59,7 +59,7 @@ class Observations():
         # 3. Add noise and bias if requested
         self.b, self.name_bias = self._get_bias()
         self.y_true += self.b 
-        self.y_raw = self._apply_noise(self.y_true)
+        self.y_raw = self._apply_noise()
 
         # 4. Compute Observation Times
         # Adjust all times by t_min if t_min > 0 (to start t_true[0] at 0)
@@ -84,7 +84,15 @@ class Observations():
 
 
     def _get_bias(self):
-        """Applies manual or default bias to zero."""
+        """Applies manual or default bias to zero.
+            Options:
+            - manual_bias = None (no bias)
+            - manual_bias = string (predefined bias types: 'linear', 'periodic', 'time', 'cosine')
+            - manual_bias = function(y_true, t_true) returning (b_true, name_bias)
+            Returns: 
+            - b_true: bias array, 
+            - name_bias: string description of bias type
+        """
         y_true = self.y_true.copy()
         t_true = self.t_true.copy()
         b_true = y_true * 0.
@@ -118,10 +126,19 @@ class Observations():
         return b_true, name_bias
 
 
-    def _apply_noise(self, y_true):
-        """Adds noise to the biased truth data."""
+    def _apply_noise(self):
+        """Adds noise to the biased truth data.
+            Options:
+            - if add_noise is False, returns clean data
+            - std_obs: standard deviation of the noise (as fraction of max signal)
+            - noise_type: 'gauss' or 'coloured' for Gaussian or coloured noise
+            - 'add' or 'mult' for additive or multiplicative noise
+            Returns: noisy data.
+        """
+
+        y_true = self.y_true.copy()
         if not self.add_noise:
-            return y_true.copy() 
+            return y_true 
         else:
             # def create_noisy_signal(y_clean, noise_level=0.1, noise_type='gauss, add'):
             if y_true.ndim == 2:
@@ -158,10 +175,19 @@ class Observations():
 
 
     def _create_observations(self, model, **kwargs):
-        if issubclass(model, Model) or isinstance(model, Model):
+
+        def object_is_a_Model(obj):
+            if isinstance(obj, type):
+                return issubclass(obj, Model)
+            else:
+                return isinstance(obj, Model)
+
+
+        """Creates or loads truth data from a model or file."""
+        if object_is_a_Model(model):
 
             # Instantiate the model if a class is provided
-            if not isinstance(model, Model):
+            if isinstance(model, type):
                 model = model(**kwargs)  
 
             # Define Time Windows based on Model properties
@@ -234,7 +260,7 @@ class Observations():
 
 
     @staticmethod
-    def plot_truth(case, fig_width=10, window=None, plot_time=False, Nq=None, filename=None, f_max=None):
+    def plot_truth(case, fig_width=10, window=None, xlim=None, plot_time=False, Nq=None, filename=None, f_max=None):
     
         
         y_raw, y_true, t_true, y_obs, t_obs, b = [getattr(case, key) for key in ['y_raw', 'y_true', 't_true', 'y_obs', 't_obs', 'b']]
@@ -266,7 +292,8 @@ class Observations():
             else:
                 t1 = int((t_obs[0] + window) // dt)
 
-        xlim = [t_true[t0], t_true[t1]]
+        if xlim is None:
+            xlim = [t_true[t0], t_true[t1]]
 
 
 
@@ -277,6 +304,7 @@ class Observations():
         labels = ['Raw', 'True', 'Difference']
         y_labels = ['$\\tilde{y}, y$', '', '$(\\tilde{y}-y)$']
         cols = ['tab:blue', 'mediumseagreen', 'tab:purple']
+        c_b = 'tab:orange'
 
         ax_01 = subfigs[0].subplots(Nq, 2, sharex='all', sharey='row')
         ax_4 = subfigs[-1].subplots(Nq, 1, sharex='all', sharey='row')
@@ -297,8 +325,8 @@ class Observations():
                 if ttl[0] == 'R' and y_obs is not None:
                     ax[qi].plot(t_obs, y_obs[:, qi], 'ro', ms=3)
                 elif ttl[0] == 'T' and plot_bias:
-                    ax[qi].plot(t_true, yy[:, qi] - b[:, qi], color='k', dashes=dashes, lw=.5)
-                    ax[qi].axhline(np.mean(yy[:, qi] - b[:, qi]), color='k', dashes=dashes, lw=.5)
+                    ax[qi].plot(t_true, yy[:, qi] - b[:, qi], color=c_b, dashes=dashes)
+                    ax[qi].axhline(np.mean(yy[:, qi] - b[:, qi]), color=c_b, dashes=dashes)
                 if len(lbl) > 1:
                     ax[qi].set(ylabel=lbl + '$_{}$'.format(qi))
 
@@ -322,7 +350,7 @@ class Observations():
                                 color=c, label=lbl + '$_{}$'.format(qi), histtype='stepfilled', alpha=.7)
                 
                 ax_pdf[qi].hist(y_obs[:, qi], bins=bins, density=True, orientation='horizontal', ls='--',
-                                color='red', histtype='step')
+                                color='red', histtype='step',lw=1)
                 if Nq == 1:
                     ylims = ax_01[qi].get_ylim()
                 else:
@@ -336,8 +364,8 @@ class Observations():
             f, PSD = fun_PSD(dt, (y_true - b).squeeze())
             for qi in range(Nq):
                 ax_pdf[qi].hist(y_true[:, qi] - b[:, qi], bins=bins, density=True, orientation='horizontal',
-                                color='k', histtype='stepfilled', lw=.5)
-                ax_PSD[qi].semilogy(f, PSD[qi], color='k', dashes=dashes, lw=.5)
+                                color=c_b, histtype='step', lw=.5)
+                ax_PSD[qi].semilogy(f, PSD[qi], color=c_b, dashes=dashes)
 
         # Plot full timeseries if requested
         figs2 = []
