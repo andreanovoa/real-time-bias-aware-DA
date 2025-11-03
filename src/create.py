@@ -248,6 +248,7 @@ def create_bias_model(ensemble, bias_params: dict,
     """
     if isinstance(training_dataset, dict):
         training_dataset = [training_dataset]
+        
     elif not isinstance(training_dataset, list):
         raise ValueError('Training dataset must be a list of dicts or a dict')
 

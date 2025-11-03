@@ -1,5 +1,6 @@
 name: real-time-da
 channels:
+  - pytorch
   - conda-forge
   - defaults
 dependencies:
@@ -11,7 +12,7 @@ dependencies:
   - multiprocess=0.70
   - numba=0.60
   - numpy=2.0
-  - pip=25.2
+  - pip
   - pyts=0.13
   - pytest=8.4
   - requests=2.32
@@ -21,9 +22,11 @@ dependencies:
   - tabulate=0.9
   - tqdm=4.67
   - pytorch
-  - wandb
+  - torchvision
+  - torchaudio
   - pip:
-    - ipython-genutils~=0.2
-    - modulo-vki==2.1
-    - pyqt5~=5.15
-    - -e .
+      - ipython-genutils~=0.2
+      - modulo-vki==2.1
+      - pyqt5~=5.15
+      - wandb
+      - -e .

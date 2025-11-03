@@ -3,7 +3,6 @@ import numpy as np
 from bias import *
 
 
-import numpy as np
 import os # Need this for create_observations
 
 from model import Model
@@ -22,20 +21,21 @@ class Observations():
     Nt_obs = 20
     std_obs = 0.05
     
-    t_min = 0.0 # Start time for the whole simulation
 
     # Instance Attributes (Defaults - Will be set in __init__)
     post_processed = False 
     manual_bias = None
 
-    t_min = 0.0
+    t_min = 0.0  
     t_max = None
     t_start = None
     t_stop = None
 
-    true_model = None
-    data_folder=None
+    true_parameters = None
+    data_folder = None
     add_noise = True
+
+    _frozen = False
 
     def __init__(self, model, **kwargs):
         """
@@ -54,36 +54,123 @@ class Observations():
             self.data_folder = os.path.join(os.getcwd() + '/data/')
 
         # 2. Generate or Load Truth Data
-        self.y_true, self.t_true, self.name_truth = self._create_observations(model, **model_dict)
+        self.y_raw, self.y_true, self.t_true, self.name_truth = self._create_observations(model, **model_dict)
+        
+        self.dt = self.t_true[1] - self.t_true[0]
 
-        # 3. Add noise and bias if requested
-        self.b, self.name_bias = self._get_bias()
-        self.y_true += self.b 
-        self.y_raw = self._apply_noise()
+
+        # 3. Add noise and bias if requested (in this order and only if y_raw is None)
+        self._set_bias()
+        self._apply_noise()
+
+
 
         # 4. Compute Observation Times
         # Adjust all times by t_min if t_min > 0 (to start t_true[0] at 0)
         if self.t_min > 0:
-            t_true -= self.t_min
+            self.t_true -= self.t_min
             if self.t_start is not None:
                 self.t_start -= self.t_min
             if self.t_stop is not None:
                 self.t_stop -= self.t_min
+        
+        self.update_obs_idx(self.t_start, self.t_stop, self.Nt_obs)
+
 
         # Calculate indices
+        self._frozen = True  # Freeze attributes to prevent further modification
+
+
+
+    @property
+    def obs_idx(self):
+        """Allows reading the calculated observation index."""
+        if self._obs_idx is None:
+             raise AttributeError("obs_idx has not been calculated yet. Call update_obs_idx first.")
+        return self._obs_idx
+        
+
+        
+
+    def update_obs_idx(self, t_start=None, t_stop=None, Nt_obs=None):
+        """
+        Calculates and updates the observation index based on the provided times and sampling rate.
+        This is the dedicated method for modification.
+        """
+
+        # Use existing attributes if parameters are not provided
+        for key, val in zip(['t_start', 't_stop', 'Nt_obs'], [t_start, t_stop, Nt_obs]):
+            if val is None:                
+                val = getattr(self, key)
+            else:
+                setattr(self, key, val)
+
+
         start_idx = np.searchsorted(self.t_true, self.t_start)
         stop_idx = np.searchsorted(self.t_true, self.t_stop, side='right') - 1
-        
-        # Original logic: step from start_idx to stop_idx (inclusive)
-        obs_idx = np.arange(start_idx, stop_idx + 1, self.Nt_obs, dtype=int)
-        
-        # 5. Save Final observation data
-        self.t_obs = self.t_true[obs_idx]
-        self.y_obs = self.y_raw[obs_idx]
-        self.dt_obs = self.Nt_obs * (self.t_true[1] - self.t_true[0])
+
+        self._obs_idx =  np.arange(start_idx, stop_idx + 1, self.Nt_obs, dtype=int)
 
 
-    def _get_bias(self):
+
+    @property
+    def dt_obs(self):
+        return self.Nt_obs * self.dt
+    
+    @property
+    def y_obs(self):
+        return self.y_raw[self.obs_idx,...,0]
+    
+    @property
+    def t_obs(self):
+        return self.t_true[self.obs_idx]
+    
+
+    # --- Properties for Frozen Data ---
+
+    @property
+    def y_raw(self):
+        return self._y_raw
+
+    @y_raw.setter
+    def y_raw(self, value):
+        if self._frozen:
+            raise AttributeError("Cannot modify 'y_raw': Attributes are frozen after initialization.")
+        self._y_raw = value
+
+    @property
+    def y_true(self):
+        return self._y_true
+
+    @y_true.setter
+    def y_true(self, value):
+        if self._frozen:
+            raise AttributeError("Cannot modify 'y_true': Attributes are frozen after initialization.")
+        self._y_true = value
+
+    @property
+    def t_true(self):
+        return self._t_true
+
+    @t_true.setter
+    def t_true(self, value):
+        if self._frozen:
+            raise AttributeError("Cannot modify 't_true': Attributes are frozen after initialization.")
+        self._t_true = value
+
+    @property
+    def name_truth(self):
+        return self._name_truth
+
+    @name_truth.setter
+    def name_truth(self, value):
+        if self._frozen:
+            raise AttributeError("Cannot modify 'name_truth': Attributes are frozen after initialization.")
+        self._name_truth = value
+
+
+
+    def _set_bias(self):
         """Applies manual or default bias to zero.
             Options:
             - manual_bias = None (no bias)
@@ -93,15 +180,23 @@ class Observations():
             - b_true: bias array, 
             - name_bias: string description of bias type
         """
+
         y_true = self.y_true.copy()
         t_true = self.t_true.copy()
         b_true = y_true * 0.
-        manual_bias = self.manual_bias
         
+
+        if self.y_raw is not None:
+            self.manual_bias = None 
+
+        manual_bias = self.manual_bias
+
         if manual_bias is None:
             name_bias = 'No_bias'
 
         elif isinstance(manual_bias, str):
+            print(f'Applying manual bias: {manual_bias}')
+
             name_bias = manual_bias
             # Use cleaner np.max(y_true, axis=0) or np.ptp(y_true, axis=0) for scaling
             y_max_over_time = np.max(y_true, axis=0)
@@ -122,8 +217,10 @@ class Observations():
         else:
             # The manual bias is a function of state and/or time
             b_true, name_bias = manual_bias(y_true, t_true)
-        
-        return b_true, name_bias
+
+        # Update true data to include bias
+        self.y_true += b_true
+        self.b_true, self.name_bias = b_true, name_bias
 
 
     def _apply_noise(self):
@@ -136,17 +233,21 @@ class Observations():
             Returns: noisy data.
         """
 
-        y_true = self.y_true.copy()
-        if not self.add_noise:
-            return y_true 
-        else:
-            # def create_noisy_signal(y_clean, noise_level=0.1, noise_type='gauss, add'):
-            if y_true.ndim == 2:
-                y_true = np.expand_dims(y_true, -1)
 
-            Nt, q, L = y_true.shape
-            y_noisy = y_true.copy()
+        if self.add_noise:
+            print(f'Adding noise: {self.noise_type}')
 
+            
+            if self.y_raw is None:
+                y_clean = self.y_true.copy()
+            else:
+                y_clean = self.y_raw.copy()
+
+
+            Nt, q, L = y_clean.shape
+
+            # Initialize raw data with clean data
+            self.y_raw = np.atleast_3d(y_clean)  
             for ll in range(L):
                 # Type/color of the noise
                 if 'gauss' in self.noise_type.lower():
@@ -161,20 +262,27 @@ class Observations():
                         noise[:, ii] = np.fft.irfft(S)[i0:]  # transform back into time domain
                 # Additive or multiplicative noise
                 if 'add' in self.noise_type.lower():
-                    y_noisy[:, :, ll] += noise * np.max(abs(y_true[:, :, ll]), axis=0)
+                    self.y_raw[:, :, ll] += noise * np.max(abs(y_clean[:, :, ll]), axis=0)
                 else:
-                    y_noisy[:, :, ll] += noise * y_noisy[:, :, ll]
-
-            y_noisy = y_noisy.squeeze()
-
-            if y_noisy.ndim == 1:
-                y_noisy = np.expand_dims(y_noisy, axis=-1)
-
-            return y_noisy
-
+                    self.y_raw[:, :, ll] += noise * y_clean[:, :, ll]
+        else:
+            self.y_raw = np.atleast_3d(self.y_raw)  # Ensure y_raw is at least 3D
+        
+            
 
 
     def _create_observations(self, model, **kwargs):
+        """Creates or loads truth data from a model or file.
+            - kwargs: parameters to instantiate the model if a class is provided
+            Returns:
+            - y_raw: raw data (None if loaded from file)
+            - y_true: true observable data
+            - t_true: time array
+            - name_truth: string description of truth data
+        """
+
+        y_raw = None  # Initialize y_raw to None. Only set if loaded from file (i.e., real data).
+
 
         def object_is_a_Model(obj):
             if isinstance(obj, type):
@@ -183,7 +291,6 @@ class Observations():
                 return isinstance(obj, Model)
 
 
-        """Creates or loads truth data from a model or file."""
         if object_is_a_Model(model):
 
             # Instantiate the model if a class is provided
@@ -226,18 +333,17 @@ class Observations():
                 if len(full_path) > 0:
                     save_to_pickle_file(full_path, true_model)
 
-            
             # ============================================================
             # Retrieve observables
             y_true = true_model.get_observable_hist()
-            y_true = np.squeeze(y_true, axis=-1)
             t_true = true_model.hist_t
             name_truth = name_truth
+            self.true_parameters = true_model.alpha0
             
 
         elif isinstance(model, str):            
             # Load Data from File
-            full_path = os.join(self.data_folder, model) if self.data_folder else model
+            full_path = os.path.join(self.data_folder, model) if self.data_folder else model
             try:
                 if 'rijke' in model:
                     mat = load_from_mat_file(full_path)
@@ -255,151 +361,153 @@ class Observations():
         else:
             raise ValueError("Model must be either a Model instance or a string filename.")
 
-        return y_true, t_true, name_truth
+        # Ensure y_true is at least 3D: (Nt, Nq, L)
+        y_true = np.atleast_3d(y_true)
 
+        return y_raw, y_true, t_true, name_truth
 
-
+#  ====================================================================================================================================================================================
+    # Plotting methods
+#  ====================================================================================================================================================================================
     @staticmethod
-    def plot_truth(case, fig_width=10, window=None, xlim=None, plot_time=False, Nq=None, filename=None, f_max=None):
-    
+    def plot_truth(case, Nq=None, fig_width=12, window=None, f_max=None):
+        """
+        Method to plot raw, true, difference time series, PDF, and PSD.
+        Assumes Nq=4 based on the example image.
+        """
         
-        y_raw, y_true, t_true, y_obs, t_obs, b = [getattr(case, key) for key in ['y_raw', 'y_true', 't_true', 'y_obs', 't_obs', 'b']]
-        
+        # 1. Data Extraction and Setup
+        y_raw, y_true, t_true, y_obs, t_obs, b = [
+            getattr(case, key).squeeze() for key in ['y_raw', 'y_true', 't_true', 'y_obs', 't_obs', 'b_true']
+        ]
+
+        if y_true.ndim == 1:
+            y_true = y_true[:, np.newaxis]
+            y_raw = y_raw[:, np.newaxis]
+            if y_obs is not None:
+                y_obs = y_obs[:, np.newaxis]
+
 
         dt = t_true[1] - t_true[0]
-        plot_bias = np.mean(b ** 2) > 0.
+        # Calculate noise: Difference between raw and true signal
+        noise = y_raw - y_true
 
-        if plot_bias:
-            noise = y_raw - (y_true - b)
-        else:
-            noise = y_raw - y_true
+
         if Nq is None:
             Nq = y_true.shape[1]
-        if t_obs is None:
-            t0 = 0
-            if window is None:
-                t1 = int(case.true_model.t_transient // dt)
-            else:
-                t1 = int(window // dt)
+
+        # Compute PSDs
+        # find first index for t_obs
+        t0_idx = np.argmin(np.abs(case.t_true - case.t_obs[0]))
+
+        nt_PSD = int((len(t_true) - t0_idx) // 2)
+        f_raw, PSD_raw = fun_PSD(dt, y_raw[t0_idx:nt_PSD + t0_idx])
+        _, PSD_true = fun_PSD(dt, y_true[t0_idx:nt_PSD + t0_idx])
+        
+        # Determine plotting time window (simplified: use the first X data points if no window is given)
+        # Using a simplified window selection for demonstration:
+        if window is None:
+            # Use a fixed fraction of the data for the time plots, e.g., 20%
+            t1_idx = len(t_true) // 5 if len(t_true) > 100 else len(t_true)
         else:
-            t0 = int((t_obs[0]) // dt)
-            if window is None:
-                if case.true_model is not None:
-                    t1 = int((t_obs[-1] + case.true_model.t_CR) // dt)
-                    t1 = min(t1, len(t_true) - 1)
-                else:
-                    t1 = int((t_obs[-1]) // dt)
-            else:
-                t1 = int((t_obs[0] + window) // dt)
-
-        if xlim is None:
-            xlim = [t_true[t0], t_true[t1]]
+            # Index corresponding to the window time
+            t1_idx = int(window // dt)
+        
+        
+        # Trim data for time-domain plots
+        t_plot = t_true[t0_idx:t0_idx+t1_idx]
+        y_raw_plot = y_raw[t0_idx:t0_idx+t1_idx]
+        y_true_plot = y_true[t0_idx:t0_idx+t1_idx]
+        noise_plot = noise[t0_idx:t0_idx+t1_idx]
 
 
+        # X-limits for time plots
+        xlim_time = [t_plot[0], t_plot[-1]]
+        max_y = np.max(np.abs(y_raw))
 
-        max_y = np.max(abs(y_raw[:t1 - t0]))
-
-        fig1 = plt.figure(figsize=(fig_width, 2 * Nq), layout="constrained")
-        subfigs = fig1.subfigures(nrows=1, ncols=4, width_ratios=[2, 0.5, 1, 1])
-        labels = ['Raw', 'True', 'Difference']
-        y_labels = ['$\\tilde{y}, y$', '', '$(\\tilde{y}-y)$']
-        cols = ['tab:blue', 'mediumseagreen', 'tab:purple']
-        c_b = 'tab:orange'
-
-        ax_01 = subfigs[0].subplots(Nq, 2, sharex='all', sharey='row')
-        ax_4 = subfigs[-1].subplots(Nq, 1, sharex='all', sharey='row')
-
-        # Plot zoomed timeseries of raw, post-processed and noise
+        
+        # 2. Figure Setup
+        fig, axes = plt.subplots(
+            Nq, 5, 
+            figsize=(fig_width, 2. * Nq), 
+            layout='constrained',
+            gridspec_kw={'width_ratios': [1, 1, 0.5, 1, 1], 'wspace': 0.1, 'hspace': 0.1}
+        )
+        
+        # If Nq=1, axes will be a 1D array; ensure it's 2D for consistent indexing
         if Nq == 1:
-            axss = [[ax_01[0]], [ax_01[1]], [ax_4]]
-        else:
-            axss = [ax_01[:, 0], ax_01[:, 1], ax_4]
+            axes = axes.reshape(1, 5)
 
-        dashes = (10, 1)
-        for ax, yy, ttl, lbl, c in zip(axss, [y_raw, y_true, noise], labels, y_labels, cols):
-            ax[0].set(title=ttl)
-            ax[-1].set(xlabel='$t$', xlim=xlim)
-            for qi in range(Nq):
-                ax[qi].plot(t_true, yy[:, qi], color=c)
-                ax[qi].axhline(np.mean(yy[:, qi]), color=c)
-                if ttl[0] == 'R' and y_obs is not None:
-                    ax[qi].plot(t_obs, y_obs[:, qi], 'ro', ms=3)
-                elif ttl[0] == 'T' and plot_bias:
-                    ax[qi].plot(t_true, yy[:, qi] - b[:, qi], color=c_b, dashes=dashes)
-                    ax[qi].axhline(np.mean(yy[:, qi] - b[:, qi]), color=c_b, dashes=dashes)
-                if len(lbl) > 1:
-                    ax[qi].set(ylabel=lbl + '$_{}$'.format(qi))
+        titles = ['Raw', 'Truth', 'PDF', 'PSD', 'Difference']
+        xlabels = ['$t$', '$t$', '$p$', '$f$', '$t$']
 
-        # Plot probability density src and power spectral densities
-        ax_pdf = subfigs[1].subplots(Nq, 1, sharey='row', sharex='all')
-        ax_PSD = subfigs[2].subplots(Nq, 1, sharex='all', sharey='all')
-        if Nq == 1:
-            ax_pdf = [ax_pdf]
-            ax_PSD = [ax_PSD]
-
-        binwidth = 0.05 * max_y
-        bins = np.arange(-max_y, max_y + binwidth, binwidth)
-        for yy, ttl, lbl, c in zip([y_raw, y_true], labels[:2], y_labels[:2], cols[:2]):
-            ax_pdf[0].set(title='PDF')
-            ax_pdf[-1].set(xlabel='$p$')
-            ax_PSD[-1].set(xlabel='$f$')
-            for qi in range(Nq):
-                ax_pdf[qi].hist(yy[:, qi], bins=bins, density=True, orientation='horizontal',
-                                color=c, label=lbl + '$_{}$'.format(qi), histtype='step')
-                ax_pdf[qi].hist(yy[:, qi], bins=bins, density=True, orientation='horizontal',
-                                color=c, label=lbl + '$_{}$'.format(qi), histtype='stepfilled', alpha=.7)
-                
-                ax_pdf[qi].hist(y_obs[:, qi], bins=bins, density=True, orientation='horizontal', ls='--',
-                                color='red', histtype='step',lw=1)
-                if Nq == 1:
-                    ylims = ax_01[qi].get_ylim()
-                else:
-                    ylims = ax_01[qi, 0].get_ylim()
-                ax_pdf[qi].set(yticklabels=[], ylim=ylims)
-            f, PSD = fun_PSD(dt, yy.squeeze())
-            for qi in range(Nq):
-                ax_PSD[qi].semilogy(f, PSD[qi], color=c, label=lbl + '$_{}$'.format(qi))
-            ax_PSD[0].set(title='PSD', xlim=[0, f_max])
-        if plot_bias:
-            f, PSD = fun_PSD(dt, (y_true - b).squeeze())
-            for qi in range(Nq):
-                ax_pdf[qi].hist(y_true[:, qi] - b[:, qi], bins=bins, density=True, orientation='horizontal',
-                                color=c_b, histtype='step', lw=.5)
-                ax_PSD[qi].semilogy(f, PSD[qi], color=c_b, dashes=dashes)
-
-        # Plot full timeseries if requested
-        figs2 = []
-        if plot_time:
-            for yy, name, c in zip([y_raw, y_true], labels[:2], cols[:2]):
-                y_true, t_true = [zz[t0:] for zz in [yy, t_true]]
-                max_y = np.max(abs(y_true))
-                fig2 = plt.figure(figsize=(12, 2 * Nq), layout="constrained")
-                subfigs = fig2.subfigures(nrows=1, ncols=2, width_ratios=[1, 0.5])
-                for sf, xlims in zip(subfigs, [(t_true[0], t_true[-1]), (t_true[-1000], t_true[-1])]):
-                    ax = sf.subplots(Nq, 1, sharex='all')
-                    if Nq == 1:
-                        ax = [ax]
-                    ax[0].set(title=name)
-                    ax[-1].set(xlabel='$t$', xlim=xlims)
-                    for qi in range(Nq):
-                        ax[qi].plot(t_true, y_true[:, qi], color=c)
-                        ax[qi].set(ylim=[-max_y, max_y])
-                figs2.append(fig2)
-        # Show or save plots
-        if filename is None:
-            plt.show()
-        else:
-            if filename[-len('.pdf'):] != '.pdf':
-                filename += '.pdf'
-            os.makedirs('/'.join(filename.split('/')[:-1]), exist_ok=True)
-            pdf_file = plt_pdf.PdfPages(filename)
-            pdf_file.savefig(fig1)
-            plt.close(fig1)
-            for fig in figs2:
-                pdf_file.savefig(fig)
-                plt.close(fig)
-            pdf_file.close()  # Close results pdf
+        y_data_sets = [y_raw_plot, y_true_plot, [y_true, y_raw], [PSD_true, PSD_raw], noise_plot] # Note: PDF/PSD use full data
+        
+        c_raw = '#20b2aae5'
+        c_true = '#000080ff'
+        c_diff = 'mediumorchid'
+        
+        cols = [c_raw, c_true, c_diff]
+        
+        # 3. Plotting Loop
+        
+        # Plotting column by column (more readable than the original's structure)
+        for q_i in range(Nq):
+            # Column 0: Raw Time Series (y_raw)
+            ax = axes[q_i, 0]
+            ax.plot(t_plot, y_data_sets[0][:, q_i], color=cols[0], label='Raw')
+            if y_obs is not None:
+                ax.plot(t_obs, y_obs[:, q_i], 'ro', ms=3, mec='k', lw=.1)
+            ax.set_ylabel(f'$\\tilde{{y}}_{q_i}$')
+            ax.set_xlim(xlim_time)
             
+            y_lim_base = ax.get_ylim()
+
+
+            # Column 1: True Time Series (y_true)
+            ax = axes[q_i, 1]
+            ax.plot(t_plot, y_data_sets[1][:, q_i], color=cols[1])
+            ax.set(xlim=xlim_time, ylim=y_lim_base)
+
+            # Column 2: PDF (uses full data)
+            ax = axes[q_i, 2]
+            # Raw and true PDF
+            for ds, c, a in zip(y_data_sets[2], [c_true, c_raw], [.9, .9]):
+                # ax.hist(ds[:, q_i], bins=bins, density=True, orientation='horizontal', color=c, histtype='step', lw=1, alpha=a)
+                ax.hist(ds[:, q_i], bins=20, density=True, orientation='horizontal', color=c, histtype='stepfilled', alpha=a)
+            ax.set(ylim=y_lim_base)
+
+
+            
+            # Column 3: PSD (uses full data)
+            ax = axes[q_i, 3]
+            for ds, c, a in zip(y_data_sets[3], [c_true, c_raw], [1., .8]):
+                ax.semilogy(f_raw, ds[q_i], color=c, alpha=a)
+            
+            if q_i == 0:
+                ylims_PSD = [np.min(PSD_raw) * 0.1, np.max(PSD_raw) * 10]
+            ax.set_xlim([0, f_max])
+            ax.set_ylim(ylims_PSD)
+            
+            # Column 4: Difference Time Series (Noise)
+            ax = axes[q_i, 4]
+            ax.plot(t_plot, noise_plot[:, q_i], color=c_diff, label='Difference')
+            ax.set(xlim=xlim_time, ylim=y_lim_base, ylabel=f'$(\\tilde{{y}}-y)_{q_i}$')
+
+            if q_i < Nq:
+                for jj, ax in enumerate(axes[q_i, :]):
+                    if q_i != Nq-1:
+                        ax.set_xticklabels([]) # No x-axis labels
+                    if jj not in [0,3]:
+                        ax.set_yticklabels([]) # No y-axis labels
+                
+        
+        # Set titles and xlabesl
+        for i, (title, xlbl) in enumerate(zip(titles, xlabels)):
+            axes[0, i].set_title(title)
+            axes[-1, i].set_xlabel(xlbl)
+    
+
 
 
 

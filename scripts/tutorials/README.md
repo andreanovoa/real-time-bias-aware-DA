@@ -64,7 +64,7 @@ If the tutorial is not checked is because it is under development. Keep tuned!
 
 ###  POD-ESN  on a cylinder flow [3x] ([Nóvoa & Magri 2025](http://arxiv.org/abs/2504.16767))
 * [x] 30 - Introduction to the POD-ESN model and the dataset
-* [ ] 31 - Online adaptation of the ESN via data assimilation
+* [x] 31 - Online adaptation of the ESN via data assimilation
  
 <!-- ###  Data Assimilation on echo state networks [4x]
 * [ ] 40 - ESN-DA on Lorenz63

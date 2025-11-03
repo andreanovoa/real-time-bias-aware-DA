@@ -6,7 +6,7 @@ from scipy.interpolate import interp2d
 from tabulate import tabulate
 from utils import interpolate, fun_PSD, categorical_cmap, CR, get_error_metrics
 
-from observations import Observations
+
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 from matplotlib.ticker import FormatStrFormatter
@@ -775,7 +775,7 @@ def plot_Lk_contours(folder, filename='contour'):
     post_process_multiple(folder, filename, k_max=20., L_plot=[70])
 
 
-def plot_parameters(ensembles, t_obs = None, filename=None, reference_p=None, plot_ensemble_members=False):
+def plot_parameters(ensembles, truth=None, filename=None, reference_p=None, plot_ensemble_members=False):
     if type(ensembles) is not list:
         ensembles = [ensembles]
 
@@ -805,9 +805,11 @@ def plot_parameters(ensembles, t_obs = None, filename=None, reference_p=None, pl
             suffix += f'/{x}' + '$^\\mathrm{ref}$'
         return x + suffix
 
-    if t_obs is not None:
+    if truth is not None:
+        t_obs = truth['t_obs']
         xlim = [t_obs[0], t_obs[-1]]
-    else:      
+    else:
+        t_obs = None
         xlim = [filter_ens.hist_t[0], filter_ens.hist_t[-1]]
 
     cmap = categorical_cmap(len(filter_ens.est_a), len(ensembles), cmap="Set1")
@@ -1005,14 +1007,10 @@ def plot_states_PDF(ensembles, truth, nbins=20, window=None):
 
 
 
-def plot_timeseries(filter_ens, 
-                    truth : Observations, 
-                    plot_states=True, plot_bias=False, plot_ensemble_members=False,
+def plot_timeseries(filter_ens, truth, plot_states=True, plot_bias=False, plot_ensemble_members=False,
                     filename=None, reference_y=1., reference_t=1., max_time=None, dims='all'):
 
-    t_obs, y_obs = [getattr(truth, key) for key in ['t_obs', 'y_obs']]
-
-
+    t_obs, obs = truth['t_obs'], truth['y_obs']
     y_filter, t = filter_ens.get_observable_hist(), filter_ens.hist_t
     y_mean = np.mean(y_filter, -1, keepdims=True)
 
@@ -1024,9 +1022,9 @@ def plot_timeseries(filter_ens,
     N_CR = int(filter_ens.t_CR // filter_ens.dt)  # Length of interval to compute correlation and RMS
 
     if max_time is None:
-        max_time = min(t_obs[-1] + filter_ens.t_CR, t[-1])
+        max_time = min(truth['t_obs'][-1] + filter_ens.t_CR, t[-1])
 
-    i0, i1 = [np.argmin(abs(t - ttt)) for ttt in [t_obs[0], max_time]]  # start/end of assimilation
+    i0, i1 = [np.argmin(abs(t - ttt)) for ttt in [truth['t_obs'][0], max_time]]  # start/end of assimilation
 
     y_filter, y_mean, t = (yy[i0 - N_CR:i1 + N_CR] for yy in [y_filter, y_mean, t])
 
@@ -1035,10 +1033,10 @@ def plot_timeseries(filter_ens,
 
     y_unbiased = recover_unbiased_solution(t_b, b, t, y_mean, upsample=hasattr(filter_ens.bias, 'upsample'))
 
-    y_raw = interpolate(truth.t_true, truth.y_raw, t)
-    y_true = interpolate(truth.t_true, truth.y_true, t)
+    y_raw = interpolate(truth['t'], truth['y_raw'], t)
+    y_true = interpolate(truth['t'], truth['y_true'], t)
 
-    if hasattr(truth, 'wash_t'):
+    if 'wash_t' in truth.keys():
         t_wash, wash = truth['wash_t'], truth['wash_obs']
     else:
         t_wash = 0.
@@ -1051,8 +1049,8 @@ def plot_timeseries(filter_ens,
 
     # % PLOT time series ------------------------------------------------------------------------------------------
 
-    y_raw, y_unbiased, y_filter, y_mean, y_obs, y_true = [yy / reference_y for yy in [y_raw, y_unbiased, y_filter,
-                                                                                    y_mean, y_obs, y_true]]
+    y_raw, y_unbiased, y_filter, y_mean, obs, y_true = [yy / reference_y for yy in [y_raw, y_unbiased, y_filter,
+                                                                                    y_mean, obs, y_true]]
     margin = 0.15 * np.mean(abs(y_raw), axis=0)
     max_y = np.max(y_raw, axis=0)
     min_y = np.min(y_raw, axis=0)
@@ -1091,8 +1089,8 @@ def plot_timeseries(filter_ens,
                     s = np.std(y_filter[:, qi], axis=-1)
                     ax.fill_between(t, m + s, m - s, alpha=0.5, color=y_biased_props['color'])
 
-                ax.plot(t_obs, y_obs[:, qi], label='data', **obs_props)
-                if hasattr(truth, 'wash_t'):
+                ax.plot(t_obs, obs[:, qi], label='data', **obs_props)
+                if 'wash_t' in truth.keys():
                     ax.plot(t_wash, wash[:, qi], **obs_props)
                 plot_DA_window(t_obs, ax, ens=filter_ens)
                 ax.set(ylim=y_lims, xlim=xl)
@@ -1133,14 +1131,15 @@ def plot_timeseries(filter_ens,
         y_mean = np.mean(y_filter, axis=-1)
         y_mean = interpolate(t, y_mean, t_b)
 
-        y_true = interpolate(truth.t_true, truth.y_true, t_b)
+        y_true = interpolate(truth['t'], truth['y_true'], t_b)
 
-        if len(truth.b_true) > 1:
-            b_true = interpolate(truth.t_true, truth.b_true, t_b)
+        if len(truth['b']) > 1:
+            b_true = interpolate(truth['t'], truth['b'], t_b)
         else:
             b_true = np.nan
             
         innovation = y_true - y_mean
+
         innovation, b_filter, b_true = [yy / reference_y for yy in [innovation, b_filter, b_true]]
 
 
@@ -1205,6 +1204,134 @@ def plot_attractor(psi_cases, color, figsize=(8, 8), ensemble_mean=True):
             ax.plot(psi_[:, 0], psi_[:, 1], lw=lw, c=c, alpha=a)
         else:
             ax.plot(psi_[:, 0], psi_[:, 1], psi_[:, 2], lw=lw, c=c)
+
+
+def plot_truth(y_raw, y_true, t, dt, fig_width=10, window=None, b=np.array([0.]),
+               plot_time=False, Nq=None, filename=None, f_max=None, y_obs=None, t_obs=None, model=None, **other):
+    if Nq is None:
+        Nq = y_true.shape[1]
+    if t_obs is None:
+        t0 = 0
+        if window is None:
+            t1 = int(model.t_transient // dt)
+        else:
+            t1 = int(window // dt)
+    else:
+        t0 = int((t_obs[0]) // dt)
+        if window is None:
+            if model is not None and not isinstance(model, str):
+                t1 = int((t_obs[-1] + model.t_CR) // dt)
+                t1 = min(t1, len(t) - 1)
+            else:
+                t1 = int((t_obs[-1]) // dt)
+        else:
+            t1 = int((t_obs[0] + window) // dt)
+
+    xlim = [t[t0], t[t1]]
+
+    plot_bias = np.mean(b ** 2) > 0 and isinstance(model, str)
+
+    if plot_bias:
+        noise = y_raw - (y_true - b)
+    else:
+        noise = y_raw - y_true
+
+    max_y = np.max(abs(y_raw[:t1 - t0]))
+
+    fig1 = plt.figure(figsize=(fig_width, 2 * Nq), layout="constrained")
+    subfigs = fig1.subfigures(nrows=1, ncols=4, width_ratios=[2, 0.5, 1, 1])
+    labels = ['Raw', 'Post-processed', 'Difference']
+    y_labels = ['$\\tilde{y}, y$', '', '$(\\tilde{y}-y)$']
+    cols = ['tab:blue', 'mediumseagreen', 'tab:purple']
+
+    ax_01 = subfigs[0].subplots(Nq, 2, sharex='all', sharey='all')
+    ax_4 = subfigs[-1].subplots(Nq, 1, sharex='all', sharey='all')
+
+    # Plot zoomed timeseries of raw, post-processed and noise
+    if Nq == 1:
+        axss = [[ax_01[0]], [ax_01[1]], [ax_4]]
+    else:
+        axss = [ax_01[:, 0], ax_01[:, 1], ax_4]
+
+    dashes = (10, 1)
+    for ax, yy, ttl, lbl, c in zip(axss, [y_raw, y_true, noise], labels, y_labels, cols):
+        ax[0].set(title=ttl)
+        ax[-1].set(xlabel='$t$', xlim=xlim)
+        for qi in range(Nq):
+            ax[qi].plot(t, yy[:, qi], color=c)
+            ax[qi].axhline(np.mean(yy[:, qi]), color=c)
+            if ttl[0] == 'R' and y_obs is not None:
+                ax[qi].plot(t_obs, y_obs[:, qi], 'ro', ms=3)
+            elif ttl[0] == 'P' and plot_bias:
+                ax[qi].plot(t, yy[:, qi] - b[:, qi], color='k', dashes=dashes, lw=.5)
+                ax[qi].axhline(np.mean(yy[:, qi] - b[:, qi]), color='k', dashes=dashes, lw=.5)
+            if len(lbl) > 1:
+                ax[qi].set(ylabel=lbl + '$_{}$'.format(qi))
+
+    # Plot probability density src and power spectral densities
+    ax_pdf = subfigs[1].subplots(Nq, 1, sharey='all', sharex='all')
+    ax_PSD = subfigs[2].subplots(Nq, 1, sharex='all', sharey='all')
+    if Nq == 1:
+        ax_pdf = [ax_pdf]
+        ax_PSD = [ax_PSD]
+    binwidth = 0.01 * max_y
+    bins = np.arange(-max_y, max_y + binwidth, binwidth)
+    for yy, ttl, lbl, c in zip([y_raw, y_true], labels[:2], y_labels[:2], cols[:2]):
+        ax_pdf[0].set(title='PDF')
+        ax_pdf[-1].set(xlabel='$p$')
+        ax_PSD[-1].set(xlabel='$f$')
+        for qi in range(Nq):
+            ax_pdf[qi].hist(yy[:, qi], bins=bins, density=True, orientation='horizontal',
+                            color=c, label=lbl + '$_{}$'.format(qi), histtype='step')
+            if Nq == 1:
+                ylims = ax_01[qi].get_ylim()
+            else:
+                ylims = ax_01[qi, 0].get_ylim()
+            ax_pdf[qi].set(yticklabels=[], ylim=ylims)
+        f, PSD = fun_PSD(dt, yy.squeeze())
+        for qi in range(Nq):
+            ax_PSD[qi].semilogy(f, PSD[qi], color=c, label=lbl + '$_{}$'.format(qi))
+        ax_PSD[0].set(title='PSD', xlim=[0, f_max])
+    if plot_bias:
+
+        f, PSD = fun_PSD(dt, (y_true - b).squeeze())
+        for qi in range(Nq):
+            ax_pdf[qi].hist(y_true[:, qi] - b[:, qi], bins=bins, density=True, orientation='horizontal',
+                            color='k', histtype='step', lw=.5)
+            ax_PSD[qi].semilogy(f, PSD[qi], color='k', dashes=dashes, lw=.5)
+
+    # Plot full timeseries if requested
+    figs2 = []
+    if plot_time:
+        for yy, name, c in zip([y_raw, y_true], labels[:2], cols[:2]):
+            y_true, t = [zz[t0:] for zz in [yy, t]]
+            max_y = np.max(abs(y_true))
+            fig2 = plt.figure(figsize=(12, 2 * Nq), layout="constrained")
+            subfigs = fig2.subfigures(nrows=1, ncols=2, width_ratios=[1, 0.5])
+            for sf, xlims in zip(subfigs, [(t[0], t[-1]), (t[-1000], t[-1])]):
+                ax = sf.subplots(Nq, 1, sharex='all')
+                if Nq == 1:
+                    ax = [ax]
+                ax[0].set(title=name)
+                ax[-1].set(xlabel='$t$', xlim=xlims)
+                for qi in range(Nq):
+                    ax[qi].plot(t, y_true[:, qi], color=c)
+                    ax[qi].set(ylim=[-max_y, max_y])
+            figs2.append(fig2)
+    # Show or save plots
+    if filename is None:
+        plt.show()
+    else:
+        if filename[-len('.pdf'):] != '.pdf':
+            filename += '.pdf'
+        os.makedirs('/'.join(filename.split('/')[:-1]), exist_ok=True)
+        pdf_file = plt_pdf.PdfPages(filename)
+        pdf_file.savefig(fig1)
+        plt.close(fig1)
+        for fig in figs2:
+            pdf_file.savefig(fig)
+            plt.close(fig)
+        pdf_file.close()  # Close results pdf
 
 
 def plot_violins(ax, values, location, color='b', label=None, alpha=0.5, **kwargs):
