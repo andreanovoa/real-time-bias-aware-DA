@@ -1,7 +1,6 @@
-/results/
-/data/
-/*/figs_ESN
-figs_ESN
+**/results/
+**/data/
+*/figs_ESN
 
 
 # python checkpoints
