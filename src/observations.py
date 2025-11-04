@@ -32,7 +32,7 @@ class Observations():
     t_stop = None
 
     true_parameters = None
-    data_folder = None
+    results_folder = None
     add_noise = True
 
     _frozen = False
@@ -49,20 +49,14 @@ class Observations():
                 setattr(self, key, value)
                 del model_dict[key]  # Remove from kwargs to avoid passing it down'
 
-        if self.data_folder is None:
-
-            self.data_folder = os.path.join(os.getcwd() + '/data/')
 
         # 2. Generate or Load Truth Data
         self.y_raw, self.y_true, self.t_true, self.name_truth = self._create_observations(model, **model_dict)
-        
         self.dt = self.t_true[1] - self.t_true[0]
-
 
         # 3. Add noise and bias if requested (in this order and only if y_raw is None)
         self._set_bias()
         self._apply_noise()
-
 
 
         # 4. Compute Observation Times
@@ -79,11 +73,11 @@ class Observations():
 
         # Calculate indices
         self._frozen = True  # Freeze attributes to prevent further modification
-
+        print('Observations initialized.')
 
 
     @property
-    def obs_idx(self):
+    def obs_idx(self):  
         """Allows reading the calculated observation index."""
         if self._obs_idx is None:
              raise AttributeError("obs_idx has not been calculated yet. Call update_obs_idx first.")
@@ -184,18 +178,16 @@ class Observations():
         y_true = self.y_true.copy()
         t_true = self.t_true.copy()
         b_true = y_true * 0.
-        
-
-        if self.y_raw is not None:
-            self.manual_bias = None 
-
         manual_bias = self.manual_bias
 
         if manual_bias is None:
             name_bias = 'No_bias'
+            if self.y_raw is None:
+                self.y_raw = y_true.copy()
+
 
         elif isinstance(manual_bias, str):
-            print(f'Applying manual bias: {manual_bias}')
+            print(f'...Applying manual bias: {manual_bias}')
 
             name_bias = manual_bias
             # Use cleaner np.max(y_true, axis=0) or np.ptp(y_true, axis=0) for scaling
@@ -215,6 +207,7 @@ class Observations():
             else:
                 raise ValueError(f"Bias '{manual_bias}' not recognized. Choose [linear, periodic, time, cosine].")
         else:
+            print('...Applying user-defined manual bias')
             # The manual bias is a function of state and/or time
             b_true, name_bias = manual_bias(y_true, t_true)
 
@@ -311,14 +304,19 @@ class Observations():
                         suffix += val + '_'
                     else:
                         suffix += key + '{:.2e}'.format(val) + '_'
-
+            if len(suffix) == 0:
+                suffix = 'default'
 
             name_truth = f'Truth_{model.name}_{suffix}'
-            full_path = os.path.join(self.data_folder, name_truth) if self.data_folder else name_truth
-            
-            if os.path.isfile(full_path):
-                true_model = load_from_pickle_file(full_path)
-                print('Loaded true data model: ' + name_truth, true_model)
+
+            if self.results_folder is not None:
+                full_path = os.path.join(self.results_folder, name_truth) 
+                
+                if os.path.isfile(full_path):
+                    true_model = load_from_pickle_file(full_path)
+                    print('Loaded true data model: ' + name_truth, true_model)
+                else:
+                    true_model = model.copy()
             else:
                 true_model = model.copy()
 
@@ -330,7 +328,8 @@ class Observations():
                 true_model.update_history(psi, t)
 
                 true_model.close()
-                if len(full_path) > 0:
+                
+                if self.results_folder is not None:
                     save_to_pickle_file(full_path, true_model)
 
             # ============================================================
@@ -343,7 +342,7 @@ class Observations():
 
         elif isinstance(model, str):            
             # Load Data from File
-            full_path = os.path.join(self.data_folder, model) if self.data_folder else model
+            full_path = os.path.join(self.results_folder, model) if self.results_folder else model
             try:
                 if 'rijke' in model:
                     mat = load_from_mat_file(full_path)
@@ -354,7 +353,7 @@ class Observations():
                 else:
                     raise FileNotFoundError
             except FileNotFoundError:
-                raise FileNotFoundError(f'File {model} not defined in folder {self.data_folder}.')
+                raise FileNotFoundError(f'File {model} not defined in folder {self.results_folder}.')
             
             name_truth = 'Truth_Exp_' + model.split('/')[-1]
             
@@ -419,6 +418,9 @@ class Observations():
         y_raw_plot = y_raw[t0_idx:t0_idx+t1_idx]
         y_true_plot = y_true[t0_idx:t0_idx+t1_idx]
         noise_plot = noise[t0_idx:t0_idx+t1_idx]
+        bias_plot = b[t0_idx:t0_idx+t1_idx]
+        if np.sum(abs(bias_plot)) < 1e-10:
+            bias_plot = None
 
 
         # X-limits for time plots
@@ -441,10 +443,10 @@ class Observations():
         titles = ['Raw', 'Truth', 'PDF', 'PSD', 'Difference']
         xlabels = ['$t$', '$t$', '$p$', '$f$', '$t$']
 
-        y_data_sets = [y_raw_plot, y_true_plot, [y_true, y_raw], [PSD_true, PSD_raw], noise_plot] # Note: PDF/PSD use full data
         
         c_raw = '#20b2aae5'
         c_true = '#000080ff'
+        c_unbiased = "#8362caff"
         c_diff = 'mediumorchid'
         
         cols = [c_raw, c_true, c_diff]
@@ -455,33 +457,34 @@ class Observations():
         for q_i in range(Nq):
             # Column 0: Raw Time Series (y_raw)
             ax = axes[q_i, 0]
-            ax.plot(t_plot, y_data_sets[0][:, q_i], color=cols[0], label='Raw')
+            ax.plot(t_plot, y_raw_plot[:, q_i], color=cols[0], label='Raw')
             if y_obs is not None:
                 ax.plot(t_obs, y_obs[:, q_i], 'ro', ms=3, mec='k', lw=.1)
-            ax.set_ylabel(f'$\\tilde{{y}}_{q_i}$')
-            ax.set_xlim(xlim_time)
-            
+            ax.set(ylabel=f'$\\tilde{{y}}_{q_i}$', xlim=xlim_time)
             y_lim_base = ax.get_ylim()
 
 
             # Column 1: True Time Series (y_true)
             ax = axes[q_i, 1]
-            ax.plot(t_plot, y_data_sets[1][:, q_i], color=cols[1])
+            ax.plot(t_plot, y_true_plot[:, q_i], color=cols[1])
             ax.set(xlim=xlim_time, ylim=y_lim_base)
+            if bias_plot is not None:
+                ax.plot(t_plot, y_true_plot[:, q_i]-bias_plot[:, q_i], color=c_unbiased)
+                if q_i == 0:
+                    ax.legend(['$y^t$', '$y^t-b^t$'], fontsize='xx-small', ncol=2)
 
             # Column 2: PDF (uses full data)
             ax = axes[q_i, 2]
             # Raw and true PDF
-            for ds, c, a in zip(y_data_sets[2], [c_true, c_raw], [.9, .9]):
-                # ax.hist(ds[:, q_i], bins=bins, density=True, orientation='horizontal', color=c, histtype='step', lw=1, alpha=a)
+            for ds, c, a in zip([y_true, y_raw], [c_true, c_raw], [.9, .9]):
                 ax.hist(ds[:, q_i], bins=20, density=True, orientation='horizontal', color=c, histtype='stepfilled', alpha=a)
+            if y_obs is not None:
+                ax.hist(y_obs[:, q_i], bins=20, color='r', lw=1, histtype='step', density=True, orientation='horizontal')
             ax.set(ylim=y_lim_base)
-
-
             
             # Column 3: PSD (uses full data)
             ax = axes[q_i, 3]
-            for ds, c, a in zip(y_data_sets[3], [c_true, c_raw], [1., .8]):
+            for ds, c, a in zip([PSD_true, PSD_raw], [c_true, c_raw], [1., .8]):
                 ax.semilogy(f_raw, ds[q_i], color=c, alpha=a)
             
             if q_i == 0:
@@ -492,13 +495,14 @@ class Observations():
             # Column 4: Difference Time Series (Noise)
             ax = axes[q_i, 4]
             ax.plot(t_plot, noise_plot[:, q_i], color=c_diff, label='Difference')
-            ax.set(xlim=xlim_time, ylim=y_lim_base, ylabel=f'$(\\tilde{{y}}-y)_{q_i}$')
+            ax.axhline(np.mean(noise_plot[:, q_i]), color='k', lw=.5, ls='--')
+            ax.set(xlim=xlim_time, ylabel=f'$(\\tilde{{y}}-y)_{q_i}$')
 
             if q_i < Nq:
                 for jj, ax in enumerate(axes[q_i, :]):
                     if q_i != Nq-1:
                         ax.set_xticklabels([]) # No x-axis labels
-                    if jj not in [0,3]:
+                    if jj in [1,2]:
                         ax.set_yticklabels([]) # No y-axis labels
                 
         

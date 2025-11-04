@@ -162,6 +162,12 @@ def find_first_ascending_folder(start_dir, target_names):
 
 
 def set_working_directories(subfolder='', root='.'):
+    """
+    Returns:
+    - (data_folder, results_folder, figs_folder)
+    """
+
+
     if subfolder[-1] != '/':
         subfolder += '/'
 
