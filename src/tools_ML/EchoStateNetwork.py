@@ -451,6 +451,7 @@ class EchoStateNetwork:
     def reservoir_to_physical(self, r_aug):
 
         """ Converts the reservoir state to the physical state using the output weight matrix (Wout).
+        Note: I change this in ESN_model
         Args:
             r_aug (np.ndarray): Augmented reservoir state including output bias.
         """

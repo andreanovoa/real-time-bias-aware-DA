@@ -206,7 +206,7 @@ class ESN_model(EchoStateNetwork, Model):
 
     @property
     def alpha_to_Sigma(self):
-        alpha_matrix = self.get_alpha_matrix()
+        alpha_matrix = self.get_alpha_matrix
         alpha_labels = self.est_a.copy()
 
         eigs = np.zeros((self.m, self.N_dim, self.N_dim))
@@ -223,6 +223,13 @@ class ESN_model(EchoStateNetwork, Model):
 
         return eigs
     
+    @property
+    def get_alpha_matrix(self):
+        alpha = np.empty((len(self.est_a), self.m))
+        for aj, param in enumerate(self.est_a):
+            for mi, alpha_dict in enumerate(self.get_alpha()):
+                alpha[aj, mi] = alpha_dict[param]
+        return alpha
 
 
     @property
@@ -356,8 +363,6 @@ class ESN_model(EchoStateNetwork, Model):
             r = psi[:self.N_units]
         else:
             raise ValueError
-
-
         return u, r
 
     def reset_history(self, hist, t):
@@ -393,20 +398,55 @@ class ESN_model(EchoStateNetwork, Model):
 
 
     def time_integrate(self, Nt=10, averaged=False, alpha=None):
-            # Call the generic integrator to get the raw ESN steps
-            psi_raw, t_raw = self.integrator.advance(Nt=Nt, averaged=averaged, alpha=alpha)
-            
-            # --- ESN-specific Post-Processing ---
-            # (This is where the interpolation and state reset from your original code goes)
-            
-            t_physical = t_raw # Placeholder: The actual interpolation logic must go here
-            
-            # Update ESN state (assuming state is in psi_raw[-1])
-            # self.reset_state(...)
-            
-            return psi_raw, t_physical
+        # Call the generic integrator to get the raw ESN steps
+        psi_raw, t_raw = self.integrator.advance(Nt=Nt, averaged=averaged, alpha=alpha)
+        
+        # --- ESN-specific Post-Processing ---
+        # (This is where the interpolation and state reset from your original code goes)
+        
+        t_physical = t_raw # Placeholder: The actual interpolation logic must go here
+        
+        # Update ESN state (assuming state is in psi_raw[-1])
+        # self.reset_state(...)
+        
+        return psi_raw, t_physical
     
     
+    def time_step(self, psi0, Nt=10, averaged=False):
+        """
+            Args:
+                Nt: number of forecast steps (physical time, not dt_ESN)
+                averaged (bool): if true, each member in the ensemble is forecast individually. If false,
+                                the ensemble is forecast as a mean, i.e., every member is the mean forecast.
+                alpha: possibly-varying input_parameters
+            Returns:
+                psi: forecasted state (Nt x N x m)
+                t: time of the propagated psi
+        """
+
+        assert self.trained, 'ESN model not trained'
+        # 1. get initiall condition
+
+
+        interp_flag = False
+        Nt = Nt // self.upsample
+        if Nt % self.upsample:
+            Nt += 1
+            interp_flag = True
+
+        t = np.round(self.get_current_time + np.arange(0, Nt + 1) * self.dt_ESN, self.precision_t)
+
+
+        r = np.empty((Nt + 1, self.N_units, self.u.shape[-1]))
+        u = np.empty((Nt + 1, self.N_dim, self.u.shape[-1]))
+        u[0, self.observed_idx], r[0] = self.get_reservoir_state()
+
+
+        for i in range(Nt):
+            u_input = self.outputs_to_inputs(full_state=u[i])
+            u[i + 1], r[i + 1] = self.step(u_input, r[i])
+
+
 
     def time_integrate(self, Nt=10, averaged=False, alpha=None):
         """
@@ -421,8 +461,6 @@ class ESN_model(EchoStateNetwork, Model):
                 t: time of the propagated psi
         """
 
-        assert self.trained, 'ESN model not trained'
-
         interp_flag = False
         Nt = Nt // self.upsample
         if Nt % self.upsample:
@@ -435,8 +473,10 @@ class ESN_model(EchoStateNetwork, Model):
             u_m, r_m = [np.mean(xx, axis=-1, keepdims=True) for xx in self.get_reservoir_state()]
             for i in range(Nt):
                 self.input_parameters = [self.alpha0[key] for key in self.est_a]
+
                 u_input = self.outputs_to_inputs(full_state=u_m[i])
                 u_m[i + 1], r_m[i + 1] = self.step(u_input, r_m[i])
+            
             # Copy the same state into all ensemble members
             u, r = [np.repeat(xx, self.m, axis=-1) for xx in [u_m, r_m]]
             assert u.shape == ()
@@ -456,18 +496,12 @@ class ESN_model(EchoStateNetwork, Model):
         psi = np.concatenate((u, r), axis=1)
 
         if hasattr(self, 'std_a'):
-            alph = self.get_alpha_matrix()
+            alph = self.get_alpha_matrix
             alph = np.tile(alph, reps=(psi.shape[0], 1, 1))
             psi = np.concatenate((psi, alph), axis=1)
 
         return psi[1:], t_physical[1:]
 
-    def get_alpha_matrix(self):
-        alpha = np.empty((len(self.est_a), self.m))
-        for aj, param in enumerate(self.est_a):
-            for mi, alpha_dict in enumerate(self.get_alpha()):
-                alpha[aj, mi] = alpha_dict[param]
-        return alpha
     # ______________________________ Plotting functions ______________________________ #
     @staticmethod
     def plot_training_data(case, train_data):
