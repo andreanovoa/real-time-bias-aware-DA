@@ -477,7 +477,7 @@ def plot_converged_parameters(results_folder,
         
         alpha_indices = [a_ens.est_a.index(f'svd_{key}') for key in range(4)]
 
-        return [a_ens.get_current_state[a_ens.Nphi + idx] for idx in alpha_indices]
+        return [a_ens.current_state[a_ens.Nphi + idx] for idx in alpha_indices]
     
 
     Ns_loop = [*Ns_loop[1:], Ns_loop[0]]

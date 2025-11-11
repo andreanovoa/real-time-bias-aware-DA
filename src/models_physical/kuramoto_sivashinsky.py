@@ -25,8 +25,8 @@ class KS(Model):
     """
 
     name: str = 'KS'
-    t_transient = 1.
-    t_CR = 10.
+    t_transient = 300.
+    t_CR = 50.
     dt = 0.25
 
     Nq = 1
@@ -84,6 +84,7 @@ class KS(Model):
         
         # Define Fourier wavenumbers k on the nondimensional domain
         self.k = 2 * np.pi * np.fft.rfftfreq(self.Nx, d=self.L / self.Nx)
+
         self.ETDRK4_f_terms = None  # This simply trigers the setter method.
         self.rng = np.random.default_rng(self.seed)
 
@@ -123,7 +124,12 @@ class KS(Model):
 
     @property
     def obs_labels(self):
-        return [f"$\\u(x_{j+1})$" for j in np.arange(self.Nq)]
+        return [f"$u(x_{{{j+1}}})$" for j in np.arange(self.Nq)]
+
+
+    @property
+    def state_labels(self):
+        return [f"$\hat{{u}}_{{{j+1}}}$" for j in np.arange(self.Nphi)]
 
 
     def get_observables(self, Nt=1, loc=None, **kwargs):
@@ -377,12 +383,12 @@ class KS(Model):
             Time vector corresponding to each forecasted state.
         """
         
-        u0_hat = self.get_current_state
+        u0_hat = self.current_state
 
         if u0_hat.ndim == 1:  # reshape for non-ensemble
             u0_hat = u0_hat[:, None]
         
-        t = np.round(self.get_current_time + np.arange(Nt + 1) * self.dt, self.precision_t)
+        t = np.round(self.current_time + np.arange(Nt + 1) * self.dt, self.precision_t)
         
 
         if averaged and self.ensemble:
@@ -447,7 +453,7 @@ class KS(Model):
             if Nt != 1:
                 u_hat = self.hist[-Nt:]
             else:
-                u_hat = self.get_current_state[np.newaxis, :]
+                u_hat = self.current_state[np.newaxis, :]
         else:
             if u_hat.ndim == 2:
                 u_hat = u_hat[np.newaxis, :]
@@ -568,14 +574,16 @@ if __name__ == "__main__":
                     seed=seed,
                     initial_amplitude=1.)   
         
-        model.init_ensemble(std_psi=0.1,
-                                    m=10)
+        # model.init_ensemble(std_psi=0.1,
+        #                             m=10)
 
 
         print(f"Domain size: L = {model.L  }") 
         print(f"Grid points: N = {model.Nx}")
         print(f"Time step: dt = {model.dt:.6f}")
         print(f"Viscosity: nu = {model.nu:.6f}")
+
+        print(len(model.k))
 
         print(f"Domain size: L = {model.L  }") 
         print(f"Grid points: N = {model.Nx}")

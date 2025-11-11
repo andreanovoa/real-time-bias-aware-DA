@@ -43,12 +43,10 @@ class Observations():
         applying bias, adding noise, and interpolating to observation times.
         """
         # 1. Update instance attributes with any passed kwargs
-        model_dict = kwargs.copy()  # Copy to avoid modifying original kwargs
-        for key, value in kwargs.items():
-            if hasattr(self, key):
-                setattr(self, key, value)
-                del model_dict[key]  # Remove from kwargs to avoid passing it down'
-
+        model_dict = kwargs.copy()  
+        for key in kwargs.keys():
+            if hasattr(Observations, key):
+                setattr(self, key, model_dict.pop(key))
 
         # 2. Generate or Load Truth Data
         self.y_raw, self.y_true, self.t_true, self.name_truth = self._create_observations(model, **model_dict)

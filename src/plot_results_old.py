@@ -136,7 +136,7 @@ def plot_ensemble(ensemble, max_modes=None, reference_params=None, nbins=6):
     if max_modes is None:
         max_modes = ensemble.Nphi
     fig, axs = plt.subplots(figsize=(12, 1.5), layout='tight', nrows=1, ncols=max_modes, sharey=True)
-    for ax, ph, lbl in zip(axs.ravel(), ensemble.get_current_state[:ensemble.Nphi, ], ensemble.state_labels):
+    for ax, ph, lbl in zip(axs.ravel(), ensemble.current_state[:ensemble.Nphi, ], ensemble.state_labels):
         ax.hist(ph, bins=nbins, color='tab:green')
         ax.set(xlabel=lbl)
 
@@ -154,7 +154,7 @@ def plot_ensemble(ensemble, max_modes=None, reference_params=None, nbins=6):
             for param, val in reference_params.items():
                 reference_alpha[param] = val
 
-        for ax, a, param in zip(axs, ensemble.get_current_state[-ensemble.Na:, ], ensemble.est_a):
+        for ax, a, param in zip(axs, ensemble.current_state[-ensemble.Na:, ], ensemble.est_a):
             if isinstance(ensemble.std_a, dict):
                 xlims = np.array(ensemble.std_a[param]) / reference_alpha[param]
             else:
@@ -1528,7 +1528,7 @@ def print_parameter_results(ensembles, true_values=None):
     truth_row = ['Truth']
 
     if true_values is None:
-        true_values = ensembles[0].get_default_params
+        true_values = ensembles[0].default_params
 
     keys = sorted(true_values.keys())
     

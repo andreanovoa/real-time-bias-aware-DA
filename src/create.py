@@ -53,184 +53,184 @@ def create_ensemble(model, forecast_params=None, alpha0=None, **filter_params):
 
 
 
-def create_truth(model, 
-                 t_start=None, t_stop=None, Nt_obs=20, std_obs=0.05, t_max=None, t_min=0.,
-                 noise_type='gauss, add', post_processed=False, manual_bias=None, **kwargs):
-    # =========================== LOAD DATA OR CREATE TRUTH FROM LOM ================================ #
-    if t_start is None:
-        t_start = model.t_transient
-    if t_stop is None:
-        t_stop = t_start + 3 * model.t_CR
+# def create_truth(model, 
+#                  t_start=None, t_stop=None, Nt_obs=20, std_obs=0.05, t_max=None, t_min=0.,
+#                  noise_type='gauss, add', post_processed=False, manual_bias=None, **kwargs):
+#     # =========================== LOAD DATA OR CREATE TRUTH FROM LOM ================================ #
+#     if t_start is None:
+#         t_start = model.t_transient
+#     if t_stop is None:
+#         t_stop = t_start + 3 * model.t_CR
 
-    if t_max is None:
-        t_max = t_stop + t_start
+#     if t_max is None:
+#         t_max = t_stop + t_start
 
-    if type(model) is str:
-        y_raw, y_true, t_true, name_truth = create_observations_from_file(model, t_max=t_max, t_min=t_min)
-        case_name = model.split('/')[-1]
-        name_bias = 'Exp_' + case_name
-        b_true = np.zeros(1)
-        true_case = None
-    else:
-        y_true, t_true, name_truth, true_case = create_observations(model, t_max=t_max, t_min=t_min, **kwargs)
+#     if type(model) is str:
+#         y_raw, y_true, t_true, name_truth = create_observations_from_file(model, t_max=t_max, t_min=t_min)
+#         case_name = model.split('/')[-1]
+#         name_bias = 'Exp_' + case_name
+#         b_true = np.zeros(1)
+#         true_case = None
+#     else:
+#         y_true, t_true, name_truth, true_case = create_observations(model, t_max=t_max, t_min=t_min, **kwargs)
 
-        #  ADD BIAS TO THE TRUTH #
-        if manual_bias is None:
-            b_true = y_true * 0.
-            name_bias = 'No_bias'
-        elif type(manual_bias) is str:
-            name_bias = manual_bias
-            if manual_bias == 'time':
-                b_true = .4 * y_true * np.sin((np.expand_dims(t_true, -1) * np.pi * 2) ** 2)
-            elif manual_bias == 'periodic':
-                b_true = 0.2 * np.max(y_true, axis=0) * np.cos(2 * y_true / np.max(y_true, axis=0))
-            elif manual_bias == 'linear':
-                b_true = .1 * np.max(y_true, axis=0) + .3 * y_true
-            elif manual_bias == 'cosine':
-                b_true = np.cos(y_true)
-            else:
-                raise ValueError("Bias {} not recognized choose [linear, periodic, time]".format(manual_bias))
-        else:
-            # The manual bias is a function of state and/or time
-            b_true, name_bias = manual_bias(y_true, t_true)
-        # Add bias to the reference data
-        y_true += b_true
+#         #  ADD BIAS TO THE TRUTH #
+#         if manual_bias is None:
+#             b_true = y_true * 0.
+#             name_bias = 'No_bias'
+#         elif type(manual_bias) is str:
+#             name_bias = manual_bias
+#             if manual_bias == 'time':
+#                 b_true = .4 * y_true * np.sin((np.expand_dims(t_true, -1) * np.pi * 2) ** 2)
+#             elif manual_bias == 'periodic':
+#                 b_true = 0.2 * np.max(y_true, axis=0) * np.cos(2 * y_true / np.max(y_true, axis=0))
+#             elif manual_bias == 'linear':
+#                 b_true = .1 * np.max(y_true, axis=0) + .3 * y_true
+#             elif manual_bias == 'cosine':
+#                 b_true = np.cos(y_true)
+#             else:
+#                 raise ValueError("Bias {} not recognized choose [linear, periodic, time]".format(manual_bias))
+#         else:
+#             # The manual bias is a function of state and/or time
+#             b_true, name_bias = manual_bias(y_true, t_true)
+#         # Add bias to the reference data
+#         y_true += b_true
 
-    # =========================== ADD NOISE TO THE TRUTH ================================ #
-    if type(model) is not str or post_processed:
-        y_raw = create_noisy_signal(y_true, noise_level=std_obs, noise_type=noise_type)
-    else:
-        if post_processed:
-            y_raw = y_true.copy()
-        noise_type = name_bias
-        std_obs = None
+#     # =========================== ADD NOISE TO THE TRUTH ================================ #
+#     if type(model) is not str or post_processed:
+#         y_raw = create_noisy_signal(y_true, noise_level=std_obs, noise_type=noise_type)
+#     else:
+#         if post_processed:
+#             y_raw = y_true.copy()
+#         noise_type = name_bias
+#         std_obs = None
 
-    # =========================== COMPUTE OBSERVATIONS AT DESIRED TIME =========================== #
-    if t_min > 0:
-        t_start, t_max, t_true = [tt - t_min for tt in [t_start, t_stop, t_true]]
+#     # =========================== COMPUTE OBSERVATIONS AT DESIRED TIME =========================== #
+#     if t_min > 0:
+#         t_start, t_max, t_true = [tt - t_min for tt in [t_start, t_stop, t_true]]
 
-    dt_t = t_true[1] - t_true[0]
-    obs_idx = np.arange(t_start // dt_t, t_stop // dt_t + 1, Nt_obs, dtype=int)
+#     dt_t = t_true[1] - t_true[0]
+#     obs_idx = np.arange(t_start // dt_t, t_stop // dt_t + 1, Nt_obs, dtype=int)
 
-    # ================================ SAVE DATA TO DICT ==================================== #
-    if '/' in name_truth:
-        name_truth = '_'.join(name_truth.split('/'))
+#     # ================================ SAVE DATA TO DICT ==================================== #
+#     if '/' in name_truth:
+#         name_truth = '_'.join(name_truth.split('/'))
 
-    truth = dict(y_raw=y_raw, y_true=y_true, t=t_true, b=b_true, dt=dt_t,
-                 t_obs=t_true[obs_idx], y_obs=y_raw[obs_idx], dt_obs=Nt_obs * dt_t,
-                 name=name_truth, name_bias=name_bias, noise_type=noise_type,
-                 model=model, std_obs=std_obs, true_params=kwargs, case=true_case)
-    return truth
-
-
-def create_observations_from_file(name, t_max, t_min=0.):
-    # Wave case: load .mat file ====================================
-    try:
-        if 'rijke' in name:
-            mat = load_from_mat_file(name)
-            y_raw, y_true, t_true = [mat[key].transpose() for key in ['p_mic', 'p_mic', 't_mic']]
-        elif 'annular' in name:
-            mat = load_from_mat_file(name)
-            y_raw, y_true, t_true = [mat[key] for key in ['y_raw', 'y_filtered', 't']]
-        else:
-            raise FileNotFoundError
-    except FileNotFoundError:
-        raise FileNotFoundError('File ' + name + ' not defined')
-
-    if len(np.shape(t_true)) > 1:
-        t_true = np.squeeze(t_true)
-
-    if y_raw.shape[0] != len(t_true):
-        y_raw, y_true = [yy.transpose() for yy in [y_raw, y_true]]
-
-    id0, id1 = [np.argmin(abs(t_true - tx)) for tx in [t_min, t_max]]
-    y_raw, y_true, t_true = [yy[id0:id1] for yy in [y_raw, y_true, t_true]]
-
-    return y_raw, y_true, t_true, name.split('data/')[-1]
+#     truth = dict(y_raw=y_raw, y_true=y_true, t=t_true, b=b_true, dt=dt_t,
+#                  t_obs=t_true[obs_idx], y_obs=y_raw[obs_idx], dt_obs=Nt_obs * dt_t,
+#                  name=name_truth, name_bias=name_bias, noise_type=noise_type,
+#                  model=model, std_obs=std_obs, true_params=kwargs, case=true_case)
+#     return truth
 
 
-def create_observations(model, t_max, t_min, save=False, data_folder=None, **true_parameters):
-    try:
-        TA_params = true_parameters.copy()
-        model = model
-    except AttributeError:
-        raise 'true_parameters must be dict'
+# def create_observations_from_file(name, t_max, t_min=0.):
+#     # Wave case: load .mat file ====================================
+#     try:
+#         if 'rijke' in name:
+#             mat = load_from_mat_file(name)
+#             y_raw, y_true, t_true = [mat[key].transpose() for key in ['p_mic', 'p_mic', 't_mic']]
+#         elif 'annular' in name:
+#             mat = load_from_mat_file(name)
+#             y_raw, y_true, t_true = [mat[key] for key in ['y_raw', 'y_filtered', 't']]
+#         else:
+#             raise FileNotFoundError
+#     except FileNotFoundError:
+#         raise FileNotFoundError('File ' + name + ' not defined')
 
-    # ============================================================
-    # Add key input_parameters to filename
-    suffix = ''
+#     if len(np.shape(t_true)) > 1:
+#         t_true = np.squeeze(t_true)
 
-    for key, val in TA_params.items():
-        if key in model.alpha_labels.keys():
-            if type(val) is str:
-                suffix += val + '_'
-            else:
-                suffix += key + '{:.2e}'.format(val) + '_'
+#     if y_raw.shape[0] != len(t_true):
+#         y_raw, y_true = [yy.transpose() for yy in [y_raw, y_true]]
+
+#     id0, id1 = [np.argmin(abs(t_true - tx)) for tx in [t_min, t_max]]
+#     y_raw, y_true, t_true = [yy[id0:id1] for yy in [y_raw, y_true, t_true]]
+
+#     return y_raw, y_true, t_true, name.split('data/')[-1]
+
+
+# def create_observations(model, t_max, t_min, save=False, data_folder=None, **true_parameters):
+#     try:
+#         TA_params = true_parameters.copy()
+#         model = model
+#     except AttributeError:
+#         raise 'true_parameters must be dict'
+
+#     # ============================================================
+#     # Add key input_parameters to filename
+#     suffix = ''
+
+#     for key, val in TA_params.items():
+#         if key in model.alpha_labels.keys():
+#             if type(val) is str:
+#                 suffix += val + '_'
+#             else:
+#                 suffix += key + '{:.2e}'.format(val) + '_'
 
 
     
 
-    if save and data_folder is None:
-        data_folder = os.path.join(os.getcwd() + '/data/')
-        os.makedirs(data_folder, exist_ok=True)
-        name = f'{data_folder}Truth_{model.name}_{suffix}tmax-{t_max:.2}'
-    else:
-        name = f'Truth_{model.name}_{suffix}tmax-{t_max:.2}'
+#     if save and data_folder is None:
+#         data_folder = os.path.join(os.getcwd() + '/data/')
+#         os.makedirs(data_folder, exist_ok=True)
+#         name = f'{data_folder}Truth_{model.name}_{suffix}tmax-{t_max:.2}'
+#     else:
+#         name = f'Truth_{model.name}_{suffix}tmax-{t_max:.2}'
 
-    if os.path.isfile(name) and save:
-        case = load_from_pickle_file(name)
-        print('Load true data: ' + name)
-    else:
-        case = model(**TA_params)
-        psi, t = case.time_integrate(int(t_max / case.dt))
-        case.update_history(psi, t)
-        case.close()
-        if save:
-            save_to_pickle_file(name, case)
-            print('Save true data: ' + name)
+#     if os.path.isfile(name) and save:
+#         case = load_from_pickle_file(name)
+#         print('Load true data: ' + name)
+#     else:
+#         case = model(**TA_params)
+#         psi, t = case.time_integrate(int(t_max / case.dt))
+#         case.update_history(psi, t)
+#         case.close()
+#         if save:
+#             save_to_pickle_file(name, case)
+#             print('Save true data: ' + name)
 
-    # Retrieve observables
-    y_true = case.get_observable_hist()
-    y_true = np.squeeze(y_true, axis=-1)
-    t_true = case.hist_t
+#     # Retrieve observables
+#     y_true = case.get_observable_hist()
+#     y_true = np.squeeze(y_true, axis=-1)
+#     t_true = case.hist_t
 
-    if t_min > 0.:
-        id0 = np.argmin(abs(t_true - t_min))
-        y_true, t_obs = [yy[id0:] for yy in [y_true, t_true]]
+#     if t_min > 0.:
+#         id0 = np.argmin(abs(t_true - t_min))
+#         y_true, t_obs = [yy[id0:] for yy in [y_true, t_true]]
 
-    return y_true, t_true, name.split('Truth_')[-1], case
+#     return y_true, t_true, name.split('Truth_')[-1], case
 
 
 
-def create_noisy_signal(y_clean, noise_level=0.1, noise_type='gauss, add'):
-    if y_clean.ndim == 2:
-        y_clean = np.expand_dims(y_clean, -1)
+# def create_noisy_signal(y_clean, noise_level=0.1, noise_type='gauss, add'):
+#     if y_clean.ndim == 2:
+#         y_clean = np.expand_dims(y_clean, -1)
 
-    Nt, q, L = y_clean.shape
-    y_noisy = y_clean.copy()
+#     Nt, q, L = y_clean.shape
+#     y_noisy = y_clean.copy()
 
-    for ll in range(L):
-        if 'gauss' in noise_type.lower():
-            noise = rng.multivariate_normal(np.zeros(q), np.eye(q) * noise_level ** 2, Nt)
-        else:
-            i0 = Nt % 2 != 0  # Add extra step if odd
-            noise = np.zeros([Nt, q])
-            for ii in range(q):
-                noise_white = np.fft.rfft(rng.standard_normal(Nt + i0) * noise_level)
-                S = colour_noise(Nt + i0, noise_colour=noise_type)
-                S = noise_white * S  # Normalize S
-                noise[:, ii] = np.fft.irfft(S)[i0:]  # transform back into time domain
-        if 'add' in noise_type.lower():
-            y_noisy[:, :, ll] += noise * np.max(abs(y_clean[:, :, ll]), axis=0)
-        else:
-            y_noisy[:, :, ll] += noise * y_noisy[:, :, ll]
+#     for ll in range(L):
+#         if 'gauss' in noise_type.lower():
+#             noise = rng.multivariate_normal(np.zeros(q), np.eye(q) * noise_level ** 2, Nt)
+#         else:
+#             i0 = Nt % 2 != 0  # Add extra step if odd
+#             noise = np.zeros([Nt, q])
+#             for ii in range(q):
+#                 noise_white = np.fft.rfft(rng.standard_normal(Nt + i0) * noise_level)
+#                 S = colour_noise(Nt + i0, noise_colour=noise_type)
+#                 S = noise_white * S  # Normalize S
+#                 noise[:, ii] = np.fft.irfft(S)[i0:]  # transform back into time domain
+#         if 'add' in noise_type.lower():
+#             y_noisy[:, :, ll] += noise * np.max(abs(y_clean[:, :, ll]), axis=0)
+#         else:
+#             y_noisy[:, :, ll] += noise * y_noisy[:, :, ll]
 
-    y_noisy = y_noisy.squeeze()
+#     y_noisy = y_noisy.squeeze()
 
-    if y_noisy.ndim == 1:
-        y_noisy = np.expand_dims(y_noisy, axis=-1)
+#     if y_noisy.ndim == 1:
+#         y_noisy = np.expand_dims(y_noisy, axis=-1)
 
-    return y_noisy
+#     return y_noisy
 
 
 

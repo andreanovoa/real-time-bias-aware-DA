@@ -67,10 +67,9 @@ class POD:
         """
 
         model_dict = kwargs.copy()
-        for key, val in kwargs.items():
+        for key in kwargs.keys():
             if hasattr(POD, key):
-                setattr(self, key, val)
-                del model_dict[key]
+                setattr(self, key, model_dict.pop(key))
 
         # __________________________ Init POD ___________________________ #
         # Validate input data

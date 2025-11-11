@@ -350,7 +350,7 @@ class ESN_model(EchoStateNetwork, Model):
     def set_states_to_update(self, reset=False):
         u, r = None, None
 
-        psi = self.get_current_state
+        psi = self.current_state
 
         # print(f'[m_dd] psi.shape {psi.shape}')
 
@@ -434,7 +434,7 @@ class ESN_model(EchoStateNetwork, Model):
             Nt += 1
             interp_flag = True
 
-        t = np.round(self.get_current_time + np.arange(0, Nt + 1) * self.dt_ESN, self.precision_t)
+        t = np.round(self.current_time + np.arange(0, Nt + 1) * self.dt_ESN, self.precision_t)
 
 
         r = np.empty((Nt + 1, self.N_units, self.u.shape[-1]))
@@ -467,7 +467,7 @@ class ESN_model(EchoStateNetwork, Model):
             Nt += 1
             interp_flag = True
 
-        t = np.round(self.get_current_time + np.arange(0, Nt + 1) * self.dt_ESN, self.precision_t)
+        t = np.round(self.current_time + np.arange(0, Nt + 1) * self.dt_ESN, self.precision_t)
 
         if averaged:
             u_m, r_m = [np.mean(xx, axis=-1, keepdims=True) for xx in self.get_reservoir_state()]
@@ -485,7 +485,7 @@ class ESN_model(EchoStateNetwork, Model):
 
         # Interpolate if the upsample is not multiple of dt or if upsample > 1
         if self.upsample > 1 or interp_flag:
-            t_physical = np.round(self.get_current_time + np.arange(0, Nt * self.upsample + 1) * self.dt, self.precision_t)
+            t_physical = np.round(self.current_time + np.arange(0, Nt * self.upsample + 1) * self.dt, self.precision_t)
             u, r = [interpolate(t, xx, t_eval=t_physical) for xx in [u, r]]
         else:
             t_physical = t.copy()

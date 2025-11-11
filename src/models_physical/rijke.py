@@ -11,7 +11,7 @@ class Rijke(Model):
     """
 
     name: str = 'Rijke'
-    t_transient = 1.
+    t_transient = .25
     t_CR = 0.02
 
     Nm = 10
@@ -82,15 +82,21 @@ class Rijke(Model):
         ##############################################################################################################
 
     def modify_settings(self):
-        if 'tau' in self.est_a:
+        if 'tau' in self.ensemble.get('est_alpha', []):
             extra_Nc = 50 - self.Nc
             self.tau_adv, self.Nc = 1E-2, 50
             self.alpha_lims['tau'][-1] = self.tau_adv
-            psi = self.get_current_state
-            self.psi0 = np.hstack([np.mean(psi, -1),
-                                   np.zeros(extra_Nc)])
+            psi = self.current_state
+            
+            new_psi = np.concatenate([psi,
+                                      np.zeros((extra_Nc, psi.shape[-1]))], axis=0)
+            
+            self.psi0 = np.mean(new_psi, axis=1, keepdims=True)
+
             self.Dc, self.gc = Cheb(self.Nc, getg=True)
-            self.update_history(reset=True)
+
+            self.update_history(t=0., psi=self.psi0, reset=True)
+
             self.set_fixed_params()
 
     # _______________ Rijke specific properties and methods ________________ #

@@ -27,7 +27,6 @@ class Lorenz63(Model):
     # --- Ensemble/Augmentation Configuration Placeholders (Required by Model Base Class) ---
     # These are populated later, but required for property calculations in Model
     est_a: List[str] = []
-    m: int = 1
 
     # --- Parameter and State Labels ---
     alpha_labels = dict(rho='$\\rho$', sigma='$\\sigma$', beta='$\\beta$')
@@ -48,30 +47,9 @@ class Lorenz63(Model):
             self.observe_dims = model_dict['observe_dims']
         
         self.Nq = len(self.observe_dims)
-
-        # 2. Capture and store Ensemble/DA configuration
-        ensemble_kwargs = {}
         
-        # Keys expected by the Ensemble manager (from your Ensemble class definition)
-        ensemble_keys = ['m', 'est_alpha', 'std_phi', 'std_alpha', 'filter', 'inflation', 'distribution_alpha']
 
-        for key in list(model_dict.keys()):
-            if key in ensemble_keys:
-                ensemble_kwargs[key] = model_dict.pop(key)
-        
-        # 3. Set placeholder attributes needed by Model.__init__ and properties
-        # The base Model uses self.est_a to calculate the size of the augmented state (Na).
-        # Note: If 'est_alpha' is passed as a list of names, use it.
-        self.est_a = ensemble_kwargs.get('est_alpha', [])
-        if not isinstance(self.est_a, list):
-             self.est_a = []
-             
-        self.m = ensemble_kwargs.get('m', 1)
-        
-        # Store the configuration for the Model base class to access later
-        self._ensemble_config = ensemble_kwargs 
-
-        # 4. Call Model Base Class Init (which handles integrator and ensemble instantiation)
+        # 2. Call Model Base Class Init (which handles integrator and ensemble instantiation)
         # We pass the ensemble class here, which Model.__init__ will use.
         super().__init__(integrator_class=IVPIntegrator, 
                          ensemble_class=ensemble_class, 

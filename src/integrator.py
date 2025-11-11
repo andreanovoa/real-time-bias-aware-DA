@@ -2,19 +2,15 @@
 import os
 
 import numpy as np
-from utils import *
-from bias import *
-# from model import Model
+from utils import interpolate
 
 from scipy.integrate import solve_ivp
 from functools import partial
 from copy import deepcopy
 
-from typing import Dict, Tuple, Any
+from typing import Dict, Tuple, Any, Type
 
 import numpy as np
-
-from bias import NoBias
 
 from sys import platform
 
@@ -32,10 +28,24 @@ class Integrator:
     Abstract Base Class for all time integration strategies.
     Defines the interface for advancing the model state.
     """
-    def __init__(self, model_instance, ensemble=None):
-        # A pointer to the Model instance to access self.time_derivative, self.dt, etc.
+    def __init__(self, model_instance):
+        """A pointer to the model instance to access self.time_derivative, self.dt, etc.
+        Note: model can be Model or Bias class, both have similar interface. 
+        Any other object will raise error unless it contains the required methods/attributes:
+        - time_derivative(t, psi, **params)
+        - dt
+        - is_ensemble
+        """        
+
         self.model = model_instance
-        self.ensemble = ensemble
+
+    @property
+    def is_ensemble(self):
+        current_state = self.model.current_state
+        if current_state.ndim >= 2 and current_state.shape[-1] > 1:
+            return True
+        else:
+            return False
 
     def close(self):
         """ Close resources held by the integrator (e.g., multiprocessing pools). """
@@ -44,15 +54,15 @@ class Integrator:
     def advance(self, **kwargs) -> Tuple[np.ndarray, np.ndarray]:
         """
         The common interface for all integrators.
-        Must return: (psi_forecasted[1:], t_forecasted[1:])ß
+        Must return: (psi_forecasted[1:], t_forecasted[1:])
         """
-        if self.ensemble is None:
+        if not self.is_ensemble:
             return self.advance_single(**kwargs)
         else:
             return self.advance_ensemble(**kwargs)
     
 
-    def advance_single(self, Nt: int = 100, alpha: Dict[str, Any] = None) -> Tuple[np.ndarray, np.ndarray]:
+    def advance_single(self, **kwargs) -> Tuple[np.ndarray, np.ndarray]:
         """
         The common interface for all integrators.
         Must return: (psi_forecasted[1:], t_forecasted[1:])ß
@@ -74,149 +84,51 @@ class DiscreteIntegrator(Integrator):
     Integrator for models using a fixed, discrete map or scheme (single member). (e.g., ETDRK4 in KS, or ESN).
     """
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, model_instance):
+        super().__init__(model_instance)
         
         self.dt_output = getattr(self.model, 'dt')
         self.upsample = getattr(self.model, 'upsample', 1.)
-        self.dt_integrator = self.dt_physical * self.upsample
+        self.dt_integrator = self.dt_output * self.upsample
 
 
-    def advance_single(self, Nt: int = 100, alpha: Dict[str, Any] = None) -> Tuple[np.ndarray, np.ndarray]:
+    def advance_single(self, Nt: int = 100, alpha: Dict[str, Any] = None, **kwargs) -> Tuple[np.ndarray, np.ndarray]:
         model = self.model
         
-        t_out = model.get_current_time + np.arange(Nt + 1) * self.dt_output
+        t_out = model.current_time + np.arange(Nt + 1) * self.dt_output
         psi, t = model.time_step(Nt=Nt)
 
-        if self.upsample == 1.:
+        if len(t_out) == len(t):
             return psi[1:], t[1:]
         else:
             # Interpolate
-            # The target time array has Nt+1 points (including t0) separated by dt_output
-            Nt_physical = Nt + 1
-            t_physical = np.round(model.get_current_time + np.arange(0, Nt_physical) * self.dt_output, model.precision_t)
-            
-            # Use the global/imported interpolate function
-            # Note: interpolation is necessary here because the loop used dt_integrator < dt_output
-            psi_forecasted = interpolate(t_raw, psi_raw, t_eval=t_physical)
-
-            model.reset_state(psi=psi_forecasted[-1]) 
-
-            # Return the forecast (excluding the initial condition) and the time steps
-            return psi_forecasted[1:], t_physical[1:]
-
-        return psi_history[1:], t_all[1:]
-
-
-class DiscreteIntegrator(Integrator):
-    """
-    Handles time integration for models using a fixed, discrete map or scheme.
-    It manages two time scales: physical_dt (output) and integrator_dt (step size).
-    """
-    
-    def __init__(self, model_instance):
-        super().__init__(model_instance)
-        # Assuming the model instance defines these two time steps
-        self.physical_dt = getattr(model_instance, 'physical_dt', model_instance.dt)
-        self.integrator_dt = getattr(model_instance, 'integrator_dt', model_instance.dt)
-
-        # Check for matching steps and calculate the upsampling factor
-        if self.physical_dt < self.integrator_dt:
-            # The physical step must be a multiple of the integration step
-            # i.e., integrator_dt = self.upsample * physical_dt
-            self.upsample = int(np.round(self.integrator_dt / self.physical_dt))
-            if abs(self.integrator_dt - self.upsample * self.physical_dt) > 1e-9:
-                 raise ValueError("Integrator dt must be a multiple of physical dt.")
-            self.interpolate_flag = True
-        elif self.physical_dt == self.integrator_dt:
-             self.upsample = 1
-             self.interpolate_flag = False
-        else:
-             raise ValueError("Integrator dt cannot be smaller than the physical dt.")
-
-
-    def advance(self, Nt=100, averaged=False, alpha=None):
-
-        model = self.model
+            psi_interp = interpolate(t, psi, t_eval=t_out)
+            return psi_interp[1:], t_out[1:]
         
-        # --- 1. Determine Loop Parameters ---
-        
-        # Calculate the number of actual integration steps required
-        Nt_loop = Nt * self.upsample 
-        
-        psi0 = model.get_current_state # (N x m)
-        
-        # Determine the alpha parameters for the loop (same as prior logic)
-        if averaged:
-            psi_initial = np.mean(psi0, axis=-1, keepdims=True)
-            psi_deviation = psi0 - psi_initial
-            alpha_list = [model.get_alpha(psi_initial)[0]]
-        else:
-            psi_initial = psi0
-            psi_deviation = 0
-            alpha_list = model.get_alpha(psi0)
-
-        m_loop = psi_initial.shape[-1]
-        
-        # Array to store the raw, un-interpolated history (Nt_loop+1 x N x m_loop)
-        psi_raw_history = np.zeros((Nt_loop + 1, psi_initial.shape[0], m_loop), dtype=psi_initial.dtype)
-        psi_raw_history[0] = psi_initial
-        
-        t_raw = np.round(model.get_current_time + np.arange(0, Nt_loop + 1) * self.physical_dt, model.precision_t)
-        
-        # --- 2. Run the Discrete Forecast Loop ---
-
-        for mi in range(m_loop):
-            psi_current = psi_initial[:, mi] # (N,)
-            alpha_current = alpha_list[mi]
-
-            for i in range(Nt_loop):
-                # Core Step: Advance one step using the model's implementation
-                # This step always uses the fixed self.integrator_dt
-                psi_next = model.single_step_advance(psi_current, alpha_current) 
-                
-                # Store and update for next step
-                psi_raw_history[i + 1, :, mi] = psi_next
-                psi_current = psi_next
-
-        # --- 3. Final Processing and Interpolation ---
-        
-        psi_forecasted = psi_raw_history
-        t_physical = t_raw # Start with the raw time array
-
-        # Interpolate if the integrator step is smaller than the physical step
-        if self.interpolate_flag:
-            # Generate the target time array for physical output
-            Nt_physical = Nt + 1
-            t_physical = np.round(model.get_current_time + np.arange(Nt_physical) * self.physical_dt, model.precision_t)
-            
-            # NOTE: Interpolation must be done column-wise for the state vector and ensemble members.
-            # This is complex and depends heavily on the interpolation method.
-            # For this example, we'll use a simplified slicing, but in a real system, 
-            # you would call i
-            
-            # Simplified: Just sample the points that match the physical_dt grid
-            psi_forecasted = interpolate(t_raw, psi_raw_history, t_physical)
-            
-        # If averaged, re-add the ensemble deviation
-        if averaged:
-            # psi_forecasted is (Nt+1 x N x 1). Add deviation (N x m)
-            psi_forecasted = psi_forecasted + psi_deviation.T
-
-        # Return forecast (excluding initial condition) and time array (physical_dt)
-        return psi_forecasted[1:], t_physical[1:]   
-
-
+    def advance_ensemble(self, Nt = 100, averaged = False, alpha = None):
+        return self.advance_single(Nt, alpha)
 
 
 
 # %% ===================================  IVP SOLVER ============================================= %% #
 class IVPIntegrator(Integrator):
-    """ Integrator using Scipy's solve_ivp for continuous, variable-step integration. """
+    """ Integrator using Scipy's solve_ivp for continuous, variable-step integration. 
+         Governing equations: d(psi)/dt = f(t, psi, alpha). 
+            The time_derivative method must be defined by the model
+    
+    """
+    def __init__(self, model_instance, method: str = 'RK45'):
+        super().__init__(model_instance)
+        self.method = method
 
     @property
     def __pool(self):
+        
         if not hasattr(self, '_pool'):
+            self._pool = None
+
+        if self._pool is None and self.model.m > 1:
+            # Initialize multiprocessing pool
             N_pools = min(self.model.m, mp.cpu_count())
             self._pool = mp.Pool(N_pools)
         return self._pool
@@ -230,72 +142,66 @@ class IVPIntegrator(Integrator):
             pass
 
 
-    def time_derivative(self, t, psi, **params):
-        """ Governing equations: d(psi)/dt = f(t, psi, alpha). 
-            The time_derivative method must still be defined by the child model
-            """
-        raise NotImplementedError("Child model must implement time_derivative(t, psi, **params).")
-
-
     def advance_single(self, Nt = 100, averaged=False, alpha = None):
+        # print('Using IVPIntegrator advance_single')
+        pm = self.model
         
-        model = self.model
+        t_all = np.round(pm.current_time + np.arange(0, Nt + 1) * pm.dt, pm.precision_t)
         
-        t_all = np.round(model.get_current_time + np.arange(0, Nt + 1) * model.dt, model.precision_t)
-        t_steps = t_all[1:]
-        
-        psi0 = model.get_current_state
-        args = model.governing_eqns_params
+        psi0 = pm.current_state
+        args = pm.governing_eqns_params
         
         # --- IVP Logic 
         psi = [ivp_forecast_helper(y0=psi0[:, 0], 
-                                            fun=model.time_derivative, 
-                                            t=t_all, 
-                                            params={**model.alpha0, **args})]
+                                    fun=pm.time_derivative, 
+                                    t=t_all, 
+                                    params={**pm.alpha0, **args})]
             
         try:
             psi = np.array(psi).transpose((1, 2, 0))
         except ValueError as e:
             print(f"Error during final array construction: {e}")
-            psi = np.array(psi).T.reshape(-1, psi0.shape[0], psi0.shape[-1])
+            psi = np.array(psi).T.reshape(-1, psi0.shape[0], pm.m)
             
-        return psi[1:], t_steps
+        return psi[1:], t_all[1:]
         
 
     def advance_ensemble(self, Nt=100, averaged=False, alpha=None):
-        model = self.model
+        pm = self.model
         
-        t_all = np.round(model.get_current_time + np.arange(0, Nt + 1) * model.dt, model.precision_t)
-        t_steps = t_all[1:]
+        t_all = np.round(pm.current_time + np.arange(0, Nt + 1) * pm.dt, pm.precision_t)
         
-        psi0 = model.get_current_state
-        args = model.governing_eqns_params
+        psi0 = pm.current_state
+        args = pm.governing_eqns_params
         
         # --- IVP Logic (Similar to previous Model.time_integrate) ---
     
         if not averaged:
+    
             # Ensemble run (using multiprocessing pool)
-            alpha_list = model.get_alpha()
+            alpha_list = pm.get_alpha()
             forecast_part = partial(ivp_forecast_helper, 
-                                    fun=model.time_derivative, t=t_all)
+                                    fun=pm.time_derivative, t=t_all, method=self.method)
             
             sol = [self.__pool.apply_async(forecast_part,
                                             kwds={'y0': psi0[:, mi].T, 'params': {**args, **alpha_list[mi]}})
-                    for mi in range(model.m)]
+                    for mi in range(pm.m)]
+            
             psi = [s.get() for s in sol]
+
         else:
             # Averaged forecast
             psi_mean0 = np.mean(psi0, axis=1, keepdims=True)
             psi_deviation = psi0 - psi_mean0
-            if alpha is None: 
-                alpha = model.get_alpha(psi_mean0)[0]
+            alpha = pm.get_alpha(psi_mean0)[0]
                 
             psi_mean = ivp_forecast_helper(y0=psi_mean0[:, 0], 
-                                                    fun=model.time_derivative,
-                                                    t=t_all,
-                                                    params={**alpha, **args})
+                                            fun=pm.time_derivative,
+                                            t=t_all,
+                                            params={**alpha, **args},
+                                            method=self.method)
             
-            psi = [psi_mean + psi_deviation[:, ii] for ii in range(model.m)]
+            psi = [psi_mean + psi_deviation[:, ii] for ii in range(pm.m)]
 
 
         # Rearrange dimensions to be Nt+1 x N x m and remove initial condition
@@ -303,15 +209,16 @@ class IVPIntegrator(Integrator):
             psi = np.array(psi).transpose((1, 2, 0))
         except ValueError as e:
             print(f"Error during final array construction: {e}")
-            psi = np.array(psi).T.reshape(-1, psi0.shape[0], psi0.shape[-1])
+            psi = np.array(psi).T.reshape(-1, psi0.shape[0], pm.m)
             
-        return psi[1:], t_steps
+        return psi[1:], t_all[1:]
 
 
 
-def ivp_forecast_helper(y0, fun, t, params):
+def ivp_forecast_helper(y0, fun, t, params, method='RK45'):
     """Generic ODE solver using scipy's solve_ivp, defined globally for pickling."""
     assert len(t) > 1
     part_fun = partial(fun, **params)
-    out = solve_ivp(part_fun, t_span=(t[0], t[-1]), y0=y0, t_eval=t, method='RK45')
+
+    out = solve_ivp(part_fun, t_span=(t[0], t[-1]), y0=y0, t_eval=t, method=method)
     return out.y.T
