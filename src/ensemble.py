@@ -842,7 +842,7 @@ def plot_model_state(model: Model, time_indices=[-1],
                     state_labels.append(f'{lbl} (real)')
                     state_labels.append(f'{lbl} (imag)')
                 state_labels = state_labels
-                nrows_phi = int(np.ceil((2 * model.Nphi) / ncols_phi))
+                nrows_phi = int(np.ceil((2 * max_modes) / ncols_phi))
             
         else:
             state_labels = model.state_labels
