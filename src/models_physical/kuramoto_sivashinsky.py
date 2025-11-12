@@ -198,7 +198,7 @@ class KS(Model):
         #-----  Option A
 
 
-        # # Option B-----
+        # # Option B-----(numerically equivalenrt. A is faster.)
         # # Transform to physical space
         # u = KS.fourier_to_physical(u_hat_filtered)
         
@@ -209,7 +209,7 @@ class KS(Model):
         
         # # Transform back to Fourier space and apply filter
         # N_hat = KS.physical_to_fourier(nonlinear)
-        # #-----  Option B (numerically equivalenrt. A is faster.)
+        # #-----  Option B 
 
         N_hat[~dealias] = 0.0
         
@@ -280,45 +280,6 @@ class KS(Model):
         # Store coefficients in the object
         self._ETDRK4_f_terms = terms.copy()
 
-
-
-    # @ETDRK4_f_terms.setter
-    # def ETDRK4_f_terms(self, _):
-    #     """
-    #     https://eprints.nottingham.ac.uk/10663/1/Numerical_Methods_for_Stiff_Systems.pdf#page=32.22
-    #     """
-
-    
-    #     L_arr = np.asarray(self.__linear_operator, dtype=float)
-    #     _L = np.where(L_arr == 0, 1e-16, L_arr)
-    #     dt = self.dt
-
-    #     # Exponential terms
-    #     E = np.exp(dt * _L)
-    #     E2 = np.exp(dt * _L / 2.)
-
-    #     # Auxilitar vars
-    #     Ldt  = _L * dt
-    #     L3 = _L**3
-    #     Ldt2 = Ldt**2
-
-    #     self._ETDRK4_f_terms = dict(f1 = (-4 - Ldt + E * (4 - 3*Ldt + Ldt2)) / L3,
-    #                                 f2 = (2 + Ldt + E * (-2 + Ldt)) / L3,
-    #                                 f3 = (-4 - 3*Ldt - Ldt2 + E*(4 - Ldt))/ L3,
-    #                                 E = E,
-    #                                 E2 = E2,
-    #                                 nonlinear_operator = self.__nonlinear_operator
-    #                                 )
-    #     for key, val in self.ETDRK4_f_terms.items():
-    #         # Check for NaN or Inf values
-    #         if isinstance(val, (np.ndarray, complex, float, int)):
-    #             arr = np.asarray(val)
-    #             if np.isnan(arr.real).any() or np.isnan(arr.imag).any():
-    #                 raise ValueError(f"ETDRK4 coefficient {key} contains NaN values")
-    #             elif np.isinf(arr.real).any() or np.isinf(arr.imag).any():
-    #                 raise ValueError(f"ETDRK4 coefficient {key} contains inf values")
-
-        
 
 
     @staticmethod
@@ -485,39 +446,76 @@ class KS(Model):
         return np.fft.rfft(u, axis=ax)
     
 
-    @staticmethod
-    def plot_spatiotemporal_u(model):
+    
+    def visualize_spatiotemporal(self, y_hist=None, t=None, nrows=None, averaged=False):
+        """
+        Visualize the spatiotemporal evolution of the KS model in the physical space.
+        """
 
-        sol = model.get_observable_hist(loc="all")
-        x_start, x_end = model.x[0], model.L
-        t0, tend = model.hist_t[0], model.hist_t[-1]
+        if y_hist is None:
+            y_hist = self.get_observable_hist(loc="all")
 
-        m = sol.shape[-1]
+        if t is None:
+            t = self.hist_t
 
-        fig, axs = plt.subplots(nrows=min(m, 10), sharey=True, sharex=True)
-        if m == 1:
-            axs = [axs]
+        if not averaged:
+            if nrows is None:
+                nrows = min(10, y_hist.shape[-1])
 
-        # Set spatial ticks as multiples of L
-        ticks = (np.arange(4) + 1)* model.L/4
-        tick_labels = [r"$L/4$", r"$L/2$", r"$3L/4$",r"$L$"]
+            fig = plt.figure(figsize=(10, 1.5 * nrows))
+            axs = fig.subplots(nrows=nrows, sharey=True, sharex=True)
+            if nrows == 1:
+                axs = [axs]
 
+            # Set spatial ticks as multiples of L
+            ticks = (np.arange(4) + 1)* self.L/4
+            tick_labels = [r"$L/4$", r"$L/2$", r"$3L/4$",r"$L$"]
 
-        lim = np.max(abs(sol))
-        for mi, ax in enumerate(axs):
-            im = ax.imshow(sol[...,mi].T, 
-                           aspect='auto', origin='lower', 
-                           cmap='RdBu_r', vmin=-lim, vmax=lim,
-                           extent=[t0, tend, x_start, x_end])  # TRANSPOSE
-            ax.set(ylabel="$x$")
-            ax.set_yticks(ticks)
-            ax.set_yticklabels(tick_labels)
+            lim = np.max(abs(y_hist))
+
+            for mi, ax in enumerate(axs):
+                im = ax.imshow(y_hist[:, :, mi].T, 
+                            aspect='auto', origin='lower', 
+                            cmap='RdBu_r', vmin=-lim, vmax=lim,
+                            extent=[t[0], t[-1], self.x[0], self.x[-1]])  # TRANSPOSE
+                ax.set(ylabel="$x$")
+                ax.set_yticks(ticks)
+                ax.set_yticklabels(tick_labels)
+                    
                 
-            
-        axs[0].set(title=rf"KS spatiotemporal evolution. $L={model.L/np.pi:.2f}\pi, \nu={model.nu}$")
-        axs[-1].set(xlabel="$t$")
+            axs[0].set(title=rf"KS spatiotemporal evolution. $L={self.L/np.pi:.2f}\pi, \nu={self.nu}$")
+            axs[-1].set(xlabel="$t$")
 
-        fig.colorbar(im, ax=axs, orientation='vertical') 
+            fig.colorbar(im, ax=axs[0], orientation='vertical') 
+        else:
+            # Averaged ensemble visualization
+            y_mean_hist = np.mean(y_hist, axis=-1)
+
+            fig, axs = plt.subplots(nrows=2, figsize=(10, 6), sharex=True)
+
+            # Mean evolution
+            lim_mean = np.max(abs(y_mean_hist))
+            im0 = axs[0].imshow(y_mean_hist.T, 
+                                aspect='auto', origin='lower', 
+                                cmap='RdBu_r', vmin=-lim_mean, vmax=lim_mean,
+                                extent=[t[0], t[-1], self.x[0], self.x[-1]])
+            axs[0].set(title=rf"KS averaged spatiotemporal evolution. $L={self.L/np.pi:.2f}\pi, \nu={self.nu}$",
+                        ylabel="$x$")
+            fig.colorbar(im0, ax=axs[0], orientation='vertical') 
+
+            # Deviation covariance evolution
+
+            var_ensemble = np.var(y_hist, axis=-1)             # (Nt, Nx)
+            lim_dev = np.max(abs(var_ensemble))
+            im1 = axs[1].imshow(var_ensemble.T,  # Plot covariance of deviations
+                                aspect='auto', origin='lower', 
+                                cmap='twilight', vmin=-lim_dev, vmax=lim_dev,
+                                extent=[t[0], t[-1], self.x[0], self.x[-1]])
+                                
+            axs[1].set(title="Ensemble member deviation from mean",
+                        xlabel="$t$", ylabel="$x$")
+            fig.colorbar(im1, ax=axs[1], orientation='vertical')
+        
 
     @staticmethod
     def plot_temporal_E(model, Nt=0, max_lines=10):
@@ -595,7 +593,7 @@ if __name__ == "__main__":
         solution, times = model.time_integrate(Nt=Nt)
         model.update_history(psi=solution, t=times)
 
-        KS.plot_spatiotemporal_u(model=model)
+        KS.plot_spatiotemporal(model=model)
         KS.plot_temporal_E(model=model)
 
 
@@ -638,7 +636,7 @@ if __name__ == "__main__":
 
         model.update_history(psi=solution, t=times)
         
-        KS.plot_spatiotemporal_u(model=model)
+        KS.plot_spatiotemporal(model=model)
         KS.plot_temporal_E(model=model)
 
     plt.show()

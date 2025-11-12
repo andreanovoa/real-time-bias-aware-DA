@@ -8,6 +8,7 @@ import warnings
 from bias import NoBias
 
 from integrator import *
+import matplotlib.pyplot as plt
 
 
 
@@ -343,5 +344,78 @@ class Model(object):
             t: time of the propagated psi
         """
         return self.integrator.advance(Nt=Nt, averaged=averaged, alpha=self.get_alpha())
+    
+
+
+
+    # ============================== Visualization methods ============================== #
+    def visualize_history(self):
+        self.visualize_state()
+        self.visualize_observables()
+        self.visualize_spatiotemporal()
+
+
+
+    def visualize_state(self, psi=None, t=None, max_modes=10):
+        if psi is None:
+            psi = self.hist[:, :self.Nphi]
+        if t is None:
+            t = self.hist_t[-len(psi):]
+
+        lbl = self.state_labels
+
+        # Plot the time evolution of the observables
+        t_zoom = int(self.t_CR / self.dt)
+        nrows = min(self.Nq, max_modes)
+
+        fig = plt.figure(figsize=(8, nrows+1), layout="constrained")
+        plt.suptitle('State time evolution')
+        axs = fig.subplots(nrows, 2, sharey='row', sharex='col')
+        if nrows == 1:
+            axs = [axs]
+
+        for ii, ax in enumerate(axs):
+            # if complex, plot real part and imag part in the same axis
+            ax[0].plot(t, psi[:, ii].real,  label='Real part')
+            ax[1].plot(t[-t_zoom:], psi[-t_zoom:, ii].real,  label='Real')
+            if np.iscomplexobj(psi[:, ii]):
+                ax[0].plot(t, psi[:, ii].imag, label='Imag part')
+                ax[1].plot(t[-t_zoom:], psi[-t_zoom:, ii].imag, label='Imag')
+                ax[1].legend(fontsize='x-small', ncol=2)
+            ax[0].set(ylabel=lbl[ii])
+            if ii == nrows-1:
+                ax[0].set(xlabel='$t$', xlim=[t[0], t[-t_zoom]])
+                ax[1].set(xlabel='$t$', xlim=[t[-t_zoom], t[-1]])
+    
+
+    def visualize_observables(self, y=None, t=None):
+        if y is None:
+            y = self.get_observable_hist()
+        if t is None:
+            t = self.hist_t[-len(y):]
+
+        lbl = self.obs_labels
+
+        # Plot the time evolution of the observables
+        t_zoom = int(self.t_CR / self.dt)
+
+        fig = plt.figure(figsize=(8, self.Nq+1), layout="constrained")
+        plt.suptitle('Observables time evolution')
+        axs = fig.subplots(self.Nq, 2, sharey='row', sharex='col')
+        if self.Nq == 1:
+            axs = [axs]
+
+        for ii, ax in enumerate(axs):
+            ax[0].plot(t, y[:, ii])
+            ax[1].plot(t[-t_zoom:], y[-t_zoom:, ii])
+            ax[0].set(ylabel=lbl[ii])
+            if ii == self.Nq-1:
+                ax[0].set(xlabel='$t$', xlim=[t[0], t[-t_zoom]])
+                ax[1].set(xlabel='$t$', xlim=[t[-t_zoom], t[-1]])
+    
+    
+    def visualize_spatiotemporal(self, **kwargs):
+        pass 
+
 
 
