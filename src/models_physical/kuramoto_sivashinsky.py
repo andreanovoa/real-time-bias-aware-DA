@@ -38,8 +38,8 @@ class KS(Model):
     initial_amplitude = 0.01
 
 
-    alpha_labels = dict(nu='$\\nu$')
-    alpha_lims = dict(nu=(0., None))
+    # alpha_labels = dict(nu='$\\nu$')
+    # alpha_lims = dict(nu=(0., None))
 
     extra_print_params = ['Nx']
     sensor_placement_method = 'grid'
@@ -467,10 +467,6 @@ class KS(Model):
             if nrows == 1:
                 axs = [axs]
 
-            # Set spatial ticks as multiples of L
-            ticks = (np.arange(4) + 1)* self.L/4
-            tick_labels = [r"$L/4$", r"$L/2$", r"$3L/4$",r"$L$"]
-
             lim = np.max(abs(y_hist))
 
             for mi, ax in enumerate(axs):
@@ -478,15 +474,12 @@ class KS(Model):
                             aspect='auto', origin='lower', 
                             cmap='RdBu_r', vmin=-lim, vmax=lim,
                             extent=[t[0], t[-1], self.x[0], self.x[-1]])  # TRANSPOSE
-                ax.set(ylabel="$x$")
-                ax.set_yticks(ticks)
-                ax.set_yticklabels(tick_labels)
                     
                 
             axs[0].set(title=rf"KS spatiotemporal evolution. $L={self.L/np.pi:.2f}\pi, \nu={self.nu}$")
             axs[-1].set(xlabel="$t$")
 
-            fig.colorbar(im, ax=axs[0], orientation='vertical') 
+            fig.colorbar(im, ax=axs, orientation='vertical', shrink=1/nrows) 
         else:
             # Averaged ensemble visualization
             y_mean_hist = np.mean(y_hist, axis=-1)
@@ -499,22 +492,28 @@ class KS(Model):
                                 aspect='auto', origin='lower', 
                                 cmap='RdBu_r', vmin=-lim_mean, vmax=lim_mean,
                                 extent=[t[0], t[-1], self.x[0], self.x[-1]])
-            axs[0].set(title=rf"KS averaged spatiotemporal evolution. $L={self.L/np.pi:.2f}\pi, \nu={self.nu}$",
-                        ylabel="$x$")
+            axs[0].set(title=rf"KS averaged spatiotemporal evolution (mean and std). $L={self.L/np.pi:.2f}\pi, \nu={self.nu}$")
             fig.colorbar(im0, ax=axs[0], orientation='vertical') 
 
             # Deviation covariance evolution
 
-            var_ensemble = np.var(y_hist, axis=-1)             # (Nt, Nx)
+            var_ensemble = np.var(y_hist, axis=-1, ddof=1).T            # (Nt, Nx)
+            var_ensemble = np.sqrt(var_ensemble)                     # Standard deviation
+
             lim_dev = np.max(abs(var_ensemble))
-            im1 = axs[1].imshow(var_ensemble.T,  # Plot covariance of deviations
+            im1 = axs[1].imshow(var_ensemble,  # Plot covariance of deviations
                                 aspect='auto', origin='lower', 
-                                cmap='twilight', vmin=-lim_dev, vmax=lim_dev,
+                                cmap='magma', vmin=0, vmax=lim_dev,
                                 extent=[t[0], t[-1], self.x[0], self.x[-1]])
                                 
-            axs[1].set(title="Ensemble member deviation from mean",
-                        xlabel="$t$", ylabel="$x$")
             fig.colorbar(im1, ax=axs[1], orientation='vertical')
+        # add the ticks and labels
+
+        # Set spatial ticks as multiples of L
+        ticks = (np.arange(4) + 1)* self.L/4
+        tick_labels = [r"$L/4$", r"$L/2$", r"$3L/4$",r"$L$"]
+        for ax in axs:
+            ax.set(ylabel="$x$", yticks=ticks, yticklabels=tick_labels)
         
 
     @staticmethod
