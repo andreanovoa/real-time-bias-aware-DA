@@ -1,14 +1,12 @@
-import time
 import matplotlib.backends.backend_pdf as plt_pdf
-import sys
+import numpy as np
+
+import os
+from utils import add_pdf_page
 
 from copy import deepcopy
 import matplotlib.pyplot as plt
 
-sys.path.append('../')
-
-from data_assimilation import EnKF, EnSRKF
-from utils import *
 
 # Validation methods
 from functools import partial
@@ -45,9 +43,8 @@ class EchoStateNetwork:
     connect = 3  # Connectivity between neurons
     figs_folder = './figs_ESN/'
     filename = 'my_ESN'  # Default ESN file name
-    L = 1  # Number of augmented datasets
 
-    input_parameters = None
+    input_parameters = None #TODO: add input parameters functionality to enable parametric ESNs
 
     N_folds = 4  # Folds over the training set
     N_func_evals = 20  # Total evals of Bayesian hyperparameter optimization (BHO)
@@ -96,13 +93,13 @@ class EchoStateNetwork:
         """
 
         if y.ndim == 1:
-            y = np.expand_dims(y, -1)
+            y = y[:, np.newaxis]
         elif y.ndim > 2:
-            raise AssertionError(f'y.shape={y.shape}. The input y must have 2 or less dimension')
+            raise AssertionError(f'y.shape={y.shape}. The input y must have 2 dimension')
 
         [setattr(self, key, val) for key, val in kwargs.items() if hasattr(EchoStateNetwork, key)]
 
-        # -----------  Initialise state and reservoir state to zeros ------------ #
+        #   Initialise state and reservoir state to zeros ------------ #
         self.N_dim = y.shape[0]
 
         self.u = np.zeros((self.N_dim, y.shape[1]))
@@ -110,14 +107,11 @@ class EchoStateNetwork:
 
         self.observed_idx = np.arange(self.N_dim)  # initially, assume full observability.
 
-        # ---------------- Define time steps and time windows -------------------- #
+        #  Define time steps and time windows -------------------- #
         # self.dt = dt
         self.dt_ESN = dt * self.upsample
 
-        # ------------------------ Initialize ESN matrices -------------------------- #
-        # self.Win = kwargs.get('Win', None)  # Input matrix (self.N_units, self.N_dim+1)  
-        # self.Wout = kwargs.get('Wout', None)  # Output matrix (self.N_units+1, self.N_dim)
-        # self.W = kwargs.get('W', None)  # Reservoir state matrix (self.N_units, self.N_units)
+        #  Initialize ESN matrices -------------------------- #
         
         self.trained = all([getattr(self, key) is not None for key in ['Wout', 'Win', 'W', 'norm']])
         self.val_k = kwargs.get('val_k', 0)  # Validation counter
@@ -314,6 +308,10 @@ class EchoStateNetwork:
             return len(self.observed_idx)
         else:
             return len(self.observed_idx) + self.input_parameters.shape[0]
+        
+    
+    def copy(self):
+        return deepcopy(self)
 
     # --------------------------------------------------------------------------------------------------------
     def reset_hyperparams(self, params, names, tikhonov=None):
@@ -451,6 +449,7 @@ class EchoStateNetwork:
     def reservoir_to_physical(self, r_aug):
 
         """ Converts the reservoir state to the physical state using the output weight matrix (Wout).
+        Note: I change this in ESN_model
         Args:
             r_aug (np.ndarray): Augmented reservoir state including output bias.
         """
@@ -511,12 +510,15 @@ class EchoStateNetwork:
         return u, r
 
     # _______________________________________________________________________________________ TRAIN & VALIDATE THE ESN
-    def train(self, train_data,
+    def train(self, 
+              train_data,
               add_noise=True,
               plot_training=True,
               save_ESN_training=False,
               folder=None,
-              validation_strategy=None):
+              validation_strategy=None,
+              **kwargs
+              ):
         """
         Trains the ESN using ridge regression and Bayesian hyperparameter optimization.
 
@@ -531,10 +533,16 @@ class EchoStateNetwork:
         if self.trained:
             print("ESN is already trained. Skipping training.")
             return
+        
+        for key, val in kwargs.items():
+            if hasattr(self, key):
+                print(f'Modifying {key} = {getattr(self, key)} -> {val} for training.')
+                setattr(self, key, val)
 
         # ========================== STEP 1: DATA FORMATTING ==========================
         # Format data into washout, train/validation, and test sets
-        U_wtv, Y_tv, U_test, Y_test = self.format_training_data(train_data, add_noise=add_noise)
+        U_wtv, Y_tv, U_test, Y_test = self.split_and_format_data(train_data, 
+                                                                 add_noise=add_noise)
 
         # print([xx.shape for xx in [U_wtv, Y_tv, U_test, Y_test]])
 
@@ -548,7 +556,8 @@ class EchoStateNetwork:
         self.val_k = 0  # Reset validation counter at the start of training
         # Perform hyperparameter optimization if required
         if self.hyperparameters_to_optimize:
-            bo_results = self.optimize_hyperparameters(U_wtv, Y_tv, validation_strategy,
+            bo_results = self.optimize_hyperparameters(U_wtv, Y_tv, 
+                                                       validation_strategy,
                                                        print_convergence=plot_training)
         else:
             bo_results = None
@@ -566,7 +575,6 @@ class EchoStateNetwork:
 
         # Mark the model as trained
         self.trained = True
-        # print("Training completed successfully.")
 
 
 
@@ -679,13 +687,52 @@ class EchoStateNetwork:
         LHS, RHS = self._compute_RR_terms(U_wtv, Y_tv)[:2]
         LHS.ravel()[::LHS.shape[1] + 1] += self.tikh  # Add tikhonov to the diagonal
         return np.linalg.solve(LHS, RHS)  # Solve linear regression problem
+    
 
-    def format_training_data(self, data=None, add_noise=True, observed_idx=None):
+    def _UY_from_raw_data(self, data, add_noise=True):
+        """
+        Extracts input (U) and output (Y) matrices from raw data.
+
+        Args:
+            data (np.ndarray): Raw time series data with dimensions [(L) x Nt x N_dim].
+
+        Returns:
+            tuple: (U, Y) where U is the input matrix and Y is the output
+        """
+
+        #   APPLY UPSAMPLE AND OBSERVED INDICES ________________________
+        if data.ndim == 2:
+            data = np.expand_dims(data, axis=0)
+
+        # Set labels always as the full state
+        Y = data[:, ::self.upsample].copy()
+
+        # Case I: Full observability .OR. Case II: Partial observability
+        if not self.bayesian_update:
+            U = Y[:, :, self.observed_idx].copy()
+        # Case III: Full observability with a DA-reconstructed state.
+        else:
+            U = Y.copy()
+
+        assert Y.shape[-1] >= U.shape[-1]
+        assert U.shape[-1] == self.N_dim_in
+
+        if add_noise:
+            #  ==================== ADD NOISE TO TRAINING INPUT ====================== ##
+            # Add noise to the inputs if distinction inputs/labels is not given.
+            # Larger noise promotes stability in long term, but hinders time accuracy
+            U_std = np.std(U, axis=1, keepdims=True)
+            rng_noise = np.random.default_rng(self.seed_noise)
+            U += rng_noise.normal(loc=0, scale=self.noise * U_std, size=U.shape)
+
+        return U, Y
+
+    def split_and_format_data(self, data=None, add_noise=True):
         """
         Formats the input data into washout, train/val, and test sets. Optionally adds noise to the input.
 
         Args:
-            - data (np.ndarray): Input time series data with dimensions [L x Nt x N_dim].
+            - data (np.ndarray): Input time series data with dimensions [(L) x Nt x N_dim].
             - add_noise (bool): Whether to add noise to the training input data (default: True).
             - observed_idx (list, optional): indices which are observed
         Returns:
@@ -696,26 +743,11 @@ class EchoStateNetwork:
         Raises:
             ValueError: If the input data length is insufficient for training.
         """
+        if data is None:
+            raise ValueError('No training data provided to format_training_data method.')
 
-        #   APPLY UPSAMPLE AND OBSERVED INDICES ________________________
-        if data.ndim == 2:
-            data = np.expand_dims(data, axis=0)
 
-        if observed_idx is not None:
-            self.observed_idx = observed_idx
-
-        # Set labels always as the full state
-        Y = data[:, ::self.upsample].copy()
-
-        # Case I: Full observability .OR. Case II: Partial observability
-        if not self.bayesian_update:
-            U = Y[:, :, self.observed_idx]
-        # Case III: Full observability with a DA-reconstructed state.
-        else:
-            U = Y.copy()
-
-        assert Y.shape[-1] >= U.shape[-1]
-        assert U.shape[-1] == self.N_dim_in
+        U, Y = self._UY_from_raw_data(data, add_noise=add_noise)
 
         #   SEPARATE INTO WASH/TRAIN/VAL/TEST SETS ______________________
         N_wtv = self.N_train + self.N_val
@@ -731,17 +763,6 @@ class EchoStateNetwork:
 
         # compute norm (normalize inputs by component range)
         self.norm = EchoStateNetwork.__set_norm(U_wtv, method=self.norm_method)
-
-        if add_noise:
-            #  ==================== ADD NOISE TO TRAINING INPUT ====================== ##
-            # Add noise to the inputs if distinction inputs/labels is not given.
-            # Larger noise promotes stability in long term, but hinders time accuracy
-            U_std = np.std(U, axis=1)
-            rng_noise = np.random.default_rng(self.seed_noise)
-            for ll in range(Y.shape[0]):
-                for dd in range(self.N_dim_in):
-                    U_wtv[ll, :, dd] += rng_noise.normal(loc=0, scale=self.noise * U_std[ll, dd], size=U_wtv.shape[1])
-                    U_test[ll, :, dd] += rng_noise.normal(loc=0, scale=self.noise * U_std[ll, dd], size=U_test.shape[1])
 
         return U_wtv, Y_tv, U_test, Y_test
     
@@ -974,7 +995,7 @@ class EchoStateNetwork:
         a = n_MSE.argmin()
         tikh_opt[case.val_k] = case.tikh_range[a]
         case.tikh = case.tikh_range[a]
-        normalized_best_MSE = n_MSE[a] / case.N_folds / case.L
+        normalized_best_MSE = n_MSE[a] / case.N_folds / U_wtv.shape[0]
 
         case.val_k += 1
         if print_convergence:
@@ -986,8 +1007,19 @@ class EchoStateNetwork:
         return normalized_best_MSE
 
     # _______________________________________________________________________________________ TEST & PLOTTING FUNCTIONS
-    def run_test(self, U_test, Y_test, pdf_file=None, Nt_test=None,
-                 max_L_tests=10, seed=0, nbins=20, plot_pdf=False, margin=None):
+
+    def run_test(self, 
+                 U_test, 
+                 Y_test, 
+                 pdf_file=None, 
+                 Nt_test=None,
+                 max_L_tests=10, 
+                 seed=0, 
+                 nbins=20, 
+                max_short_tests=10,
+                long_term=True,
+                short_term=True,
+                 ):
         """
         Evaluates the trained ESN on test data.
 
@@ -1007,6 +1039,7 @@ class EchoStateNetwork:
         """
         if hasattr(self, 'seed'):
             seed = self.seed
+
         if max_L_tests is None and hasattr(self, 'max_L_tests'):
             max_L_tests = self.max_L_tests
         if Nt_test is None:
@@ -1015,11 +1048,12 @@ class EchoStateNetwork:
         if U_test.ndim == 1:
             U_test = U_test[np.newaxis, :, np.newaxis]
         elif U_test.ndim == 2:
-            U_test = U_test[np.newaxis, :]
+            U_test = U_test[np.newaxis, :, :]
+
         if Y_test.ndim == 1:
             Y_test = Y_test[np.newaxis, :, np.newaxis]
         elif Y_test.ndim == 2:
-            Y_test = Y_test[np.newaxis, :]
+            Y_test = Y_test[np.newaxis, :, :]
 
 
         rng0 = np.random.default_rng(seed)
@@ -1036,186 +1070,177 @@ class EchoStateNetwork:
 
         observed_idx_np = np.array(self.observed_idx)
 
-        # Select test cases (with a maximum of max_tests)
+        # Select test cases (with a maximum of max_L_tests)
         if L > 1:
             if max_L_tests != L:
-                L_indices = rng0.choice(L, max_L_tests, replace=max_L_tests > L)
-                L_indices = sorted(L_indices)
+                L_indices = rng0.choice(L, max_L_tests, replace=max_L_tests > L).sorted()
             else:
                 L_indices = np.arange(L)
         else:
             L_indices = [0]
 
-        test_counter, errors = 0, []
-        for test_i, Li in zip(np.arange(max_L_tests), L_indices):
-            i0, err, predictions, clean, noisy = 0, [], [], [], []
+        # Prediction function
+        def predict_Y(_input, _target):
+
+            # Reset state
+            self.reset_state(u=self.u * 0., r=self.r * 0.)
+
+            # Forecast washout in open loop and reset state
+            u_open, r_open = self.openLoop(_input[:self.N_wash], extra_closed=False)
+            self.reset_state(u=self.outputs_to_inputs(full_state=u_open[-1]),  r=r_open[-1])
+
+            # Closed-loop prediction
+            Y_closed = self.closedLoop(_target.shape[0])[0][1:]
+
+            return Y_closed, u_open
+
+        # Plotting function
+        def plot_time(_axs, _time, _pred_closed, _pred_open, _inputs, _target, _err=None):
+            if not isinstance(_axs, (list, np.ndarray)):
+                _axs = [_axs]
+
+            t_wash_in = _time[:self.N_wash]
+            t_wash_out = _time[1:self.N_wash+1]
+            t_out = _time[self.N_wash:]
+
+            for dim_i, _ax in zip(range(self.N_dim), _axs):
+                _ax.plot(t_out, _target[:, dim_i], 'k', label=f'truth dim {dim_i}')
+                # Plot the input if observed
+                if dim_i in self.observed_idx:
+                    _i = np.argmin(abs(observed_idx_np-dim_i))
+                    _ax.plot(t_wash_in, _inputs[:self.N_wash, _i], 'x', c='C4', ms=5, label=f'Washout')
+                    
+                _ax.plot(t_wash_in, _pred_open[:, dim_i], '-c', label=f'ESN open loop')
+                _ax.plot(t_out, _pred_closed[:, dim_i], '--r', dashes=[2, .5],
+                         label=[f'ESN closed-loop prediction \n error = {_err:.4}' if _err is not None else f'ESN closed-loop prediction'])
+                _ax.set(ylabel=f'$u_{dim_i}$')
+                _ax.set(ylim=ylims[dim_i])
+
+        test_counter, errors_all = 0, []
+        hist_args = dict(bins=nbins, density=True, orientation='horizontal', stacked=False)
+
+
+        for Li in L_indices:
+
+            i0, errors = 0, [] # reset time index and errors for each Li
 
             # Select dataset
             U_test_l, Y_test_l = U_test[Li], Y_test[Li]
             t_l = (np.arange(U_test_l.shape[0])) * self.dt_ESN
+            # set ylims for plotting
+            ylims = [[np.min(Y_test_l[:, dim_i])*1.05, np.max(Y_test_l[:, dim_i])*1.05] for dim_i in range(self.N_dim)]
+            
+            # plot tests statistics if the test dataset is long or requested
+            if long_term:
 
-            # plot tests statistics if the test dataset is long
-            if max_test_time // Nt_test > 1 or plot_pdf:
-                fig, grid = plt.subplots(nrows=self.N_dim, ncols=2, figsize=[10, 2.5 * self.N_dim],
+                # predict over the entire test set
+                Y_closed, U_open = predict_Y(U_test_l[:-1], Y_test_l[self.N_wash:])
+
+
+                fig_long, grid = plt.subplots(nrows=self.N_dim, ncols=2, figsize=[10, 2.5 * self.N_dim],
                                          sharex='col', sharey='row', layout='tight', width_ratios=[5, 1])
                 axs, axs_pdf = grid.T
+        
+                plot_time(_axs=axs, _time=t_l, _pred_closed=Y_closed, _pred_open=U_open, _inputs=U_test_l, _target=Y_test_l[self.N_wash:],)
+
+                # Plot histograms]
                 if Nq == 1:
-                    axs = [axs]
                     axs_pdf = [axs_pdf]
-
-                for dim_i, ax in zip(range(self.N_dim), axs):
+                for dim_i, ax_2 in zip(range(self.N_dim), axs_pdf):
                     if dim_i in self.observed_idx:
-                        _i = np.argmin(abs(observed_idx_np-dim_i))
-                        ax.plot(t_l, U_test_l[:, _i], '-k', lw=4, alpha=0.5, label=f'Input')
-                    ax.plot(t_l, Y_test_l[:, dim_i], '-k', lw=.85, label=f'Target (truth)')
+                        _i = np.argmin(abs(observed_idx_np - dim_i))
+                        ax_2.hist(U_test_l[:, _i].T, color='k', lw=2, alpha=0.6, histtype='step', **hist_args)
+
+                    ax_2.hist(Y_test_l[:, dim_i].T, color='k', lw=.85, histtype='step', **hist_args)
+                    ax_2.hist(Y_closed[:, dim_i], color='r', ls='--', histtype='stepfilled', alpha=0.5, **hist_args)
+                    ax_2.hist(Y_closed[:, dim_i], color='r', ls='--', histtype='step', **hist_args)
+
+                # axs[0].legend(loc='lower center', ncol=4, bbox_to_anchor=(0.5, 1.0))
+                plt.suptitle(f'Test {test_counter+1}: Li = {Li}, observed idx = {self.observed_idx}')
+                axs[-1].set(xlabel='$t/T$')
             else:
-                fig = None
+                fig_long = None
 
-            if margin is None:
-                margin = np.max(U_test) * 0.1
 
-            figures = []
-            while i0 < max_test_time:
-                test_counter += 1
-                i1 = i0 + Nt_test
+            if short_term:
+                figures_short = []
 
-                current_input = U_test_l[i0:i1-1].copy()
-                current_target = Y_test_l[i0+1:i1].copy()
-                current_time = t_l[i0:i1]
+                while i0 + Nt_test < max_test_time + 1:
+                    if len(figures_short) >= max_short_tests:
+                        break
+                    test_counter += 1
+                    i1 = i0 + Nt_test 
+                    
+                    current_input = U_test_l[i0:i1-1].copy()
+                    current_target = Y_test_l[i0+self.N_wash:i1].copy()
+                    current_time = t_l[i0:i1]
 
-                clean.append(current_input[self.N_wash:])
-                noisy.append(current_target[self.N_wash:])
+                    # predict
+                    Y_closed, U_open = predict_Y(current_input, current_target)
 
-                # Reset state
-                self.reset_state(u=self.u * 0., r=self.r * 0.)
+                    current_error = np.log10(np.mean((Y_closed - current_target[..., np.newaxis]) ** 2) / np.mean(np.atleast_2d(self.norm ** 2)))
+                    errors.append(current_error)
 
-                # washout
-                u_open, r_open = self.openLoop(current_input[:self.N_wash], extra_closed=False)
+                    if test_counter <= max_L_tests:
+                        fig_short, axs_short = plt.subplots(nrows=nrows, ncols=1, figsize=[8, 1.5 * nrows], sharex='all', layout='tight')
+                        if Nq == 1:
+                            axs_short = [axs_short] 
 
-                self.reset_state(u=self.outputs_to_inputs(full_state=u_open[-1]),
-                                 r=r_open[-1])
+                        plot_time(_axs=axs_short, _time=current_time, _pred_closed=Y_closed, _pred_open=U_open, 
+                                  _inputs=current_input, _target=current_target, _err=current_error)
+                        
 
-                # Data to compare with, i.e., labels
-                Y_labels = current_target[self.N_wash-1:].squeeze()
+                        axs_short[0].legend(title=f'Test {test_counter}: Li = {Li}', loc='upper left',
+                                            bbox_to_anchor=(1, 1), fontsize='x-small')
+                        axs_short[-1].set(xlabel='$t/T$')
 
-                # Closed-loop prediction
-                Y_closed = self.closedLoop(Y_labels.shape[0])[0][1:].squeeze()
-
-                if Nq == 1:
-                    Y_closed = np.array([Y_closed]).T
-
-                predictions.append(Y_closed)
-
-                # compute error
-                current_error = np.log10(np.mean((Y_closed - Y_labels) ** 2) / np.mean(np.atleast_2d(self.norm ** 2)))
-                err.append(current_error)
-
-                if fig:
-                    for dim_i, ax in zip(range(self.N_dim), axs):
-
-                        if dim_i in self.observed_idx:
-                            _i = np.argmin(abs(observed_idx_np-dim_i))
-                            ax.plot(current_time[:self.N_wash], current_input[:self.N_wash, _i],
-                                    'x', c='C4', ms=5, label=f'Washout input')
-                        ax.plot(current_time[:self.N_wash], u_open[:, dim_i].squeeze(), '-c',
-                                label=f'ESN open-loop prediction')
-                        ax.plot(current_time[self.N_wash:], Y_closed[:, dim_i], '--r', dashes=[2, .5],
-                                label=f'ESN closed-loop prediction')
-                        ax.set(ylabel=f'$u_{dim_i}$')
-                    if i0 == 0:
-                        axs[0].legend(loc='lower center', ncol=3, bbox_to_anchor=(0.5, 1.0))
-                        axs[-1].set(xlabel='$t/T$')
-
-                if max_L_tests == 1 and plot_pdf:
-                    pass
-                elif test_counter <= max_L_tests:
-                    fig2, axs2 = plt.subplots(nrows=nrows, ncols=1, figsize=[8, 1.5 * nrows], sharex='all',
-                                              layout='tight')
-                    if Nq == 1:
-                        axs2 = [axs2]
-
-                    for dim_i, ax in zip(range(self.N_dim), axs2):
-                        ax.plot(current_time[1:], current_target[:, dim_i].squeeze(), 'k', label=f'truth dim {dim_i}')
-                        if dim_i in self.observed_idx:
-                            _i = np.argmin(abs(observed_idx_np-dim_i))
-                            ax.plot(current_time[:self.N_wash], current_input[:self.N_wash, _i].squeeze(),
-                                    'x', c='C4', ms=5, label=f'Washout')
-                        ax.plot(current_time[:self.N_wash], u_open[:, dim_i].squeeze(), '-c', label=f'ESN open loop')
-                        ax.plot(current_time[self.N_wash:], Y_closed[:, dim_i], '--r', dashes=[2, .5],
-                                label=f'ESN closed-loop prediction \n error = {current_error:.4}')
-                        ax.set(ylabel=f'$u_{dim_i}$')
-                        if dim_i == 0:
-                            ax.legend(title=f'Test {test_counter}: Li = {Li}', loc='upper left',
-                                      bbox_to_anchor=(1, 1), fontsize='x-small')
-                        ax.set(ylim=[np.min(current_target[:, dim_i])-margin, np.max(current_target[:, dim_i])+margin])
-                    figures.append(fig2)
-                i0 += Nt_test
-
-            if fig:
-                # Plot histogram
-                args = dict(bins=nbins, density=True, orientation='horizontal', stacked=False)
-                predictions = np.concatenate(predictions)
-                clean = np.concatenate(clean)
-                noisy = np.concatenate(noisy)
-                for dim_i, ax1 in enumerate(axs_pdf):
-                    if dim_i in self.observed_idx:
-                        _i = np.argmin(abs(observed_idx_np-dim_i))
-                        ax1.hist(clean[:, _i].T, color='k', lw=2, alpha=0.5, histtype='step', **args)
-                    ax1.hist(noisy[:, dim_i].T, color='k', lw=.85, histtype='step', **args)
-                    ax1.hist(predictions[:, dim_i], color='r', ls='--', histtype='stepfilled', alpha=0.5, **args)
-                    ax1.hist(predictions[:, dim_i], color='r', ls='--', histtype='step', **args)
-
-                    ax1.set(ylim=[np.min(noisy[:, dim_i]) - margin,
-                                  np.max(noisy[:, dim_i]) + margin])
-
-            # Save to pdf
-            if pdf_file is not None:
-                [add_pdf_page(pdf_file, f, close_figs=test_i > 0) for f in [fig, *figures] if f is not None]
+                        figures_short.append(fig_short)
+                    i0 += Nt_test
             else:
-                plt.show()
-            if i0 // Nt_test > 1:
-                print(f'Li = {Li}: \t Test min, max and mean MSE in {i0 // Nt_test} tests ='
-                      f' {min(err):.4}, {max(err):.4}, {np.mean(err):.4}.')
+                figures_short = [None]
 
-            errors.append(err)
+            errors_all.append(errors)
+
         # Compute errors over all Lis
-        errors = np.array(errors)
-        print(f'Overall tests min, max and mean MSE in {test_counter} tests ='
-              f' {np.min(errors):.4}, {np.max(errors):.4}, {np.mean(errors):.4}.')
+        if test_counter > 0:
+            errors_all = np.array(errors_all)
+            print(f'Overall tests min, max and mean MSE in {test_counter} tests = {np.min(errors_all):.4}, {np.max(errors_all):.4}, {np.mean(errors_all):.4}.')
+        
+        return [fig_long] + figures_short
+
 
     def _plot_training_results(self, U_test, Y_test, results, save_ESN_training, folder):
         """
         Plots training results, including Bayesian optimization convergence and test results.
         """
 
+        all_figs = []
+
+        # Plot Bayesian optimization convergence
+        fig1 = plt.figure()
+        plot_convergence(results['res'])
+        all_figs.append(fig1)
+        # Plot Gaussian Process reconstruction
+        all_figs.extend(self._plot_BO(results))
+        # Plot Wout matrix
+        all_figs.append(self.plot_Wout())
+        # Plot test results if applicable
+        if self.perform_test and U_test.shape[1] >= (self.N_wash+self.N_val):
+            test_figs = self.run_test(U_test, Y_test, 
+                                       long_term=True, short_term=True, max_short_tests=5)
+            all_figs = all_figs + test_figs
+
         if save_ESN_training:
             if folder is None:
                 folder = self.figs_folder
             os.makedirs(folder, exist_ok=True)
-            pdf = plt_pdf.PdfPages(f'{folder}{self.filename}_Training.pdf')
-        else:
-            pdf = None
+            save_pdf = plt_pdf.PdfPages(f'{folder}{self.filename}_Training.pdf')
+            [add_pdf_page(save_pdf, fig) for fig in all_figs]
+            save_pdf.close()
 
-        # Plot Bayesian optimization convergence
-        fig = plt.figure()
-        plot_convergence(results['res'])
-        if pdf:
-            add_pdf_page(pdf, fig)
 
-        # Plot Gaussian Process reconstruction
-        self._plot_BO(results, pdf=pdf)
 
-        # Plot test results if applicable
-        if self.perform_test and U_test.shape[1] >= (self.N_wash+self.N_val):
-            print(U_test.shape)
-            self.run_test(U_test, Y_test, pdf_file=pdf)
-
-        if pdf:
-            pdf.close()
-        else:
-            plt.show()
-
-    def _plot_BO(self, results_bayesian_optimization, pdf=None):
+    def _plot_BO(self, results_bayesian_optimization):
         """
         # Plot Gaussian Process reconstruction for each network in the ensemble after n_tot evaluations.
         # The GP reconstruction is based on the n_tot function evaluations decided in the search
@@ -1233,7 +1258,8 @@ class EchoStateNetwork:
         res = results_bayesian_optimization['res']
 
         f_iters = np.array(res.func_vals)
-
+        
+        figs_bo = []
         if len(hp_names) >= 2:  # plot GP reconstruction
             gp = res.models[-1]
             res_x = np.array(res.x_iters)
@@ -1270,12 +1296,10 @@ class EchoStateNetwork:
                 # Plot best point
                 best_idx = np.argmin(f_iters)
                 plt.plot(res_x[best_idx, 0], res_x[best_idx, 1], '*r', alpha=.8, mec='r', ms=8)
+                figs_bo.append(fig)
 
-                if pdf is not None:
-                    add_pdf_page(pdf, fig, close_figs=True)
+        return figs_bo
 
-    def copy(self):
-        return deepcopy(self)
 
     def plot_Wout(self):
         # Visualize the output matrix
@@ -1284,3 +1308,4 @@ class EchoStateNetwork:
         ax.tick_params(axis="x", bottom=True, top=False, labelbottom=True, labeltop=False)
         plt.colorbar(im, orientation='horizontal', extend='both')
         ax.set(ylabel='$N_u$', xlabel='$N_r$', title='$\\mathbf{W}_\\mathrm{out}$')
+        return fig

@@ -11,7 +11,7 @@ class Rijke(Model):
     """
 
     name: str = 'Rijke'
-    t_transient = 1.
+    t_transient = .25
     t_CR = 0.02
 
     Nm = 10
@@ -82,15 +82,21 @@ class Rijke(Model):
         ##############################################################################################################
 
     def modify_settings(self):
-        if 'tau' in self.est_a:
+        if 'tau' in self.est_alpha:
             extra_Nc = 50 - self.Nc
             self.tau_adv, self.Nc = 1E-2, 50
             self.alpha_lims['tau'][-1] = self.tau_adv
-            psi = self.get_current_state
-            self.psi0 = np.hstack([np.mean(psi, -1),
-                                   np.zeros(extra_Nc)])
+            psi = self.current_state
+            
+            new_psi = np.concatenate([psi,
+                                      np.zeros((extra_Nc, psi.shape[-1]))], axis=0)
+            
+            self.psi0 = np.mean(new_psi, axis=1, keepdims=True)
+
             self.Dc, self.gc = Cheb(self.Nc, getg=True)
-            self.update_history(reset=True)
+
+            self.update_history(t=0., psi=self.psi0, reset=True)
+
             self.set_fixed_params()
 
     # _______________ Rijke specific properties and methods ________________ #
@@ -110,6 +116,9 @@ class Rijke(Model):
     def get_observables(self, Nt=1, loc=None, **kwargs):
         if loc is None:
             loc = self.x_mic
+        elif loc == "all":
+            loc = np.linspace(0, self.L, 100)[:-1]
+
         loc = np.expand_dims(loc, axis=1)
         om = np.array([self.jpiL])
         mu = self.hist[-Nt:, self.Nm:2 * self.Nm, :]
@@ -169,4 +178,80 @@ class Rijke(Model):
         dv_dt = - 2. / tau_adv * np.dot(Dc, v2)
 
         return np.concatenate((deta_dt, dmu_dt, dv_dt[1:], np.zeros(len(psi) - (2 * Nm + Nc))))
+    
 
+
+    def visualize_spatiotemporal_hist(self, y_hist=None, t=None, nrows=None, averaged=False):
+        """
+        Visualize the spatiotemporal evolution of the KS model in the physical space.
+        """
+
+        if y_hist is None:
+            Nt = int(self.t_CR // self.dt)
+            y_hist = self.get_observable_hist(loc="all", Nt=Nt)
+
+        if t is None:
+            t = self.hist_t
+
+
+        # Set spatial ticks as multiples of L
+        ticks = np.arange(5)* self.L/4
+        # tick_labels = [r"$L/4$", r"$L/2$", r"$3L/4$",r"$L$"]
+        
+        if not averaged:
+            if nrows is None:
+                nrows = min(10, y_hist.shape[-1])
+
+            fig = plt.figure(figsize=(10, 1.5 * nrows))
+            axs = fig.subplots(nrows=nrows, sharey=True, sharex=True)
+            if nrows == 1:
+                axs = [axs]
+
+            lim = np.max(abs(y_hist))
+            for mi, ax in enumerate(axs):
+                im = ax.imshow(y_hist[:, :, mi].T, 
+                            aspect='auto', origin='lower', 
+                            cmap='RdBu_r', 
+                            vmin=-lim, vmax=lim,
+                            extent=[t[0], t[-1], 0, self.L])  
+                ax.set(ylabel="$x$")
+                ax.set_yticks(ticks)
+                # ax.set_yticklabels(tick_labels)
+            fig.colorbar(im, ax=axs, orientation='vertical', shrink=1/nrows) 
+                
+                
+            axs[0].set(title=rf"Rijke spatiotemporal evolution $x_f={self.xf}$")
+            axs[-1].set(xlabel="$t$")
+
+        else:
+            # Averaged ensemble visualization
+            y_mean_hist = np.mean(y_hist, axis=-1)
+
+            fig, axs = plt.subplots(nrows=2, figsize=(10, 6), sharex=True)
+
+            # Mean evolution
+            lim_mean = np.max(abs(y_mean_hist))
+            im0 = axs[0].imshow(y_mean_hist.T, 
+                                aspect='auto', origin='lower', 
+                                cmap='RdBu_r', vmin=-lim_mean, vmax=lim_mean,
+                                extent=[t[0], t[-1], 0, self.L])  
+
+            axs[0].set(title=rf"Rijke spatiotemporal evolution (mean and std) $x_f={self.xf}$")
+            fig.colorbar(im0, ax=axs[0], orientation='vertical') 
+            # Deviation covariance evolution in percentage
+            
+            var_ensemble = np.var(y_hist, axis=-1, ddof=1).T            # (Nt, Nx)
+            var_ensemble = np.sqrt(var_ensemble)                     # Standard deviation
+            lim_dev = np.max(var_ensemble)
+            im1 = axs[1].imshow(var_ensemble,  # Plot covariance of deviations
+                                aspect='auto', origin='lower',
+                                cmap='magma', vmin=0, vmax=lim_dev,
+                                extent=[t[0], t[-1], 0, self.L])
+
+            axs[1].set(xlabel="$t$")
+            fig.colorbar(im1, ax=axs[1], orientation='vertical')
+
+
+            for ax in axs:
+                ax.set(yticks=ticks, ylabel="$x$")
+                # ax.set_yticklabels(tick_labels)

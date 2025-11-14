@@ -292,7 +292,7 @@ def run_plotting_annular_results(m, rho,
                     for ax, param, mk, cat, scale, lbl in zip(axs_id, params, mks, cs, scales, scale_lbl):
                         ax = axs[ax]
                         param_idx = ens.est_a.index(param)
-                        params = ens.get_current_state[ens.Nphi + param_idx]
+                        params = ens.current_state[ens.Nphi + param_idx]
                         params /= scale
                         # c = cmap.to_rgba(ens.regularization_factor)
                         c = cmaps[int(ens.regularization_factor + cat)]
@@ -359,8 +359,8 @@ def run_plotting_annular_results(m, rho,
                     Rm = (Rm + Rm_u) / 2.
 
                     nu_idx, c2beta_idx = [ens.est_a.index(key) for key in ['nu', 'c2beta']]
-                    nus = ens.get_current_state[ens.Nphi + nu_idx]
-                    c2betas = ens.get_current_state[ens.Nphi + c2beta_idx]
+                    nus = ens.current_state[ens.Nphi + nu_idx]
+                    c2betas = ens.current_state[ens.Nphi + c2beta_idx]
 
                     if ens != results[-1]:
                         c_b = cmap_beta.to_rgba(ens.regularization_factor)

@@ -1,3 +1,4 @@
+from pdb import pm
 from model import *
 from tools_ML.EchoStateNetwork import EchoStateNetwork
 import matplotlib.pyplot as plt
@@ -120,7 +121,9 @@ class ESN_model(EchoStateNetwork, Model):
 
         # ________________________________ Init Model _______________________________ #
         
-        kwargs['psi0'] = np.concatenate(self.get_reservoir_state(), axis=0)
+        kwargs['psi0'] = self.build_psi(*self.get_reservoir_state())[0]
+
+        # print('Initializing Model with psi0 shape:', kwargs['psi0'].shape)
         Model.__init__(self, integrator_class=DiscreteIntegrator, **kwargs)
 
 
@@ -128,52 +131,58 @@ class ESN_model(EchoStateNetwork, Model):
     # ______________________ New class attributes ______________________ #
     def modify_settings(self, **kwargs):
         # Modify the settings of the ESN_model
+        print('Modifyig settings...')
         for key, val in kwargs.items():
             if hasattr(self, key):
                 setattr(self, key, val)
             else:
                 raise ValueError(f'Key {key} not in ESN_model class')
-            
-        if self.est_a and 'Wout' in self.est_a:
-            if not self.Wout_svd:
-                self.Wout_svd = True
-                [self.Wout_U, self.Wout_Sigma0, self.Wout_Vh] = sla.svd(self.Wout, full_matrices=False)
-                self.Wout_Sigma = self.Wout_Sigma0
+        
 
-            
-            self.est_a.remove('Wout')
+        if self.ensemble:
+            print(self.ensemble.keys())
+            est_alpha = self.est_alpha.copy()
 
-            for qj in np.arange(self.N_dim):
-                key = f'svd_{qj}'
-                self.est_a.append(key)
-                setattr(self, key, self.Wout_Sigma0[qj])
+            if 'Wout' in est_alpha:
+                if not self.Wout_svd:
+                    self.Wout_svd = True
+                    [self.Wout_U, self.Wout_Sigma0, self.Wout_Vh] = sla.svd(self.Wout, full_matrices=False)
+                    self.Wout_Sigma = self.Wout_Sigma0
 
+                # Replace wout for the SVD components to estimate them
+                est_alpha.remove('Wout')
+
+                for qj in np.arange(self.N_dim):
+                    key = f'svd_{qj}'
+                    setattr(self, key, self.Wout_Sigma0[qj])
+                    est_alpha.append(key)
+            print('Updated est_alpha:', est_alpha)
+            self.est_alpha = est_alpha
+            print('New est_alpha in config:', self.est_alpha)
+
+        # Set the M matrix to None to force re-computation
         self.M = None 
-        # print(f'[ESN_model] after M.shape={self.M.shape}')
-    
 
     @property
+    def dt_step(self):
+        return self.dt_ESN
+    
+    @property
     def alpha_labels(self):
-        if not hasattr(self, 'est_a'):
-            return  dict()
-        else:
-            lbls = dict()
-            for key in self.est_a:
+        lbls = {}
+        if len(self.est_alpha) > 0:
+            for key in self.est_alpha:
                 if 'svd' in key:
                     _j = key.split('_')[1]
                     lbls[key] = f'$\\sigma_{_j}$'
                 else:
                     lbls[key] = key
-            return lbls
+        return lbls
 
     @property
     def alpha_lims(self):
-        return {key: (None, None) for key in self.est_a}
-
-    # @property
-    # def Wout_svd_to_estimate(self):
-    #     """TODO: Modify settings to not estimate all  SVDs"""
-    #     return [key for key in self.est_a if 'svd' in key]
+        return {key: (None, None) for key in self.est_alpha}
+    
 
 
     @property
@@ -206,8 +215,8 @@ class ESN_model(EchoStateNetwork, Model):
 
     @property
     def alpha_to_Sigma(self):
-        alpha_matrix = self.get_alpha_matrix()
-        alpha_labels = self.est_a.copy()
+        alpha_matrix = self.get_alpha_matrix
+        alpha_labels = self.est_alpha
 
         eigs = np.zeros((self.m, self.N_dim, self.N_dim))
 
@@ -223,6 +232,13 @@ class ESN_model(EchoStateNetwork, Model):
 
         return eigs
     
+    @property
+    def get_alpha_matrix(self):
+        alpha = np.empty((len(self.est_alpha), self.m))
+        for aj, param in enumerate(self.est_alpha):
+            for mi, alpha_dict in enumerate(self.get_alpha()):
+                alpha[aj, mi] = alpha_dict[param]
+        return alpha
 
 
     @property
@@ -314,7 +330,7 @@ class ESN_model(EchoStateNetwork, Model):
         self.train_network(data, **kwargs)
 
         # Reset model class
-        kwargs['psi0'] = np.concatenate(self.get_reservoir_state(), axis=0)
+        kwargs['psi0'] = self.build_psi(*self.get_reservoir_state())
         self.reset_model(**kwargs) 
 
 
@@ -332,7 +348,7 @@ class ESN_model(EchoStateNetwork, Model):
         if self.update_state:
             labels += self.obs_labels
         if self.update_reservoir:
-            labels += [f'$r_{j+1}$' for j in np.arange(self.N_units)]
+            labels += [f'$r_{{{j+1}}}$' for j in np.arange(self.N_units)]
             
         return labels
 
@@ -340,28 +356,11 @@ class ESN_model(EchoStateNetwork, Model):
     def obs_labels(self):
         return [f'$u_{j+1}$' for j in np.arange(self.N_dim)]
         
-    def set_states_to_update(self, reset=False):
-        u, r = None, None
-
-        psi = self.get_current_state
-
-        # print(f'[m_dd] psi.shape {psi.shape}')
-
-        if self.update_state and self.update_reservoir or reset:
-            u = psi[:self.N_dim]
-            r = psi[self.N_dim:self.N_dim+self.N_units]
-        elif  self.update_state:
-            u = psi[:self.N_dim]
-        elif self.update_reservoir:
-            r = psi[:self.N_units]
-        else:
-            raise ValueError
-
-
-        return u, r
 
     def reset_history(self, hist, t):
-
+        print('Resetting history with shape:', hist.shape)
+        # printz
+        
         assert hist.shape[1] == self.N_dim + self.N_units + self.Na, \
         f'psi.shape ={hist.shape}; Ndim, Nunit, Na = {self.N_dim}, {self.N_units}, {self.Na}'
 
@@ -369,7 +368,7 @@ class ESN_model(EchoStateNetwork, Model):
         self.hist = hist
         self.hist_t = t
         # Reset EchoStateNetwork states
-        u, r = self.set_states_to_update(reset=True)
+        u, r = self.unbuild_psi()
         self.reset_state(u=u, r=r)
 
     def reset_last_state(self, psi, t=None):
@@ -378,7 +377,7 @@ class ESN_model(EchoStateNetwork, Model):
         if t is not None:
             self.hist_t[-1] = t
             
-        u, r = self.set_states_to_update()
+        u, r = self.unbuild_psi()
         self.reset_state(u=u, r=r)
 
 
@@ -391,28 +390,12 @@ class ESN_model(EchoStateNetwork, Model):
             return np.einsum('ij,ikj->kj', r_aug, Wout)
         
 
-
-    def time_integrate(self, Nt=10, averaged=False, alpha=None):
-            # Call the generic integrator to get the raw ESN steps
-            psi_raw, t_raw = self.integrator.advance(Nt=Nt, averaged=averaged, alpha=alpha)
-            
-            # --- ESN-specific Post-Processing ---
-            # (This is where the interpolation and state reset from your original code goes)
-            
-            t_physical = t_raw # Placeholder: The actual interpolation logic must go here
-            
-            # Update ESN state (assuming state is in psi_raw[-1])
-            # self.reset_state(...)
-            
-            return psi_raw, t_physical
     
     
-
-    def time_integrate(self, Nt=10, averaged=False, alpha=None):
+    def time_step(self, Nt=10, averaged=False):
         """
-            NB: No parallel computation here
             Args:
-                Nt: number of forecast steps
+                Nt: number of forecast steps (physical time, not dt_ESN)
                 averaged (bool): if true, each member in the ensemble is forecast individually. If false,
                                 the ensemble is forecast as a mean, i.e., every member is the mean forecast.
                 alpha: possibly-varying input_parameters
@@ -422,6 +405,8 @@ class ESN_model(EchoStateNetwork, Model):
         """
 
         assert self.trained, 'ESN model not trained'
+        # 1. get initial condition
+
 
         interp_flag = False
         Nt = Nt // self.upsample
@@ -429,45 +414,93 @@ class ESN_model(EchoStateNetwork, Model):
             Nt += 1
             interp_flag = True
 
-        t = np.round(self.get_current_time + np.arange(0, Nt + 1) * self.dt_ESN, self.precision_t)
+        t = np.round(self.current_time + np.arange(0, Nt + 1) * self.dt_ESN, self.precision_t)
+
+
+        r = np.empty((Nt + 1, self.N_units, self.u.shape[-1]))
+        u = np.empty((Nt + 1, self.N_dim, self.u.shape[-1]))
+        u[0, :], r[0] = self.get_reservoir_state()
+
 
         if averaged:
-            u_m, r_m = [np.mean(xx, axis=-1, keepdims=True) for xx in self.get_reservoir_state()]
+            # Mean state
+            u_m, r_m = [np.mean(xx, axis=-1, keepdims=True) for xx in [u, r]]
+            # deviations from the mean
+            u_dev, r_dev = [xx - xm for xx, xm in zip([u, r], [u_m, r_m])]
+
             for i in range(Nt):
-                self.input_parameters = [self.alpha0[key] for key in self.est_a]
-                u_input = self.outputs_to_inputs(full_state=u_m[i])
-                u_m[i + 1], r_m[i + 1] = self.step(u_input, r_m[i])
-            # Copy the same state into all ensemble members
-            u, r = [np.repeat(xx, self.m, axis=-1) for xx in [u_m, r_m]]
-            assert u.shape == ()
+                u_m[i + 1], r_m[i + 1] = self._single_step(u_m[i], r_m[i])
+
+            # copy into the ensemble members the mean + deviation
+            u, r = [xm + xd for xm, xd in zip([u_m, r_m], [u_dev, r_dev])]
         else:
-            u, r = self.closedLoop(Nt)
 
-        # Interpolate if the upsample is not multiple of dt or if upsample > 1
-        if self.upsample > 1 or interp_flag:
-            t_physical = np.round(self.get_current_time + np.arange(0, Nt * self.upsample + 1) * self.dt, self.precision_t)
-            u, r = [interpolate(t, xx, t_eval=t_physical) for xx in [u, r]]
+            for i in range(Nt):
+                u[i + 1], r[i + 1] = self._single_step(u[i], r[i])
+
+        return self.build_psi(u, r), t
+
+
+    def _single_step(self, u, r):
+        u_input = self.outputs_to_inputs(full_state=u)
+        return self.step(u_input, r)
+    
+
+    def build_psi(self, u, r):
+        """ Build the full state vector psi from physical states u and reservoir states r
+         Returns:
+            psi: full state vector (Nt x (Nphi + Na) x m)
+        """
+        if u.ndim == 2:
+            u = u[np.newaxis, :, :]
+        if r.ndim == 2:
+            r = r[np.newaxis, :, :]
+
+        if u.shape[0] != r.shape[0]:
+            raise ValueError(f'Incompatible time dimension for u ({u.shape[0]}) and r ({r.shape[0]})')
+    
+        if self.update_state and self.update_reservoir:
+            phi = np.concatenate((u, r), axis=1)
+        elif self.update_state:
+            phi = u
+        elif self.update_reservoir:
+            phi = r
         else:
-            t_physical = t.copy()
+            raise ValueError(f'Incompatible Nphi={self.Nphi} for ESN model with N_dim={self.N_dim} and N_units={self.N_units}')
+        
+        if self.Na > 0:
+            alph = self.get_alpha_matrix
+            alph = np.tile(alph, reps=(u.shape[0], 1, 1)) # repeat for all time steps (alpha is constant in time)
+            return np.concatenate((phi, alph), axis=1) 
+        else:
+            return phi
 
-        # update ESN physical and reservoir states, and store the history if requested
-        self.reset_state(u=self.outputs_to_inputs(full_state=u[-1]), r=r[-1])
+    def unbuild_psi(self, psi=None):
+        """ Extract physical states u and reservoir states r from the full state vector psi
+            Args:
+                psi: full state vector (N x m). If None, use the current_state
+            Returns:
+                u: physical states (N_dim x m) (or None if not updated)
+                r: reservoir states (N_units x m) (or None if not updated)
+        """
+        if psi is None:
+            psi = self.current_state
 
-        psi = np.concatenate((u, r), axis=1)
+        if self.update_state and self.update_reservoir:
+            u = psi[:self.N_dim]
+            r = psi[self.N_dim:self.N_dim+self.N_units]
+        elif  self.update_state:
+            u = psi[:self.N_dim]
+            r = None
+        elif self.update_reservoir:
+            r = psi[:self.N_units]
+            u = None
+        else:
+            raise ValueError('Both update_state and update_reservoir are False')
+        return u, r
 
-        if hasattr(self, 'std_a'):
-            alph = self.get_alpha_matrix()
-            alph = np.tile(alph, reps=(psi.shape[0], 1, 1))
-            psi = np.concatenate((psi, alph), axis=1)
 
-        return psi[1:], t_physical[1:]
 
-    def get_alpha_matrix(self):
-        alpha = np.empty((len(self.est_a), self.m))
-        for aj, param in enumerate(self.est_a):
-            for mi, alpha_dict in enumerate(self.get_alpha()):
-                alpha[aj, mi] = alpha_dict[param]
-        return alpha
     # ______________________________ Plotting functions ______________________________ #
     @staticmethod
     def plot_training_data(case, train_data):
@@ -497,6 +530,148 @@ class ESN_model(EchoStateNetwork, Model):
                            case.t_train + case.t_val + case.t_test, facecolor='navy',
                            alpha=0.2, zorder=-100, label='Test')
             axs[0].legend(ncols=3, loc='upper center', bbox_to_anchor=(0.5, 1.5))
+
+
+    def visualize_config(self):
+        self.plot_Wout()
+
+        pm = self  # shorthand
+
+        if pm.hist.shape[0] > 1:
+
+            # Find global min and max for the color scale
+            vmin, vmax = np.min(pm.hist[:, pm.Nq:pm.Nq+pm.N_units, :]), np.max(pm.hist[:, pm.Nq:pm.Nq+pm.N_units, :])
+
+
+            fig1 = plt.figure(figsize=(8, 4), layout="constrained")
+            axs1 = fig1.subplots(pm.Nq, 1, sharey=True, sharex=True)
+            y = pm.get_observable_hist() # history of the model observables 
+            lbl = pm.obs_labels
+
+            norm_u = np.max(np.max(y[100:], axis=0, keepdims=True), axis=-1, keepdims=True).T - np.min(np.min(y[100:], axis=0, keepdims=True), axis=-1, keepdims=True).T
+            u = (y - np.mean(y, axis=0, keepdims=True)) / (0.5*norm_u)
+
+
+            # Choose a colormap
+            cmap = plt.get_cmap('tab10', pm.m)  
+
+            for ii, ax in enumerate(axs1):
+                [ax.plot(pm.hist_t, u[:, ii, mi], c=cmap(mi)) for mi in range(pm.m)]
+                ax.set(ylabel=lbl[ii])
+            
+            fig1.legend([f'$mi={mi}$' for mi in range(pm.m)], loc='center left', bbox_to_anchor=(1.0, .5), ncol=1, frameon=False)
+
+            for ti in [10, 50, 75, 100]:
+                for ax in axs1:
+                    ax.set(xlim=[-.01, pm.hist_t[ti]+.01], ylim=[-1, 1])
+                    ax.axvline(pm.hist_t[ti], c='k', ls='--')
+
+                fig = plt.figure(figsize=(12, 8), layout="constrained")
+                axs = fig.subplots(1, 2, width_ratios=[pm.Nq, pm.N_units], sharey=True)
+                
+                im1 = axs[0].imshow(u[ti].T, cmap='RdBu', vmin=-1, vmax=1)
+                axs[0].set(title=f'physical state', ylabel='m_i', xlabel='u_i norm.')
+                im2 = axs[1].imshow(pm.hist[ti, pm.Nq:pm.Nq+pm.N_units, :].T, cmap='PuOr', vmin=vmin, vmax=vmax)
+                axs[1].set(title=f'reservoir state', xlabel='r_i')
+                cbar = fig.colorbar(im2, ax=axs, orientation='vertical', shrink=0.2)
+                cbar = fig.colorbar(im1, ax=axs, orientation='vertical', shrink=0.2)
+
+
+
+
+
+    def visualize_spatiotemporal_hist(self,  y_hist=None, t=None, nrows=None, averaged=False):
+        
+        if y_hist is None:
+            n_t = int(self.t_CR // self.dt)
+            y_hist = self.hist[-n_t:, :self.Nphi]
+            
+        if t is None:
+            t = self.hist_t[-len(y_hist):]
+
+        if y_hist.shape[1] > self.N_dim:
+            y_hist_list = [y_hist[:, :self.N_dim], y_hist[:, self.N_dim:self.N_dim + self.N_units]]
+            titles = ['Physical state', 'Reservoir state']
+            labels = [self.state_labels[:self.N_dim], self.state_labels[self.N_dim:self.N_dim + self.N_units]]
+            cmaps = ['RdBu_r', 'PRGn']
+        else:
+            y_hist_list = [y_hist]
+            titles = ['Physical state']
+            labels = [self.state_labels[:self.N_dim]]
+            cmaps = ['RdBu_r']
+        
+        if not averaged:
+            if nrows is None:
+                nrows = min(10, y_hist.shape[-1])
+            
+            for y_hist, ttl, lbl, cmap in zip(y_hist_list, titles, labels, cmaps):
+                fig = plt.figure(figsize=(10, 1.5 * nrows))
+                axs = fig.subplots(nrows=nrows, sharey=True, sharex=True)
+                if nrows == 1:
+                    axs = [axs]
+                lim = np.max(abs(y_hist))
+
+                for mi, ax in enumerate(axs):
+                    im = ax.imshow(y_hist[:, :, mi].T, 
+                                aspect='auto', origin='lower', 
+                                cmap=cmap, vmin=-lim, vmax=lim,
+                                # extent=[t[0], t[-1], 0, y_hist.shape[1]])  # TRANSPOSE
+                                )
+                        
+                    
+                axs[0].set(title=rf"ESN_model {ttl} spatiotemporal evolution. $N_\text{{units}}={self.N_units}$")
+                axs[-1].set(xlabel="$t$")
+                ytx = np.arange(len(lbl))+.5
+                if len(lbl) > 6:
+                    lbl, ytx = [zz[::len(lbl)//5] for zz in (lbl, ytx)]
+                    
+                axs[1].set(xlabel="$t$")
+                [ax.set(yticks=ytx, yticklabels=lbl) for ax in axs] 
+                fig.colorbar(im, ax=axs, orientation='vertical', shrink=1/nrows) 
+        else:
+
+            for y_hist, ttl, lbl, cmap in zip(y_hist_list, titles, labels, cmaps):
+                # Averaged ensemble visualization
+                y_mean_hist = np.mean(y_hist, axis=-1)
+
+                fig, axs = plt.subplots(nrows=2, figsize=(10, 6), sharex=True)
+
+                # Mean evolution
+                lim_mean = np.max(abs(y_mean_hist))
+                im0 = axs[0].imshow(y_mean_hist.T, 
+                                    aspect='auto', origin='lower', 
+                                    cmap=cmap, vmin=-lim_mean, vmax=lim_mean,
+                                    # extent=[t[0], t[-1], 0, y_hist.shape[1]]
+                                    )
+                axs[0].set(title=rf"{ttl} spatiotemporal evolution (mean and std). $N_\text{{units}}={self.N_units}$")
+                fig.colorbar(im0, ax=axs[0], orientation='vertical') 
+
+                # Deviation covariance evolution
+
+                var_ensemble = np.var(y_hist, axis=-1, ddof=1).T            # (Nt, Nx)
+                var_ensemble = np.sqrt(var_ensemble)                     # Standard deviation
+
+                lim_dev = np.max(abs(var_ensemble))
+                im1 = axs[1].imshow(var_ensemble,  # Plot covariance of deviations
+                                    aspect='auto', origin='lower', 
+                                    cmap='magma', vmin=0, vmax=lim_dev,
+                                    # extent=[t[0], t[-1], 0, y_hist.shape[1]]
+                                    )
+                                    
+                fig.colorbar(im1, ax=axs[1], orientation='vertical')
+                # Add ticks and labels
+
+                ytx = np.arange(len(lbl))+.5
+                if len(lbl) > 6:
+                    lbl, ytx = [zz[::len(lbl)//5] for zz in (lbl, ytx)]
+                    
+                axs[1].set(xlabel="$t$")
+                [ax.set(yticks=ytx, yticklabels=lbl) for ax in axs] 
+
+
+
+
+
 
     def plot_Wout(self):
         

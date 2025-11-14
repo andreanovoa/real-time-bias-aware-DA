@@ -21,10 +21,9 @@ import requests
 from tqdm import tqdm
 import zipfile
 
-import glob
-import contextlib
 from PIL import Image
 
+import inspect
 
 from IPython.display import Image, display
 
@@ -34,6 +33,11 @@ from matplotlib.animation import FuncAnimation
 
 rng = np.random.default_rng(6)
 
+
+def allowed_kwargs_for_func(func, kwargs):
+    sig = inspect.signature(func)
+    accepted = set(sig.parameters)
+    return {k: v for k, v in kwargs.items() if k in accepted}
 
 
 def set_cylinder_truth(case, X_filter, X_filter_true, Nt_obs = 25, visualize=False):
@@ -294,26 +298,6 @@ def check_valid_file(load_case, params_dict):
     return True
 
 
-def categorical_cmap(nc, nsc, cmap="tab10", continuous=False):
-    # number of categories(nc) and the number of subcategories(nsc)
-    # and returns a colormap with nc * nsc different colors, where for
-    # each category there are nsc colors of same hue.
-
-    if nc > plt.get_cmap(cmap).N:
-        raise ValueError("Too many categories for colormap.")
-    if continuous:
-        ccolors = plt.get_cmap(cmap)(np.linspace(0, 1, nc))
-    else:
-        ccolors = plt.get_cmap(cmap)(np.arange(nc, dtype=int))
-    cols = np.zeros((nc * nsc, 3))
-    for i, c in enumerate(ccolors):
-        chsv = mpl.colors.rgb_to_hsv(c[:3])
-        arhsv = np.tile(chsv, nsc).reshape(nsc, 3)
-        arhsv[:, 1] = np.linspace(chsv[1], 0.25, nsc)
-        arhsv[:, 2] = np.linspace(chsv[2], 1, nsc)
-        rgb = mpl.colors.hsv_to_rgb(arhsv)
-        cols[i * nsc:(i + 1) * nsc, :] = rgb
-    return cols
 
 
 @lru_cache(maxsize=10)
@@ -428,34 +412,6 @@ def add_pdf_page(pdf, fig_to_add, close_figs=True):
         plt.close(fig_to_add)
 
 
-
-def folder_to_gif(folder, img_type='.png', gif_name='movie.gif'):
-    """
-    Convert all the images inside a folder into a gif. 
-    
-    """
-    if img_type[0] != '.':
-        img_type = f'.{img_type}'
-    
-    fp_in = folder + f'*{img_type}'
-    fp_out = folder + gif_name
-    
-    # use exit stack to automatically close opened images
-    with contextlib.ExitStack() as stack:
-    
-        # lazily load images
-        imgs = (stack.enter_context(Image.open(f)) for f in sorted(glob.glob(fp_in)))
-    
-        # extract  first image from iterator
-        img = next(imgs)
-    
-        # https://pillow.readthedocs.io/en/stable/handbook/image-file-formats.html#gif
-        img.save(fp=fp_out, 
-                 format='GIF', 
-                 append_images=imgs,
-                 save_all=True, 
-                 duration=200, 
-                 loop=0)
 
 
 def fun_PSD(dt, X):
@@ -680,7 +636,7 @@ def create_Lorenz63_dataset(noise_level=0.02, num_lyap_times=300, seed=0, **kwar
 
 
     # Default filename
-    filename = f"{''.join([f'{key}{val:.2f}_' for key, val in model.get_default_params.items()])}Nlyap{num_lyap_times}_noise{noise_level}_seed{seed}"
+    filename = f"{''.join([f'{key}{val:.2f}_' for key, val in model.default_params.items()])}Nlyap{num_lyap_times}_noise{noise_level}_seed{seed}"
 
     t_lyap = model.t_lyap
     dt = model.dt

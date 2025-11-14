@@ -1,5 +1,5 @@
 import matplotlib.pyplot as plt
-
+from integrator import *
 from tools_ML.EchoStateNetwork import EchoStateNetwork
 from utils import interpolate
 import numpy as np
@@ -20,46 +20,87 @@ class Bias:
 
     keys_to_print = ['bayesian_update', 'upsample', 'N_ens']
 
-    def __init__(self, b, t, dt, **kwargs):
+    def __init__(self, b, t, dt, integrator_class=IVPIntegrator, **kwargs):
         self.dt = dt
         self.precision_t = int(-np.log10(dt)) + 2
+        self.integrator = integrator_class(self)
 
-        # ========================= ASSIGN PROVIDED KWARGS ========================== ##
-        # for key, val in kwargs.items():
-        #     if hasattr(self, key):
-        #         setattr(self, key, kwargs[key])
-        #
+        # ===================== ASSIGN PROVIDED KWARGS ======================= ##
         [setattr(self, key, val) for key, val in kwargs.items() if hasattr(self, key)]
-
         # ========================== CREATE HISTORY ========================== ##
+        b = np.asarray(b)
+
+        # Ensure b has shape (nt, nb, nens)
         if b.ndim == 1:
-            b = np.expand_dims(b, axis=-1)
+            # (nb,) -> (1, nb, 1)
+            b = b.reshape((1, b.size, 1))
+        elif b.ndim == 2:
+            # (nt, nb) -> (nt, nb, 1)
+            b = b.reshape((*b.shape, 1))
+        elif b.ndim == 3:
+            # already (nt, nb, nens)
+            pass
+        else:
+            raise AssertionError('b must have 1, 2 or 3 dimensions, got {}'.format(b.ndim))
 
+        # If observations are biased, duplicate the state dimension (nq) for bias/innovations
         if self.biased_observations:
-            b = np.concatenate([b, b], axis=0)
+            b = np.concatenate([b, b], axis=1)
 
-        self.hist = np.array([b])
-        self.hist_t = np.array([t])
+        # Ensure time array matches nt
+        t = np.asarray(t)
+        if t.ndim == 0:
+            t = t.reshape((1,))
+        if t.size != b.shape[0]:
+            raise AssertionError('length of t ({}) must match number of time steps in b ({})'.format(t.size, b.shape[0]))
 
+        self.hist = b
+        self.hist_t = t
+                                        
         # Add keys to print out
         if self.bayesian_update:
             self.keys_to_print += ['filter', 'inflation']
+
+    @property
+    def hist(self):
+        return self._hist
+    
+    @hist.setter
+    def hist(self, b):
+        b = np.asarray(b)
+
+        # Ensure b has shape (nt, nb, nens)
+        if b.ndim == 1:
+            # (nb,) -> (1, nb, 1)
+            b = b.reshape((1, b.size, 1))
+        elif b.ndim == 2:
+            # (nt, nb) -> (nt, nb, 1)
+            b = b.reshape((*b.shape, 1))
+        elif b.ndim == 3:
+            # already (nt, nb, nens)
+            pass
+        else:
+            raise AssertionError('b must have 1, 2 or 3 dimensions, got {}'.format(b.ndim))
+        assert b.ndim == 3, 'b must have 3 dimensions (nt, nb, nens), got {}'.format(b.ndim)
+        
+        self._hist = b
+
 
     @property
     def N_ens(self):
         return self.hist.shape[-1]
 
     @property
-    def get_current_time(self):
+    def current_time(self):
         return self.hist_t[-1]
 
     @property
-    def get_current_bias(self):
+    def current_bias(self):
         current_state = self.hist[-1]
         return self.get_bias(state=current_state)
 
     @property
-    def get_current_innovations(self):
+    def current_innovations(self):
         current_state = self.hist[-1]
         return self.get_innovations(state=current_state)
 
@@ -71,6 +112,10 @@ class Bias:
 
     def get_ML_state(self, **kwargs):
         return None
+    
+    def get_bias_hist(self, mean=False):
+        return self.get_bias(state=self.hist, mean=mean)
+
 
     def print_bias_parameters(self):
         print('\n ---------------- {} bias model input_parameters --------------- '.format(self.name))
@@ -81,6 +126,7 @@ class Bias:
                     print('\t {} = {:.6}'.format(key, val))
                 else:
                     print('\t {} = {}'.format(key, val))
+
 
     def update_history(self, b, t=None, reset=False, update_last_state=False, **kwargs):
 
@@ -100,11 +146,13 @@ class Bias:
                 self.hist_t[-1] = t
         else:
             if t is None:
-                t = self.get_current_time
-            t, b = np.array([t]), np.array([b])
+                t = self.current_time
+            
             if b.ndim == 2:
-                np.expand_dims(self.hist, axis=-1)
+                b = np.expand_dims(b, axis=-1)
+                
             self.reset_history(b, t)
+
 
     def update_current_state(self, b, **kwargs):
         self.hist[-1] = b
@@ -148,8 +196,6 @@ class ESN(Bias, EchoStateNetwork):
 
     def __init__(self, y, t, dt, **kwargs):
 
-
-
         # --------------------------  Initialise parent Bias  ------------------------- #
         Bias.__init__(self, b=y, t=t, dt=dt, **kwargs)
 
@@ -187,7 +233,7 @@ class ESN(Bias, EchoStateNetwork):
         if len(t) % self.upsample:
             Nt += 1
             interp_flag = True
-        t_b = np.round(self.get_current_time + np.arange(0, Nt + 1) * self.dt_ESN, self.precision_t)
+        t_b = np.round(self.current_time + np.arange(0, Nt + 1) * self.dt_ESN, self.precision_t)
 
         # If the time is before the washout initialization, return zeros
         if self.initialised:
@@ -230,18 +276,17 @@ class ESN(Bias, EchoStateNetwork):
 
     def train_bias_model(self,
                          plot_training=True,
-                         save_ESN_training=False,
-                         folder=None,
-                         **train_data):
-        data = train_data['data']
-        del train_data['data']
+                         **kwargs):
+        
+        data = kwargs.pop('data')
 
         # Set the provided input_parameters if they are already initialized
-        dict_items = train_data.copy().items()
-        for key, val in dict_items:
+
+        train_data = kwargs.copy()
+        for key in kwargs.keys():
             if hasattr(self, key):
-                setattr(self, key, val)
-                del train_data[key]
+                setattr(self, key, train_data.pop(key))
+                
         #  Train the network
         self.train(data,
                    plot_training=plot_training,
