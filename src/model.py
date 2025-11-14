@@ -35,7 +35,6 @@ class Model(object):
     filename = ''
 
     initialized = False
-    ensemble = False
 
 
     def __init__(self, integrator_class=IVPIntegrator, psi0=None, **kwargs):
@@ -126,6 +125,13 @@ class Model(object):
     def precision_t(self):
         return int(-np.log10(self.dt)) + 2
     
+    @property
+    def dt_step(self):
+        """ Getter for the integrator time step. This is the time step used by the integrator. 
+            Some models (specifically Discrete models) may have a different time step for output (dt) and for integration.
+        """
+        return self.dt
+
     @property
     def Nphi(self):
         return len(self.psi0)
@@ -305,6 +311,20 @@ class Model(object):
     def ensemble(self, config: dict):
         """Setter for ensemble configuration."""
         self._ensemble_config = config
+    
+    @property
+    def est_alpha(self):
+        if not self.ensemble:
+            return []
+        else:
+            return self.ensemble.get('est_alpha', [])
+        
+    @est_alpha.setter
+    def est_alpha(self, value):
+        if not self.ensemble:
+            raise AttributeError("Cannot set est_alpha when ensemble is not configured.")
+        self._ensemble_config['est_alpha'] = value
+
 
     def get_alpha(self, psi=None):
         if not self.ensemble:
@@ -315,16 +335,14 @@ class Model(object):
 
         # ensure psi has members on last axis
         if psi.ndim == 1:
-            psi = psi.reshape(-1, 1)
+            psi = psi[:, np.newaxis]
 
         alpha_list = []
         for mi in range(psi.shape[-1]):
-            ii = -self.Na
             alph = self.alpha0.copy()
-            for param in self.ensemble['est_alpha']:
-                alph[param] = psi[ii, mi]
-                ii += 1
+            alph.update(zip(self.est_alpha, psi[-self.Na:, mi]))
             alpha_list.append(alph)
+
         return alpha_list
 
 
@@ -350,13 +368,13 @@ class Model(object):
 
     # ============================== Visualization methods ============================== #
     def visualize_history(self):
-        self.visualize_state()
-        self.visualize_observables()
-        self.visualize_spatiotemporal()
+        self.visualize_state_hist()
+        self.visualize_observables_hist()
+        self.visualize_spatiotemporal_hist()
 
 
 
-    def visualize_state(self, psi=None, t=None, max_modes=10):
+    def visualize_state_hist(self, psi=None, t=None, max_modes=10):
         if psi is None:
             psi = self.hist[:, :self.Nphi]
         if t is None:
@@ -388,7 +406,7 @@ class Model(object):
                 ax[1].set(xlabel='$t$', xlim=[t[-t_zoom], t[-1]])
     
 
-    def visualize_observables(self, y=None, t=None):
+    def visualize_observables_hist(self, y=None, t=None):
         if y is None:
             y = self.get_observable_hist()
         if t is None:
@@ -414,8 +432,10 @@ class Model(object):
                 ax[1].set(xlabel='$t$', xlim=[t[-t_zoom], t[-1]])
     
     
-    def visualize_spatiotemporal(self, **kwargs):
+    def visualize_spatiotemporal_hist(self, **kwargs):
         pass 
 
 
+    def visualize_config(self):
+        pass
 

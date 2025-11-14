@@ -70,6 +70,7 @@ class Ensemble(object):
             if hasattr(Ensemble, key):
                 setattr(self, key, ensemble_dict.pop(key))
 
+
         # Ensure est_alpha is a list of parameter names if not provided
         if 'est_alpha' not in kwargs.keys():
             if isinstance(self.std_alpha, dict):
@@ -77,7 +78,8 @@ class Ensemble(object):
             else:
                 self.est_alpha = []
 
-        self.model.ensemble = self.config()
+        # Push the new configuration snapshot to the Model immediately
+        self.update_model_settings()
 
         # 3. Initialize ensemble state and history in the parent model
         self._init_ensemble_model()
@@ -95,28 +97,6 @@ class Ensemble(object):
         """
         return len(self.est_alpha)
     
-    @property
-    def assimilated_data(self):
-        """
-        tuple of np.ndarray: The assimilated observations and their assimilation times.
-        """
-        if not hasattr(self, '_assimilated_data'):
-            self._assimilated_data = []
-            self._assimilated_times = []
-
-        return self._assimilated_data, self._assimilated_times
-    
-    @assimilated_data.setter
-    def assimilated_data(self, y_obs):
-        """
-        Appends new assimilated observation data and the current time to the stored lists.
-        Parameters
-        ----------
-        y_obs : np.ndarray
-            The observation data to append.
-        """
-        self._assimilated_data.append(y_obs)
-        self._assimilated_times.append(self.current_time)
         
     # ------------------ CONFIGURATION AND INITIALIZATION METHODS ------------------ ##
 
@@ -128,7 +108,53 @@ class Ensemble(object):
                     est_bias=self.est_bias,
                     Na=self.Na)
 
+    def update_model_settings(self):
+        """
+        Updates the parent model's settings based on the ensemble configuration.
+        And re-syncs the ensemble config if needed.
+        """
+        # Initialize ensemble config into the model and update model settings
+        self.model.ensemble = self.config()
+        self.model.modify_settings() 
+
+        # Re-sync ensemble config from the model if discrepancies exist
+        current_config = self.config()
+        if current_config != self.model._ensemble_config:
+            # Update config if there are discrepancies
+            for key, val in self.model._ensemble_config.items():
+                if getattr(self, key) != val:
+                    try:
+                        setattr(self, key, val)
+                    except AttributeError:
+                        print(f"Warning: Could not set attribute {key} on Ensemble instance.")
+            # Re-apply model ensemble settings after sync
+            self.model.ensemble = self.config()
+
+
+    @property
+    def assimilated_data(self):
+        """
+        tuple of np.ndarray: The assimilated observations and their assimilation times.
+        """
+        if not hasattr(self, '_assimilated_data'):
+            self._assimilated_data = []
+            self._assimilated_times = []
+
+        return self._assimilated_data, self._assimilated_times
     
+
+    @assimilated_data.setter
+    def assimilated_data(self, y_obs):
+        """
+        Appends new assimilated observation data and the current time to the stored lists.
+        Parameters
+        ----------
+        y_obs : np.ndarray
+            The observation data to append.
+        """
+        self._assimilated_data.append(y_obs)
+        self._assimilated_times.append(self.current_time)    
+
 
     def _init_ensemble_model(self):
         """
@@ -163,24 +189,39 @@ class Ensemble(object):
         """
         
         pm = self.model
-        pm.modify_settings()  # Ensure model settings are up to date before initializing ensemble
+
+        # print(f'Initializing ensemble for model {getattr(pm, "name", "Model")} with ensemble size {self.m}')
+        # print('current state shape:', pm.current_state.shape)
+
         
 
         if self.ensemble_psi0 is None:
             # 1. Generate initial state (phi) ensemble
             mean_phi0 = np.mean(pm.current_state, axis=-1)
-            ensemble_psi0 = self.add_uncertainty(pm.rng, mean_phi0, self.std_phi,
-                                                 self.m, method=self.distribution_phi,
+
+            # print('Generating ensemble for state with mean shape', mean_phi0.shape,
+            #       f'pm.current_state shape {pm.current_state.shape} and m={self.m}')
+
+            ensemble_psi0 = self.add_uncertainty(pm.rng, 
+                                                 mean_vec=mean_phi0, 
+                                                 std=self.std_phi,
+                                                 m=self.m, 
+                                                 method=self.distribution_phi,
                                                  ensure_mean_at_init=self.ensure_mean_at_init)
         
             # 2. Augment ensemble with estimated parameters (alpha)
             if self.est_alpha:  
+                assert self.Na == len(self.est_alpha)
                 mean_a = np.array([getattr(pm, a) for a in self.est_alpha])
-                ensemble_alpha0 = self.add_uncertainty(pm.rng, mean_a, self.std_alpha, self.m,
-                                                method=self.distribution_alpha, 
-                                                ensure_mean_at_init=self.ensure_mean_at_init)
-            
-                ensemble_psi0 = np.vstack((ensemble_psi0, ensemble_alpha0))
+                ensemble_alpha0 = self.add_uncertainty(pm.rng, 
+                                                       mean_vec=mean_a, 
+                                                       std=self.std_alpha, 
+                                                       m=self.m,
+                                                       method=self.distribution_alpha, 
+                                                       ensure_mean_at_init=self.ensure_mean_at_init)
+                # print(f'Generated ensemble for parameters {self.est_alpha} with shape {ensemble_alpha0.shape}'
+                #       f'ensemble_phi0 shape {ensemble_psi0.shape}')
+                ensemble_psi0 = np.concatenate((ensemble_psi0, ensemble_alpha0), axis=0)
 
             # Store the generated ensemble
             self.ensemble_psi0 = ensemble_psi0
@@ -191,7 +232,10 @@ class Ensemble(object):
                 f'Provided ensemble_psi0 has state size {ensemble_psi0.shape[0]}, expected {pm.Nphi + self.Na}.'
 
         # 3. Update the parent model's history (resets initial condition)
-        pm.update_history(psi=ensemble_psi0, t=pm.hist_t[[0]], reset=True)
+        print('resetting model history with ensemble initial state of shape:', self.ensemble_psi0.shape)
+        pm.update_history(psi=self.ensemble_psi0, 
+                          t=pm.hist_t[[0]], 
+                          reset=True)
         
         # 4. Update parent model settings/filename
         pm.filename += '_{}_ensemble_m{}'.format(getattr(pm, 'name', 'Model'), self.m)
@@ -232,7 +276,7 @@ class Ensemble(object):
 
     @staticmethod
     def add_uncertainty(rng: np.random.Generator, 
-                        mean: np.ndarray, 
+                        mean_vec: np.ndarray, 
                         std: Union[float, Dict[str, Union[float, List[float]]]], 
                         m: int, 
                         method: str = 'uniform', 
@@ -245,7 +289,7 @@ class Ensemble(object):
         if method not in ['uniform', 'normal']:
             raise ValueError(f'Distribution "{method}" not supported. Choose "uniform" or "normal".')
             
-        mean = np.asarray(mean).flatten()
+        mean_vec = np.asarray(mean_vec).flatten()
         
         # Case 1: std is a dictionary (for estimated parameters 'alpha')
         if isinstance(std, dict):
@@ -268,21 +312,21 @@ class Ensemble(object):
         elif isinstance(std, float):
             if method == 'uniform':
                 # Multiplicative uniform perturbation: mean * (1 +/- std)
-                perturbation = 1.0 + rng.uniform(-std, std, size=(mean.size, m))
-                ensemble_ = mean[:, np.newaxis] * perturbation
+                perturbation = 1.0 + rng.uniform(-std, std, size=(mean_vec.size, m))
+                ensemble_ = mean_vec[:, np.newaxis] * perturbation
             
             else: # normal (using multivariate normal for state vector)
-                if np.iscomplexobj(mean):
+                if np.iscomplexobj(mean_vec):
                     # Handle complex state by perturbing real and imaginary parts independently
-                    cov_real = np.diag((mean.real * std) ** 2)
-                    cov_imag = np.diag((mean.imag * std) ** 2)
-                    real_part = rng.multivariate_normal(mean.real, cov_real, size=m).T
-                    imag_part = rng.multivariate_normal(mean.imag, cov_imag, size=m).T
+                    cov_real = np.diag((mean_vec.real * std) ** 2)
+                    cov_imag = np.diag((mean_vec.imag * std) ** 2)
+                    real_part = rng.multivariate_normal(mean_vec.real, cov_real, size=m).T
+                    imag_part = rng.multivariate_normal(mean_vec.imag, cov_imag, size=m).T
                     ensemble_ = real_part + 1j * imag_part
                 else:
                     # Covariance matrix is diagonal, perturbation scaled by mean and relative std
-                    cov = np.diag((mean * std) ** 2)
-                    ensemble_ = rng.multivariate_normal(mean, cov, size=m).T
+                    cov = np.diag((mean_vec * std) ** 2)
+                    ensemble_ = rng.multivariate_normal(mean_vec, cov, size=m).T
             
         else:
             raise TypeError(f'Initial std must be a float or a dict, not {type(std)}')
@@ -290,7 +334,7 @@ class Ensemble(object):
 
         # Replace the first member with the unperturbed mean
         if ensure_mean_at_init and ensemble_ is not None:
-            ensemble_[:, 0] = mean
+            ensemble_[:, 0] = mean_vec
 
         return ensemble_
 
@@ -345,6 +389,7 @@ class Ensemble(object):
 
         # print(f'Advancing ensemble: current_state shape {pm.current_state.shape}, \
         #       is_ensemble {pm.integrator.is_ensemble}', pm.hist.shape, pm.hist_t.shape)
+        print(f'Advancing ensemble: current_time {pm.current_time}, with kwargs {kwargs.keys()}')
 
         psi, t = pm.time_integrate(**kwargs)
 

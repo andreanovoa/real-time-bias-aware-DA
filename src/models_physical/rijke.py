@@ -82,7 +82,7 @@ class Rijke(Model):
         ##############################################################################################################
 
     def modify_settings(self):
-        if 'tau' in self.ensemble.get('est_alpha', []):
+        if 'tau' in self.est_alpha:
             extra_Nc = 50 - self.Nc
             self.tau_adv, self.Nc = 1E-2, 50
             self.alpha_lims['tau'][-1] = self.tau_adv
@@ -181,7 +181,7 @@ class Rijke(Model):
     
 
 
-    def visualize_spatiotemporal(self, y_hist=None, t=None, nrows=None, averaged=False):
+    def visualize_spatiotemporal_hist(self, y_hist=None, t=None, nrows=None, averaged=False):
         """
         Visualize the spatiotemporal evolution of the KS model in the physical space.
         """

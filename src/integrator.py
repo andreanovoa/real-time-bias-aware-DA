@@ -51,7 +51,7 @@ class Integrator:
         """ Close resources held by the integrator (e.g., multiprocessing pools). """
         pass    
 
-    def advance(self, **kwargs) -> Tuple[np.ndarray, np.ndarray]:
+    def advance(self, averaged=False, **kwargs) -> Tuple[np.ndarray, np.ndarray]:
         """
         The common interface for all integrators.
         Must return: (psi_forecasted[1:], t_forecasted[1:])
@@ -59,7 +59,7 @@ class Integrator:
         if not self.is_ensemble:
             return self.advance_single(**kwargs)
         else:
-            return self.advance_ensemble(**kwargs)
+            return self.advance_ensemble(averaged=averaged, **kwargs)
     
 
     def advance_single(self, **kwargs) -> Tuple[np.ndarray, np.ndarray]:
@@ -88,25 +88,36 @@ class DiscreteIntegrator(Integrator):
         super().__init__(model_instance)
         
         self.dt_output = getattr(self.model, 'dt')
-        self.upsample = getattr(self.model, 'upsample', 1.)
-        self.dt_integrator = self.dt_output * self.upsample
+        self.dt_integrator = getattr(self.model, 'dt_step')
+
+        if self.dt_output != self.dt_integrator:
+            self.relation_integrator_output = self.dt_output / self.dt_integrator
+            self.relation_integrator_output = round(self.relation_integrator_output, self.model.precision_t)
+        else:
+            self.relation_integrator_output = 1.0
 
 
-    def advance_single(self, Nt: int = 100, alpha: Dict[str, Any] = None, **kwargs) -> Tuple[np.ndarray, np.ndarray]:
+    def advance_single(self, Nt: int = 100, **kwargs) -> Tuple[np.ndarray, np.ndarray]:
         model = self.model
         
         t_out = model.current_time + np.arange(Nt + 1) * self.dt_output
-        psi, t = model.time_step(Nt=Nt)
+
+        Nt_step = int(np.ceil(Nt * self.relation_integrator_output))
+
+        psi, t = model.time_step(Nt=Nt_step)
 
         if len(t_out) == len(t):
             return psi[1:], t[1:]
         else:
             # Interpolate
             psi_interp = interpolate(t, psi, t_eval=t_out)
+            model.reset_last_state(psi_interp[-1], t_out[-1])
             return psi_interp[1:], t_out[1:]
         
     def advance_ensemble(self, Nt = 100, averaged = False, alpha = None):
-        return self.advance_single(Nt, alpha)
+        print('Using DiscreteIntegrator advance_ensemble')
+
+        return self.advance_single(Nt, averaged=averaged, alpha=alpha)
 
 
 

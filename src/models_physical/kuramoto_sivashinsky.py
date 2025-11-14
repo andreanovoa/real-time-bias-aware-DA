@@ -29,14 +29,13 @@ class KS(Model):
     t_CR = 50.
     dt = 0.25
 
-    Nq = 1
+    Nq = 4               # Number of sensors
     Nx = 256             # Spatial discretization
-    nu = None            # 'Viscosity' parameter of the KS equation.
+    nu = 0.08            # 'Viscosity' parameter of the KS equation.
     L = None             # Domain length (0, L]
     
     seed = 0
     initial_amplitude = 0.01
-
 
     # alpha_labels = dict(nu='$\\nu$')
     # alpha_lims = dict(nu=(0., None))
@@ -134,6 +133,14 @@ class KS(Model):
 
     def get_observables(self, Nt=1, loc=None, **kwargs):
         """
+        Get the observable state in physical space at specified sensor locations.
+        Parameters
+        ----------
+        Nt : int
+            Number of time steps to retrieve. Default is 1.
+        loc : array-like or str, optional
+            Sensor locations to retrieve observables from. If 'all', returns observables at all spatial points.
+            If None, returns observables at the predefined sensor locations.
         """
         if loc is None:
             loc = self.sensor_locations
@@ -447,7 +454,7 @@ class KS(Model):
     
 
     
-    def visualize_spatiotemporal(self, y_hist=None, t=None, nrows=None, averaged=False):
+    def visualize_spatiotemporal_hist(self, y_hist=None, t=None, nrows=None, averaged=False):
         """
         Visualize the spatiotemporal evolution of the KS model in the physical space.
         """
