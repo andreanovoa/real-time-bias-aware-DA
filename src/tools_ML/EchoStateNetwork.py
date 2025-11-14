@@ -995,7 +995,7 @@ class EchoStateNetwork:
         a = n_MSE.argmin()
         tikh_opt[case.val_k] = case.tikh_range[a]
         case.tikh = case.tikh_range[a]
-        normalized_best_MSE = n_MSE[a] / case.N_folds / U_wtv.shape[0]
+        normalized_best_MSE = n_MSE[a] / case.N_folds / len(U_wtv)
 
         case.val_k += 1
         if print_convergence:
@@ -1073,7 +1073,7 @@ class EchoStateNetwork:
         # Select test cases (with a maximum of max_L_tests)
         if L > 1:
             if max_L_tests != L:
-                L_indices = rng0.choice(L, max_L_tests, replace=max_L_tests > L).sorted()
+                L_indices = np.sort(rng0.choice(L, max_L_tests, replace=max_L_tests > L))
             else:
                 L_indices = np.arange(L)
         else:
@@ -1100,7 +1100,6 @@ class EchoStateNetwork:
                 _axs = [_axs]
 
             t_wash_in = _time[:self.N_wash]
-            t_wash_out = _time[1:self.N_wash+1]
             t_out = _time[self.N_wash:]
 
             for dim_i, _ax in zip(range(self.N_dim), _axs):

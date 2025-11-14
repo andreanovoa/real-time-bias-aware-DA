@@ -1,6 +1,6 @@
 import numpy as np
 from copy import deepcopy
-from typing import List, Union, Dict, Any, Type
+from typing import List, Union, Dict, Type
 from bias import Bias, NoBias
 from model import Model
 from utils_plotting import Palette
@@ -363,9 +363,7 @@ class Ensemble(object):
         mean_psi = np.mean(current_psi, axis=-1) # (state_dim,)
         
         if m == 1:
-            # Reduce to a single mean member
-            new_psi = mean_psi[:, np.newaxis]
-            pm.ensemble.ensemble = False
+            raise ValueError('Ensemble size m must be greater than 1 to reshape ensemble.')
         else:
             # Calculate standard deviation for re-perturbation
             std_psi = np.std(current_psi, axis=-1) # (state_dim,)
@@ -886,7 +884,6 @@ def plot_model_state(model: Model, time_indices=[-1],
                 for lbl in model.state_labels:
                     state_labels.append(f'{lbl} (real)')
                     state_labels.append(f'{lbl} (imag)')
-                state_labels = state_labels
                 nrows_phi = int(np.ceil((2 * max_modes) / ncols_phi))
             
         else:

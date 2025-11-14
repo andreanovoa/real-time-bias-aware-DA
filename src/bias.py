@@ -1,5 +1,5 @@
 import matplotlib.pyplot as plt
-from integrator import *
+from integrator import IVPIntegrator
 from tools_ML.EchoStateNetwork import EchoStateNetwork
 from utils import interpolate
 import numpy as np

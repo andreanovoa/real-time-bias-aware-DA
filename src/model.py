@@ -7,7 +7,7 @@ import warnings
 
 from bias import NoBias
 
-from integrator import *
+from integrator import IVPIntegrator
 import matplotlib.pyplot as plt
 
 
@@ -243,7 +243,7 @@ class Model(object):
     def reset_model(self, psi0=None, **kwargs):
 
         if psi0 is None:
-            psi0 = self.current_state()
+            psi0 = self.current_state
 
         Model.__init__(self, psi0=psi0, **kwargs)
 

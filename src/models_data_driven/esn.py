@@ -1,4 +1,3 @@
-from pdb import pm
 from model import *
 from tools_ML.EchoStateNetwork import EchoStateNetwork
 import matplotlib.pyplot as plt
@@ -358,9 +357,6 @@ class ESN_model(EchoStateNetwork, Model):
         
 
     def reset_history(self, hist, t):
-        print('Resetting history with shape:', hist.shape)
-        # printz
-        
         assert hist.shape[1] == self.N_dim + self.N_units + self.Na, \
         f'psi.shape ={hist.shape}; Ndim, Nunit, Na = {self.N_dim}, {self.N_units}, {self.Na}'
 
@@ -573,8 +569,8 @@ class ESN_model(EchoStateNetwork, Model):
                 axs[0].set(title=f'physical state', ylabel='m_i', xlabel='u_i norm.')
                 im2 = axs[1].imshow(pm.hist[ti, pm.Nq:pm.Nq+pm.N_units, :].T, cmap='PuOr', vmin=vmin, vmax=vmax)
                 axs[1].set(title=f'reservoir state', xlabel='r_i')
-                cbar = fig.colorbar(im2, ax=axs, orientation='vertical', shrink=0.2)
-                cbar = fig.colorbar(im1, ax=axs, orientation='vertical', shrink=0.2)
+                fig.colorbar(im2, ax=axs, orientation='vertical', shrink=0.2)
+                fig.colorbar(im1, ax=axs, orientation='vertical', shrink=0.2)
 
 
 
@@ -615,8 +611,7 @@ class ESN_model(EchoStateNetwork, Model):
                     im = ax.imshow(y_hist[:, :, mi].T, 
                                 aspect='auto', origin='lower', 
                                 cmap=cmap, vmin=-lim, vmax=lim,
-                                # extent=[t[0], t[-1], 0, y_hist.shape[1]])  # TRANSPOSE
-                                )
+                                extent=[t[0], t[-1], 0, y_hist.shape[1]])  
                         
                     
                 axs[0].set(title=rf"ESN_model {ttl} spatiotemporal evolution. $N_\text{{units}}={self.N_units}$")
@@ -641,7 +636,7 @@ class ESN_model(EchoStateNetwork, Model):
                 im0 = axs[0].imshow(y_mean_hist.T, 
                                     aspect='auto', origin='lower', 
                                     cmap=cmap, vmin=-lim_mean, vmax=lim_mean,
-                                    # extent=[t[0], t[-1], 0, y_hist.shape[1]]
+                                    extent=[t[0], t[-1], 0, y_hist.shape[1]]
                                     )
                 axs[0].set(title=rf"{ttl} spatiotemporal evolution (mean and std). $N_\text{{units}}={self.N_units}$")
                 fig.colorbar(im0, ax=axs[0], orientation='vertical') 
@@ -655,7 +650,7 @@ class ESN_model(EchoStateNetwork, Model):
                 im1 = axs[1].imshow(var_ensemble,  # Plot covariance of deviations
                                     aspect='auto', origin='lower', 
                                     cmap='magma', vmin=0, vmax=lim_dev,
-                                    # extent=[t[0], t[-1], 0, y_hist.shape[1]]
+                                    extent=[t[0], t[-1], 0, y_hist.shape[1]]
                                     )
                                     
                 fig.colorbar(im1, ax=axs[1], orientation='vertical')

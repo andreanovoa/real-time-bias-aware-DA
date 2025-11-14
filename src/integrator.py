@@ -8,7 +8,7 @@ from scipy.integrate import solve_ivp
 from functools import partial
 from copy import deepcopy
 
-from typing import Dict, Tuple, Any, Type
+from typing import Dict, Tuple, Any
 
 import numpy as np
 
@@ -65,7 +65,7 @@ class Integrator:
     def advance_single(self, **kwargs) -> Tuple[np.ndarray, np.ndarray]:
         """
         The common interface for all integrators.
-        Must return: (psi_forecasted[1:], t_forecasted[1:])ß
+        Must return: (psi_forecasted[1:], t_forecasted[1:])
         """
         raise NotImplementedError("Child Integrator class must implement the advance_single() method.")
     
@@ -73,7 +73,7 @@ class Integrator:
     def advance_ensemble(self, Nt: int = 100, averaged: bool = False, alpha: Dict[str, Any] = None) -> Tuple[np.ndarray, np.ndarray]:
         """
         The common interface for all integrators.
-        Must return: (psi_forecasted[1:], t_forecasted[1:])ß
+        Must return: (psi_forecasted[1:], t_forecasted[1:])
         """
         raise NotImplementedError("Child Integrator class must implement the advance_ensemble() method.")
 

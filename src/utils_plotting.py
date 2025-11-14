@@ -1,15 +1,6 @@
 
-
-import contextlib
-from matplotlib import pyplot as plt
-
-
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-from matplotlib.ticker import FormatStrFormatter
-import matplotlib.backends.backend_pdf as plt_pdf
-from matplotlib import colors, rc
-from matplotlib.animation import FuncAnimation
 import numpy as np
 
 import contextlib
@@ -28,12 +19,12 @@ colors_alpha = ['green', 'sandybrown', [0.7, 0.7, 0.87], 'blue', 'red', 'gold', 
 # y_biased_props = dict(marker='none', linestyle='-', lw=.2, color=color_bias, alpha=.9)
 # y_biased_mean_props = dict(marker='none', linestyle='--', dashes=(2, .5), lw=1, color='teal')
 
-true_noisy_props = dict(marker='none', linestyle='-', lw=1.2, color=color_true, alpha=.3)
-true_props = dict(marker='none', linestyle='-', lw=2, color=color_true, alpha=.6)
-obs_props = dict(marker='.', linestyle='none', color=color_obs, markersize=5, markeredgecolor='none')
-bias_props = dict(marker='none', linestyle='--', dashes=(10, 1), lw=.5, color=color_b)
-bias_obs_props = dict(lw=1.5, color='mediumorchid', alpha=0.7)
-bias_obs_noisy_props = dict(lw=1.5, color='k', alpha=0.2)
+# true_noisy_props = dict(marker='none', linestyle='-', lw=1.2, color=color_true, alpha=.3)
+# true_props = dict(marker='none', linestyle='-', lw=2, color=color_true, alpha=.6)
+# obs_props = dict(marker='.', linestyle='none', color=color_obs, markersize=5, markeredgecolor='none')
+# bias_props = dict(marker='none', linestyle='--', dashes=(10, 1), lw=.5, color=color_b)
+# bias_obs_props = dict(lw=1.5, color='mediumorchid', alpha=0.7)
+# bias_obs_noisy_props = dict(lw=1.5, color='k', alpha=0.2)
 
 
 from dataclasses import dataclass
