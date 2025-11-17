@@ -1,7 +1,9 @@
-from model import *
+from model import Model
 from tools_ML.EchoStateNetwork import EchoStateNetwork
 import matplotlib.pyplot as plt
+import numpy as np
 import scipy.linalg as sla
+from integrator import DiscreteIntegrator
 
 import inspect
 

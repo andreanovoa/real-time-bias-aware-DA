@@ -7,7 +7,7 @@ from utils import interpolate, CR, get_error_metrics
 
 from utils_plotting import *
 
-rc('animation', html='jshtml')
+# rc('animation', html='jshtml')
 
 
 XDG_RUNTIME_DIR = 'tmp/'

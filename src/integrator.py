@@ -109,8 +109,9 @@ class DiscreteIntegrator(Integrator):
         if len(t_out) == len(t):
             return psi[1:], t[1:]
         else:
+            print(f'Interpolating DiscreteIntegrator advance_single output because {t.shape} != {t_out.shape}')
             # Interpolate
-            psi_interp = interpolate(t, psi, t_eval=t_out)
+            psi_interp = interpolate(t, psi, t_eval=t_out, fill_values='extrapolate')
             model.reset_last_state(psi_interp[-1], t_out[-1])
             return psi_interp[1:], t_out[1:]
         

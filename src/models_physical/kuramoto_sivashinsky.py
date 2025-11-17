@@ -9,6 +9,7 @@ from matplotlib import cm as cm
 import warnings
 
 from model import *
+from integrator import DiscreteIntegrator
 
 
 
@@ -380,7 +381,7 @@ class KS(Model):
             psi = np.stack(psi, axis=0)
         
 
-        return psi[1:], t[1:]
+        return psi, t
 
      
 

@@ -1,6 +1,7 @@
+from collections import namedtuple
 import numpy as np
 from copy import deepcopy
-from typing import List, Union, Dict, Type
+from typing import List, Tuple, Union, Dict, Type, Tuple
 from bias import Bias, NoBias
 from model import Model
 from utils_plotting import Palette
@@ -10,12 +11,19 @@ from utils import allowed_kwargs_for_func, interpolate
 import matplotlib.pyplot as plt
 
 
+
 class Ensemble(object):
     """
     Manages ensemble-related properties and methods for a Model,
     primarily for ensemble forecasting and data assimilation (e.g., EnKF).
 
     This class handles configuration, initialization, and uncertainty generation.
+
+    Properties
+    ----------
+    assimilated_data : property
+        Getter returns a tuple of assimilated observations and their times.
+        Setter appends new observation data and time to the stored lists.
     """
 
 
@@ -59,7 +67,17 @@ class Ensemble(object):
         Initializes the Ensemble and links it back to the parent Model instance.
         """
         # 1. Link back to parent model
-        self.model = parent_model.copy()
+
+
+        if isinstance(parent_model, Model):
+            self.model = parent_model.copy()
+        elif isinstance(parent_model, type) and issubclass(parent_model, Model):
+            self.model = parent_model(**kwargs)
+        else:
+            raise TypeError('parent_model must be a Model class or instance.')
+
+
+
         self.rng = self.model.rng
         
         # 2. Apply configuration overrides and ensure consistency
@@ -97,6 +115,8 @@ class Ensemble(object):
         """
         return len(self.est_alpha)
     
+    def copy(self):
+        return deepcopy(self)
         
     # ------------------ CONFIGURATION AND INITIALIZATION METHODS ------------------ ##
 
@@ -134,26 +154,49 @@ class Ensemble(object):
     @property
     def assimilated_data(self):
         """
-        tuple of np.ndarray: The assimilated observations and their assimilation times.
+        Property for managing assimilated observations and their times.
+
+        Returns
+        -------
+        tuple of np.ndarray
+            The assimilated observations and their assimilation times.
+
+        Notes
+        -----
+        This property supports both getting and setting:
+        - Getter returns the stored assimilated observations and times.
+        - Setter appends new observation data and time to the lists.
+        """
+
+        # return self._assimilated_data, self._assimilated_times
+
+        if not hasattr(self, '_assimilated_data'):
+            self._assimilated_data = []
+            self._assimilated_times = []
+
+        AssimilatedData = namedtuple('AssimilatedData', ['data', 'times'])
+        return AssimilatedData(data=self._assimilated_data, times=self._assimilated_times)
+    
+
+    @assimilated_data.setter
+    def assimilated_data(self, value: tuple):
+        """
+        Appends new assimilated observation data and the current time to the stored lists.
+
+        Parameters
+        ----------
+        value : tuple
+            A tuple containing the observation data (np.ndarray) and the observation time (float or None).
         """
         if not hasattr(self, '_assimilated_data'):
             self._assimilated_data = []
             self._assimilated_times = []
 
-        return self._assimilated_data, self._assimilated_times
-    
+        y_obs, t_obs = value
 
-    @assimilated_data.setter
-    def assimilated_data(self, y_obs):
-        """
-        Appends new assimilated observation data and the current time to the stored lists.
-        Parameters
-        ----------
-        y_obs : np.ndarray
-            The observation data to append.
-        """
         self._assimilated_data.append(y_obs)
-        self._assimilated_times.append(self.current_time)    
+        self._assimilated_times.append(t_obs)
+    
 
 
     def _init_ensemble_model(self):
@@ -265,7 +308,10 @@ class Ensemble(object):
             except (AttributeError, IndexError):
                 # Fallback if the model cannot yet produce observables
                 y0 = np.zeros(pm.Nq) 
-                
+            
+            # remove dt, y, t from Bdict if they exist to avoid duplication
+            [Bdict.pop(key, None) for key in ['y', 't', 'dt']]
+
             self.bias = pb(
                 y=y0, 
                 t=pm.current_time, 
@@ -375,7 +421,7 @@ class Ensemble(object):
         
     
     
-    def time_integrate(self, reset=False, **kwargs) -> None: 
+    def time_integrate(self, t_end=None, reset=False, close=False, **kwargs) -> None: 
         """
         Advances the ensemble in time for Nt steps using the model's integrator.
         Both, the ensemble model and bias are forecasted:
@@ -385,51 +431,132 @@ class Ensemble(object):
         """
         pm = self.model
 
-        # print(f'Advancing ensemble: current_state shape {pm.current_state.shape}, \
-        #       is_ensemble {pm.integrator.is_ensemble}', pm.hist.shape, pm.hist_t.shape)
-        print(f'Advancing ensemble: current_time {pm.current_time}, with kwargs {kwargs.keys()}')
+
+        if t_end is not None:
+            Nt = int(np.round((t_end - pm.current_time) / pm.dt))
+            kwargs['Nt'] = Nt
 
         psi, t = pm.time_integrate(**kwargs)
 
         pm.update_history(psi, t, reset=reset) # add the forecast to the model history
 
         # Advance bias model
-        if hasattr(self, 'bias'):
-            pb = self.bias
-            bias_psi, bias_t = pb.time_integrate(t=t, **kwargs)
-            pb.update_history(bias_psi, bias_t, reset=reset)
-
-
-    def current_unbiased_state(self) -> np.ndarray:
-        """
-        Returns the current bias-corrected ensemble state.
-        """
-        pm = self.model
         pb = self.bias
+        bias_psi, bias_t = pb.time_integrate(t=t, **kwargs)
+        pb.update_history(bias_psi, bias_t, reset=reset)
 
-        y_model = pm.get_observables()  # Shape: (obs_dim, m)
-        t_model = pm.current_time # Scalar
+        if close:
+            pm.close()
+            # pb.close()
 
-        t_b = pb.current_time # Scalar
+    # @property
+    # def current_unbiased_obs(self) -> np.ndarray:
+    #     """
+    #     Returns the current bias-corrected ensemble state.
+    #     """
+    #     pm = self.model
+    #     pb = self.bias
 
-        if t_model == t_b:
-            b = pb.current_bias()  # Shape: (obs_dim,) or (obs_dim, 1)
-            # Ensure shape is (obs_dim,1 or m)
-            if b.ndim == 1:
-                b = b[:, np.newaxis]
-            return y_model + b  # Shape: (obs_dim, m)
-        else:
-            # Expand to allow interpolation function to work correctly
-            y_model = y_model[np.newaxis, :]
-            t_model = t_model[np.newaxis]
-            # Interpolate bias to model time point
-            y_unbiased = self._recover_unbiased_solution(pb.hist_t, pb.hist, 
-                                                        t_model, y_model)
+    #     y_model = pm.get_observables()  # Shape: (obs_dim, m)
+
+
+    #     if pb.__class__.__name__ == 'NoBias':
+    #         return y_model  # No bias correction needed
         
-            return y_unbiased.squeeze(axis=0)  # Shape: (obs_dim, m)
+    #     t_model = pm.current_time # Scalar
+    #     t_b = pb.current_time # Scalar
+
+    #     if t_model == t_b:
+    #         b = pb.current_bias  # Shape: (obs_dim,) or (obs_dim, 1)
+    #         # Ensure shape is (obs_dim,1 or m)
+    #         if b.ndim == 1:
+    #             b = b[:, np.newaxis]
+    #         return y_model + b  # Shape: (obs_dim, m)
+    #     else:
+    #         # Expand to allow interpolation function to work correctly
+    #         y_model = y_model[np.newaxis, :]
+    #         t_model = t_model[np.newaxis]
+    #         # Interpolate bias to model time point
+    #         y_unbiased = self._recover_unbiased_solution(pb.hist_t, pb.hist, 
+    #                                                     t_model, y_model)
+        
+    #         return y_unbiased.squeeze(axis=0)  # Shape: (obs_dim, m)
+
+    @property
+    def current_state(self) -> np.ndarray:
+        """
+        Returns the current ensemble state from the model.
+        """
+        return self.model.current_state
+    
+    @property
+    def current_time(self) -> float:
+        """
+        Returns the current time from the model.
+        """
+        return self.model.current_time
+
+    
+
+    def get_observables(self, Nt=1, **kwargs):
+        """
+        Returns the ensemble observables from the model.
+        Parameters
+        ----------
+        Nt : int, optional
+            Time index to retrieve the ensemble observables for. Default is 1 (i.e., current time).
+        Returns
+        -------
+        np.ndarray
+            Ensemble observables at the specified time index.
+        """
+        y_model = self.model.get_observables(Nt=Nt, **kwargs)  # Shape: (T, obs_dim, m) or (obs_dim, m) if Nt=0
+
+        if self.bias.__class__.__name__ == 'NoBias':
+            return y_model  # No bias correction needed
+        else:
+            raise NotImplementedError("Bias correction for get_observables with Nt > 1 is not implemented yet.")
+            if Nt == 1:
+                b = self.bias.current_bias  # Shape: (obs_dim,) or (obs_dim, 1)
+
+                # Ensure shape is (obs_dim,1 or m)
+                if b.ndim == 1:
+                    b = b[:, np.newaxis]
+
+                return y_model + b  # Shape: (obs_dim, m)
+            else:
+                t_model = self.model.hist_t[-Nt:]
+
+                Nt_bias = self.bias.integrator.relation_integrator_output * Nt
+                bias = self.bias.hist[-Nt_bias:]
+                bias_t = self.bias.hist_t[-Nt_bias:]
+
+                y_unbiased = self._recover_unbiased_solution(bias_t, bias, t_model, y_model)
+                return y_unbiased
 
 
-    def unbiased_hist(self, Nt=0) -> np.ndarray:
+
+    def update_history(self, psi: np.ndarray, t: Union[float, np.ndarray], update_last_state: bool = False) -> None:
+        """
+        Updates the model's history with a new ensemble state at time t.
+        Parameters
+        ----------
+        psi : np.ndarray
+            New ensemble state to add to the history.
+        t : float or np.ndarray
+            Time corresponding to the new ensemble state.
+        update_last_state : bool, optional
+            If True, updates the last stored state instead of appending a new one.
+            Default is False.
+        Side effects
+        ------------
+        - Calls self.model.update_history to add the new state and time to the model's history.
+        """
+        self.model.update_history(psi, t, update_last_state=update_last_state)
+
+
+
+    def get_observable_hist(self, Nt=1) -> np.ndarray:
         """
         Returns the bias-corrected ensemble history.
             y_unbiased = self._recover_unbiased_solution(pb.hist_t, pb.hist, pm.hist_t, y_model)
@@ -446,17 +573,17 @@ class Ensemble(object):
         ValueError
             If Nt is 1, which is not a valid value for this parameter.
         """
-        if Nt == 1:
-            raise ValueError('Nt must be 0 (all history) or >1 (number of time steps).')
         
-        pm = self.model
         pb = self.bias
 
-        y_model = pm.get_observable_hist(Nt)
-        t_model = pm.hist_t[-Nt:]
-        y_unbiased = self._recover_unbiased_solution(pb.hist_t, pb.hist, t_model, y_model)
+        y_model = self.model.get_observables(Nt=Nt)  # Shape: (T, obs_dim, m) or (obs_dim, m) if Nt=0
 
-        return y_unbiased
+        if pb.__class__.__name__ == 'NoBias':
+            return y_model  # No bias correction needed
+        else:
+            t_model = self.model.hist_t[-Nt:]
+            y_unbiased = self._recover_unbiased_solution(pb.hist_t, pb.hist, t_model, y_model)
+            return y_unbiased
 
 
     @staticmethod
@@ -525,9 +652,9 @@ class Ensemble(object):
           distributions at the specified time indices.
         """
         
-        kwargs_state = allowed_kwargs_for_func(plot_model_state, kwargs)
+        kwargs_state = allowed_kwargs_for_func(plot_state_distribution, kwargs)
         
-        plot_model_state(self.model, **kwargs_state)
+        plot_state_distribution(self.model, **kwargs_state)
 
         #TODO: plot_ensemble_  
 
@@ -550,8 +677,8 @@ class Ensemble(object):
         plot_observable_history(ensemble=self, **kwargs_obs)
 
         if self.Na > 0:
-            kwargs_alpha = allowed_kwargs_for_func(plot_alpha_hist, kwargs)
-            plot_alpha_hist(ensemble=self, **kwargs_alpha)
+            kwargs_alpha = allowed_kwargs_for_func(plot_alpha_history, kwargs)
+            plot_alpha_history(ensemble=self, **kwargs_alpha)
 
 
 
@@ -560,74 +687,150 @@ class Ensemble(object):
 # ===== AUXILIARY PLOTTING FUNCTIONS ===== #
 
 
+def normalized_time(reference_t: float, *times) -> Tuple[np.ndarray, str]:
+    
+    # if ys is only one array, make it a list
+    if not isinstance(times, (list, tuple)):
+        times = [times]
+
+    if reference_t == 1.:
+        t_label = '$t$'
+    else:
+        t_label = f'$t/{reference_t}$'  
+        times = [t / reference_t  for t in times]
+
+    return times, t_label
 
 
-def plot_alpha_hist(ensemble : Ensemble, 
+
+def normalized_y(reference_y: float, y_lables, *ys) -> Tuple[np.ndarray, str]:
+
+    # if ys is only one array, make it a list
+    if not isinstance(ys, (list, tuple)):
+        ys = [ys]
+
+    Ny = ys[0].shape[1]
+    # ensure reference_y is an array
+    if isinstance(reference_y, (int, float)):
+        if reference_y == 1.:
+            normalize_y = False
+        else:
+            normalize_y = True
+        reference_y = reference_y * np.ones(Ny)
+    else:
+        normalize_y = True
+        if len(reference_y) != Ny:
+            raise ValueError('reference_y must be a scalar or an array of length Ny.')
+        
+    if not normalize_y:
+        return ys, y_lables
+
+    reference_y = reference_y[np.newaxis, :, np.newaxis]
+    ys = [y / reference_y if y is not None else None for y in ys]     
+    y_lables = [f'{y_lables[qi]} / ${reference_y[0, qi, 0]}$' for qi in range(Ny)]
+
+    return ys, y_lables
+
+
+def normalized_alpha(alpha, alpha_keys, alpha_labels, reference_a=None) -> Tuple[dict, str]:
+    
+    reference_alpha = {key: 1. for key in alpha_keys}
+
+    if reference_a is not None and isinstance(reference_a, dict):
+        for ai, key in enumerate(alpha_keys):
+            if key not in reference_a.keys():
+                reference_a[key] = 1.
+            else:
+                reference_alpha[key] = reference_a[key]
+                alpha_labels[key] += f' / {reference_alpha[key]}'
+            
+            alpha[:, ai] = alpha[:, ai] / reference_alpha[key]
+
+    return alpha, alpha_labels
+
+
+def cut_signals(t, *signals, min_time=None, max_time=None):
+    """ Cut signals to interval of interest.
+    """
+
+    if min_time is None:
+        i0 = 0
+    else:
+        i0 = np.argmin(abs(t - min_time))
+
+    if max_time is None:
+        i1 = len(t) - 1
+    else:
+        i1 = np.argmin(abs(t - max_time))
+
+    t_cut = t[i0:i1]
+    signals = [sig[i0:i1] if sig is not None else None for sig in signals]
+
+    # Nomalize time and observations ----           
+    return t_cut, signals
+
+
+
+def plot_alpha_history(ensemble : Ensemble, 
                     plot_members: bool = False,
-                    reference_a=1., 
-                    reference_t=1.) -> None:
+                    reference_a=None, 
+                    reference_t=1.,
+                    max_time=None) -> None:
     """
     Plot the time evolution of the parameters in a object of class model
     """
     pm = ensemble.model
 
     C = Palette()
-    colors = C.get_color_params(n=ensemble.Na, alpha=1)
-    colors_alpha = C.get_color_params(n=ensemble.Na, alpha=.2)
+    c1 = C.get_color_params(n=ensemble.Na, alpha=1)
+    c2 = C.get_color_params(n=ensemble.Na, alpha=.2)
 
-    t = pm.hist_t
-    t_zoom = int(pm.t_CR / pm.dt)
+    (t,), t_lbl = normalized_time(reference_t, pm.hist_t)
 
-
-
-    if reference_t == 1.:
-        t_label = '$t$'
-    else:
-        t_label = f'$t/{reference_t}$'  
-        t = t / reference_t 
-
-
-    xlims = [[t[0], t[-1]], [t[-t_zoom], t[-1]]]
-
-    hist_alpha = pm.hist[:, -pm.Na:]
-        
-    reference_alpha = {key: 1. for key in ensemble.est_alpha}
-    alpha_lbls = pm.alpha_labels.copy()
-    if isinstance(reference_a, dict):
-        for key, val in reference_a.items():
-            if key in reference_alpha.keys():
-                reference_alpha[key] = val
-                alpha_lbls[key] += f' / {reference_alpha[key]}'
-        
-
+    hist_alpha, alpha_lbls = normalized_alpha(pm.hist[:, -pm.Na:], 
+                                  alpha_keys=ensemble.est_alpha, 
+                                  alpha_labels=pm.alpha_labels,
+                                  reference_a=reference_a)
 
     mean_alpha = np.mean(hist_alpha, axis=-1)
     std_alpha = np.std(hist_alpha, axis=-1)
 
-    fig = plt.figure(figsize=(10, 2*ensemble.Na), layout="constrained")
+    t_margin = pm.t_CR 
+    t_obs = np.array(ensemble.assimilated_data.times)
 
-    axs = fig.subplots(ensemble.Na, 2, sharex='col', sharey='row', width_ratios=[2, 1])
+    if len(t_obs) > 0:
+        if max_time is None:
+            max_time = min(t_obs[-1] + t_margin, t[-1])
+        min_time = t_obs[0] - 0.25 * t_margin       
+    else:
+        min_time, max_time = t[0], t[-1]
+
+    x_lims = [[min_time, min_time + t_margin], [max_time - t_margin, max_time], [t[0], max_time]]    
+
+
+    fig = plt.figure(figsize=(12, 2*ensemble.Na), layout="constrained")
+    axs = fig.subplots(ensemble.Na, 3, sharex='col', sharey='row', width_ratios=[1, 1, 3])
     
     if ensemble.Na == 1:
         axs = [axs]
 
     for row_i, axs_row, p in zip(range(ensemble.Na), axs, ensemble.est_alpha):
+
+        avg, s, all_h = [xx[:, row_i] for xx in [mean_alpha, std_alpha, hist_alpha]]
+
         for col_i, ax in enumerate(axs_row):
                 
-            avg, s, all_h = [xx[:, row_i] / reference_alpha[p] for xx in [mean_alpha, std_alpha, hist_alpha]
-                             ]
-            
             if plot_members:
-                ax.plot(t, all_h, color=colors_alpha[row_i], lw=1.)
+                ax.plot(t, all_h, color=c2[row_i], lw=1.)
 
-            ax.fill_between(t, avg + 2 * abs(s), avg - 2 * abs(s), alpha=0.2, color=colors_alpha[row_i], label='2 std')
-            ax.plot(t, avg, color=colors[row_i], label='mean', lw=2, dashes=(5,1))
+            ax.fill_between(t, avg + 2 * abs(s), avg - 2 * abs(s), alpha=0.2, color=c2[row_i], label='2 std')
+            ax.plot(t, avg, color=c1[row_i], label='mean', lw=2, dashes=(5,1))
 
             if col_i == 0:
                 ax.set(ylabel=alpha_lbls[p], 
                         ylim=[min(avg) - 3 * max(s), max(avg) + 3 * max(s)])
             if row_i == ensemble.Na - 1:
-                ax.set(xlabel=t_label, xlim=xlims[col_i])
+                ax.set(xlabel=t_lbl, xlim=x_lims[col_i])
 
 
 
@@ -656,137 +859,90 @@ def plot_observable_history(ensemble : Ensemble,
 
     C = Palette()
 
-    t_obs, y_obs = ensemble.assimilated_data
+    # t_obs, y_obs = ensemble.assimilated_data
+    t_obs = np.array(ensemble.assimilated_data.times)
+    y_obs = np.array(ensemble.assimilated_data.data)[..., np.newaxis]
 
     pm, pb = ensemble.model, ensemble.bias    
+    
+    y_unbiased = ensemble.get_observable_hist()
+    y_model = pm.get_observable_hist()
+    
 
-    y_unbiased = ensemble.unbiased_hist()
+    t_margin = pm.t_CR
+    (t, t_obs, t_margin), t_label = normalized_time(reference_t, pm.hist_t, t_obs, t_margin)
 
-    y_model, t = pm.get_observable_hist(), pm.hist_t
 
-    b, t_b = pb.get_bias_hist(), pb.hist_t
-    if b.ndim < 3:
-        b = np.expand_dims(b, axis=-1)
+    # cut signals to interval of interest -----
 
+    if len(t_obs) > 0:
+        if max_time is None:
+            max_time = min(t_obs[-1] + t_margin, t[-1])
+        min_time = t_obs[0] - 0.25 * t_margin       
+        t, (y_model, y_unbiased) = cut_signals(t, y_model, y_unbiased, min_time=min_time, max_time=max_time)
+    else:
+        min_time, max_time = t[0], t[-1]
+
+    # Get truth if available ---- 
+    if truth is not None:
+        y_raw = interpolate(truth.t_true, truth.y_raw, t)
+        y_true = interpolate(truth.t_true, truth.y_true, t)
+    else:
+        y_raw, y_true = None, None
+
+    # Nomalize ys ----  
+    (y_unbiased, y_model, y_raw, y_true), y_labels = normalized_y(reference_y, pm.obs_labels, y_unbiased, y_model, y_raw, y_true)
+    if len(t_obs) > 0:
+        (y_obs,) = normalized_y(reference_y, pm.obs_labels, y_obs)[0]
+
+    
+    # % PLOT time series ------------------------------------------------------------------------------------------
+    if y_true is not None:
+        y_margin = 0.15 * np.mean(abs(y_true), axis=(0, 2))
+        max_y = np.max(y_true, axis=(0, 2), keepdims=False)
+        min_y = np.min(y_true, axis=(0, 2), keepdims=False)
+    else:
+        y_margin = 0.15 * np.mean(abs(y_model), axis=(0, 2))
+        max_y = np.max(y_model, axis=(0, 2), keepdims=False)
+        min_y = np.min(y_model, axis=(0, 2), keepdims=False)
     Nq = pm.Nq
     if dims == 'all':
         dims = range(Nq)
     elif isinstance(dims, int):
         dims = [dims]
-    
-
-
-
-    # cut signals to interval of interest -----
-    N_CR = int(pm.t_CR // pm.dt)  # Length of interval to compute correlation and RMS
-
-    if len(t_obs) > 0:
-        if max_time is None:
-            max_time = min(t_obs[-1] + pm.t_CR, t[-1])
-
-        if len(t_obs) > 0:
-            min_time = t_obs[0] - 0.25 * pm.t_CR
-        else:
-            min_time = t[0]
-
-        i0, i1 = [np.argmin(abs(t - ttt)) for ttt in [min_time, max_time]]  # start/end of assimilation
-        y_model, y_unbiased, t = (yy[i0 - N_CR:i1 + N_CR] for yy in [y_model, y_unbiased, t])
-
-
-        # Nomalize time and observations ----
-
-        if reference_t == 1.:
-            t_label = '$t$'
-        else:
-            t_label = f'$t/{reference_t}$'
-            t, t_b, t_obs, max_time = [tt / reference_t for tt in [t, t_b, t_obs, max_time]]
-            
-
-        x_lims = [[t_obs[0] - .25 * pm.t_CR, t_obs[0] + pm.t_CR],
-                [t_obs[-1] - pm.t_CR, max_time],
-                [t[0], max_time]]
-        width_ratios = [1, 1, 2]
-    else:
-        max_time = t[-1]
-
-        if reference_t == 1.:
-            t_label = '$t$'
-        else:
-            t_label = f'$t/{reference_t}$'
-            t, t_b, max_time = [tt / reference_t for tt in [t, t_b, max_time]]
-
-        x_lims = [[t[0], t[-1]],
-                  [t[-N_CR], t[-1]]]
-        width_ratios = [2, 1]
-    
-
-
-    # Get truth if available ---- 
-
-    if truth is not None:
-        y_raw = interpolate(truth.t_true, truth.y_raw, t)
-        y_true = interpolate(truth.t_true, truth.y_true, t)
-    else:
-        # Set to nan if no truth is provided
-        y_raw = np.full_like(y_model, np.nan)
-        y_true = np.full_like(y_model, np.nan)
-
-
-    # Nomalize time and observations ----
-    
-    # ensure reference_y is an array
-    if isinstance(reference_y, (int, float)):
-        if reference_y == 1.:
-            normalize_y = False
-        else:
-            normalize_y = True
-        reference_y = reference_y * np.ones(pm.Nq)
-    else:
-        normalize_y = True
-        if len(reference_y) != pm.Nq:
-            raise ValueError('reference_y must be a scalar or an array of length Nq.')
-    
-    
-    if not normalize_y:
-
-        y_labels = [pm.obs_labels[qi] for qi in dims]
-    else:
-        reference_y = reference_y[np.newaxis, :, np.newaxis]
-        y_unbiased, y_model = [yy / reference_y for yy in [y_unbiased, y_model]]
-        if len(t_obs) > 0:
-            y_obs = y_obs / reference_y
-        if truth is not None:
-            y_raw, y_true = [yy / reference_y for yy in [y_raw, y_true]]
         
-        y_labels = [f'{pm.obs_labels[qi]} / ${reference_y[0, qi, 0]}$' for qi in dims]
-
+    fig1 = plt.figure(figsize=(12, 2 * len(dims)), layout="constrained")
     
-    # % PLOT time series ------------------------------------------------------------------------------------------
-
-    margin = 0.15 * np.mean(abs(y_model), axis=(0, 2))
-    max_y = np.max(y_model, axis=(0, 2), keepdims=False)
-    min_y = np.min(y_model, axis=(0, 2), keepdims=False)
-
-
-    fig1 = plt.figure(figsize=(10, 2 * len(dims)), layout="constrained")
-    ax_all = fig1.subplots(nrows=len(dims), ncols=len(x_lims), sharey='row', sharex='col', width_ratios=width_ratios)
+    ax_all = fig1.subplots(nrows=len(dims), ncols=3, sharey='row', sharex='col', width_ratios=[1,1,3])
     if len(dims) == 1:
         ax_all = ax_all[np.newaxis, :]
-
+        
+    x_lims = [[min_time, min_time + t_margin], [max_time - t_margin, max_time], [t[0], max_time]]    
 
     for row_i, qi in enumerate(dims):
-        yl = [min_y[qi] - margin[qi], max_y[qi] + margin[qi]]
+        yl = [min_y[qi] - y_margin[qi], max_y[qi] + y_margin[qi]]
 
         for col_i, (ax, xl) in enumerate(zip(ax_all[row_i], x_lims)):
-            ax.plot(t, y_true[:, qi], label='truth', **C.true_props)
+            if y_true is not None:
+                ax.plot(t, y_true[:, qi], label='truth', **C.true_props)
+            if y_raw is not None:
+                ax.plot(t, y_raw[:, qi], label='raw truth', **C.true_noisy_props)
+
             if pb.name != 'NoBias':
                 ax.plot(t, y_unbiased[:, qi], label='bias-corrected estimate', **C.y_unbias_props)
 
             m = np.mean(y_model[:, qi], axis=-1)
             ax.plot(t, m, **C.y_biased_mean_props, label='model estimate')
             if plot_members:
+                first_member = True
                 for mi in range(y_model.shape[-1]):
-                    ax.plot(t, y_model[:, qi, mi], **C.y_biased_props)
+                    if first_member:
+                        props = C.y_biased_props.copy()
+                        props['label'] = 'ensemble members' 
+                        first_member = False
+                        ax.plot(t, y_model[:, qi, mi], **props)
+                    else:
+                        ax.plot(t, y_model[:, qi, mi], **C.y_biased_props)
             else:
                 s = np.std(y_model[:, qi], axis=-1)
                 ax.fill_between(t, m + s, m - s, color=C.get_color('BIASED', 0.5))
@@ -796,15 +952,20 @@ def plot_observable_history(ensemble : Ensemble,
 
             if col_i == 0:
                 ax.set(ylabel=y_labels[row_i])
+                if row_i == 0:
+                    fig1.legend(loc="center", bbox_to_anchor=(.5, 1.05), ncol=6, frameon=False)
 
             ax.set(ylim=yl, xlim=xl)
             if row_i == len(dims) - 1:
                 ax.set(xlabel=t_label)
+                
+                
 
-
-
-def plot_model_state(model: Model, time_indices=[-1], 
-                     max_modes=10, reference_params=None, nbins=6) -> None:
+def plot_state_distribution(model: Model, 
+                            time_indices=[-1], 
+                            max_modes=None, 
+                            reference_a=None, 
+                            nbins=6) -> None:
     """
     Plots histograms of the state variables and parameters at specified time indices.
     
@@ -817,7 +978,7 @@ def plot_model_state(model: Model, time_indices=[-1],
     max_modes : int or None, optional (default None)
         Maximum number of state variables (modes) to plot. If None, plots all modes
         in the model.
-    reference_params : dict or None, optional (default None)
+    reference_a : dict or None, optional (default None)
         Reference parameter values for normalizing parameter histograms. If None,
         uses 1.0 for all parameters.
     nbins : int, optional  (default 6)
@@ -843,13 +1004,12 @@ def plot_model_state(model: Model, time_indices=[-1],
     else:
         ncols_alpha = min(model.Na, 4)
         nrows_alpha = int(np.ceil(model.Na / ncols_alpha))
-    
         est_alpha = model.ensemble.get('est_alpha')
-
-        reference_alpha = {key: 1. for key in est_alpha}
-        if isinstance(reference_params, dict):
-            for param, val in reference_params.items():
-                reference_alpha[param] = val
+        alpha = model.hist[:, -model.Na:, :]
+        alpha_hist, alpha_labels = normalized_alpha(alpha, 
+                                               est_alpha, 
+                                               model.alpha_labels, 
+                                               reference_a=reference_a)
 
 
     def add_stats_text(_ax, yy):
@@ -861,8 +1021,6 @@ def plot_model_state(model: Model, time_indices=[-1],
         _ax.text(0.95, 0.95, textstr, transform=_ax.transAxes, fontsize='x-small',
                 verticalalignment='top', horizontalalignment='right', bbox=props)
 
-    
-    
 
     for ti in time_indices:
         phi = model.hist[ti, :model.Nphi, :]
@@ -877,7 +1035,6 @@ def plot_model_state(model: Model, time_indices=[-1],
                 phi[2 * i, :] = np.real(phi_complex[i, :].real)
                 phi[2 * i + 1, :] = np.real(phi_complex[i, :].imag)
 
-
             if ti == time_indices[0]:  # only need to adjust nrows once
                 # Update labels accordingly
                 state_labels = []
@@ -889,7 +1046,6 @@ def plot_model_state(model: Model, time_indices=[-1],
         else:
             state_labels = model.state_labels
 
-        alpha = model.hist[ti, -model.Na:, :]
 
         # Plot all in one mosaic
         fig = plt.figure(figsize=(10, 2 * (nrows_phi + nrows_alpha)), layout='constrained')
@@ -898,11 +1054,9 @@ def plot_model_state(model: Model, time_indices=[-1],
         if model.Na == 0:
             sf = [fig.subfigures(nrows=1, ncols=1)]
         else:
-            sf = fig.subfigures(nrows=2, ncols=1, 
-                                height_ratios=[nrows_phi, nrows_alpha], wspace=0.07, hspace=0.15)
+            sf = fig.subfigures(nrows=2, ncols=1, height_ratios=[nrows_phi, nrows_alpha], wspace=0.07, hspace=0.15)
 
         axs = sf[0].subplots( ncols=ncols_phi, nrows=nrows_phi, sharey=True)
-
         axs = axs.ravel() if ncols_phi * nrows_phi > 1 else [axs]
 
         for ax, ph, lbl in zip(axs.ravel(), phi, state_labels):
@@ -911,16 +1065,16 @@ def plot_model_state(model: Model, time_indices=[-1],
             add_stats_text(ax, ph)
         
         if model.Nphi < len(axs):
-            for ax in axs[model.Nphi:]:
-                ax.axis('off')
+            [ax.axis('off') for ax in axs[model.Nphi:]]
 
         if est_alpha is not None:
+            alpha = alpha_hist[ti]
             axs = sf[1].subplots(ncols=ncols_alpha, nrows=nrows_alpha, sharey=True)
             axs = axs.ravel() if ncols_alpha * nrows_alpha > 1 else [axs]
 
             for ax, a, param in zip(axs, alpha, est_alpha):
-                ax.hist(a / reference_alpha[param], bins=nbins)
-                ax.set(xlabel=model.alpha_labels[param])
+                ax.hist(a, bins=nbins)
+                ax.set(xlabel=alpha_labels[param])
                 add_stats_text(ax, a)
         
             if model.Na < len(axs):

@@ -190,7 +190,7 @@ class Observations():
             name_bias = manual_bias
             # Use cleaner np.max(y_true, axis=0) or np.ptp(y_true, axis=0) for scaling
             y_max_over_time = np.max(y_true, axis=0)
-            t_expanded = np.expand_dims(t_true, axis=-1)
+            t_expanded = t_true[:, np.newaxis, np.newaxis]  # Expand t_true for broadcasting
             
             if manual_bias == 'time':
                 b_true = .4 * y_true * np.sin((t_expanded * np.pi * 2) ** 2)
@@ -445,9 +445,9 @@ class Observations():
         c_raw = '#20b2aae5'
         c_true = '#000080ff'
         c_unbiased = "#8362caff"
-        c_diff = 'mediumorchid'
+        c_diff = "#6b256fff"
+        c_bias = "#db76deff"
         
-        cols = [c_raw, c_true, c_diff]
         
         # 3. Plotting Loop
         
@@ -455,27 +455,33 @@ class Observations():
         for q_i in range(Nq):
             # Column 0: Raw Time Series (y_raw)
             ax = axes[q_i, 0]
-            ax.plot(t_plot, y_raw_plot[:, q_i], color=cols[0], label='Raw')
+            ax.plot(t_plot, y_raw_plot[:, q_i], color=c_raw, label=f'$\~{{y}}_{q_i}$')
             if y_obs is not None:
                 ax.plot(t_obs, y_obs[:, q_i], 'ro', ms=3, mec='k', lw=.1)
-            ax.set(ylabel=f'$\\tilde{{y}}_{q_i}$', xlim=xlim_time)
+            ax.legend(fontsize='x-small', )
+            ax.set(xlim=xlim_time)
             y_lim_base = ax.get_ylim()
 
 
             # Column 1: True Time Series (y_true)
             ax = axes[q_i, 1]
-            ax.plot(t_plot, y_true_plot[:, q_i], color=cols[1])
+            ax.plot(t_plot, y_true_plot[:, q_i], color=c_true, label=f'$y^t_{q_i}$')
             ax.set(xlim=xlim_time, ylim=y_lim_base)
             if bias_plot is not None:
-                ax.plot(t_plot, y_true_plot[:, q_i]-bias_plot[:, q_i], color=c_unbiased)
-                if q_i == 0:
-                    ax.legend(['$y^t$', '$y^t-b^t$'], fontsize='xx-small', ncol=2)
+                ax.plot(t_plot, y_true_plot[:, q_i]-bias_plot[:, q_i], color=c_unbiased, label=f'$y^t_{q_i}-b^t_{q_i}$')
+            # if q_i == 0:
+            ax.legend(fontsize='x-small', ncol=2)
 
             # Column 2: PDF (uses full data)
             ax = axes[q_i, 2]
             # Raw and true PDF
-            for ds, c, a in zip([y_true, y_raw], [c_true, c_raw], [.9, .9]):
-                ax.hist(ds[:, q_i], bins=20, density=True, orientation='horizontal', color=c, histtype='stepfilled', alpha=a)
+            for ds, c in zip([y_true, y_raw], [c_true, c_raw]):
+                ax.hist(ds[:, q_i], bins=20, density=True, orientation='horizontal', color=c, histtype='stepfilled', alpha = 0.7)
+
+            if bias_plot is not None:
+                ax.hist(y_true_plot[:, q_i]-bias_plot[:, q_i], bins=20, density=True, orientation='horizontal', alpha = 0.7,
+                        color=c_unbiased, label=f'$y^t_{q_i}-b^t_{q_i}$')
+
             if y_obs is not None:
                 ax.hist(y_obs[:, q_i], bins=20, color='r', lw=1, histtype='step', density=True, orientation='horizontal')
             ax.set(ylim=y_lim_base)
@@ -492,9 +498,19 @@ class Observations():
             
             # Column 4: Difference Time Series (Noise)
             ax = axes[q_i, 4]
-            ax.plot(t_plot, noise_plot[:, q_i], color=c_diff, label='Difference')
-            ax.axhline(np.mean(noise_plot[:, q_i]), color='k', lw=.5, ls='--')
-            ax.set(xlim=xlim_time, ylabel=f'$(\\tilde{{y}}-y)_{q_i}$')
+
+            noise = y_true_plot[:, q_i] - y_raw_plot[:, q_i]
+            ax.plot(t_plot, noise, color=c_diff, label=f'$y^t - \~{{y}}_{q_i}$')
+            ax.axhline(np.mean(noise), color='k', lw=.5, ls='--')
+
+            if bias_plot is not None:
+                bias = bias_plot[:, q_i]
+                ax.plot(t_plot, bias, color=c_bias, label=f'$b^t_{q_i}$')
+
+                # if q_i == 0:
+            ax.legend(fontsize='x-small', ncol=2)
+
+            ax.set(xlim=xlim_time)
 
             if q_i < Nq:
                 for jj, ax in enumerate(axes[q_i, :]):
