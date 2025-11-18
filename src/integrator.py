@@ -140,10 +140,12 @@ class IVPIntegrator(Integrator):
             self._pool = None
 
         if self._pool is None and self.model.m > 1:
+            print(f'Initializing multiprocessing pool for IVPIntegrator with {self.model.m} members.')
             # Initialize multiprocessing pool
             N_pools = min(self.model.m, mp.cpu_count())
             self._pool = mp.Pool(N_pools)
         return self._pool
+
 
     def close(self):
         if hasattr(self, '_pool'):
@@ -151,7 +153,7 @@ class IVPIntegrator(Integrator):
             self.__pool.join()
             delattr(self, "_pool")
         else:
-            pass
+            print("No multiprocessing pool to close.")
 
 
     def advance_single(self, Nt = 100, averaged=False, alpha = None):
@@ -189,7 +191,6 @@ class IVPIntegrator(Integrator):
         # --- IVP Logic (Similar to previous Model.time_integrate) ---
     
         if not averaged:
-    
             # Ensemble run (using multiprocessing pool)
             alpha_list = pm.get_alpha()
             forecast_part = partial(ivp_forecast_helper, 

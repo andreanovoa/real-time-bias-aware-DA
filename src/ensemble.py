@@ -536,23 +536,30 @@ class Ensemble(object):
 
 
 
-    def update_history(self, psi: np.ndarray, t: Union[float, np.ndarray], update_last_state: bool = False) -> None:
+    def update_history(self, psi: np.ndarray, t: Union[float, np.ndarray]=None, 
+                       update_last_state: bool = False,
+                       reset: bool = False) -> None:
         """
         Updates the model's history with a new ensemble state at time t.
         Parameters
         ----------
         psi : np.ndarray
             New ensemble state to add to the history.
-        t : float or np.ndarray
-            Time corresponding to the new ensemble state.
+        t : float or np.ndarray, optional
+            Time corresponding to the new ensemble state. Default is None.
         update_last_state : bool, optional
             If True, updates the last stored state instead of appending a new one.
+            Default is False.
+        reset : bool, optional
+            If True, resets the history before adding the new state.
             Default is False.
         Side effects
         ------------
         - Calls self.model.update_history to add the new state and time to the model's history.
         """
-        self.model.update_history(psi, t, update_last_state=update_last_state)
+        self.model.update_history(psi, t, 
+                                  reset=reset,
+                                  update_last_state=update_last_state)
 
 
 
@@ -726,7 +733,7 @@ def normalized_y(reference_y: float, y_lables, *ys) -> Tuple[np.ndarray, str]:
         return ys, y_lables
 
     reference_y = reference_y[np.newaxis, :, np.newaxis]
-    ys = [y / reference_y if y is not None else None for y in ys]     
+    ys = [y.copy() / reference_y if y is not None else None for y in ys]     
     y_lables = [f'{y_lables[qi]} / ${reference_y[0, qi, 0]}$' for qi in range(Ny)]
 
     return ys, y_lables
@@ -735,18 +742,20 @@ def normalized_y(reference_y: float, y_lables, *ys) -> Tuple[np.ndarray, str]:
 def normalized_alpha(alpha, alpha_keys, alpha_labels, reference_a=None) -> Tuple[dict, str]:
     
     reference_alpha = {key: 1. for key in alpha_keys}
-
+    alpha_lbls = alpha_labels.copy()
+    alpha = alpha.copy()
+    
     if reference_a is not None and isinstance(reference_a, dict):
         for ai, key in enumerate(alpha_keys):
             if key not in reference_a.keys():
                 reference_a[key] = 1.
             else:
                 reference_alpha[key] = reference_a[key]
-                alpha_labels[key] += f' / {reference_alpha[key]}'
+                alpha_lbls[key] += f' / {reference_alpha[key]}'
             
             alpha[:, ai] = alpha[:, ai] / reference_alpha[key]
 
-    return alpha, alpha_labels
+    return alpha, alpha_lbls
 
 
 def cut_signals(t, *signals, min_time=None, max_time=None):
@@ -764,7 +773,7 @@ def cut_signals(t, *signals, min_time=None, max_time=None):
         i1 = np.argmin(abs(t - max_time))
 
     t_cut = t[i0:i1]
-    signals = [sig[i0:i1] if sig is not None else None for sig in signals]
+    signals = [sig[i0:i1].copy() if sig is not None else None for sig in signals]
 
     # Nomalize time and observations ----           
     return t_cut, signals
@@ -877,9 +886,11 @@ def plot_observable_history(ensemble : Ensemble,
 
     if len(t_obs) > 0:
         if max_time is None:
-            max_time = min(t_obs[-1] + t_margin, t[-1])
+            max_time = min(t_obs[-2] + t_margin, t[-1])
         min_time = t_obs[0] - 0.25 * t_margin       
-        t, (y_model, y_unbiased) = cut_signals(t, y_model, y_unbiased, min_time=min_time, max_time=max_time)
+        t, (y_model, y_unbiased) = cut_signals(t, 
+                                               y_model, y_unbiased, 
+                                               min_time=min_time, max_time=max_time)
     else:
         min_time, max_time = t[0], t[-1]
 
@@ -891,7 +902,8 @@ def plot_observable_history(ensemble : Ensemble,
         y_raw, y_true = None, None
 
     # Nomalize ys ----  
-    (y_unbiased, y_model, y_raw, y_true), y_labels = normalized_y(reference_y, pm.obs_labels, y_unbiased, y_model, y_raw, y_true)
+    (y_unbiased, y_model, y_raw, y_true), y_labels = normalized_y(reference_y, pm.obs_labels, 
+                                                                  y_unbiased, y_model, y_raw, y_true)
     if len(t_obs) > 0:
         (y_obs,) = normalized_y(reference_y, pm.obs_labels, y_obs)[0]
 
