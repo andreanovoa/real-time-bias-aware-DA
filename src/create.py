@@ -234,7 +234,8 @@ def create_ensemble(model, forecast_params=None, alpha0=None, **filter_params):
 
 
 
-def create_bias_model(ensemble, bias_params: dict,
+def create_bias_model(ensemble: Type[Model], 
+                      bias_params: dict,
                       training_dataset: dict or list, # type: ignore
                       wash_t=None,
                       wash_obs=None,

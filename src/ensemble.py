@@ -7,9 +7,10 @@ from model import Model
 from utils_plotting import Palette
 
 from observations import Observations
-from utils import allowed_kwargs_for_func, interpolate
+from utils import allowed_kwargs_for_func, interpolate, mean_vector_to_ensemble
 import matplotlib.pyplot as plt
 
+from data_assimilation import Filter, EnSRKF
 
 
 class Ensemble(object):
@@ -30,7 +31,6 @@ class Ensemble(object):
     m: int = 10  # Number of ensemble members
     
     # Data assiomilation specific parameters
-    filter: str = 'EnKF'
 
     est_phi: bool = True                        # Estimate model state?
     est_alpha: Union[bool, List[str]] = False   # Estimate parameters? If a List, includes the names of model parameters to estimate
@@ -46,9 +46,8 @@ class Ensemble(object):
     num_SE_only: int = 0
     start_ensemble_forecast: float = 0.0
 
-    inflation: float = 1.00
-    reject_inflation: float = 1.002 # Inflation after rejecting an analysis
-    
+    inflation_factor: float = 1.00
+    inflation_factor_rejection: float = 1.002 # Inflation after rejecting an analysis
 
     # Ensemble initialization parameters 
     std_phi: float = 0.001                                  # Std for initial state uncertainty (as a fraction of mean)
@@ -60,9 +59,13 @@ class Ensemble(object):
     distribution_phi: str = 'normal'    # Distribution for state (psi) uncertainty
     ensure_mean_at_init: bool = False    # Force one ensemble member to be the mean
     
+    activate_parameter_estimation: bool = True  # Whether to include parameter estimation in the analysis step
 
-
-    def __init__(self, parent_model: Type[Model], parent_bias: Type[Bias] = NoBias, **kwargs):
+    def __init__(self, 
+                 parent_model: Type[Model], 
+                 parent_bias: Type[Bias] = NoBias, 
+                 da_method: Type[Filter] = None, 
+                 **kwargs):
         """
         Initializes the Ensemble and links it back to the parent Model instance.
         """
@@ -105,7 +108,36 @@ class Ensemble(object):
         # 4. Initialize bias
         self.bias = deepcopy(parent_bias)
         self._init_bias(**ensemble_dict)
-        
+
+        if da_method is not None:
+            self.filter = da_method
+    
+
+    @property
+    def filter(self) -> Filter:
+        """
+        The data assimilation filter instance associated with the ensemble.
+        """
+        return self._filter
+
+    @filter.setter
+    def filter(self, filter_instance: Type[Filter]) -> None:
+        """
+        Sets the data assimilation filter instance for the ensemble.
+        Parameters
+        ----------
+        filter_instance : Type[Filter]
+            The filter class or instance to be used for data assimilation.
+        """
+        if isinstance(filter_instance, Filter):
+            print('Setting filter instance for Ensemble.')
+            self._filter = filter_instance
+        elif isinstance(filter_instance, type) and issubclass(filter_instance, Filter):
+            self._filter = filter_instance(m=self.m, 
+                                           M=self.model.M,
+                                           gamma=self.regularization_factor)
+        else:
+            raise TypeError('filter_instance must be a Filter class or instance.')
 
 
     @property
@@ -114,6 +146,13 @@ class Ensemble(object):
         int: The number of estimated parameters.
         """
         return len(self.est_alpha)
+    
+    @property
+    def Nphi(self):
+        """
+        int: The size of the model state vector.
+        """
+        return self.model.Nphi
     
     def copy(self):
         return deepcopy(self)
@@ -245,7 +284,7 @@ class Ensemble(object):
             # print('Generating ensemble for state with mean shape', mean_phi0.shape,
             #       f'pm.current_state shape {pm.current_state.shape} and m={self.m}')
 
-            ensemble_psi0 = self.add_uncertainty(pm.rng, 
+            ensemble_psi0 = mean_vector_to_ensemble(pm.rng, 
                                                  mean_vec=mean_phi0, 
                                                  std=self.std_phi,
                                                  m=self.m, 
@@ -256,12 +295,12 @@ class Ensemble(object):
             if self.est_alpha:  
                 assert self.Na == len(self.est_alpha)
                 mean_a = np.array([getattr(pm, a) for a in self.est_alpha])
-                ensemble_alpha0 = self.add_uncertainty(pm.rng, 
-                                                       mean_vec=mean_a, 
-                                                       std=self.std_alpha, 
-                                                       m=self.m,
-                                                       method=self.distribution_alpha, 
-                                                       ensure_mean_at_init=self.ensure_mean_at_init)
+                ensemble_alpha0 = mean_vector_to_ensemble(pm.rng, 
+                                                            mean_vec=mean_a, 
+                                                            std=self.std_alpha, 
+                                                            m=self.m,
+                                                            method=self.distribution_alpha, 
+                                                            ensure_mean_at_init=self.ensure_mean_at_init)
                 # print(f'Generated ensemble for parameters {self.est_alpha} with shape {ensemble_alpha0.shape}'
                 #       f'ensemble_phi0 shape {ensemble_psi0.shape}')
                 ensemble_psi0 = np.concatenate((ensemble_psi0, ensemble_alpha0), axis=0)
@@ -320,72 +359,6 @@ class Ensemble(object):
             )
 
 
-    @staticmethod
-    def add_uncertainty(rng: np.random.Generator, 
-                        mean_vec: np.ndarray, 
-                        std: Union[float, Dict[str, Union[float, List[float]]]], 
-                        m: int, 
-                        method: str = 'uniform', 
-                        ensure_mean_at_init: bool = False) -> np.ndarray:
-        """
-        Adds uncertainty to a mean state vector/value for ensemble generation.
-        Returns an array of shape (state_dim, m).
-        
-        """
-        if method not in ['uniform', 'normal']:
-            raise ValueError(f'Distribution "{method}" not supported. Choose "uniform" or "normal".')
-            
-        mean_vec = np.asarray(mean_vec).flatten()
-        
-        # Case 1: std is a dictionary (for estimated parameters 'alpha')
-        if isinstance(std, dict):
-            ensemble_ = []
-            for sa in std.values():
-                if method == 'uniform':
-                    # For uniform, std values are [min_val, max_val]
-                    ensemble_.append(rng.uniform(low=sa[0], high=sa[1], size=m))
-                else: # normal
-                    # Use mean of bounds as location, and half the range as a heuristic scale (std)
-                    loc = np.mean(sa)
-                    if isinstance(sa, list) and len(sa) == 2:
-                        scale = (sa[1] - sa[0]) / 4.0
-                    else:
-                        scale = loc * 0.5
-                    ensemble_.append(rng.normal(loc=loc, scale=scale, size=m))
-            ensemble_ = np.array(ensemble_) # Shape: (num_params, m)
-
-        # Case 2: std is a single float (relative standard deviation for state or parameters)
-        elif isinstance(std, float):
-            if method == 'uniform':
-                # Multiplicative uniform perturbation: mean * (1 +/- std)
-                perturbation = 1.0 + rng.uniform(-std, std, size=(mean_vec.size, m))
-                ensemble_ = mean_vec[:, np.newaxis] * perturbation
-            
-            else: # normal (using multivariate normal for state vector)
-                if np.iscomplexobj(mean_vec):
-                    # Handle complex state by perturbing real and imaginary parts independently
-                    cov_real = np.diag((mean_vec.real * std) ** 2)
-                    cov_imag = np.diag((mean_vec.imag * std) ** 2)
-                    real_part = rng.multivariate_normal(mean_vec.real, cov_real, size=m).T
-                    imag_part = rng.multivariate_normal(mean_vec.imag, cov_imag, size=m).T
-                    ensemble_ = real_part + 1j * imag_part
-                else:
-                    # Covariance matrix is diagonal, perturbation scaled by mean and relative std
-                    cov = np.diag((mean_vec * std) ** 2)
-                    ensemble_ = rng.multivariate_normal(mean_vec, cov, size=m).T
-            
-        else:
-            raise TypeError(f'Initial std must be a float or a dict, not {type(std)}')
-
-
-        # Replace the first member with the unperturbed mean
-        if ensure_mean_at_init and ensemble_ is not None:
-            ensemble_[:, 0] = mean_vec
-
-        return ensemble_
-
-
-
 
     # ------------------ ENSEMBLE GENERATION METHODS ------------------ ##
 
@@ -421,7 +394,7 @@ class Ensemble(object):
         
     
     
-    def time_integrate(self, t_end=None, reset=False, close=False, **kwargs) -> None: 
+    def forecast_step(self, t_end=None, reset=False, close=False, **kwargs) -> None: 
         """
         Advances the ensemble in time for Nt steps using the model's integrator.
         Both, the ensemble model and bias are forecasted:
@@ -438,16 +411,27 @@ class Ensemble(object):
 
         psi, t = pm.time_integrate(**kwargs)
 
-        pm.update_history(psi, t, reset=reset) # add the forecast to the model history
+        try:
+            pm.update_history(psi, t, reset=reset) # add the forecast to the model history
+        except ValueError:
+            print(f"Solver didn't return a homogeneous psi. Check initial conditions and input_parameters")
+
 
         # Advance bias model
+        y = pm.get_observable_hist(Nt)
         pb = self.bias
-        bias_psi, bias_t = pb.time_integrate(t=t, **kwargs)
-        pb.update_history(bias_psi, bias_t, reset=reset)
+        b, t_b = pb.time_integrate(t=t,
+                                   y=y, 
+                                   **kwargs)
+        pb.update_history(b, t_b, reset=reset)
 
         if close:
             pm.close()
-            # pb.close()
+
+        if pm.hist_t[-1] != pb.hist_t[-1]:
+            raise AssertionError('t assertion', pm.hist_t[-1], pb.hist_t[-1])    
+
+        
 
     # @property
     # def current_unbiased_obs(self) -> np.ndarray:
@@ -480,7 +464,7 @@ class Ensemble(object):
     #         y_unbiased = self._recover_unbiased_solution(pb.hist_t, pb.hist, 
     #                                                     t_model, y_model)
         
-    #         return y_unbiased.squeeze(axis=0)  # Shape: (obs_dim, m)
+    
 
     @property
     def current_state(self) -> np.ndarray:
@@ -536,7 +520,10 @@ class Ensemble(object):
 
 
 
-    def update_history(self, psi: np.ndarray, t: Union[float, np.ndarray]=None, 
+    def update_history(self, 
+                       psi: np.ndarray, 
+                       t: None, 
+                       b = None,
                        update_last_state: bool = False,
                        reset: bool = False) -> None:
         """
@@ -560,6 +547,10 @@ class Ensemble(object):
         self.model.update_history(psi, t, 
                                   reset=reset,
                                   update_last_state=update_last_state)
+        if b is not None:
+            self.bias.update_history(b, t, 
+                                      reset=reset,
+                                      update_last_state=update_last_state)
 
 
 
@@ -629,7 +620,276 @@ class Ensemble(object):
     
 
 
-    # ------------------ ENSEMBLE VISUALIZATION METHODS ------------------ ##
+
+# _______________________________________________________________________________________________________________
+# Data assimilation methods
+# _______________________________________________________________________________________________________________
+
+    def visualize_history(self, **kwargs
+                          ) -> None:
+        """
+        Visualize summary plots for the stored model and bias histories.
+
+        This method is a lightweight wrapper that:
+        - Calls plot_ensemble_model to produce ensemble distribution snapshots for those times.
+        - Provides a placeholder where bias-history plotting should be implemented
+          (if a bias instance with history exists).
+
+        Implementation notes 
+        """
+        #separate kwargs for the different plots 
+        kwargs_obs = allowed_kwargs_for_func(plot_observable_history, kwargs)
+        plot_observable_history(ensemble=self, **kwargs_obs)
+
+        if self.Na > 0:
+            kwargs_alpha = allowed_kwargs_for_func(plot_alpha_history, kwargs)
+            plot_alpha_history(ensemble=self, **kwargs_alpha)
+
+
+
+    def analysis_step(self, d: np.ndarray, Cdd: np.ndarray) -> None:
+        """
+        Performs the analysis step of the data assimilation algorithm.
+        This method updates the ensemble state based on observations and their error covariance.
+        Parameters
+        ----------
+        d : np.ndarray
+            Observation vector at the current time.
+
+        Side effects
+        ------------
+        - Updates the model's history with the analyzed ensemble state.
+        """
+
+        Af = self.current_state     # state matrix [Nphi + Na] x m
+        M = self.model.M.copy()     # Observation operator matrix [Nd] x [Nphi + Na]
+
+
+        if self.Na > 0 and not self.activate_parameter_estimation:
+            Af = Af[:-self.Na, :]
+            M = M[:, :-self.Na]
+
+
+        # ================== DEFINE AUGMENTED STATE VECTOR =================== #
+        y = self.model.get_observables()
+        Af = np.vstack((Af, y))
+    
+
+        # ======================== APPLY SELECTED FILTER ======================== #
+        if self.filter.is_bias_aware:
+
+            # ----------------- Retrieve bias and its Jacobian ----------------- #
+            b = self.bias.current_bias
+            J = self.bias.state_derivative()
+
+            if self.bias.biased_observations:
+                # Adjust observations if they are biased
+                bd = np.mean(b - self.bias.current_innovations, axis=-1)
+                d = d + bd
+            
+            # -------------- Define bias Covariance and the weight -------------- #
+            Cbb = Cdd.copy()  # Bias covariance matrix same as obs cov matrix for now
+
+            filter_args = (Af, d, Cdd, Cbb, b, J)
+        
+        else:
+            filter_args = (Af, d, Cdd)
+
+        # Apply the selected filter and inflate
+
+        Aa = self.filter(*filter_args)
+        if self.inflation_factor > 1.0:
+            Aa = self.inflate(Aa, self.inflation_factor, d=d, additive=True)
+
+        # =========== CHECK SPREAD AND PARAMETERS  ========== #
+        if not self.has_valid_spread(Aa[:self.model.Nphi, :]):
+            self.rejected_analysis = (self.current_time,  'Invalid analysis spread')
+
+        if self.Na > 0 and self.alpha_limits_matrix is not None:
+            Aa_alpha = Aa[self.Nphi:self.Nphi+self.Na, :]
+            is_physical, idx_alpha, _ = self.has_valid_params(Aa_alpha, self.alpha_limits_matrix, get_deltas=False)
+            if not is_physical:
+                # reject analysis and inflate forecast with (higher) factor
+                self.rejected_analysis = (self.current_time, f'Non-physical parameters {idx_alpha}')
+                Aa = self.inflate(Af, self.inflation_factor_rejection, d=d, additive=True)
+
+        # =========== UPDATE MODEL HISTORY ========== #
+        self.update_history(Aa[:self.model.Nphi + self.Na, :], 
+                            self.current_time, update_last_state=True)
+        self.assimilated_data = (d, self.current_time)
+
+    
+
+    @property
+    def rejected_analysis(self):
+        """
+        Property for managing rejected analysis steps during data assimilation.
+
+        Returns
+        -------
+        namedtuple
+            Contains lists of times and reasons for each rejected analysis.
+        """
+        if not hasattr(self, '_rejected_analysis'):
+            RejectedData = namedtuple('RejectedData', ['times', 'reasons'])
+            self._rejected_analysis =  RejectedData(times=[], reasons=[])
+        return self._rejected_analysis
+    
+    @rejected_analysis.setter
+    def rejected_analysis(self, value: tuple):
+        
+        time, reason = value
+        self._rejected_analysis.times.append(time)
+        self._rejected_analysis.reasons.append(reason)
+        
+
+        print(f'Number of non-physical analysis = {len(self._rejected_analysis.times)}/{len(self.assimilated_data.times)}')
+
+        
+
+    @staticmethod
+    def inflate(A, rho, d=None, additive=True) -> None:
+        """
+        Inflates the ensemble around its mean by a factor rho.
+
+        Parameters
+        ----------
+        A : np.ndarray
+            Ensemble state array of shape (state_dim, m).
+        rho : float
+            Inflation factor.
+        d : np.ndarray, optional
+            Observation vector used for additive inflation. Should be a 1D array of shape (obs_dim,).
+            If None, inflation is applied only to the ensemble state.
+        additive : bool, optional
+            If True, perform additive inflation (adds scaled difference to ensemble mean).
+            If False, perform multiplicative inflation (scales deviations from the mean).
+            Default is True.
+
+        Side effects
+        ------------
+        - Updates the model's history with the inflated ensemble state.
+
+        """
+
+        if d is not None and additive is False:
+            raise NotImplementedError('Non-additive inflation with observation vector not implemented yet.')
+            # d = np.asarray(d).reshape(-1)  # Ensure d is 1D
+            # A[:len(d)] += (d * (rho - 1))[:, np.newaxis]  # Broadcast correctly
+
+        A_m = np.mean(A, -1, keepdims=True)
+        return A_m + rho * (A - A_m)
+
+
+
+
+
+    @staticmethod
+    def has_valid_spread(A: np.ndarray, tol=1e-6) -> bool:
+        """
+        Checks if the ensemble spread is valid (not too large).
+        Parameters
+        ----------
+        A : np.ndarray
+            Ensemble state array of shape (state_dim, m).
+        Returns
+        -------
+        bool
+            True if the spread is valid, False if too large.
+        """
+        return True  # Temporarily disable spread check
+        # val = np.var(A) / (np.mean(A, axis=-1)**2 + tol)
+        # condition = val < 1.0
+
+        # print('Spread check condition per state variable:', condition, val, np.mean(A, axis=-1), np.std(A, axis=-1))
+
+        # return np.all(condition)
+
+
+
+    @property
+    def alpha_limits_matrix(self) -> np.ndarray:
+        if not hasattr(self, '_alpha_lims'):
+            alpha_lims = np.array([[lo, hi] for (lo, hi) in self.model.alpha_lims.values()]).T  # Shape: (2, Na)
+
+            # mask out None limits. If all limits are None, skip check
+            if np.all(alpha_lims == None):
+                self._alpha_lims = None
+            
+            else:
+                alpha_lims[0][alpha_lims[0] == None] = -np.inf
+                alpha_lims[1][alpha_lims[1] == None] = np.inf
+                self._alpha_lims = alpha_lims[:,:,np.newaxis]  # Shape: (2, Na, 1)
+
+        return self._alpha_lims
+    
+
+
+    @staticmethod
+    def has_valid_params(A_alpha: np.ndarray, alpha_limits_matrix: np.ndarray, get_deltas=False) -> Tuple[bool, List[int], np.ndarray]:
+        """
+        Checks if the ensemble parameters are within physical bounds.
+        Parameters
+        ----------
+        A_alpha : np.ndarray
+            Ensemble parameter array of shape (Na, m).
+        alpha_limits : dict
+            Dictionary containing parameter bounds.
+        Returns
+        -------
+        Tuple[bool, List[int], np.ndarray]
+            - True if all parameters are within bounds, False otherwise.
+            - List of indices of parameters that are out of bounds.
+            - Array of maximum allowed values for out-of-bounds parameters (if get_deltas is True).
+        """
+
+        if alpha_limits_matrix is None:
+            return True, None, None
+
+        is_physical, idx_alpha, d_alpha = True, [], []  
+
+        # Masks for out-of-bounds
+        low_limits, high_limits = alpha_limits_matrix  # Shape: ((Na, 1), (Na, 1))
+
+        below = A_alpha < low_limits
+        above = A_alpha > high_limits
+
+        oob = np.any(below | above, axis=1)
+        is_physical = not np.any(oob)
+        idx_alpha = np.where(oob)[0].tolist()
+
+        if get_deltas and not is_physical:
+            if np.any(above) and np.any(below):
+                raise ValueError('both above and below limits detected simultaneously, check alpha_limits and A_alpha')
+            
+            allowed = A_alpha[~above & ~below]
+            # compute deltas only where needed to avoid inf arithmetic warnings
+            if np.any(below):
+                #append the maximum value of the ensemble within limits
+                if allowed.size > 0:
+                    max_allowed = np.max(allowed, axis=1)
+                else:
+                    max_allowed = low_limits[:,0]  # use lower limit if no allowed values  
+                d_alpha.append(max_allowed)
+
+            elif np.any(above):
+                #append the minimum value of the ensemble within limits
+                if allowed.size > 0:
+                    min_allowed = np.min(allowed, axis=1)
+                else:
+                    min_allowed = high_limits[:,0]  # use upper limit if no allowed values  
+                d_alpha.append(min_allowed)
+                
+
+        return is_physical, idx_alpha, np.array(d_alpha)
+    
+
+    # _______________________________________________________________________________________________________________
+    # 
+    # VISUALIZATION METHODS ##
+    # _______________________________________________________________________________________________________________
+
+
 
     def print_parameters(self) -> None:
         """
@@ -667,30 +927,9 @@ class Ensemble(object):
 
 
 
-    def visualize_history(self, **kwargs
-                          ) -> None:
-        """
-        Visualize summary plots for the stored model and bias histories.
-
-        This method is a lightweight wrapper that:
-        - Calls plot_ensemble_model to produce ensemble distribution snapshots for those times.
-        - Provides a placeholder where bias-history plotting should be implemented
-          (if a bias instance with history exists).
-
-        Implementation notes 
-        """
-        #separate kwargs for the different plots 
-        kwargs_obs = allowed_kwargs_for_func(plot_observable_history, kwargs)
-        plot_observable_history(ensemble=self, **kwargs_obs)
-
-        if self.Na > 0:
-            kwargs_alpha = allowed_kwargs_for_func(plot_alpha_history, kwargs)
-            plot_alpha_history(ensemble=self, **kwargs_alpha)
 
 
-
-
-
+# 
 # ===== AUXILIARY PLOTTING FUNCTIONS ===== #
 
 
@@ -744,7 +983,7 @@ def normalized_alpha(alpha, alpha_keys, alpha_labels, reference_a=None) -> Tuple
     reference_alpha = {key: 1. for key in alpha_keys}
     alpha_lbls = alpha_labels.copy()
     alpha = alpha.copy()
-    
+
     if reference_a is not None and isinstance(reference_a, dict):
         for ai, key in enumerate(alpha_keys):
             if key not in reference_a.keys():
@@ -814,7 +1053,7 @@ def plot_alpha_history(ensemble : Ensemble,
     else:
         min_time, max_time = t[0], t[-1]
 
-    x_lims = [[min_time, min_time + t_margin], [max_time - t_margin, max_time], [t[0], max_time]]    
+    x_lims = [[min_time, min_time + t_margin], [max_time - t_margin, max_time], [min_time, max_time]]    
 
 
     fig = plt.figure(figsize=(12, 2*ensemble.Na), layout="constrained")
@@ -879,7 +1118,19 @@ def plot_observable_history(ensemble : Ensemble,
     
 
     t_margin = pm.t_CR
-    (t, t_obs, t_margin), t_label = normalized_time(reference_t, pm.hist_t, t_obs, t_margin)
+
+
+    # Get truth if available ---- 
+    if truth is not None:
+        y_raw = truth.y_raw.copy()
+        y_true = truth.y_true.copy()
+        t_true = truth.t_true.copy()
+    else:
+        y_raw, y_true, t_true= None, None, None
+
+
+
+    (t, t_obs, t_margin, t_true), t_label = normalized_time(reference_t, pm.hist_t, t_obs, t_margin, t_true)
 
 
     # cut signals to interval of interest -----
@@ -888,18 +1139,17 @@ def plot_observable_history(ensemble : Ensemble,
         if max_time is None:
             max_time = min(t_obs[-2] + t_margin, t[-1])
         min_time = t_obs[0] - 0.25 * t_margin       
-        t, (y_model, y_unbiased) = cut_signals(t, 
-                                               y_model, y_unbiased, 
+        t, (y_model, y_unbiased) = cut_signals(t, y_model, y_unbiased, 
                                                min_time=min_time, max_time=max_time)
+        t_true, (y_raw, y_true) = cut_signals(t_true, y_raw, y_true, 
+                                               min_time=min_time, max_time=max_time)
+        if len(t) != len(t_true):
+            y_raw = interpolate(t_true, y_raw, t)
+            y_true = interpolate(t_true, y_true, t)
+        
     else:
         min_time, max_time = t[0], t[-1]
 
-    # Get truth if available ---- 
-    if truth is not None:
-        y_raw = interpolate(truth.t_true, truth.y_raw, t)
-        y_true = interpolate(truth.t_true, truth.y_true, t)
-    else:
-        y_raw, y_true = None, None
 
     # Nomalize ys ----  
     (y_unbiased, y_model, y_raw, y_true), y_labels = normalized_y(reference_y, pm.obs_labels, 
@@ -1060,7 +1310,7 @@ def plot_state_distribution(model: Model,
 
 
         # Plot all in one mosaic
-        fig = plt.figure(figsize=(10, 2 * (nrows_phi + nrows_alpha)), layout='constrained')
+        fig = plt.figure(figsize=(2*max(ncols_phi, ncols_alpha), 2 * (nrows_phi + nrows_alpha)), layout='constrained')
         plt.suptitle(f'Ensemble distributions at time t={model.hist_t[ti]:.3f}')
 
         if model.Na == 0:

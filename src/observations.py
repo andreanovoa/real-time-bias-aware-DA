@@ -415,10 +415,12 @@ class Observations():
         t_plot = t_true[t0_idx:t0_idx+t1_idx]
         y_raw_plot = y_raw[t0_idx:t0_idx+t1_idx]
         y_true_plot = y_true[t0_idx:t0_idx+t1_idx]
-        noise_plot = noise[t0_idx:t0_idx+t1_idx]
         bias_plot = b[t0_idx:t0_idx+t1_idx]
         if np.sum(abs(bias_plot)) < 1e-10:
             bias_plot = None
+        elif bias_plot.ndim == 1:
+            bias_plot = bias_plot[:, np.newaxis]
+            _, PSD_bias = fun_PSD(dt, b[t0_idx:nt_PSD + t0_idx])
 
 
         # X-limits for time plots
@@ -466,11 +468,17 @@ class Observations():
             # Column 1: True Time Series (y_true)
             ax = axes[q_i, 1]
             ax.plot(t_plot, y_true_plot[:, q_i], color=c_true, label=f'$y^t_{q_i}$')
-            ax.set(xlim=xlim_time, ylim=y_lim_base)
             if bias_plot is not None:
                 ax.plot(t_plot, y_true_plot[:, q_i]-bias_plot[:, q_i], color=c_unbiased, label=f'$y^t_{q_i}-b^t_{q_i}$')
             # if q_i == 0:
             ax.legend(fontsize='x-small', ncol=2)
+
+            y_lim_2 = ax.get_ylim()
+            y_lim_base = [min(y_lim_base[0], y_lim_2[0]), 
+                          max(y_lim_base[1], y_lim_2[1])]
+            # reset ax0 if changed 
+            axes[q_i, 0].set_ylim(y_lim_base)
+            ax.set(xlim=xlim_time, ylim=y_lim_base)
 
             # Column 2: PDF (uses full data)
             ax = axes[q_i, 2]
@@ -490,6 +498,8 @@ class Observations():
             ax = axes[q_i, 3]
             for ds, c, a in zip([PSD_true, PSD_raw], [c_true, c_raw], [1., .8]):
                 ax.semilogy(f_raw, ds[q_i], color=c, alpha=a)
+            if bias_plot is not None:
+                ax.semilogy(f_raw, PSD_bias[q_i], color=c_unbiased, alpha=.8)
             
             if q_i == 0:
                 ylims_PSD = [np.min(PSD_raw) * 0.1, np.max(PSD_raw) * 10]

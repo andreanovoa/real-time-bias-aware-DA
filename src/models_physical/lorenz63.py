@@ -96,6 +96,81 @@ class Lorenz63(Model):
         # Return a tuple of derivatives: (dx1, dx2, dx3, d(alpha1)/dt, d(alpha2)/dt, ...)
         return (dx1, dx2, dx3) + (0,) * (len(psi) - 3)
 
+
+    def visualize_attractor(self, psi_cases=None, **kwargs):
+        """
+        Visualizes the Lorenz attractor for given state trajectories.
+        Args:
+            psi_cases: List of state trajectories to plot. Each trajectory should be of shape (Nt, 3) or (Nt, 3, Ne).
+            color: List of colors for each trajectory. If None, a colormap is used.
+            figsize: Figure size for the plot.
+            ensemble_mean: If True and psi_cases contain ensembles, plot the mean trajectory.
+        """
+        if psi_cases is None:
+            psi_cases = [self.hist[:, :3, :]]
+
+        plot_attractor(psi_cases, **kwargs)
+
+
+
+
+
+
+def plot_attractor(psi_cases, color=None, figsize=(8, 6)):
+    
+
+
+    if type(psi_cases) is not list:
+        if psi_cases.ndim == 2:
+            psi_cases = [psi_cases[:, :, np.newaxis]]
+        else:
+            psi_cases = [psi_cases]
+
+    else:
+        psi_cases = [p[:, :, np.newaxis] if p.ndim == 2 else p for p in psi_cases]
+
+    if color is None:
+        color = plt.cm.viridis(np.linspace(0, 1, len(psi_cases)))
+    elif type(color) is str:
+        color = [color] * len(psi_cases)
+    
+    # Check for 3D state dimension
+    if psi_cases[0].shape[1] == 3:
+        mosaic = [['A', 'ax_xy'],
+                ['A', 'ax_xz'],
+                    ['A', 'ax_yz',]]
+        
+        # Create figure and axes with ratios for larger 3D plot
+        fig, axes = plt.subplot_mosaic(mosaic, figsize=figsize, layout='tight', width_ratios=[2,1])
+        lbl = ['$x$', '$y$', '$z$']
+        projections = [
+            (axes['ax_xy'], 0, 1), # XY
+            (axes['ax_xz'], 0, 2), # XZ
+            (axes['ax_yz'], 1, 2)  # YZ
+        ]
+        
+        # 2. Configure 3D subplot (replace 2D 'A' with a 3D axis in the same SubplotSpec)
+        ss = axes['A'].get_subplotspec()
+        fig.delaxes(axes['A'])
+        ax_3d = fig.add_subplot(ss, projection='3d', xticks=[], yticks=[], zticks=[], xlabel='', ylabel='', zlabel='')
+        axes['A'] = ax_3d
+        ax_3d.axis('off')
+        ax_3d.set_box_aspect((1,1,1.5))  
+
+        # 4. Plotting Logic (Combined loop for 3D and 2D)
+        for psi_, c in zip(psi_cases, color):
+            psi_proc = psi_
+            if psi_.shape[2] > 10:
+                psi_proc = np.mean(psi_, axis=-1)
+            
+            ax_3d.plot(psi_proc[:, 0], psi_proc[:, 1], psi_proc[:, 2], c=c, alpha=.8)
+                
+            for ax, i, j in projections:
+                ax.plot(psi_proc[:, i], psi_proc[:, j], c=c, alpha=.8, lw=.5)
+                ax.set(xlabel=lbl[i], ylabel=lbl[j])
+
+
+
 if __name__ == "__main__":
     # test Lorenz63 model
     model = Lorenz63()

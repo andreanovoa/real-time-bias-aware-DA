@@ -116,7 +116,7 @@ def plot_timeseries(filter_ens, truth,
 
 # Visualize the time evolution of the physical states
 # Forecast the ensemble
-def view_ensemble(ens):
+def view_ensemble(ens: POD_ESN):
     ens = ens.copy()
     psi, t = ens.time_integrate(Nt=500)
     ens.update_history(psi, t, reset=True)
@@ -129,7 +129,7 @@ def view_ensemble(ens):
         plot_parameters(ens, plot_ensemble_members=True)
 
 
-def plot_initial_case(case, 
+def plot_initial_case(case: POD_ESN, 
                       X_train,
                       X_train_true,
                       figs_folder=None,
@@ -143,8 +143,7 @@ def plot_initial_case(case,
                       names=['data', 'truth'],
                       )
     case.plot_Wout()
-    plot_ensemble(case, 
-                  max_modes=10)
+    case.visualize_config(max_modes=10)
 
     view_ensemble(case)
 

@@ -21,6 +21,8 @@ import requests
 from tqdm import tqdm
 import zipfile
 
+from typing import List, Tuple, Union, Dict, Type, Tuple
+
 from PIL import Image
 
 import inspect
@@ -38,6 +40,71 @@ def allowed_kwargs_for_func(func, kwargs):
     sig = inspect.signature(func)
     accepted = set(sig.parameters)
     return {k: v for k, v in kwargs.items() if k in accepted}
+
+
+
+def mean_vector_to_ensemble(rng: np.random.Generator, 
+                            mean_vec: np.ndarray, 
+                            std: Union[float, Dict[str, Union[float, List[float]]]], 
+                            m: int, 
+                            method: str = 'uniform', 
+                            ensure_mean_at_init: bool = False) -> np.ndarray:
+    """
+    Adds uncertainty to a mean state vector/value for ensemble generation.
+    Returns an array of shape (state_dim, m).
+    
+    """
+    if method not in ['uniform', 'normal']:
+        raise ValueError(f'Distribution "{method}" not supported. Choose "uniform" or "normal".')
+        
+    mean_vec = np.asarray(mean_vec).flatten()
+    
+    # Case 1: std is a dictionary (for estimated parameters 'alpha')
+    if isinstance(std, dict):
+        ensemble_ = []
+        for sa in std.values():
+            if method == 'uniform':
+                # For uniform, std values are [min_val, max_val]
+                ensemble_.append(rng.uniform(low=sa[0], high=sa[1], size=m))
+            else: # normal
+                # Use mean of bounds as location, and half the range as a heuristic scale (std)
+                loc = np.mean(sa)
+                if isinstance(sa, list) and len(sa) == 2:
+                    scale = (sa[1] - sa[0]) / 4.0
+                else:
+                    scale = loc * 0.5
+                ensemble_.append(rng.normal(loc=loc, scale=scale, size=m))
+        ensemble_ = np.array(ensemble_) # Shape: (num_params, m)
+
+    # Case 2: std is a single float (relative standard deviation for state or parameters)
+    elif isinstance(std, float):
+        if method == 'uniform':
+            # Multiplicative uniform perturbation: mean * (1 +/- std)
+            perturbation = 1.0 + rng.uniform(-std, std, size=(mean_vec.size, m))
+            ensemble_ = mean_vec[:, np.newaxis] * perturbation
+        
+        else: # normal (using multivariate normal for state vector)
+            if np.iscomplexobj(mean_vec):
+                # Handle complex state by perturbing real and imaginary parts independently
+                cov_real = np.diag((mean_vec.real * std) ** 2)
+                cov_imag = np.diag((mean_vec.imag * std) ** 2)
+                real_part = rng.multivariate_normal(mean_vec.real, cov_real, size=m).T
+                imag_part = rng.multivariate_normal(mean_vec.imag, cov_imag, size=m).T
+                ensemble_ = real_part + 1j * imag_part
+            else:
+                # Covariance matrix is diagonal, perturbation scaled by mean and relative std
+                cov = np.diag((mean_vec * std) ** 2)
+                ensemble_ = rng.multivariate_normal(mean_vec, cov, size=m).T
+        
+    else:
+        raise TypeError(f'Initial std must be a float or a dict, not {type(std)}')
+
+
+    # Replace the first member with the unperturbed mean
+    if ensure_mean_at_init and ensemble_ is not None:
+        ensemble_[:, 0] = mean_vec
+
+    return ensemble_
 
 
 def set_cylinder_truth(case, X_filter, X_filter_true, Nt_obs = 25, visualize=False):
@@ -514,6 +581,67 @@ def CR(y_true, y_est):
     # root-mean square error
     R = np.sqrt(np.sum((y_true - y_est) ** 2) / np.sum(y_true ** 2))
     return C, R
+
+
+# def correlation(y_true, y_est):
+#     """Calculates the Pearson correlation coefficient (r-value) for two arrays."""
+#     # It assumes the inputs are N_time x Nq and computes a single r-value.
+#     y_tm = np.mean(y_true, axis=0, keepdims=True)
+#     y_em = np.mean(y_est, axis=0, keepdims=True)
+
+#     y_true_centered = y_true - y_tm
+#     y_est_centered = y_est - y_em
+    
+#     denominator = np.sqrt(np.sum(y_est_centered ** 2) * np.sum(y_true_centered ** 2))
+    
+#     # Handle the case where one or both inputs have zero variance 
+#     if denominator < 1e-10:
+#         return 0.0
+    
+#     return np.sum(y_est_centered * y_true_centered) / denominator
+
+
+def correlation(y_true, y_est):
+    """Calculates the Pearson correlation coefficient (r-value) for each ensemble member.
+    Inputes:
+        y_true: np.ndarray of shape (N_time, Nq) or (N_time, Nq, 1)
+        y_est: np.ndarray of shape (N_time, Nq, N_ens)
+    Returns:
+        r_values: np.ndarray of length N_ens with the correlation coefficients. 
+    """
+    y_true = np.asarray(y_true)
+    y_est = np.asarray(y_est)
+
+    # Accept 2D y_true (Nt, Nq) and promote to (Nt, Nq, 1)
+    if y_true.ndim == 2:
+        y_true = y_true[..., np.newaxis]
+    if y_true.ndim != 3 or y_est.ndim != 3:
+        raise ValueError(f'Expected y_true with ndim 2 or 3 and y_est with ndim 3, got {y_true.ndim}, {y_est.ndim}')
+
+    # Check compatible time and spatial dimensions
+    if y_true.shape[0] != y_est.shape[0] or y_true.shape[1] != y_est.shape[1]:
+        raise ValueError('Incompatible shapes: y_true and y_est must share first two dimensions (time, spatial).')
+
+    # Compute means
+    y_tm = np.mean(y_true, axis=0, keepdims=True)  # shape (1, Nq, 1)
+    y_em = np.mean(y_est, axis=0, keepdims=True)   # shape (1, Nq, N_ens)
+
+    # Centered signals
+    y_true_centered = y_true - y_tm # shape (Nt, Nq, 1)
+    y_est_centered = y_est - y_em # shape (Nt, Nq, N_ens)
+
+    # Numerator and denominator for Pearson r
+    numerator = np.sum(y_est_centered * y_true_centered, axis=(0,1))  # shape (N_ens)
+    denom = np.sqrt(np.sum(y_est_centered ** 2, axis=(0,1)) * np.sum(y_true_centered ** 2, axis=(0,1)))  # shape (N_ens)
+    
+    # Safe division: set correlation to 0 where denom is (near) zero
+    with np.errstate(divide='ignore', invalid='ignore'):
+        r_values = numerator / denom
+        r_values = np.where(denom < 1e-10, 0.0, r_values)
+
+    return r_values
+
+
 
 
 def get_error_metrics(results_folder):

@@ -945,33 +945,6 @@ def plot_states_PDF(ensembles, truth, nbins=20, window=None):
 
 
 
-
-def plot_attractor(psi_cases, color, figsize=(8, 8), ensemble_mean=True):
-    if type(psi_cases) is not list:
-        psi_cases, color = [psi_cases], [color]
-    fig = plt.figure(figsize=figsize)
-    if psi_cases[0].shape[1] == 2:
-        ax = fig.add_subplot(111)
-        ax.set(xlabel='$x$', ylabel='$y$')
-    else:
-        ax = fig.add_subplot(111, projection='3d')
-        for axs_ax in [ax.xaxis, ax.yaxis, ax.zaxis]:
-            axs_ax.pane.fill = False
-        ax.set(xlabel='$x$', ylabel='$y$', zlabel='$z$')
-
-    for psi_, c in zip(psi_cases, color):
-        lw, a = 1., 1.
-        if psi_.ndim > 2:
-            if psi_.shape[2] > 10 or ensemble_mean:
-                psi_ = np.mean(psi_, axis=-1)
-            elif psi_.shape[2] > 1:
-                lw, a = 0.6, 0.3
-        if psi_.shape[1] == 2:
-            ax.plot(psi_[:, 0], psi_[:, 1], lw=lw, c=c, alpha=a)
-        else:
-            ax.plot(psi_[:, 0], psi_[:, 1], psi_[:, 2], lw=lw, c=c)
-
-
 def plot_violins(ax, values, location, color='b', label=None, alpha=0.5, **kwargs):
     violins = ax.violinplot(values, positions=location, **kwargs)
 
