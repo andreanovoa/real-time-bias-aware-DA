@@ -279,7 +279,7 @@ class Model(object):
         """Setter for the time step."""
         if value <= 0:
             raise ValueError("Time step must be positive.")
-        self._dt = value.round(self.precision_t)
+        self._dt = np.round(value, self.precision_t)
 
     @property
     def precision_t(self):

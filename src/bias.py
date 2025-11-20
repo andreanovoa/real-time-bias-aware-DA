@@ -2,9 +2,9 @@ import os
 import matplotlib.pyplot as plt
 from integrator import IVPIntegrator
 from observations import Observations
-from tools_ML.EchoStateNetwork import EchoStateNetwork
-from typing import Type, List, Tuple, Union
-from utils import save_to_pickle_file, load_from_pickle_file, check_valid_file
+from tools_ML import EchoStateNetwork
+from typing import Dict, Type, List, Tuple, Union
+from utils import mean_vector_to_ensemble, save_to_pickle_file, load_from_pickle_file, check_valid_file
 from model import HistoryTracker, Model
 from utils import correlation, interpolate
 import numpy as np
@@ -27,8 +27,9 @@ class Bias:
     extra_keys_to_print = []
 
     def __init__(self, b, t, dt, integrator_class=IVPIntegrator, **kwargs):
-        self.dt = dt
+
         self.precision_t = int(-np.log10(dt)) + 2
+        self.dt = dt
         self.integrator = integrator_class(self)
 
         # ===================== ASSIGN PROVIDED KWARGS ======================= ##
@@ -61,7 +62,7 @@ class Bias:
         if b.ndim == 1: 
             return b.reshape((1, b.size, 1)) # (nb,) -> (1, nb, 1)
         if b.ndim == 2:
-            return b.reshape((*b.shape, 1))  # (nt, nb) -> (nt, nb, 1)
+            return b.reshape((1, *b.shape))  # (nb, nens) -> (1, nb, nens)
         
         raise AssertionError('b must have 1, 2 or 3 dimensions, got {}'.format(b.ndim))
 
@@ -78,14 +79,23 @@ class Bias:
             else:
                 model_bias = self.__format_state(model_bias)
             
-            state = np.concatenate([model_bias, innovation], axis=0)
+            state = np.concatenate([model_bias, innovation], axis=1)
         else:
             state = innovation
 
         return state
+
+    @property
+    def dt(self):   
+        return self._dt
+
+    @dt.setter
+    def dt(self, value):
+        """Setter for the time step."""
+        if value <= 0:
+            raise ValueError("Time step must be positive.")
+        self._dt = np.round(value, self.precision_t)
     
-
-
     @property
     def hist(self):
         """Returns only the valid (non-empty) portion of the history buffer."""
@@ -171,7 +181,7 @@ class Bias:
 
         # Ensure time array matches nt
         if t is None:
-            t = (np.arange(b.shape[0]) * self.dt).round(self.precision_t)
+            t = (np.arange(b.shape[0]) * self.dt).round(self.precision_t) + self.current_time
         if isinstance(t, float):
             t = np.array([t])
         assert t.size == b.shape[0], f"Length of t ({t.size}) must match number of time steps in b ({b.shape[0]})."
@@ -210,7 +220,7 @@ class ESN_bias(Bias, EchoStateNetwork):
 
     biased_observations = True
     update_reservoir = False
-
+    correlation_based_training = True   
     wash_obs , wash_time = None, None
 
     extra_keys_to_print = ['t_train', 
@@ -231,9 +241,6 @@ class ESN_bias(Bias, EchoStateNetwork):
     # def __init__(self, y, t, dt, **kwargs):
         
     def __init__(self, 
-                #  y = None, 
-                #  t = None, 
-                #  dt = None, 
                  forecast_model: Type[Model] = None,
                  reference_data: Union[Type[Observations], List[Type[Observations]]] = None,
                  filename: str = None,
@@ -245,11 +252,8 @@ class ESN_bias(Bias, EchoStateNetwork):
             if hasattr(self, kwy) or kwy in self.extra_keys_to_print:
                 setattr(self, kwy, kwargs.pop(kwy))
 
-        y = kwargs.get('y', np.zeros((forecast_model.Nq, 1)))
-        t = kwargs.get('t', 0.0)
-        dt = kwargs.get('dt', forecast_model.dt)
 
-        super(Bias).__init__(self, b=y, t=t, dt=dt, **kwargs)
+        Bias.__init__(self, **kwargs)
 
         # assign default EchoStateNetwork parameters if not provided
 
@@ -257,7 +261,7 @@ class ESN_bias(Bias, EchoStateNetwork):
         kwargs['t_val'] = getattr(self, 't_val', forecast_model.t_CR)
         kwargs['t_test'] = getattr(self, 't_test', None)
 
-        super(EchoStateNetwork).__init__(self, y=self.hist[0], dt=dt, **kwargs)
+        EchoStateNetwork.__init__(self, y=self.current_state, **kwargs)
 
         # --------------------------  Load or Create ESN Bias Model  ------------------------- #
         
@@ -267,11 +271,11 @@ class ESN_bias(Bias, EchoStateNetwork):
         if loaded_bias is None:
             
             if forecast_model is None or reference_data is None:
-                raise ValueError('forecast_model and reference_data must be provided to create a new bias model')
+                raise ValueError('forecast_model and reference_data must be provided to create a new ESN_bias model')
             
             # Create a copy of the forecast model to use for training data generation --------------------------
             print('Creating new ESN bias model......')
-            self.forecast_model = forecast_model.copy()
+            forecast_model = forecast_model.copy()
 
             t_min = self.t_train + self.t_val
             if self.perform_test:
@@ -285,11 +289,13 @@ class ESN_bias(Bias, EchoStateNetwork):
             # Create training data------------------------------------------------------------------------------
             training_data = self._load_bias_training_dataset(filename, Nt_min)
             if training_data is None:
-                if isinstance(reference_data, Observations):
-                    reference_data = [reference_data]
-                y_raw, y_true = zip(*[(rfd.y_raw, rfd.y_true) for rfd in reference_data])
+                std_alpha = kwargs.pop('std_alpha', None)
+                std_phi = kwargs.pop('std_phi', None)
+                train_data_dict = self._create_bias_training_dataset(forecast_model, reference_data, Nt_min, 
+                                                                     std_phi=std_phi, std_alpha=std_alpha)
 
-                training_data = self._create_bias_training_dataset(y_raw, y_true, filename, Nt_min, **kwargs)
+                if filename is not None:
+                    save_to_pickle_file(filename, train_data_dict)
             else:
                 print('Loaded multi-parameter training data')
 
@@ -304,7 +310,7 @@ class ESN_bias(Bias, EchoStateNetwork):
         else:
             return 0
 
-    def _correlate_data(self, y_L_model, _y_raw, Nt_min):
+    def __correlate_data(self, y_L_model, _y_raw, Nt_min):
         """
         Create training data based on correlation between model outputs and observations.
         Inputs:
@@ -568,135 +574,207 @@ class ESN_bias(Bias, EchoStateNetwork):
             return state[:, self.observed_idx]
         else:
             raise AssertionError('state shape = {}'.format(state.shape))
-# =================================================================================================================== #
-
-
-    def _create_bias_training_dataset(
-                                    self,
-                                    y_raw: list, 
-                                    y_true: list, 
-                                    Nt_min: int, 
-                                    **train_params):
-
+        
+        
+    def __sample_model_states(self, 
+                              fm: Model, 
+                              Nt_min: int,
+                              L: int = 10,
+                              std_phi: float = None,
+                              std_alpha: Union[float, Dict[str, Union[float,  List[float]]]] = None
+                              ) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Multi-parameter data generation for ESN training.
-
+        Sample model states from the forecast model for training data generation.
         Inputs:
-            y_raw: List of raw observation arrays (each of shape Nt x Nq x 1)
-            y_true: List of post-processed observation arrays (each of shape Nt x Nq x 1)
-            Nt_min: Minimum number of time steps for training data
-            train_params: Additional parameters for training data generation
+            fm: Forecast model instance
+            Nt_min: Minimum number of time steps to sample
+        Returns:
+            y_L_model: Sampled model observable history (Nt x Nq x L)
         """
-
+        
         fm = self.forecast_model.copy()
-        Nq = fm.Nq
 
         
-        # =================  Create ensemble for multi-parameter training data generation ============================ #
+        # =================  Create ensemble for multi-parameter training data generation ===
+        if fm.m != L:
+            psi0 = np.mean(fm.current_state.copy(), axis=-1)  # Shape (Npsi,) 
+            if std_phi is None:
+                std_phi = np.std(fm.current_state[:fm.Nphi, :], axis=-1)  # Shape (Nphi,)
+            if std_alpha is None:
+                std_alpha = np.std(fm.current_state[fm.Nphi:fm.Nphi+fm.Na, :], axis=-1)  # Shape (Na,)
+            new_phi = mean_vector_to_ensemble(mean_vec=psi0[:fm.Nphi], 
+                                            std=std_phi, 
+                                            m=L,
+                                            method='uniform')  # Shape (Nphi, L)
+            new_alpha = mean_vector_to_ensemble(mean_vec=psi0[fm.Nphi:fm.Nphi+fm.Na], 
+                                                std=std_alpha, 
+                                                m=L,
+                                                method='uniform')  # Shape (Na, L)
+            psi0_ens = np.concatenate([new_phi, new_alpha], axis=0)  # Shape (Npsi, L)
 
-        # Create ensemble of training data
-        train_params['m'] = L
-        fm.init_ensemble(**train_params)
+            fm.update_history(psi=psi0_ens[np.newaxis, :, :], reset=True)
 
-        # Forecast ensemble
-        Nt_transient = int(round(fm.t_transient / fm.dt))
-        psi, t = fm.time_integrate(Nt=Nt_transient)
-        fm.update_history(psi, t)
-        y_L_model = fm.get_observable_hist()  # N_train x Nq x m
+        # Forecast to post-transient
+        fm.forecast_step(t_end=fm.t_transient, reset=True)
 
-        # -------------  Remove and replace fixed points ------------- #
+        y_L_model = fm.model.get_observable_hist()  # Nt x Nq x m (L)
+        psi = fm.current_state
+
+        #   Remove and replace fixed points ------------- #
         tol = 1e-1
         N_CR = int(round(fm.t_CR / fm.dt))
         range_y = np.max(np.max(y_L_model[-N_CR:], axis=0) - np.min(y_L_model[-N_CR:], axis=0), axis=0)
         idx_FP = (range_y < tol)
-        psi0 = psi[-1, :, ~idx_FP]  # Nq x (m - #FPs)
+
         if len(np.flatnonzero(idx_FP)) / len(idx_FP) >= 0.2:
             allowed_FPs = np.flatnonzero(idx_FP)[0:int(0.2 * len(idx_FP)) + 1]
             idx_FP[allowed_FPs] = 0
-            psi0 = psi[-1, :, ~idx_FP]  # non-fixed point ICs (keeping one)
-            print('There are {}/{} fixed points'.format(len(np.flatnonzero(idx_FP)), 
-                                                        len(idx_FP)))
-            new_psi0 = self.rng.multivariate_normal(np.mean(psi0, axis=0), 
-                                               np.cov(psi0.T), 
-                                               len(np.flatnonzero(idx_FP)))
+            psi0 = psi[:, ~idx_FP]  # non-fixed point ICs (keeping one)
+            print(f'There are {len(np.flatnonzero(idx_FP))}/{len(idx_FP)} fixed points')
+            new_psi0 = self.rng.multivariate_normal(np.mean(psi0, axis=0),  np.cov(psi0.T),  len(np.flatnonzero(idx_FP)))
             psi0 = np.concatenate([psi0, new_psi0], axis=0)
+        else:
+            psi0 = psi
 
-        # Reset ensemble with post-transient ICs
-        fm.update_history(psi=psi0.T, reset=True)
 
-        # -------------  Forecast fixed-point-free ensemble ------------- #
+        #   Forecast fixed-point-free post-transient ensemble ------------- #
+        fm.update_history(psi=psi0[np.newaxis, :, :], reset=True)
+        fm.forecast_step(t_end=Nt_min + 2*fm.t_CR, close=True)
 
-        psi, tt = fm.time_integrate(Nt=Nt_min + N_CR)
-        fm.update_history(psi, tt)
-        fm.close()
+        return fm.model.get_observable_hist()
+
+
+    def __prepare_reference_data(self, reference_data, Nt_min) -> Tuple[np.ndarray, np.ndarray]:
+            """
+            Prepare reference data for training data generation.
+            Inputs:
+                reference_data: List of Observations instances or a single instance
+            Returns:
+                y_raw: List of raw observation arrays (each of shape Nt x Nq x 1)
+                y_true: List of clean observation arrays (each of shape Nt x Nq x 1)
+            """
+            if isinstance(reference_data, Observations):
+                reference_data = [reference_data]
+
+            y_raw, y_true = [], []
+            for rfd in reference_data:
+                # ensure ndim = 3
+                yr, yt = rfd.y_raw.copy(), rfd.y_true.copy()
+                if yr.ndim == 2:
+                    yr = yr[:, :, np.newaxis]
+                if yt.ndim == 2:
+                    yt = yt[:, :, np.newaxis]
+
+                y_raw.append(yr[-Nt_min:])
+                y_true.append(yt[-Nt_min:])
+
+            return y_raw, y_true
+
+
+    def _create_bias_training_dataset(
+                                    self,
+                                    forecast_model: Type[Model],
+                                    reference_data: Union[Type[Observations], List[Type[Observations]]], 
+                                    Nt_min: int, 
+                                    # Additional parameters for training data generation
+                                    std_phi: float = None,
+                                    std_alpha: Union[float, Dict[str, Union[float,  List[float]]]] = None,
+                                    ):
+
+        """
+        Multi-parameter data generation for ESN training.
+        - If the observations are biased, the bias estimator must predict  
+            (1) the innovations, i.e., the difference between the raw data and the model (observable)
+            (2) the difference between the truth and the model, which is the actual model bias (non observable)
+        - If there is data augmentation, the training data are augmented by 
+            (a) scaling the innovations by different factors (only if not correlation_based_training)
+            (b) correlating the model outputs with the observations to create different training sets
+        - If multiple experimental datasets are provided, the training data from each dataset are concatenated.
+
+        Inputs:
+            forecast_model: The forecast model instance
+            reference_data: List of Observations instances or a single instance
+            Nt_min: Minimum number of time steps for training data
+            train_params: Additional parameters for training data generation
+        Returns:
+            train_data: Dictionary containing training data and relevant parameters
+            training_keys = ['upsample',
+                            'L',
+                            'augment_data',
+                            'correlation_based_training',
+                            'biased_observations']
+            data shape: (N_datasets * L * augment_data_length, Nt_min, N_dim)
+        """
+
+        print('Creating multi-parameter training data for ESN bias model...',
+              f'...correlation_based_training = {self.correlation_based_training}',
+              f'...biased_observations = {self.biased_observations}',
+              f'...augment_data = {self.augment_data}', sep='\n\t')
+
+
+
+        y_model_L = self.__sample_model_states(forecast_model.copy(), Nt_min, std_phi=std_phi, std_alpha=std_alpha) # Nt x Nq x L
+        y_raw, y_true = self.__prepare_reference_data(reference_data, Nt_min) # Lists of Nt x Nq x 1
+        Nq = y_model_L.shape[1] # number of observed variables
 
         # ========================================  GENERATE TRAINING DATA ========================================= #
 
-        # If the observations are biased, the bias estimator must predict  (1) the difference between the
-        # raw data and the model, which are the observable quantities; and (2) the difference between the
-        # post-processed data (i.e. the truth) and the model, which is the actual model bias.
+        if not self.correlation_based_training:   # (Nóvoa & Magri 2023 CMAME)
 
-        y_L_model = fm.get_observable_hist()
-        N_datasets = len(y_raw)
+            innovations_all, model_bias_all = [], []
+            for yr, yt in zip(y_raw, y_true):
+                innovations = (yr - y_model_L[-Nt_min:]).transpose((2, 0, 1))  # shape (L x Nt x Nq)
+                innovations_all.append(innovations)
+                
+                if self.augment_data:
+                    innovations_all.append(innovations * 1e-1)
+                    innovations_all.append(innovations * -1e-2)
 
-        innovations_all, model_bias_all = [], []
-        for _y_raw, _y_true in zip(y_raw, y_true):
-            _y_raw, _y_true = [yy[-Nt_min:].copy() for yy in [_y_raw, _y_true]]
-            if _y_raw.ndim < 3:
-                _y_raw, _y_true = [np.expand_dims(yy, axis=-1) for yy in [_y_raw, _y_true]]
+                if self.biased_observations:
+                    model_bias = (yt - y_model_L[-Nt_min:]).transpose((2, 0, 1))  # shape (L x Nt x Nq)
+                    model_bias_all.append(model_bias)
+                    if self.augment_data:
+                        model_bias_all.append(model_bias * 1e-1)
+                        model_bias_all.append(model_bias * -1e-2)                
 
-            if not self.correlation_based_training:   # (Nóvoa & Magri 2023 CMAME)
-                print('\t... not correlation_based_training')
-                train_data_model = y_L_model[-Nt_min:]
+        else:  #  (Nóvoa et al. 2024 JFM) 
+            # Here, we create augmented data sets based on correlation between model outputs and observations.
+            # The augment_data_length determines how many sets are created (best, mid, worst correlations).
+            y_model_L_corr = self.__correlate_data(yr, y_model_L, Nt_min) # shape (Nt_min x Nq x L * augment_data_length)
 
-            else:  # -------- Correlate observations and estimates (Nóvoa et al. 2024 JFM) -------- #
-                print('\t ...correlation_based_training')
-                train_data_model = self._correlate_data(_y_raw, y_L_model, Nt_min)
+            innovations_all, model_bias_all = [], []
+            for yr, yt in zip(y_raw, y_true):
+                innovations = (yr - y_model_L_corr).transpose((2, 0, 1))  # shape (L x Nt x Nq)
+                innovations_all.append(innovations)
+                if self.biased_observations:
+                    model_bias = (yt - y_model_L_corr).transpose((2, 0, 1))  # shape (L x Nt x Nq)
+                    model_bias_all.append(model_bias)
 
-            # ================ Create training biases as (observations - model estimates) ================= #
-            innovations = (_y_raw - train_data_model).transpose((2, 0, 1))  # Force shape to be (L x Nt x N_dim). Note: N_dim = Nq
+        # Combine the innovations (and model biases) #
 
-            assert innovations.shape[1] == Nt_min
-            assert innovations.shape[2] == y_L_model.shape[1]
-
-            if biased_observations:
-                model_bias = _y_pp - train_data_model
-                model_bias = model_bias.transpose((2, 0, 1))
-                model_bias_all.append(model_bias)
-            elif augment_data and not correlation_based_training:
-                inn = innovations.copy()
-                innovations = np.zeros([L * 3, Nt_min, train_ens.Nq])
-
-                innovations[:L] = inn
-                innovations[L:-L] = inn * 1e-1
-                innovations[-L:] = inn * -1e-2
-
-            innovations_all.append(innovations)
-
-        # ------------- Combine the innovations (and model biases) --------------- #
-        # If training with more than one experimental dataset, the shape is (N_datasets*L x Nt x N_dim).
-        # Example: Generalization section in Nóvoa et al. (2024 JFM).
-        innovations_all = np.concatenate(innovations_all, axis=0)
-        if not biased_observations:
-            print('\t... training with innovations only')
-            train_data = dict(data=innovations_all,
-                              observed_idx=np.arange(ensemble.Nq))
+        if not self.biased_observations:
+            train_data = np.concatenate(innovations_all, axis=0)
+            observed_idx = np.arange(Nq)
         else:
-            print('\t... training with innovations and model bias (i.e., assuming biased observations)')
-            model_bias_all = np.concatenate(model_bias_all, axis=0)
-            train_data = dict(data=np.concatenate([model_bias_all, 
-                                                   innovations_all], axis=2),
-                              observed_idx=ensemble.Nq + np.arange(ensemble.Nq))
+            innovations_all = np.concatenate(innovations_all, axis=0)
+            model_bias_all = np.concatenate(model_bias_all, axis=0) 
+            train_data = np.concatenate([model_bias_all,
+                                         innovations_all], axis=2)
+            observed_idx = Nq + np.arange(Nq) # indices of innovations in the state vector            
 
         # =============================== Save train_data dict ================================ #
         # Save key keywords
-        for k in training_keys:
-            train_data[k] = locals()[k]
+        train_data_dict = {key:val for key, val in self.config.items()} 
+        # add the extra kwargs used to create the training data
+        # train_data_dict.update({key: val for key, val in kwargs.items() if key not in train_data_dict.keys()})
+        # add training data and observed indices
+        train_data_dict.update(train_data=train_data,
+                               observed_idx=observed_idx,
+                               )
+        return train_data_dict
+        
 
-        if filename is not None:
-            save_to_pickle_file(filename, train_data)
 
-        return train_data
 
 
     def _load_bias_training_dataset(self, filename, Nt_min):

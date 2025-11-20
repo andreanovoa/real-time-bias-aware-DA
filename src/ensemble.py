@@ -353,8 +353,8 @@ class Ensemble(object):
         it instantiates it using the model's current state as the mean observation.
         Parameters
         ----------
-        bias_class : type, optional
-            The class of the bias model to instantiate. If None, uses the current bias instance.
+        parent_bias : type or Bias instance, optional
+            The class of the bias model to instantiate or an existing Bias instance. If None, uses the current bias instance.
         Bdict : dict, optional
             Additional keyword arguments to pass to the bias constructor.
         """
@@ -367,20 +367,23 @@ class Ensemble(object):
             try:
                 # Get observable for one member to determine dimension
                 y0_all = pm.get_observables()
-                y0 = np.mean(y0_all, axis=-1)
-                if y0.ndim > 2:
-                    y0 = y0.squeeze(axis=-1)
+                y0 = np.mean(y0_all, axis=-1, keepdims=True)  # Shape (Nq, 1)
+
             except (AttributeError, IndexError):
                 # Fallback if the model cannot yet produce observables
-                y0 = np.zeros(pm.Nq) 
+                y0 = np.zeros((1, pm.Nq, 1)) 
             
             # remove dt, y, t from Bdict if they exist to avoid duplication
             [Bdict.pop(key, None) for key in ['y', 't', 'dt']]
 
-            self._bias = parent_bias(y=y0, 
+            print(f"Initializing bias model {parent_bias.name} with initial state shape {y0.shape} at time {pm.current_time}")
+            
+
+            self._bias = parent_bias(b=y0, 
                                     t=pm.current_time, 
                                     dt=pm.dt, 
                                     initial_capacity=pm.history._initial_capacity,
+                                    forecast_model=pm,
                                     **Bdict
                                     )
 
