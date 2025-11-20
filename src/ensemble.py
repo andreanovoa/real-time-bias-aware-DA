@@ -306,12 +306,16 @@ class Ensemble(object):
                 ensemble_psi0 = np.concatenate((ensemble_psi0, ensemble_alpha0), axis=0)
 
             # Store the generated ensemble
-            self.ensemble_psi0 = ensemble_psi0
+            self.ensemble_psi0 = ensemble_psi0[np.newaxis, :, :]  # Shape (1, Nphi+Na, m)
+
         else:
-            assert self.ensemble_psi0.shape[1] == self.m, \
-                f'Provided ensemble_psi0 has {self.ensemble_psi0.shape[1]} members, expected {self.m}.'
-            assert self.ensemble_psi0.shape[0] == pm.Nphi + self.Na, \
-                f'Provided ensemble_psi0 has state size {ensemble_psi0.shape[0]}, expected {pm.Nphi + self.Na}.'
+            if self.ensemble_psi0.ndim == 2:
+                self.ensemble_psi0 = self.ensemble_psi0[np.newaxis, :, :]
+
+            assert self.ensemble_psi0.shape[-1] == self.m, \
+                f'Provided ensemble_psi0 has {self.ensemble_psi0.shape[-1]} members, expected {self.m}.'
+            assert self.ensemble_psi0.shape[1] == pm.Nphi + self.Na, \
+                f'Provided ensemble_psi0 has state size {self.ensemble_psi0.shape[1]}, expected {pm.Nphi + self.Na}.'
 
         # 3. Update the parent model's history (resets initial condition)
         print('resetting model history with ensemble initial state of shape:', self.ensemble_psi0.shape)
@@ -355,6 +359,7 @@ class Ensemble(object):
                 y=y0, 
                 t=pm.current_time, 
                 dt=pm.dt, 
+                initial_capacity=self.model.history._initial_capacity,
                 **Bdict
             )
 
@@ -403,22 +408,29 @@ class Ensemble(object):
         Their corresponding histories are updated.
         """
         pm = self.model
-
-
+        
         if t_end is not None:
-            Nt = int(np.round((t_end - pm.current_time) / pm.dt))
-            kwargs['Nt'] = Nt
+            Nt = int(np.ceil((t_end - pm.current_time) / pm.dt))
+            kwargs_local = kwargs.copy()
+            kwargs_local['Nt'] = Nt
+        else:
+            kwargs_local = kwargs
 
-        psi, t = pm.time_integrate(**kwargs)
+        psi, t = pm.time_integrate(**kwargs_local)
+
+
+        print('Forecasted ensemble shape:', psi.shape)
+        print('Forecasted time shape:', t.shape, 't0 =', t[0], 't_end =', t[-1], 'current_time =', pm.current_time)
 
         try:
             pm.update_history(psi, t, reset=reset) # add the forecast to the model history
-        except ValueError:
+        except ValueError as e:
             print(f"Solver didn't return a homogeneous psi. Check initial conditions and input_parameters")
+            raise e
 
 
         # Advance bias model
-        y = pm.get_observable_hist(Nt)
+        y = pm.get_observable_hist(Nt=psi.shape[0])  # Get observables for the forecasted states
         pb = self.bias
         b, t_b = pb.time_integrate(t=t,
                                    y=y, 
@@ -428,8 +440,8 @@ class Ensemble(object):
         if close:
             pm.close()
 
-        if pm.hist_t[-1] != pb.hist_t[-1]:
-            raise AssertionError('t assertion', pm.hist_t[-1], pb.hist_t[-1])    
+        if pm.current_time != pb.current_time:
+            raise AssertionError('t assertion', pm.current_time, pb.current_time)    
 
         
 
@@ -554,7 +566,7 @@ class Ensemble(object):
 
 
 
-    def get_observable_hist(self, Nt=1) -> np.ndarray:
+    def get_observable_hist(self, Nt=0) -> np.ndarray:
         """
         Returns the bias-corrected ensemble history.
             y_unbiased = self._recover_unbiased_solution(pb.hist_t, pb.hist, pm.hist_t, y_model)
@@ -574,7 +586,7 @@ class Ensemble(object):
         
         pb = self.bias
 
-        y_model = self.model.get_observables(Nt=Nt)  # Shape: (T, obs_dim, m) or (obs_dim, m) if Nt=0
+        y_model = self.model.get_observable_hist(Nt=Nt)  # Shape: (T, obs_dim, m) or (obs_dim, m) if Nt=0
 
         if pb.__class__.__name__ == 'NoBias':
             return y_model  # No bias correction needed
@@ -606,16 +618,14 @@ class Ensemble(object):
         y_unbiased : array-like, shape (T, ...)
             Bias-corrected observable history at each time in t.
         """
-        if b.ndim < y.ndim:
-            b = np.expand_dims(b, axis=-1)
-        elif b.shape[-1] > 1:
-            b = np.mean(b, axis=-1, keepdims=True)
 
         if b.shape[-1] == 1 and y.shape[-1] > 1:
             b = np.repeat(b, y.shape[-1], axis=-1)
 
         if len(t_b) != len(t):
+            print('Interpolating bias to match model time points. this may be slow if histories are long.')
             b = interpolate(t_b, b, t, fill_values=None) # Interpolate bias to model time points
+
         return y + b
     
 
@@ -972,6 +982,8 @@ def normalized_y(reference_y: float, y_lables, *ys) -> Tuple[np.ndarray, str]:
         return ys, y_lables
 
     reference_y = reference_y[np.newaxis, :, np.newaxis]
+    
+
     ys = [y.copy() / reference_y if y is not None else None for y in ys]     
     y_lables = [f'{y_lables[qi]} / ${reference_y[0, qi, 0]}$' for qi in range(Ny)]
 
@@ -1150,6 +1162,8 @@ def plot_observable_history(ensemble : Ensemble,
     else:
         min_time, max_time = t[0], t[-1]
 
+    print('Plotting observable history from t =', min_time, 'to t =', max_time, )
+    print('shapes: t:', t.shape, 'y_model:', y_model.shape, 'y_unbiased:', y_unbiased.shape, 'y_raw:', y_raw.shape if y_raw is not None else None, 'y_true:', y_true.shape if y_true is not None else None)
 
     # Nomalize ys ----  
     (y_unbiased, y_model, y_raw, y_true), y_labels = normalized_y(reference_y, pm.obs_labels, 

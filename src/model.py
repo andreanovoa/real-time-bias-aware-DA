@@ -5,10 +5,123 @@ from copy import deepcopy
 import numpy as np
 import warnings
 
-from bias import NoBias
-
 from integrator import IVPIntegrator
 import matplotlib.pyplot as plt
+
+
+
+class HistoryTracker:
+    """ Mixin class to add history tracking functionality to models.
+    """
+    
+    # ________________________ History accessors ________________________ #
+
+    @property
+    def hist(self):
+        """Returns only the valid (non-empty) portion of the history buffer."""
+        return self._hist[:self.current_ti]
+
+    @property
+    def hist_t(self):
+        """Returns only the valid portion of the time history."""
+        return self._hist_t[:self.current_ti]
+    
+    @property
+    def capacity(self):
+        return self._hist_t.shape[0]
+
+    @property
+    def current_state(self):
+        return self.hist[self.current_ti - 1]
+
+    @property
+    def current_time(self):
+        return self.hist_t[self.current_ti - 1]
+    
+    @property
+    def current_ti(self):
+        return self._ti
+
+    @current_ti.setter
+    def current_ti(self, value: int):
+        self._ti = value
+
+
+    def _reset_history(self, psi_reset, t_reset):
+        """Resets the history arrays to the provided psi_reset and t_reset.
+        Args:
+            psi_reset: New state history to set (Nt, N, m)
+            t_reset: New time history to set (Nt,)
+        """
+
+        Nt = max(psi_reset.shape[0], self._initial_capacity)
+
+        # Initialize the history arrays
+        self._hist = np.empty((Nt, psi_reset.shape[1], psi_reset.shape[2]))
+        self._hist_t = np.empty((Nt,))
+        # Store the reset history
+
+        self._hist[:psi_reset.shape[0]] = psi_reset
+        self._hist_t[:t_reset.shape[0]] = t_reset
+        self.current_ti = psi_reset.shape[0]
+
+    def _reset_last_state(self, psi_new, t=None):
+        """Resets only the last state in the history arrays to the provided psi_new and t."""
+        if psi_new.shape[0]> 1:
+            raise ValueError("psi_new must contain only one time step to reset the last state.")
+        else:
+            self._hist[self.current_ti - 1] = psi_new[0]
+        if t is not None:
+            self._hist_t[self.current_ti - 1] = t[-1]
+
+
+    def update_history(self, psi: np.ndarray, t: np.ndarray, reset=False, update_last_state=False):
+        assert psi.shape[0] == t.shape[0], f"Length of t ({t.shape}) must match number of time steps in psi ({psi.shape})."
+        if reset: # Reset the full history 
+            self._reset_history(psi, t)
+        
+        elif update_last_state: # Update only the last state in history
+            self._reset_last_state(psi, t=t)
+        else:
+            t0 = self.current_ti
+            t1 = t0 + psi.shape[0]
+
+            if t1 > self.capacity:
+                # print(f'History capacity exceeded: {t1} > {self.capacity}. Increasing history size.'
+                #       f' Current time index: {self.current_ti}.'
+                #       f' psishape: {psi.shape}')
+                self._increase_hist_size(Nt=psi.shape[0]*10, Ndim=psi.shape[1])
+
+            self._hist[t0:t1] = psi
+            self._hist_t[t0:t1] = t
+            self.current_ti = t1
+
+
+    def _increase_hist_size(self, Nt=None, Ndim=None):
+        """
+        With this I avoid np.concatenate every time I want to add new data to history. 
+        """
+        
+        if Nt is None: 
+            Nt = self._initial_capacity
+
+        new_capacity = self.capacity + Nt
+
+        print(f'Increasing history size from {self.capacity} to {new_capacity} time steps.')
+
+        # Create new, larger arrays
+
+        new_hist = np.empty((new_capacity, self._hist.shape[1], self._hist.shape[2]))
+        new_hist_t = np.empty((new_capacity,))
+
+        # Copy existing data (expensive operation, but done rarely)
+        new_hist[:self.capacity] = self._hist
+        new_hist_t[:self.capacity] = self._hist_t
+
+        # Update attributes
+        self._hist = new_hist
+        self._hist_t = new_hist_t
+
 
 
 
@@ -63,8 +176,14 @@ class Model(object):
         self.alpha = self.alpha0.copy()
 
         # ========================== CREATE HISTORY ========================== ##
-        self.hist = np.reshape(self.psi0, (-1, self.Nphi, 1))
-        self.hist_t = np.array([0.])
+        # self._initial_capacity = int(self.t_transient / self.dt) # Initial capacity of history arrays
+        # self._current_ti = 1  # Current time index in history arrays
+        
+        self.history = HistoryTracker()
+        self.history._initial_capacity = int(self.t_transient / self.dt)*2 if self.t_transient > 0 else 1000
+        self.update_history(psi=self.psi0[np.newaxis, :, :], 
+                            t=np.array([0.]), 
+                            reset=True)
         
         # ======================== SET RNG ================================== ##
         self.rng = 10
@@ -75,6 +194,53 @@ class Model(object):
         # The model holds an instance of the specific Integrator
         self.integrator = integrator_class(self)
 
+
+    def update_history(self, psi: np.ndarray, t=None, reset=False, update_last_state=False):
+        psi = self.__format_state(psi)
+        if t is None:
+            t = (np.arange(psi.shape[0]) * self.dt).round(self.precision_t)
+        if isinstance(t, float):
+            t = np.array([t])
+        assert t.size == psi.shape[0], f"Length of t ({t.size}) must match number of time steps in psi ({psi.shape[0]})."
+        self.history.update_history(psi, t=t, reset=reset, update_last_state=update_last_state)
+
+
+    @property
+    def hist(self):
+        """Returns only the valid (non-empty) portion of the history buffer."""
+        return self.history.hist
+
+    @property
+    def hist_t(self):
+        """Returns only the valid portion of the time history."""
+        return self.history.hist_t
+    
+    @property
+    def current_state(self):
+        return self.history.current_state
+
+    @property
+    def current_time(self):
+        return self.history.current_time
+    
+
+
+    def __format_state(self, psi: np.ndarray) -> np.ndarray:
+        """Ensure psi has the correct shape (Nt, N, m) for history storage.
+        Args:
+            psi: State array to format.
+        Returns:
+            Formatted state array with shape (Nt, N, m).
+        """ 
+        if psi.ndim == 1:
+            psi = psi[np.newaxis, :, np.newaxis]  # (N,) -> (1, N, 1)
+        elif psi.ndim == 2:
+            psi = psi[np.newaxis, :, :]  # (N, m) -> (1, N, m)
+        elif psi.ndim == 3:
+            pass  # Already in correct shape (Nt, N, m)
+        else:
+            raise ValueError(f"State array psi has invalid number of dimensions: {psi.ndim}={psi.shape}. Expected 1, 2, or 3.")
+        return psi
 
     def define_print_params(self):
         return [*self.alpha_labels, *self.extra_print_params]
@@ -102,9 +268,9 @@ class Model(object):
 
     @alpha0.setter
     def alpha0(self, dict_params):
-        # Set the initial input parameters dictionary
-        # Initial parameters are unchanged during the model run
-        # Ensure the dictionary is unmutable
+        """
+        Set the initial input parameters dictionary. Initial parameters are unchanged during the model run. 
+        """
         if hasattr(self, '_alpha0'):
             raise AttributeError("alpha0 is read-only and cannot be modified after initialization.")
         self._alpha0 = dict_params
@@ -151,28 +317,12 @@ class Model(object):
     def m(self): 
         return self.hist.shape[-1]
 
-    @property
-    def default_params(self):
-        return dict((key, getattr(self.__class__, key)) for key in self.params)
-
-    @property
-    def current_state(self):
-        return self.hist[-1]
-
-    @property
-    def current_time(self):
-        return self.hist_t[-1]
-
+    
     def set_fixed_params(self):
         fixed_params = dict((key, getattr(self, key)) for key in self.fixed_params)
         self.governing_eqns_params.update(fixed_params)
 
-    @property
-    def bias_type(self):
-        if hasattr(self, 'bias'):
-            return type(self.bias)
-        else:
-            return NoBias
+
 
     def create_long_timeseries(self, Nt=None):
         if Nt is None:
@@ -251,53 +401,13 @@ class Model(object):
     def modify_settings(self):
         pass
 
-
-    def update_history(self, psi=None, t=None, reset=False, update_last_state=False):
-        if type(t) is float:
-            t = np.array([t])
-
-        if not reset and not update_last_state:
-            self.hist = np.concatenate((self.hist, psi), axis=0)
-            self.hist_t = np.hstack((self.hist_t, t))
-        elif update_last_state:
-            if psi is not None:
-                if psi.shape[0] != self.Nphi + self.Na:
-                    psi = psi[-1]
-
-                self.reset_last_state(psi, t=t)
-            else:
-                raise ValueError('psi must be provided')
-        else:
-            if psi is None:
-                psi = np.array(np.array([self.psi0]).T)
-            if psi.ndim == 2:
-                psi = np.array([psi])
-                if t is None:
-                    t = np.array([0.])
-            elif t is None:
-                t = np.arange(psi.shape[0]) * self.dt
-                t = np.array([t])
-                if t.ndim > 1:
-                    t = t[..., 0]
-
-            self.reset_history(psi, t)
-
-    def reset_history(self, psi, t):
-        self.hist = psi
-        self.hist_t = t
-
-    def reset_last_state(self, psi, t=None):
-        self.hist[-1] = psi
-        if t is not None:
-            self.hist_t[-1] = t
-
-    def is_not_physical(self, print_=False):
-        if not hasattr(self, '_physical'):
-            self._physical = 0
-        if print_:
-            print(f'Number of non-physical analysis = {self._physical}/{self.number_of_analysis_steps}')
-        else:
-            self._physical += 1
+    # def is_not_physical(self, print_=False):
+    #     if not hasattr(self, '_physical'):
+    #         self._physical = 0
+    #     if print_:
+    #         print(f'Number of non-physical analysis = {self._physical}/{self.number_of_analysis_steps}')
+    #     else:
+    #         self._physical += 1
 
     def close(self):
         self.integrator.close()

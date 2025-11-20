@@ -1,11 +1,11 @@
 import os
 import matplotlib.pyplot as plt
 from integrator import IVPIntegrator
-from real_public.src.observations import Observations
+from observations import Observations
 from tools_ML.EchoStateNetwork import EchoStateNetwork
 from typing import Type, List, Tuple, Union
-from utils_pickle import save_to_pickle_file, load_from_pickle_file, check_valid_file
-from model import Model
+from utils import save_to_pickle_file, load_from_pickle_file, check_valid_file
+from model import HistoryTracker, Model
 from utils import correlation, interpolate
 import numpy as np
 from copy import deepcopy
@@ -35,34 +35,14 @@ class Bias:
         [setattr(self, key, kwargs.pop(key)) for key in kwargs.keys() if hasattr(self, key)]
 
         # ========================== CREATE HISTORY ========================== ##
-        b = np.asarray(b)
+        b = self.build_bias_state(b)
 
-        # Ensure b has shape (nt, nb, nens)
-        if b.ndim == 1:
-            # (nb,) -> (1, nb, 1)
-            b = b.reshape((1, b.size, 1))
-        elif b.ndim == 2:
-            # (nt, nb) -> (nt, nb, 1)
-            b = b.reshape((*b.shape, 1))
-        elif b.ndim == 3:
-            # already (nt, nb, nens)
-            pass
+        self.history = HistoryTracker()
+        if 'initial_capacity' in kwargs.keys():
+            self.history._initial_capacity = kwargs.pop('initial_capacity')
         else:
-            raise AssertionError('b must have 1, 2 or 3 dimensions, got {}'.format(b.ndim))
-
-        # If observations are biased, duplicate the state dimension (nq) for bias/innovations
-        if self.biased_observations:
-            b = np.concatenate([b, b], axis=1)
-
-        # Ensure time array matches nt
-        t = np.asarray(t)
-        if t.ndim == 0:
-            t = t.reshape((1,))
-        if t.size != b.shape[0]:
-            raise AssertionError('length of t ({}) must match number of time steps in b ({})'.format(t.size, b.shape[0]))
-
-        self.hist = b
-        self.hist_t = t
+            self.history._initial_capacity = max(1000, b.shape[0]*10)
+        self.update_history(b, t=t, reset=True)
                                         
         # Add keys to print out
         if self.bayesian_update:
@@ -70,12 +50,63 @@ class Bias:
         
         self.keys_to_print += self.extra_keys_to_print
 
+    
+    def __reshape_state(self, b):
+        """
+        Ensure b has shape (nt, nb, nens)
+        """
+        if b.ndim == 3:
+            return b # already (nt, nb, nens)
+        if b.ndim == 1: 
+            return b.reshape((1, b.size, 1)) # (nb,) -> (1, nb, 1)
+        if b.ndim == 2:
+            return b.reshape((*b.shape, 1))  # (nt, nb) -> (nt, nb, 1)
+        
+        raise AssertionError('b must have 1, 2 or 3 dimensions, got {}'.format(b.ndim))
+
+
+    def build_bias_state(self, innovation, model_bias=None):
+        """
+        Build the full bias state from innovations and model bias (if applicable)
+        """
+        innovation = self.__reshape_state(innovation)
+
+        if self.biased_observations:
+            if model_bias is None and not hasattr(self, 'hist'):
+                model_bias = innovation.copy()
+            else:
+                model_bias = self.__reshape_state(model_bias)
+            
+            bias_state = np.concatenate([model_bias, innovation], axis=0)
+        else:
+            bias_state = innovation
+
+        return bias_state
+    
+
+    @property
+    def hist(self):
+        """Returns only the valid (non-empty) portion of the history buffer."""
+        return self.history.hist
+
+    @property
+    def hist_t(self):
+        """Returns only the valid portion of the time history."""
+        return self.history.hist_t
+    
+    @property
+    def current_state(self):
+        return self.history.current_state
+
+    @property
+    def current_time(self):
+        return self.history.current_time
+
 
     @property
     def config(self):
         _config = dict()
         for key in self.keys_to_print:
-             
              if hasattr(self, key):
                 _config[key] = getattr(self, key)
 
@@ -83,47 +114,16 @@ class Bias:
 
 
     @property
-    def hist(self):
-        return self._hist
-    
-    @hist.setter
-    def hist(self, b):
-        b = np.asarray(b)
-
-        # Ensure b has shape (nt, nb, nens)
-        if b.ndim == 1:
-            # (nb,) -> (1, nb, 1)
-            b = b.reshape((1, b.size, 1))
-        elif b.ndim == 2:
-            # (nt, nb) -> (nt, nb, 1)
-            b = b.reshape((*b.shape, 1))
-        elif b.ndim == 3:
-            # already (nt, nb, nens)
-            pass
-        else:
-            raise AssertionError('b must have 1, 2 or 3 dimensions, got {}'.format(b.ndim))
-        assert b.ndim == 3, 'b must have 3 dimensions (nt, nb, nens), got {}'.format(b.ndim)
-        
-        self._hist = b
-
-
-    @property
     def N_ens(self):
-        return self.hist.shape[-1]
-
-    @property
-    def current_time(self):
-        return self.hist_t[-1]
+        return self.current_state.shape[-1]
 
     @property
     def current_bias(self):
-        current_state = self.hist[-1]
-        return self.get_bias(state=current_state)
+        return self.get_bias(state=self.current_state)
 
     @property
     def current_innovations(self):
-        current_state = self.hist[-1]
-        return self.get_innovations(state=current_state)
+        return self.get_innovations(state=self.current_state)
 
     def get_bias(self, state, **kwargs):
         return state
@@ -149,38 +149,50 @@ class Bias:
                     print('\t {} = {}'.format(key, val))
 
 
+    
+
     def update_history(self, b, t=None, reset=False, update_last_state=False, **kwargs):
+        b = self.__reshape_state(b)
 
-        assert self.hist.ndim == 3
+        # Ensure time array matches nt
+        if t is None:
+            t = (np.arange(b.shape[0]) * self.dt).round(self.precision_t)
+        if isinstance(t, float):
+            t = np.array([t])
+        assert t.size == b.shape[0], f"Length of t ({t.size}) must match number of time steps in b ({b.shape[0]})."
+        
+        self.history.update_history(b, t=t, reset=reset, update_last_state=update_last_state)
 
-        if not reset and not update_last_state:
-            if b is None or t is None:
-                raise AssertionError('both t and b must be defined')
-            self.hist = np.concatenate((self.hist, b))
-            self.hist_t = np.concatenate((self.hist_t, t))
-        elif update_last_state:
-            if b is not None:
-                self.update_current_state(b, **kwargs)
-            else:
-                raise ValueError('psi must be provided')
-            if t is not None:
-                self.hist_t[-1] = t
-        else:
-            if t is None:
-                t = self.current_time
+    #     assert self.hist.ndim == 3
+
+    #     if not reset and not update_last_state:
+    #         if b is None or t is None:
+    #             raise AssertionError('both t and b must be defined')
+    #         self.hist = np.concatenate((self.hist, b))
+    #         self.hist_t = np.concatenate((self.hist_t, t))
+    #     elif update_last_state:
+    #         if b is not None:
+    #             self.update_current_state(b, **kwargs)
+    #         else:
+    #             raise ValueError('psi must be provided')
+    #         if t is not None:
+    #             self.hist_t[-1] = t
+    #     else:
+    #         if t is None:
+    #             t = self.current_time
             
-            if b.ndim == 2:
-                b = np.expand_dims(b, axis=-1)
+    #         if b.ndim == 2:
+    #             b = np.expand_dims(b, axis=-1)
                 
-            self.reset_history(b, t)
+    #         self.reset_history(b, t)
 
 
-    def update_current_state(self, b, **kwargs):
-        self.hist[-1] = b
+    # def update_current_state(self, b, **kwargs):
+    #     self.hist[-1] = b
 
-    def reset_history(self, b, t):
-        self.hist_t = t
-        self.hist = b
+    # def reset_history(self, b, t):
+    #     self.hist_t = t
+    #     self.hist = b
 
     def copy(self):
         return deepcopy(self)
@@ -577,8 +589,7 @@ class ESN_bias(Bias, EchoStateNetwork):
                                     self,
                                     y_raw: list, 
                                     y_true: list, 
-                                    Nt_min,
-                                    len_augment_set=2,
+                                    Nt_min: int, 
                                     **train_params):
 
         """
@@ -619,7 +630,7 @@ class ESN_bias(Bias, EchoStateNetwork):
             psi0 = psi[-1, :, ~idx_FP]  # non-fixed point ICs (keeping one)
             print('There are {}/{} fixed points'.format(len(np.flatnonzero(idx_FP)), 
                                                         len(idx_FP)))
-            new_psi0 = rng.multivariate_normal(np.mean(psi0, axis=0), 
+            new_psi0 = self.rng.multivariate_normal(np.mean(psi0, axis=0), 
                                                np.cov(psi0.T), 
                                                len(np.flatnonzero(idx_FP)))
             psi0 = np.concatenate([psi0, new_psi0], axis=0)
@@ -649,28 +660,12 @@ class ESN_bias(Bias, EchoStateNetwork):
                 _y_raw, _y_true = [np.expand_dims(yy, axis=-1) for yy in [_y_raw, _y_true]]
 
             if not self.correlation_based_training:   # (Nóvoa & Magri 2023 CMAME)
-                print('Not correlation_based_training')
+                print('\t... not correlation_based_training')
                 train_data_model = y_L_model[-Nt_min:]
 
             else:  # -------- Correlate observations and estimates (Nóvoa et al. 2024 JFM) -------- #
-                print('Yes correlation_based_training')
+                print('\t ...correlation_based_training')
                 train_data_model = self._correlate_data(_y_raw, y_L_model, Nt_min)
-                # lags = np.linspace(start=0, stop=N_corr, num=N_corr, dtype=int)
-                # _y_raw_corr = _y_raw[:N_corr, ..., 0]
-                # train_data_model = np.zeros([Nt_min, train_ens.Nq, L * len_augment_set])
-
-                # for ii in range(train_ens.m):
-                #     yy = y_L_model[:, :, ii]
-
-                #     _RS = [CR(_y_raw_corr, yy[lag:N_corr + lag] / np.max(yy[lag:N_corr + lag]))[1] for lag in lags]
-                #     best_lag = lags[np.argmin(_RS)]  # fully correlated
-                #     worst_lag = lags[np.argmax(_RS)]  # fully uncorrelated
-                #     mid_lag = int(np.mean([best_lag, worst_lag]))  # mid-correlated
-                #     # Store train data
-                #     train_data_model[:, :, len_augment_set * ii] = yy[best_lag:best_lag + Nt_min]
-                #     train_data_model[:, :, len_augment_set * ii + 1] = yy[mid_lag:mid_lag + Nt_min]
-                #     if len_augment_set == 3:
-                #         train_data_model[:, :, len_augment_set * ii + 2] = yy[worst_lag:worst_lag + Nt_min]
 
             # ================ Create training biases as (observations - model estimates) ================= #
             innovations = (_y_raw - train_data_model).transpose((2, 0, 1))  # Force shape to be (L x Nt x N_dim). Note: N_dim = Nq
@@ -697,11 +692,14 @@ class ESN_bias(Bias, EchoStateNetwork):
         # Example: Generalization section in Nóvoa et al. (2024 JFM).
         innovations_all = np.concatenate(innovations_all, axis=0)
         if not biased_observations:
+            print('\t... training with innovations only')
             train_data = dict(data=innovations_all,
                               observed_idx=np.arange(ensemble.Nq))
         else:
+            print('\t... training with innovations and model bias (i.e., assuming biased observations)')
             model_bias_all = np.concatenate(model_bias_all, axis=0)
-            train_data = dict(data=np.concatenate([model_bias_all, innovations_all], axis=2),
+            train_data = dict(data=np.concatenate([model_bias_all, 
+                                                   innovations_all], axis=2),
                               observed_idx=ensemble.Nq + np.arange(ensemble.Nq))
 
         # =============================== Save train_data dict ================================ #

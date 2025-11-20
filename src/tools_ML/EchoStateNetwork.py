@@ -793,14 +793,16 @@ class EchoStateNetwork:
             raise ValueError(f"Unknown normalization method: {method}")
         
 
-    def initialise_state(self, data, N_ens=1, seed=0):
-        if hasattr(self, 'seed'):
-            seed = self.seed
+    def initialise_state(self, data, N_ens=1, seed=None):
+        if seed is not None:
+            rng0 = np.random.default_rng(seed)
+        else:
+            rng0 = self.rng
 
         if hasattr(self, 'm'):
             N_ens = getattr(self, 'm')
 
-        rng0 = np.random.default_rng(seed)
+        
         # initialise state with a random sample from test data
         u_init, r_init = (np.empty((self.N_dim, N_ens)),
                           np.empty((self.N_units, N_ens)))
@@ -1008,13 +1010,18 @@ class EchoStateNetwork:
 
     # _______________________________________________________________________________________ TEST & PLOTTING FUNCTIONS
 
+    @property
+    def rng(self):
+        if not hasattr(self, '_rng'):
+            self._rng = np.random.default_rng(self.seed)
+        return self._rng
+
     def run_test(self, 
                  U_test, 
                  Y_test, 
                  pdf_file=None, 
                  Nt_test=None,
                  max_L_tests=10, 
-                 seed=0, 
                  nbins=20, 
                 max_short_tests=10,
                 long_term=True,
@@ -1056,7 +1063,7 @@ class EchoStateNetwork:
             Y_test = Y_test[np.newaxis, :, :]
 
 
-        rng0 = np.random.default_rng(seed)
+        rng0 = self.rng
 
         L, max_test_time, Nq = U_test.shape
         max_test_time -= self.N_wash

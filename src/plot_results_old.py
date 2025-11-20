@@ -1528,7 +1528,7 @@ def print_parameter_results(ensembles, true_values=None):
     truth_row = ['Truth']
 
     if true_values is None:
-        true_values = ensembles[0].default_params
+        true_values = ensembles[0].alpha0
 
     keys = sorted(true_values.keys())
     
