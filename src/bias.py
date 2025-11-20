@@ -1,10 +1,10 @@
 import os
 import matplotlib.pyplot as plt
 from integrator import IVPIntegrator
-from real_public.src.observations import Observations
+from observations import Observations
 from tools_ML.EchoStateNetwork import EchoStateNetwork
 from typing import Type, List, Tuple, Union
-from utils_pickle import save_to_pickle_file, load_from_pickle_file, check_valid_file
+from utils import save_to_pickle_file, load_from_pickle_file, check_valid_file
 from model import Model
 from utils import correlation, interpolate
 import numpy as np

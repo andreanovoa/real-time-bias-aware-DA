@@ -5,8 +5,6 @@ from copy import deepcopy
 import numpy as np
 import warnings
 
-from bias import NoBias
-
 from integrator import IVPIntegrator
 import matplotlib.pyplot as plt
 
@@ -167,12 +165,6 @@ class Model(object):
         fixed_params = dict((key, getattr(self, key)) for key in self.fixed_params)
         self.governing_eqns_params.update(fixed_params)
 
-    @property
-    def bias_type(self):
-        if hasattr(self, 'bias'):
-            return type(self.bias)
-        else:
-            return NoBias
 
     def create_long_timeseries(self, Nt=None):
         if Nt is None:
