@@ -70,9 +70,12 @@ class HistoryTracker:
         if psi_new.shape[0]> 1:
             raise ValueError("psi_new must contain only one time step to reset the last state.")
         else:
+            # print(f"changing last state in history: {self._hist[self.current_ti - 1]} to new value: ", psi_new.flatten())
+
             self._hist[self.current_ti - 1] = psi_new[0]
         if t is not None:
-            self._hist_t[self.current_ti - 1] = t[-1]
+            # print(f"changing last time in history: {self._hist_t[self.current_ti - 1]} to new value: ", t[0])
+            self._hist_t[self.current_ti - 1] = t[0]
 
 
     def update_history(self, psi: np.ndarray, t: np.ndarray, reset=False, update_last_state=False):
@@ -87,9 +90,6 @@ class HistoryTracker:
             t1 = t0 + psi.shape[0]
 
             if t1 > self.capacity:
-                # print(f'History capacity exceeded: {t1} > {self.capacity}. Increasing history size.'
-                #       f' Current time index: {self.current_ti}.'
-                #       f' psishape: {psi.shape}')
                 self._increase_hist_size(Nt=psi.shape[0]*10, Ndim=psi.shape[1])
 
             self._hist[t0:t1] = psi
@@ -107,10 +107,7 @@ class HistoryTracker:
 
         new_capacity = self.capacity + Nt
 
-        print(f'Increasing history size from {self.capacity} to {new_capacity} time steps.')
-
         # Create new, larger arrays
-
         new_hist = np.empty((new_capacity, self._hist.shape[1], self._hist.shape[2]))
         new_hist_t = np.empty((new_capacity,))
 
@@ -153,14 +150,11 @@ class Model(object):
     def __init__(self, integrator_class=IVPIntegrator, psi0=None, **kwargs):
 
         # ================= INITIALISE PHYSICAL MODEL ================== ##
-        model_dict = kwargs.copy()
-        for key in kwargs.keys():
-            if hasattr(self, key):
-                setattr(self, key, model_dict.pop(key))
+        keys = list(kwargs.keys())
+        [setattr(self, key, kwargs.pop(key)) for key in keys if hasattr(self, key)]
 
-
-        if len(model_dict.keys()) > 1:
-            print('Model {} not assigned'.format(model_dict.keys()))
+        if len(kwargs.keys()) > 1:
+            print('Model key(s) {} not assigned'.format(kwargs.keys()))
 
         # ====================== SET INITIAL CONDITIONS ====================== ##
 
@@ -198,7 +192,7 @@ class Model(object):
     def update_history(self, psi: np.ndarray, t=None, reset=False, update_last_state=False):
         psi = self.__format_state(psi)
         if t is None:
-            t = (np.arange(psi.shape[0]) * self.dt).round(self.precision_t)
+            t = (np.arange(0, psi.shape[0]) * self.dt).round(self.precision_t) + self.current_time
         if isinstance(t, float):
             t = np.array([t])
         assert t.size == psi.shape[0], f"Length of t ({t.size}) must match number of time steps in psi ({psi.shape[0]})."
@@ -285,7 +279,7 @@ class Model(object):
         """Setter for the time step."""
         if value <= 0:
             raise ValueError("Time step must be positive.")
-        self._dt = value
+        self._dt = value.round(self.precision_t)
 
     @property
     def precision_t(self):

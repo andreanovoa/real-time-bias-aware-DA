@@ -1,9 +1,7 @@
 # %%
 import numpy as np
-from bias import *
-
-
-import os # Need this for create_observations
+import matplotlib.pyplot as plt
+import os  
 
 from model import Model
 
@@ -19,7 +17,7 @@ class Observations():
     # Class Attributes (Defaults)
     noise_type = 'gauss, add'
     Nt_obs = 20
-    std_obs = 0.05
+    noise_level = 0.05
     
 
     # Instance Attributes (Defaults - Will be set in __init__)
@@ -218,7 +216,7 @@ class Observations():
         """Adds noise to the biased truth data.
             Options:
             - if add_noise is False, returns clean data
-            - std_obs: standard deviation of the noise (as fraction of max signal)
+            - noise_level: standard deviation of the noise (as fraction of max signal)
             - noise_type: 'gauss' or 'coloured' for Gaussian or coloured noise
             - 'add' or 'mult' for additive or multiplicative noise
             Returns: noisy data.
@@ -242,12 +240,12 @@ class Observations():
             for ll in range(L):
                 # Type/color of the noise
                 if 'gauss' in self.noise_type.lower():
-                    noise = rng.multivariate_normal(np.zeros(q), np.eye(q) * self.std_obs ** 2, Nt)
+                    noise = rng.multivariate_normal(np.zeros(q), np.eye(q) * self.noise_level ** 2, Nt)
                 else:
                     i0 = Nt % 2 != 0  # Add extra step if odd
                     noise = np.zeros([Nt, q])
                     for ii in range(q):
-                        noise_white = np.fft.rfft(rng.standard_normal(Nt + i0) * self.std_obs)
+                        noise_white = np.fft.rfft(rng.standard_normal(Nt + i0) * self.noise_level)
                         S = colour_noise(Nt + i0, noise_colour=self.noise_type)
                         S = noise_white * S  # Normalize S
                         noise[:, ii] = np.fft.irfft(S)[i0:]  # transform back into time domain
@@ -543,7 +541,7 @@ class Observations():
 if __name__ == "__main__":
 
     from models_physical import Lorenz63
-    truth = Observations(model=Lorenz63, t_start=10.0, t_stop=40.0, Nt_obs=10, std_obs=0.5, noise_type='gauss, add', manual_bias=None)
+    truth = Observations(model=Lorenz63, t_start=10.0, t_stop=40.0, Nt_obs=10, noise_level=0.5, noise_type='gauss, add', manual_bias=None)
 
 
 # %%

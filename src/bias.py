@@ -32,10 +32,11 @@ class Bias:
         self.integrator = integrator_class(self)
 
         # ===================== ASSIGN PROVIDED KWARGS ======================= ##
-        [setattr(self, key, kwargs.pop(key)) for key in kwargs.keys() if hasattr(self, key)]
+        keys = list(kwargs.keys())
+        [setattr(self, key, kwargs.pop(key)) for key in keys if hasattr(self, key)]
 
         # ========================== CREATE HISTORY ========================== ##
-        b = self.build_bias_state(b)
+        b = self.build_state(b)
 
         self.history = HistoryTracker()
         if 'initial_capacity' in kwargs.keys():
@@ -51,7 +52,7 @@ class Bias:
         self.keys_to_print += self.extra_keys_to_print
 
     
-    def __reshape_state(self, b):
+    def __format_state(self, b):
         """
         Ensure b has shape (nt, nb, nens)
         """
@@ -65,24 +66,25 @@ class Bias:
         raise AssertionError('b must have 1, 2 or 3 dimensions, got {}'.format(b.ndim))
 
 
-    def build_bias_state(self, innovation, model_bias=None):
+    def build_state(self, innovation, model_bias=None):
         """
         Build the full bias state from innovations and model bias (if applicable)
         """
-        innovation = self.__reshape_state(innovation)
+        innovation = self.__format_state(innovation)
 
         if self.biased_observations:
             if model_bias is None and not hasattr(self, 'hist'):
                 model_bias = innovation.copy()
             else:
-                model_bias = self.__reshape_state(model_bias)
+                model_bias = self.__format_state(model_bias)
             
-            bias_state = np.concatenate([model_bias, innovation], axis=0)
+            state = np.concatenate([model_bias, innovation], axis=0)
         else:
-            bias_state = innovation
+            state = innovation
 
-        return bias_state
+        return state
     
+
 
     @property
     def hist(self):
@@ -96,10 +98,12 @@ class Bias:
     
     @property
     def current_state(self):
+        """Returns the current state (last entry in history)."""
         return self.history.current_state
 
     @property
     def current_time(self):
+        """Returns the current time (last entry in time history)."""
         return self.history.current_time
 
 
@@ -119,17 +123,28 @@ class Bias:
 
     @property
     def current_bias(self):
+        """Returns the current bias computed from the current state."""
         return self.get_bias(state=self.current_state)
 
     @property
     def current_innovations(self):
+        """Returns the current innovations computed from the current state."""
         return self.get_innovations(state=self.current_state)
 
     def get_bias(self, state, **kwargs):
-        return state
+
+        if self.biased_observations:
+            nb = state.shape[1] // 2
+            return state[:nb, :, :]
+        else:
+            return state
 
     def get_innovations(self, state, **kwargs):
-        return state
+        if self.biased_observations:
+            nb = state.shape[1] // 2
+            return state[nb:, :, :]
+        else:
+            return state
 
     def get_ML_state(self, **kwargs):
         return None
@@ -152,7 +167,7 @@ class Bias:
     
 
     def update_history(self, b, t=None, reset=False, update_last_state=False, **kwargs):
-        b = self.__reshape_state(b)
+        b = self.__format_state(b)
 
         # Ensure time array matches nt
         if t is None:
@@ -163,36 +178,7 @@ class Bias:
         
         self.history.update_history(b, t=t, reset=reset, update_last_state=update_last_state)
 
-    #     assert self.hist.ndim == 3
 
-    #     if not reset and not update_last_state:
-    #         if b is None or t is None:
-    #             raise AssertionError('both t and b must be defined')
-    #         self.hist = np.concatenate((self.hist, b))
-    #         self.hist_t = np.concatenate((self.hist_t, t))
-    #     elif update_last_state:
-    #         if b is not None:
-    #             self.update_current_state(b, **kwargs)
-    #         else:
-    #             raise ValueError('psi must be provided')
-    #         if t is not None:
-    #             self.hist_t[-1] = t
-    #     else:
-    #         if t is None:
-    #             t = self.current_time
-            
-    #         if b.ndim == 2:
-    #             b = np.expand_dims(b, axis=-1)
-                
-    #         self.reset_history(b, t)
-
-
-    # def update_current_state(self, b, **kwargs):
-    #     self.hist[-1] = b
-
-    # def reset_history(self, b, t):
-    #     self.hist_t = t
-    #     self.hist = b
 
     def copy(self):
         return deepcopy(self)
@@ -220,7 +206,7 @@ class NoBias(Bias):
 
 
 class ESN_bias(Bias, EchoStateNetwork):
-    name = 'Bias_ESN'
+    name = 'ESN_bias'
 
     biased_observations = True
     update_reservoir = False

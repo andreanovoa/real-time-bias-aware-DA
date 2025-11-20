@@ -140,9 +140,9 @@ class IVPIntegrator(Integrator):
             self._pool = None
 
         if self._pool is None and self.model.m > 1:
-            print(f'Initializing multiprocessing pool for IVPIntegrator with {self.model.m} members.')
             # Initialize multiprocessing pool
             N_pools = min(self.model.m, mp.cpu_count())
+            print(f'Initializing multiprocessing pool for IVPIntegrator with m={self.model.m} and {N_pools} pools.')
             self._pool = mp.Pool(N_pools)
         return self._pool
 
@@ -235,3 +235,4 @@ def ivp_forecast_helper(y0, fun, t, params, method='RK45'):
 
     out = solve_ivp(part_fun, t_span=(t[0], t[-1]), y0=y0, t_eval=t, method=method)
     return out.y.T
+# %%
