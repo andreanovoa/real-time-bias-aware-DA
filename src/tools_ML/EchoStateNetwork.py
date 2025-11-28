@@ -1113,6 +1113,12 @@ class EchoStateNetwork:
 
     # _______________________________________________________________________________________ TEST & PLOTTING FUNCTIONS
 
+    @property
+    def rng(self):
+        if not hasattr(self, '_rng'):
+            self._rng = np.random.default_rng(self.seed)
+        return self._rng
+
     def run_test(self, 
                  U_test, 
                  Y_test, 
@@ -1158,7 +1164,7 @@ class EchoStateNetwork:
             Y_test = Y_test[np.newaxis, :, :]
 
 
-        rng0 = np.random.default_rng(seed)
+        rng0 = self.rng
 
         L, max_test_time, Nq = U_test.shape[:3]
         # max_test_time -= self.N_wash

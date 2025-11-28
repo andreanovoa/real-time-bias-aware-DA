@@ -595,23 +595,6 @@ def CR(y_true, y_est):
     return C, R
 
 
-# def correlation(y_true, y_est):
-#     """Calculates the Pearson correlation coefficient (r-value) for two arrays."""
-#     # It assumes the inputs are N_time x Nq and computes a single r-value.
-#     y_tm = np.mean(y_true, axis=0, keepdims=True)
-#     y_em = np.mean(y_est, axis=0, keepdims=True)
-
-#     y_true_centered = y_true - y_tm
-#     y_est_centered = y_est - y_em
-    
-#     denominator = np.sqrt(np.sum(y_est_centered ** 2) * np.sum(y_true_centered ** 2))
-    
-#     # Handle the case where one or both inputs have zero variance 
-#     if denominator < 1e-10:
-#         return 0.0
-    
-#     return np.sum(y_est_centered * y_true_centered) / denominator
-
 
 def correlation(y_true, y_est):
     """Calculates the Pearson correlation coefficient (r-value) for each ensemble member.
@@ -773,10 +756,8 @@ def create_Lorenz63_dataset(noise_level=0.02, num_lyap_times=300, seed=0, **kwar
     model = Lorenz63(**kwargs)
 
 
-
-
     # Default filename
-    filename = f"{''.join([f'{key}{val:.2f}_' for key, val in model.default_params.items()])}Nlyap{num_lyap_times}_noise{noise_level}_seed{seed}"
+    filename = f"{''.join([f'{key}{val:.2f}_' for key, val in model.alpha0.items()])}Nlyap{num_lyap_times}_noise{noise_level}_seed{seed}"
 
     t_lyap = model.t_lyap
     dt = model.dt

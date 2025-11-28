@@ -1,11 +1,11 @@
 import os
 import matplotlib.pyplot as plt
-from integrator import DiscreteIntegrator, IVPIntegrator
+from integrator import IVPIntegrator, DiscreteIntegrator
 from observations import Observations
-from tools_ML.EchoStateNetwork import EchoStateNetwork
-from typing import Type, List, Tuple, Union
-from utils import save_to_pickle_file, load_from_pickle_file, check_valid_file
-from model import Model
+from tools_ML import EchoStateNetwork
+from typing import Dict, Type, List, Tuple, Union
+from utils import mean_vector_to_ensemble, save_to_pickle_file, load_from_pickle_file, check_valid_file
+from model import HistoryTracker, Model
 from utils import correlation, interpolate
 import numpy as np
 from copy import deepcopy
@@ -27,42 +27,24 @@ class Bias:
     extra_keys_to_print = []
 
     def __init__(self, b, t, dt, integrator_class=IVPIntegrator, **kwargs):
-        self.dt = dt
+
         self.precision_t = int(-np.log10(dt)) + 2
+        self.dt = dt
         self.integrator = integrator_class(self)
 
         # ===================== ASSIGN PROVIDED KWARGS ======================= ##
-        [setattr(self, key, kwargs.pop(key)) for key in kwargs.keys() if hasattr(self, key)]
+        keys = list(kwargs.keys())
+        [setattr(self, key, kwargs.pop(key)) for key in keys if hasattr(self, key)]
 
         # ========================== CREATE HISTORY ========================== ##
-        b = np.asarray(b)
+        b = self.build_state(b)
 
-        # Ensure b has shape (nt, nb, nens)
-        if b.ndim == 1:
-            # (nb,) -> (1, nb, 1)
-            b = b.reshape((1, b.size, 1))
-        elif b.ndim == 2:
-            # (nt, nb) -> (nt, nb, 1)
-            b = b.reshape((*b.shape, 1))
-        elif b.ndim == 3:
-            # already (nt, nb, nens)
-            pass
+        self.history = HistoryTracker()
+        if 'initial_capacity' in kwargs.keys():
+            self.history._initial_capacity = kwargs.pop('initial_capacity')
         else:
-            raise AssertionError('b must have 1, 2 or 3 dimensions, got {}'.format(b.ndim))
-
-        # If observations are biased, duplicate the state dimension (nq) for bias/innovations
-        if self.biased_observations:
-            b = np.concatenate([b, b], axis=1)
-
-        # Ensure time array matches nt
-        t = np.asarray(t)
-        if t.ndim == 0:
-            t = t.reshape((1,))
-        if t.size != b.shape[0]:
-            raise AssertionError('length of t ({}) must match number of time steps in b ({})'.format(t.size, b.shape[0]))
-
-        self.hist = b
-        self.hist_t = t
+            self.history._initial_capacity = max(1000, b.shape[0]*10)
+        self.update_history(b, t=t, reset=True)
                                         
         # Add keys to print out
         if self.bayesian_update:
@@ -70,12 +52,75 @@ class Bias:
         
         self.keys_to_print += self.extra_keys_to_print
 
+    
+    def __format_state(self, b):
+        """
+        Ensure b has shape (nt, nb, nens)
+        """
+        if b.ndim == 3:
+            return b # already (nt, nb, nens)
+        if b.ndim == 1: 
+            return b.reshape((1, b.size, 1)) # (nb,) -> (1, nb, 1)
+        if b.ndim == 2:
+            return b.reshape((1, *b.shape))  # (nb, nens) -> (1, nb, nens)
+        
+        raise AssertionError('b must have 1, 2 or 3 dimensions, got {}'.format(b.ndim))
+
+
+    def build_state(self, innovation, model_bias=None):
+        """
+        Build the full bias state from innovations and model bias (if applicable)
+        """
+        innovation = self.__format_state(innovation)
+
+        if self.biased_observations:
+            if model_bias is None and not hasattr(self, 'hist'):
+                model_bias = innovation.copy()
+            else:
+                model_bias = self.__format_state(model_bias)
+            
+            state = np.concatenate([model_bias, innovation], axis=1)
+        else:
+            state = innovation
+
+        return state
+
+    @property
+    def dt(self):   
+        return self._dt
+
+    @dt.setter
+    def dt(self, value):
+        """Setter for the time step."""
+        if value <= 0:
+            raise ValueError("Time step must be positive.")
+        self._dt = np.round(value, self.precision_t)
+    
+    @property
+    def hist(self):
+        """Returns only the valid (non-empty) portion of the history buffer."""
+        return self.history.hist
+
+    @property
+    def hist_t(self):
+        """Returns only the valid portion of the time history."""
+        return self.history.hist_t
+    
+    @property
+    def current_state(self):
+        """Returns the current state (last entry in history)."""
+        return self.history.current_state
+
+    @property
+    def current_time(self):
+        """Returns the current time (last entry in time history)."""
+        return self.history.current_time
+
 
     @property
     def config(self):
         _config = dict()
         for key in self.keys_to_print:
-             
              if hasattr(self, key):
                 _config[key] = getattr(self, key)
 
@@ -83,53 +128,33 @@ class Bias:
 
 
     @property
-    def hist(self):
-        return self._hist
-    
-    @hist.setter
-    def hist(self, b):
-        b = np.asarray(b)
-
-        # Ensure b has shape (nt, nb, nens)
-        if b.ndim == 1:
-            # (nb,) -> (1, nb, 1)
-            b = b.reshape((1, b.size, 1))
-        elif b.ndim == 2:
-            # (nt, nb) -> (nt, nb, 1)
-            b = b.reshape((*b.shape, 1))
-        elif b.ndim == 3:
-            # already (nt, nb, nens)
-            pass
-        else:
-            raise AssertionError('b must have 1, 2 or 3 dimensions, got {}'.format(b.ndim))
-        assert b.ndim == 3, 'b must have 3 dimensions (nt, nb, nens), got {}'.format(b.ndim)
-        
-        self._hist = b
-
-
-    @property
     def N_ens(self):
-        return self.hist.shape[-1]
-
-    @property
-    def current_time(self):
-        return self.hist_t[-1]
+        return self.current_state.shape[-1]
 
     @property
     def current_bias(self):
-        current_state = self.hist[-1]
-        return self.get_bias(state=current_state)
+        """Returns the current bias computed from the current state."""
+        return self.get_bias(state=self.current_state)
 
     @property
     def current_innovations(self):
-        current_state = self.hist[-1]
-        return self.get_innovations(state=current_state)
+        """Returns the current innovations computed from the current state."""
+        return self.get_innovations(state=self.current_state)
 
     def get_bias(self, state, **kwargs):
-        return state
+
+        if self.biased_observations:
+            nb = state.shape[1] // 2
+            return state[:nb, :, :]
+        else:
+            return state
 
     def get_innovations(self, state, **kwargs):
-        return state
+        if self.biased_observations:
+            nb = state.shape[1] // 2
+            return state[nb:, :, :]
+        else:
+            return state
 
     def get_ML_state(self, **kwargs):
         return None
@@ -161,6 +186,7 @@ class Bias:
     
 
     def update_history(self, b, t=None, reset=False, update_last_state=False, **kwargs):
+        b = self.__format_state(b)
 
         # Ensure time array matches nt
         if t is None:
@@ -176,12 +202,6 @@ class Bias:
         pass
 
 
-    def update_current_state(self, b, **kwargs):
-        self.hist[-1] = b
-
-    def reset_history(self, b, t):
-        self.hist_t = t
-        self.hist = b
 
     def copy(self):
         return deepcopy(self)
@@ -254,9 +274,6 @@ class ESN_bias(Bias, EchoStateNetwork):
             if hasattr(self, kwy) or kwy in self.extra_keys_to_print:
                 setattr(self, kwy, kwargs.pop(kwy))
 
-        y = kwargs.get('y', np.zeros((forecast_model.Nq, 1)))
-        t = kwargs.get('t', 0.0)
-        dt = kwargs.get('dt', forecast_model.dt)
 
         Bias.__init__(self, integrator_class=DiscreteIntegrator, **kwargs)
         EchoStateNetwork.__init__(self, y=self.current_state, **kwargs)
@@ -268,7 +285,7 @@ class ESN_bias(Bias, EchoStateNetwork):
         if loaded_bias is None:
             
             if forecast_model is None or reference_data is None:
-                raise ValueError('forecast_model and reference_data must be provided to create a new bias model')
+                raise ValueError('forecast_model and reference_data must be provided to create a new ESN_bias model')
             
             # Create a copy of the forecast model to use for training data generation --------------------------
             
@@ -333,7 +350,7 @@ class ESN_bias(Bias, EchoStateNetwork):
         else:
             return 1
 
-    def _correlate_data(self, y_L_model, _y_raw, Nt_min):
+    def __correlate_data(self, y_L_model, _y_raw, Nt_min):
         """
         Create training data based on correlation between model outputs and observations.
         Inputs:
@@ -583,13 +600,12 @@ class ESN_bias(Bias, EchoStateNetwork):
                               std_alpha: Union[float, Dict[str, Union[float,  List[float]]]] = None
                               ) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Multi-parameter data generation for ESN training.
-
+        Sample model states from the forecast model for training data generation.
         Inputs:
-            y_raw: List of raw observation arrays (each of shape Nt x Nq x 1)
-            y_true: List of post-processed observation arrays (each of shape Nt x Nq x 1)
-            Nt_min: Minimum number of time steps for training data
-            train_params: Additional parameters for training data generation
+            fm: Forecast model instance
+            Nt_min: Minimum number of time steps to sample
+        Returns:
+            y_L_model: Sampled model observable history (Nt x Nq x L)
         """
 
         
@@ -644,7 +660,7 @@ class ESN_bias(Bias, EchoStateNetwork):
         N_CR = int(round(fm.t_CR / fm.dt))
         range_y = np.max(np.max(y_L_model[-N_CR:], axis=0) - np.min(y_L_model[-N_CR:], axis=0), axis=0)
         idx_FP = (range_y < tol)
-        psi0 = psi[-1, :, ~idx_FP]  # Nq x (m - #FPs)
+
         if len(np.flatnonzero(idx_FP)) / len(idx_FP) >= 0.2:
             # print(f'There are {len(np.flatnonzero(idx_FP))}/{len(idx_FP)} fixed points')
             
@@ -794,9 +810,11 @@ class ESN_bias(Bias, EchoStateNetwork):
             train_data = np.concatenate(innovations_all, axis=0)
             observed_idx = np.arange(Nq)
         else:
-            model_bias_all = np.concatenate(model_bias_all, axis=0)
-            train_data = dict(data=np.concatenate([model_bias_all, innovations_all], axis=2),
-                              observed_idx=ensemble.Nq + np.arange(ensemble.Nq))
+            innovations_all = np.concatenate(innovations_all, axis=0)
+            model_bias_all = np.concatenate(model_bias_all, axis=0) 
+            train_data = np.concatenate([model_bias_all,
+                                         innovations_all], axis=2)
+            observed_idx = Nq + np.arange(Nq) # indices of innovations in the state vector            
 
         # =============================== Save train_data dict ================================ #
         # Save key keywords
@@ -810,10 +828,7 @@ class ESN_bias(Bias, EchoStateNetwork):
         return train_data_dict
         
 
-        if filename is not None:
-            save_to_pickle_file(filename, train_data)
 
-        return train_data
 
 
     def _load_bias_training_dataset(self, filename, Nt_min):
