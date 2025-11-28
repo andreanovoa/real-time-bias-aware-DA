@@ -39,7 +39,7 @@ class POD:
     domain = [-1, 1, -1, 1]
     indices_to_original_grid = None
 
-    name = 'POD'
+    filename = 'POD'
     figs_folder = 'figs/POD/'
 
 
@@ -139,12 +139,9 @@ class POD:
 
             if save_decomposition:
                 os.makedirs(self.figs_folder, exist_ok=True)
-                if self.name == POD.name:
-                    filename = f'POD_{self.N_modes}-Grid{self.domain}.pdf'
-                else:
-                    filename = f'{self.name}.pdf'
+                self.filename = f'{self.filename}_{self.N_modes}-Grid{self.domain}.pdf'
                 # Save all figures into a pdf
-                save_figs_to_pdf(pdf_name=self.figs_folder + filename)
+                save_figs_to_pdf(pdf_name=self.figs_folder + self.filename)
 
 
 
@@ -769,7 +766,7 @@ class POD:
             [fig.colorbar(im, ax=axs, shrink=0.5) for im in [im_rms, im_flow] if im]
 
         if save:
-            plt.savefig(f'{case.figs_folder}{case.name}_flows_rms.png', dpi=300)
+            plt.savefig(f'{case.figs_folder}{case.filename}_flows_rms.png', dpi=300)
 
         return sub_figs
 

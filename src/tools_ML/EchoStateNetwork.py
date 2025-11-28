@@ -57,8 +57,7 @@ class EchoStateNetwork:
     max_L_tests = 10
     perform_test = True  # Run tests during training?
     random_initialization = False
-    seed_W = 0  # Random seed for Win and W definition
-    seed_noise = 0  # Random seed for input training data
+    
     t_val = 0.1  # Validation time
     t_train = 1.0  # Training time
     t_test = 0.5  # Testing time
@@ -101,9 +100,7 @@ class EchoStateNetwork:
 
         #   Initialise state and reservoir state to zeros ------------ #
         self.N_dim = y.shape[0]
-
-        self.u = np.zeros((self.N_dim, y.shape[1]))
-        self.r = np.zeros((self.N_units, y.shape[1]))
+        self.reservoir_state = np.zeros((self.N_units, y.shape[1]))
 
         self.observed_idx = np.arange(self.N_dim)  # initially, assume full observability.
 
@@ -113,7 +110,7 @@ class EchoStateNetwork:
 
         #  Initialize ESN matrices -------------------------- #
         
-        self.trained = all([getattr(self, key) is not None for key in ['Wout', 'Win', 'W', 'norm']])
+        self.trained = all([getattr(self, key) is not None for key in ['Wout', 'Win', 'W']])
         self.val_k = kwargs.get('val_k', 0)  # Validation counter
         self.initialised = False  # Flag for washout
 
@@ -125,7 +122,26 @@ class EchoStateNetwork:
         if not hasattr(self, '_W'):
             return None
         return self._W
+
     
+    @property
+    def rng(self):
+        if not hasattr(self, '_rng'):
+            self._rng = np.random.default_rng(self.seed)
+        return self._rng
+    
+    @property
+    def seed(self):
+        if not hasattr(self, '_seed'):
+            self._seed = 0
+        return self._seed
+    
+    @seed.setter
+    def seed(self, value: int):
+        self._seed = value
+        if hasattr(self, '_rng'):
+            del self._rng
+
     @W.setter
     def W(self, value):
         """
@@ -141,6 +157,13 @@ class EchoStateNetwork:
         # Set the reservoir state matrix
         self._W = value
     
+    @property
+    def N_ens(self):
+        """
+        Returns the ensemble size based on the input data shape.
+        """
+        return self.reservoir_state.shape[-1]
+
     @property
     def Win(self):
         """
@@ -256,23 +279,20 @@ class EchoStateNetwork:
         else:
             self._WCout = value
 
-    @property
-    def norm(self):
+    def normalize_input(self, data):
         """
-        Returns the normalization factor for the input data.
-        """
-        if not hasattr(self, '_norm'):
-            return None
-        return self._norm
+        Normalizes the input data based on the specified normalization method.
 
-    @norm.setter
-    def norm(self, value):
+        Args:
+            data (np.ndarray): Input data to be normalized.
+
+        Returns:
+            np.ndarray: Normalized input data.
         """
-        Setter for the normalization factor. Ensures it is N_dim.
-        """
-        assert value.shape[0] == self.N_dim_in, \
-            f'Normalization factor must be dimension Ndim={self.N_dim}, got {value.shape}'
-        self._norm = value
+        # if data.ndim == 1:
+        # print(data.shape, self.shift.shape, self.norm.shape)
+        return (data - self.shift[:, np.newaxis]) / self.norm[:, np.newaxis]
+
 
     @property
     def sparsity(self):
@@ -281,7 +301,7 @@ class EchoStateNetwork:
         fraction of connections between neurons in the reservoir that are set to zero.
             sparsity = 1 - #Active connections / Total possible connections
         """
-        return 1 - self.connect / (self.N_units - 1)
+        return 1. - self.connect / (self.N_units - 1)
 
     def outputs_to_inputs(self, full_state, add_parameters=False):
         """
@@ -293,7 +313,12 @@ class EchoStateNetwork:
         Returns:
             np.ndarray: Input state vector mapped from the full state.
         """
+        assert full_state.shape[0] == self.N_dim
+
         observed_state = full_state[self.observed_idx]
+
+        assert observed_state.shape[0] == self.N_dim_in
+
         if not add_parameters:
             return observed_state
         else:
@@ -334,40 +359,39 @@ class EchoStateNetwork:
         if tikhonov is not None:
             setattr(self, 'tikh', tikhonov)
 
-    def reset_state(self, u=None, r=None):
+    @property
+    def physical_state(self):
+        """
+        Returns the current physical state (u).
+        """
+        return self.reservoir_to_physical(self.reservoir_state)
+
+    @property
+    def reservoir_state(self):
+        """
+        Returns the current reservoir state (r).
+        """
+        return self._r
+
+    @reservoir_state.setter
+    def reservoir_state(self, r):
         """
         Resets the physical (u) and reservoir (r) states.
 
         Args:
-            u (np.ndarray, optional): New physical state
-                - default: None to retain current state.
             r (np.ndarray, optional): New reservoir state
-                 - default: None to retain current state.
         Raises:
             AssertionError: If dimensions of u and r are incompatible.
 
         """
-        if u is not None:
-            if u.ndim == 1:
-                u = np.expand_dims(u, axis=-1)
-            self.u = u
 
         if r is not None:
             if r.ndim == 1:
                 r = np.expand_dims(r, axis=-1)
-            self.r = r
+            elif hasattr(self, '_r'):
+                assert r.shape[-1] == self.N_ens, f'reservoir state r has shape {r.shape}, expected last dim to be {self.N_ens}'
+            self._r = r
 
-        if self.r.shape[-1] != self.u.shape[-1]:
-            raise AssertionError(['reset_state', self.r.shape, self.u.shape])
-
-    def get_reservoir_state(self):
-        """
-        Retrieves the current physical and reservoir states.
-
-        Returns:
-            tuple: (u, r), where u is the physical state and r is the reservoir state.
-        """
-        return self.u, self.r
 
     # _______________________________________________________________________________________________________ JACOBIAN
 
@@ -383,7 +407,8 @@ class EchoStateNetwork:
             np.ndarray: Jacobian matrix of the reservoir dynamics.
         """
         if state is None:
-            u_in, r_in = self.get_reservoir_state()
+            r_in = self.reservoir_state
+            u_in = self.physical_state
         else:
             u_in, r_in = state
 
@@ -427,26 +452,34 @@ class EchoStateNetwork:
 
         if u.ndim == 1:
             u = np.expand_dims(u, axis=-1)
+        elif u.ndim == 3:
+            assert u.shape[0] == 1, f'Input u has shape {u.shape}, only 1 sample at a time is allowed'
+            u = u[0]
         if r.ndim == 1:
             r = np.expand_dims(r, axis=-1)
+        elif r.ndim == 3:
+            assert r.shape[0] == 1, f'Input r has shape {r.shape}, only 1 sample at a time is allowed'
+            r = r[0]
 
-        g = np.tile(1. / self.norm, reps=(u.shape[-1], 1)).T
-        bias_in = np.tile(self.bias_in, reps=(1, u.shape[-1]))
-        bias_out = np.tile(self.bias_out, reps=(1, u.shape[-1]))
+        # Normalize input
+        u_norm = self.normalize_input(u)
 
-        u_aug = np.concatenate((np.multiply(u, g), bias_in))
+        # Augment input with bias
+        bias_in = self.bias_in * np.ones((1, u.shape[-1]))
+        u_aug = np.concatenate((u_norm, bias_in))
 
         # Forecast the reservoir state
         r_out = np.tanh(self.sigma_in * self.Win.dot(u_aug) + self.rho * self.W.dot(r))
 
         # output bias added
-        r_aug = np.concatenate((r_out, bias_out))
 
         # compute output from ESN if not during training
-        u_out = self.reservoir_to_physical(r_aug)
+        u_out = self.reservoir_to_physical(r_out)
         return u_out, r_out
+    
 
-    def reservoir_to_physical(self, r_aug):
+
+    def reservoir_to_physical(self, r):
 
         """ Converts the reservoir state to the physical state using the output weight matrix (Wout).
         Note: I change this in ESN_model
@@ -454,60 +487,12 @@ class EchoStateNetwork:
             r_aug (np.ndarray): Augmented reservoir state including output bias.
         """
         # print(f'Wout shape: {self.Wout.shape}, r_aug shape: {r_aug.shape}')
+
+        bias_out = self.bias_out * np.ones((1, r.shape[-1]))
+        r_aug = np.concatenate((r, bias_out))
+
         return np.dot(self.Wout.T, r_aug)
 
-    def openLoop(self, u_wash, extra_closed=0):
-        """
-        Executes the ESN in open-loop mode to wash out initial dynamics and prepare for training/validation.
-
-        Args:
-            u_wash (np.ndarray): Input sequence for the washout phase.
-            extra_closed (int): Number of additional closed-loop steps to forecast after the washout.
-            force_reconstruct (bool): If True, forces Bayesian state reconstruction during washout.
-            update_reservoir (bool): If True, updates reservoir during reconstruction.
-            inflation (float): Inflation factor for Bayesian reconstruction (default: 1.01).
-
-        Returns:
-            tuple: (u, r) where u is the physical state sequence and r is the reservoir state sequence.
-        """
-        Nt = u_wash.shape[0] - 1
-        if extra_closed:
-            Nt += extra_closed
-
-        r = np.empty((Nt + 1, self.N_units, self.u.shape[-1]))
-        u = np.empty((Nt + 1, self.N_dim, self.u.shape[-1]))
-
-        self.reset_state(u=u_wash[0])
-
-        u[0, self.observed_idx], r[0] = self.get_reservoir_state()
-
-        for ii in range(Nt):
-            u_in, r_in = u_wash[ii], r[ii]
-
-            u1, r1 = self.step(u_in, r_in)
-
-            u[ii + 1], r[ii + 1]  = u1, r1
-        return u, r
-
-    def closedLoop(self, Nt):
-        """
-        Advances the ESN in closed-loop mode for prediction.
-
-        Args:
-            Nt (int): Number of prediction time steps.
-
-        Returns:
-            tuple: (u, r) where u is the forecasted physical state sequence and r is the reservoir state sequence.
-        """
-
-        r = np.empty((Nt + 1, self.N_units, self.u.shape[-1]))
-        u = np.empty((Nt + 1, self.N_dim, self.u.shape[-1]))
-        u[0, self.observed_idx], r[0] = self.get_reservoir_state()
-
-        for i in range(Nt):
-            u_input = self.outputs_to_inputs(full_state=u[i])
-            u[i + 1], r[i + 1] = self.step(u_input, r[i])
-        return u, r
 
     # _______________________________________________________________________________________ TRAIN & VALIDATE THE ESN
     def train(self, 
@@ -517,6 +502,7 @@ class EchoStateNetwork:
               save_ESN_training=False,
               folder=None,
               validation_strategy=None,
+              seed=None,
               **kwargs
               ):
         """
@@ -536,19 +522,19 @@ class EchoStateNetwork:
         
         for key, val in kwargs.items():
             if hasattr(self, key):
-                print(f'Modifying {key} = {getattr(self, key)} -> {val} for training.')
+                print(f'Modifying {key} = {getattr(self, key)} -> {val} at training.')
                 setattr(self, key, val)
 
         # ========================== STEP 1: DATA FORMATTING ==========================
         # Format data into washout, train/validation, and test sets
-        U_wtv, Y_tv, U_test, Y_test = self.split_and_format_data(train_data, 
+        U_wtv, Y_wtv, U_test, Y_test = self.split_and_format_data(train_data, 
                                                                  add_noise=add_noise)
 
-        # print([xx.shape for xx in [U_wtv, Y_tv, U_test, Y_test]])
+        # print([xx.shape for xx in [U_wtv, Y_wtv, U_test, Y_test]])
 
         # Ensure W and Win matrices are initialized
         if self.W is None or self.Win is None:
-            self.generate_W_Win(seed=self.seed_W)
+            self.generate_W_Win(seed=seed)
 
         self.Wout = np.zeros((self.N_units + 1, self.N_dim))  # Initialize Wout with zeros
 
@@ -556,18 +542,18 @@ class EchoStateNetwork:
         self.val_k = 0  # Reset validation counter at the start of training
         # Perform hyperparameter optimization if required
         if self.hyperparameters_to_optimize:
-            bo_results = self.optimize_hyperparameters(U_wtv, Y_tv, 
+            bo_results = self.optimize_hyperparameters(U_wtv, Y_wtv, 
                                                        validation_strategy,
                                                        print_convergence=plot_training)
         else:
             bo_results = None
         # ====================== STEP 3: RIDGE REGRESSION TRAINING =====================
         # Compute the output weight matrix Wout
-        self.Wout = self._solve_ridge_regression(U_wtv, Y_tv)
+        self.Wout = self._solve_ridge_regression(U_wtv, Y_wtv)
 
-        # ========================== STEP 4: NETWORK INITIALIZATION ======================
-        if self.random_initialization:
-            self.initialise_state(data=U_wtv)
+
+        # ====================== STEP 4: INITIALIZE RESERVOIR =====================
+        self.reservoir_state = np.zeros((self.N_units, 1))
 
         # ========================== STEP 5: RESULTS AND PLOTTING ======================
         if plot_training:
@@ -577,8 +563,7 @@ class EchoStateNetwork:
         self.trained = True
 
 
-
-    def generate_W_Win(self, seed=1):
+    def generate_W_Win(self, seed=None):
         """
         Generates the input weight matrix (Win) and reservoir weight matrix (W) with sparsity constraints.
 
@@ -591,8 +576,10 @@ class EchoStateNetwork:
         Outputs:
             None. Updates internal matrices Win and W with appropriate values.
         """
-
-        rnd0 = np.random.default_rng(seed)
+        if seed is None:
+            rng0 = self.rng
+        else:
+            rng0 = np.random.default_rng(seed)
 
         # Input matrix: Sparse random matrix where only one element per row is different from zero
         if self.Win is None:
@@ -600,10 +587,10 @@ class EchoStateNetwork:
                               self.N_dim_in + 1))  # +1 accounts for input bias
             if self.Win_type == 'sparse':
                 for j in range(self.N_units):
-                    Win[j, rnd0.choice(self.N_dim_in + 1)] = rnd0.uniform(low=-1, high=1)
+                    Win[j, rng0.choice(self.N_dim_in + 1)] = rng0.uniform(low=-1, high=1)
             elif self.Win_type == 'dense':
                 for j in range(self.N_units):
-                    Win[j, :] = rnd0.uniform(low=-1, high=1, size=self.N_dim_in + 1)
+                    Win[j, :] = rng0.uniform(low=-1, high=1, size=self.N_dim_in + 1)
             else:
                 raise ValueError("Win type {} not implemented ['sparse', 'dense']".format(self.Win_type))
             # Store
@@ -613,22 +600,23 @@ class EchoStateNetwork:
 
         # Reservoir state matrix: Erdos-Renyi network
         if self.W is None:
-            W = csr_matrix(rnd0.uniform(low=-1, high=1, size=(self.N_units, self.N_units)) *
-                        (rnd0.random(size=(self.N_units, self.N_units)) < (1 - self.sparsity)))
+            W = csr_matrix(rng0.uniform(low=-1, high=1, size=(self.N_units, self.N_units)) *
+                        (rng0.random(size=(self.N_units, self.N_units)) < (1 - self.sparsity)))
             # scale W by the spectral radius to have unitary spectral radius
             spectral_radius = np.abs(sparse_eigs(W, k=1, which='LM', return_eigenvectors=False))[0]
             self.W = (1. / spectral_radius) * W
         else:
             print('Skipping W generation, using provided W matrix.')
 
-    def _compute_RR_terms(self, U_wtv, Y_tv):
+
+    def _compute_RR_terms(self, U_wtv, Y_wtv):
         """
         Computes the Ridge Regression (RR) terms, including left-hand side (LHS) and right-hand side (RHS)
         matrices, for training the output weights.
 
         Args:
             U_wtv (np.ndarray): Wash-train-validation input data.
-            Y_tv (np.ndarray): Corresponding output labels for the train-validation data.
+            Y_wtv (np.ndarray): Corresponding output labels for input data.
 
         Returns:
             tuple:
@@ -642,54 +630,84 @@ class EchoStateNetwork:
         R_RR = [np.empty([0, self.N_units])] * U_wtv.shape[0]
         U_RR = [np.empty([0, self.N_dim])] * U_wtv.shape[0]
 
-        self.reset_state(u=np.zeros((self.N_dim, 1)), r=np.zeros((self.N_units, 1)))
 
         for ll in range(U_wtv.shape[0]):
-            # Washout phase. Store the last r value only
-            self.r = self.openLoop(U_wtv[ll][:self.N_wash], extra_closed=True)[1][-1]
+
+            U_wash_l = U_wtv[ll][:self.N_wash]
+            # Y_wash_l = Y_wtv[ll][:self.N_wash]
+            Uin_l = U_wtv[ll][self.N_wash:]
+            Yout_l = Y_wtv[ll][self.N_wash:]
+
+            assert Uin_l.shape[0] == Yout_l.shape[0], \
+                f'Inconsistent shapes for training data at segment {ll}: {Uin_l.shape} vs {Yout_l.shape}'
+
+            assert Uin_l.shape[0] > 0, \
+                f'Not enough data for training at segment {ll}: {Uin_l.shape}'
+
+
+            # print(f'Computing RR terms for segment {ll}, split with...',
+            #       f'U_wash_l: {U_wash_l.shape}, Uin_l: {Uin_l.shape}, Yout_l: {Yout_l.shape}')
+
+            # self.reset_reservoir_state(u=np.zeros((self.N_dim, 1)), r=np.zeros((self.N_units, 1)))   
+            # # Washout phase. Store the last r value only
+            # self.r = self.openLoop(U_wash_l)[1][-1]
+
+            r = np.zeros((self.N_units, self.N_ens))
+            for u_in in U_wash_l:
+                _, r = self.step(u_in, r)
+
 
             # Split training data for faster computations
-            U_train = np.array_split(U_wtv[ll][self.N_wash:], self.N_split, axis=0)
-            Y_target = np.array_split(Y_tv[ll], self.N_split, axis=0)
+            U_train = np.array_split(Uin_l, self.N_split, axis=0)
+            Y_target = np.array_split(Yout_l, self.N_split, axis=0)
+
 
             for U_t, Y_t in zip(U_train, Y_target):
+                if Y_t.ndim == 3:
+                    assert Y_t.shape[-1] == 1, f'Y_t has shape {Y_t.shape}, only 1 sample at a time is allowed'
+                    Y_t = Y_t[..., 0]
+
                 # Open-loop train phase
-                u_open, r_open = self.openLoop(U_t, extra_closed=True)
+                r_out = r.copy()
+                r_open = np.zeros((U_t.shape[0], self.N_units, self.N_ens))
+                y_open = np.zeros((U_t.shape[0], self.N_dim, self.N_ens))
+                for ii, u_in in enumerate(U_t):
+                    u_out, r_out = self.step(u_in, r_out)
+                    y_open[ii], r_open[ii] = u_out, r_out
 
-                self.reset_state(u=u_open[-1], r=r_open[-1])
-
-                u_open, r_open = u_open[1:], r_open[1:]
-                if u_open.ndim > 2:
-                    u_open, r_open = u_open.squeeze(axis=-1), r_open.squeeze(axis=-1)
+                if y_open.ndim > 2:
+                    y_open, r_open = y_open.squeeze(axis=-1), r_open.squeeze(axis=-1)
 
                 R_RR[ll] = np.append(R_RR[ll], r_open, axis=0)
-                U_RR[ll] = np.append(U_RR[ll], u_open, axis=0)
+                U_RR[ll] = np.append(U_RR[ll], y_open, axis=0)
 
                 # Compute matrices for linear regression system
                 bias_out = np.ones([r_open.shape[0], 1]) * self.bias_out
                 r_aug = np.hstack((r_open, bias_out))
+                
                 LHS += np.dot(r_aug.T, r_aug)
                 RHS += np.dot(r_aug.T, Y_t)
 
         return LHS, RHS, U_RR, R_RR
 
-    def _solve_ridge_regression(self, U_wtv, Y_tv):
+
+    def _solve_ridge_regression(self, U_wtv, Y_wtv):
         """
         Solves the ridge regression problem to compute the output weight matrix (Wout).
 
         Args:
             U_wtv (np.ndarray): Input data for ridge regression (train/valiladion).
-            Y_tv (np.ndarray): Target labels for ridge regression.
+            Y_wtv (np.ndarray): Target labels for ridge regression.
 
         Returns:
             np.ndarray: Computed output weight matrix (Wout).
         """
-        LHS, RHS = self._compute_RR_terms(U_wtv, Y_tv)[:2]
+        LHS, RHS = self._compute_RR_terms(U_wtv, Y_wtv)[:2]
         LHS.ravel()[::LHS.shape[1] + 1] += self.tikh  # Add tikhonov to the diagonal
         return np.linalg.solve(LHS, RHS)  # Solve linear regression problem
     
 
-    def _UY_from_raw_data(self, data, add_noise=True):
+    def _UY_from_raw_data(self, data, add_noise=True, seed=None):
         """
         Extracts input (U) and output (Y) matrices from raw data.
 
@@ -722,8 +740,11 @@ class EchoStateNetwork:
             # Add noise to the inputs if distinction inputs/labels is not given.
             # Larger noise promotes stability in long term, but hinders time accuracy
             U_std = np.std(U, axis=1, keepdims=True)
-            rng_noise = np.random.default_rng(self.seed_noise)
-            U += rng_noise.normal(loc=0, scale=self.noise * U_std, size=U.shape)
+            if seed is None:
+                rng0 = self.rng
+            else:
+                rng0 = np.random.default_rng(seed)
+            U += rng0.normal(loc=0, scale=self.noise * U_std, size=U.shape)
 
         return U, Y
 
@@ -737,7 +758,7 @@ class EchoStateNetwork:
             - observed_idx (list, optional): indices which are observed
         Returns:
             - U_wtv (np.ndarray): Wash-train-validation input data.
-            - Y_tv (np.ndarray): Corresponding labels for train/validation data.
+            - Y_wtv (np.ndarray): Corresponding labels for train/validation data.
             - U_test (np.ndarray): Test input data.
             - Y_test (np.ndarray): Test labels.
         Raises:
@@ -745,7 +766,8 @@ class EchoStateNetwork:
         """
         if data is None:
             raise ValueError('No training data provided to format_training_data method.')
-
+        if data.ndim == 2:
+            data = np.expand_dims(data, axis=0)
 
         U, Y = self._UY_from_raw_data(data, add_noise=add_noise)
 
@@ -753,86 +775,138 @@ class EchoStateNetwork:
         N_wtv = self.N_train + self.N_val
 
         if U.shape[1] < N_wtv:
-            print(U.shape, N_wtv)
-            raise ValueError('Increase the length of the training data signal')
+            raise ValueError(f'Increase the length of the training data signal. {U.shape} < {N_wtv}')
 
         U_wtv = U[:, :N_wtv - 1].copy()
-        Y_tv = Y[:, self.N_wash + 1:N_wtv].copy()
-        U_test = U[:, N_wtv:].copy()
-        Y_test = Y[:, N_wtv:].copy()
+        Y_wtv = Y[:, 1:N_wtv].copy()
+
+        U_test = U[:, N_wtv:-1].copy()
+        Y_test = Y[:, N_wtv+1:].copy()
+
+        assert U_wtv.shape[1] == Y_wtv.shape[1], \
+            f'Inconsistent shapes for train/validation data: {U_wtv.shape} vs {Y_wtv.shape}'
+        assert U_test.shape[1] == Y_test.shape[1], \
+            f'Inconsistent shapes for test data: {U_test.shape} vs {Y_test.shape}'
+
+        if Y_wtv.shape[-1] != self.N_ens: 
+            if self.N_ens == 1:
+                U_wtv, Y_wtv, U_test, Y_test= [yy[..., np.newaxis] for yy in [U_wtv, Y_wtv, U_test, Y_test]]
+                # Y_test = Y_test[:, :, np.newaxis]
+
+            else:
+                raise ValueError(f'Inconsistent ensemble size for train/validation data: {Y_wtv.shape} vs {self.N_ens}')
+
+
+        # assert Y_wtv.shape[-1] == self.N_ens, \
+        #     f'Inconsistent ensemble size for train/validation data: {Y_wtv.shape} vs {self.N_ens}'
+        # assert Y_test.shape[-1] == self.N_ens, \
+        #     f'Inconsistent ensemble size for test data: {Y_test.shape} vs {self.N_ens}'
 
         # compute norm (normalize inputs by component range)
-        self.norm = EchoStateNetwork.__set_norm(U_wtv, method=self.norm_method)
+        self.norm, self.shift = EchoStateNetwork.__set_norm(U_wtv, method=self.norm_method)
 
-        return U_wtv, Y_tv, U_test, Y_test
+        return U_wtv, Y_wtv, U_test, Y_test
     
+    @property
+    def norm(self):
+        """
+        Returns the normalization factor for the input data.
+        """
+        if not hasattr(self, '_norm'):
+            return 1.
+        return self._norm
+    @norm.setter
+    def norm(self, value):
+        """
+        Setter for the normalization factor. Ensures it is N_dim.
+        """
+        assert value.size == self.N_dim_in, \
+            f'Normalization factor must be dimension Ndim={self.N_dim}, got {value.shape}'
+        self._norm = value.flatten()
+    @property
+    def shift(self):
+        """
+        Returns the shift factor for the input data.
+        """
+        if not hasattr(self, '_shift'):
+            return 0.
+        return self._shift
+    @shift.setter
+    def shift(self, value):
+        """
+        Setter for the shift factor. Ensures it is N_dim.
+        """
+        assert value.size == self.N_dim_in, \
+            f'Shift factor must be dimension Ndim={self.N_dim}, got {value.shape}'
+        self._shift = value.flatten()   
+
+
     @staticmethod
-    def __set_norm(train_data, method='range'):
+    def __set_norm(train_data, method=None):
         """
         Computes the normalization factor for the input data.
         Args:
-            U_wtv (np.ndarray): Wash-train-validation training input data. (Nens x Nt x Ndim).
+            train_data (np.ndarray): Wash-train-validation training input data. (Nens x Nt x Ndim).
         Returns:
             float: Normalization factor based on the range of the input data. 
         """
-        assert train_data.ndim == 3, f'U_wtv must be a 3D array, got {train_data.ndim}D: ({train_data.shape})'
+        # assert train_data.ndim in [3, 4], f'U_wtv must be a 3D array, got {train_data.ndim}D: ({train_data.shape})'
+        
+        if train_data.ndim == 3:
+            L, _, Ndim = train_data.shape
+            Nens = 1
+        elif train_data.ndim == 4:
+            L, _, Ndim, Nens = train_data.shape
+        elif train_data.ndim == 2:
+            L = 1
+            Nens = 1
+            Ndim = train_data.shape[1]
+            # raise ValueError(f'U_wtv must be a 3D or 4D array, got {train_data.ndim}D: ({train_data.shape})')
+
+        if method is None:
+            return np.ones(Ndim), np.zeros(Ndim)
+
+        shift = np.mean(train_data, axis=1) 
+
+        shifted_data  = train_data - shift[:, np.newaxis, :]
 
         if method == 'std':
-            return np.mean(np.std(train_data, axis=1), axis=0)
+
+            shift = np.mean(train_data, axis=1) 
+            norm = np.std(shifted_data, axis=1)
         elif method == 'max':
-            return np.mean(np.max(train_data, axis=1), axis=0)
+            norm = np.max(shifted_data, axis=1)
         elif method == 'mean':
-            return np.mean(np.mean(train_data, axis=1), axis=0)
+            norm = np.mean(abs(shifted_data), axis=1)
         elif method == 'range':
-            m = np.mean(train_data.min(axis=1), axis=0)
-            M = np.mean(train_data.max(axis=1), axis=0)
-            if np.any(M == m):
-                raise ValueError("Normalization range cannot be zero. Check the input data.")
-            return M - m
+            m = np.min(shifted_data, axis=1)
+            M = np.max(shifted_data, axis=1)
+            norm = M - m
         else:
             raise ValueError(f"Unknown normalization method: {method}")
         
+        if L > 1:
+            norm = np.mean(norm, axis=0)
+            shift = np.mean(shift, axis=0)
+        if Nens > 1:
+            norm = np.mean(norm, axis=-1)
+            shift = np.mean(shift, axis=-1)
 
-    def initialise_state(self, data, N_ens=1, seed=None):
-        if seed is not None:
-            rng0 = np.random.default_rng(seed)
-        else:
-            rng0 = self.rng
-
-        if hasattr(self, 'm'):
-            N_ens = getattr(self, 'm')
-
-        
-        # initialise state with a random sample from test data
-        u_init, r_init = (np.empty((self.N_dim, N_ens)),
-                          np.empty((self.N_units, N_ens)))
-        # Random time windows and dimension
-        if data.shape[0] == 1:
-            dim_ids = [0] * N_ens
-        else:
-            if N_ens > data.shape[0]:
-                replace = False
-            else:
-                replace = True
-            dim_ids = rng0.choice(data.shape[0], size=N_ens, replace=replace)
-        t_ids = rng0.choice(data.shape[1] - self.N_wash, size=N_ens, replace=False)
-        # Open loop for each ensemble member
-        for ii, ti, dim_i in zip(range(N_ens), t_ids, dim_ids):
-            self.reset_state(u=np.zeros((self.N_dim, 1)), r=np.zeros((self.N_units, 1)))
-            u_open, r_open = self.openLoop(data[dim_i, ti: ti + self.N_wash])
-            u_init[:, ii], r_init[:, ii] = u_open[-1, ..., 0], r_open[-1, ..., 0]
-        # Set physical and reservoir states as ensembles
-        self.reset_state(u=u_init, r=r_init)
+        if np.any(abs(norm) < 1e-12):
+            norm[abs(norm) < 1e-12] = 1.0  # Prevent division by zero
+            
+        return norm, shift
+    
 
     # ___________________________________________________________________________________________ BAYESIAN OPTIMIZATION
 
-    def optimize_hyperparameters(self, U_wtv, Y_tv, validation_strategy=None, print_convergence=True):
+    def optimize_hyperparameters(self, U_wtv, Y_wtv, validation_strategy=None, print_convergence=True):
         """
         Performs Bayesian hyperparameter optimization to minimize the validation loss.
 
         Args:
             U_wtv (np.ndarray): Wash-train-validation input data.
-            Y_tv (np.ndarray): Corresponding labels for train-validation data.
+            Y_wtv (np.ndarray): Corresponding labels for train-validation data.
             validation_strategy (function, optional): Validation function for hyperparameter tuning.
                 Defaults to `__RVC_Noise`.
 
@@ -853,7 +927,7 @@ class EchoStateNetwork:
         val_func = partial(validation_strategy,
                            case=self,
                            U_wtv=U_wtv.copy(),
-                           Y_tv=Y_tv.copy(),
+                           Y_wtv=Y_wtv.copy(),
                            tikh_opt=tikh_opt,
                            hp_names=hp_names,
                            print_convergence=print_convergence
@@ -888,7 +962,7 @@ class EchoStateNetwork:
         # Update hyperparameters with the best result
         self.reset_hyperparams(result.x, hp_names, tikhonov=tikh_opt[best_idx])
 
-        print(f"seed {self.seed_W} \t Optimal hyperparameters: {result.x}, {self.tikh}, MSE: {result.fun}")
+        print(f"seed {self.seed} \t Optimal hyperparameters: {result.x}, {self.tikh}, MSE: {result.fun}")
 
         return dict(res=result,
                     hp_names=hp_names)
@@ -931,7 +1005,7 @@ class EchoStateNetwork:
         return search_grid, search_space, parameters
 
     @staticmethod
-    def __RVC_Noise(x, case, U_wtv, Y_tv, tikh_opt, hp_names, print_convergence=True):
+    def __RVC_Noise(x, case, U_wtv, Y_wtv, tikh_opt, hp_names, print_convergence=True):
         """
         Implements Chaotic Recycle Validation for hyperparameter optimization.
 
@@ -939,7 +1013,7 @@ class EchoStateNetwork:
             x (list): Hyperparameter values to evaluate.
             case (EchoStateNetwork): Instance of the ESN being validated.
             U_wtv (np.ndarray): Wash-train-validation input data.
-            Y_tv (np.ndarray): Corresponding labels for train/validation data.
+            Y_wtv (np.ndarray): Corresponding labels for train/validation data.
             tikh_opt (np.ndarray): Array to store optimal Tikhonov regularization values.
             hp_names (list): Names of the hyperparameters being optimized.
 
@@ -951,62 +1025,91 @@ class EchoStateNetwork:
             case.reset_hyperparams(x, hp_names)
 
         N_tikh = len(case.tikh_range)
-        n_MSE = np.zeros(N_tikh)
+        nRMSE = np.zeros(N_tikh)
 
         # num steps forward the validation interval is shifted
         N_fw = (case.N_train - case.N_val - case.N_wash) // (case.N_folds - 1)
 
         # Train using tv: Wout_tik is passed with all the combinations of tikh_ and target noise
         # This must result in L-Xa timeseries
-        LHS, RHS, U_train, R_train = case._compute_RR_terms(U_wtv, Y_tv)
+        LHS, RHS, _, _ = case._compute_RR_terms(U_wtv, Y_wtv)
         Wout_tik = np.empty((N_tikh, case.N_units + 1, case.N_dim))
 
+        # print(f'Computing Wout for tikhonov values: {case.tikh_range}')
+        # print(f'LHS shape: {LHS.shape}, RHS shape: {RHS.shape}')
         
         for tik_j in range(N_tikh):
-            LHS_ = LHS.copy()
-            LHS_.ravel()[::LHS.shape[1] + 1] += case.tikh_range[tik_j]
-            Wout_tik[tik_j] = np.linalg.solve(LHS_, RHS)
+            LHS_reg = LHS.copy()
+            LHS_reg.ravel()[::LHS.shape[1] + 1] += case.tikh_range[tik_j]
+            Wout_tik[tik_j] = np.linalg.solve(LHS_reg, RHS)
 
+        # print(U_wtv.shape, Y_wtv.shape, 'U_wtv, Y_wtv shapes in RVC noise')
         # Perform Validation in different folds
-        for U_l, Y_l in zip(U_wtv, Y_tv):  # Each set of training data
+        n_looop = -1 # to count the number of tests performed
+        for U_l, Y_l in zip(U_wtv, Y_wtv):  # Each set of training data        
+            norm_l = np.max(Y_l, axis=0) - np.min(Y_l, axis=0)
+
             for fold in range(case.N_folds):
-                case.reset_state(u=case.u * 0, r=case.r * 0)
+                n_looop += 1
+                # case.reset_reservoir_state(u=case.u * 0, r=case.r * 0)
                 p = case.N_wash + fold * N_fw
 
                 # Select washout and validation data
                 U_wash = U_l[p:p + case.N_wash]
-                Y_val = Y_l[p:p + case.N_val]
+                Y_val = Y_l[p + case.N_wash:p + case.N_wash + case.N_val]
 
                 # Perform washout (open-loop without extra forecast step)
-                u_open, r_open = case.openLoop(U_wash, extra_closed=False)
+                r_out = np.zeros((case.N_units, case.N_ens))
+
+                for u_in in U_wash:
+                    u_out, r_out = case.step(u_in, r_out)
 
                 for tik_j in range(N_tikh):  # cloop for each tikh_-noise combination
-                    case.reset_state(u=case.outputs_to_inputs(u_open[-1]), r=r_open[-1])
 
                     case.Wout = Wout_tik[tik_j]
-                    U_close = case.closedLoop(case.N_val)[0][1:].squeeze()
+
+                    # Y_close = case.closedLoop(case.N_val)[0][1:].squeeze()
+                    Y_closed = np.zeros_like(Y_val)
+
+                    for i in range(Y_closed.shape[0]):
+                        u_input = case.outputs_to_inputs(full_state=u_out)
+                        u_out, r_out = case.step(u_input, r_out)
+                        Y_closed[i] = u_out.copy()  
 
                     # Compute normalized MSE
-                    n_MSE[tik_j] += np.log10(np.mean((Y_val - U_close) ** 2) / np.mean(case.norm ** 2))
-
+                    nRMSE[tik_j] += np.log10(case.compute_nRMSE(Y_val, Y_closed, norm=norm_l))
+    
                     # prevent from diverging to infinity: MSE=1E10 (useful for hybrid and similar architectures)
-                    if np.isnan(n_MSE[tik_j]) or np.isinf(n_MSE[tik_j]):
-                        n_MSE[tik_j] = 10 * case.N_folds
-
+                    if np.isnan(nRMSE[tik_j]) or np.isinf(nRMSE[tik_j]):
+                        nRMSE[tik_j] = 10 * case.N_folds
+                        
         # select and save the optimal tikhonov and noise level in the targets
-        a = n_MSE.argmin()
+        a = nRMSE.argmin()
         tikh_opt[case.val_k] = case.tikh_range[a]
         case.tikh = case.tikh_range[a]
-        normalized_best_MSE = n_MSE[a] / case.N_folds / len(U_wtv)
+        normalized_best_RMSE = nRMSE[a] / n_looop
 
         case.val_k += 1
         if print_convergence:
             print(case.val_k, end="")
             for hp in case.hyperparameters_to_optimize:
                 print('\t {:.3e}'.format(getattr(case, hp)), end="")
-            print('\t {:.4f}'.format(normalized_best_MSE))
+            print('\t {:.4f}'.format(normalized_best_RMSE))
 
-        return normalized_best_MSE
+        return normalized_best_RMSE
+
+    
+    def compute_nRMSE(self, Y_true, Y_pred, norm=1.0):
+        """
+        Computes the normalized Root Mean Square Error (nRMSE) between true and predicted values.
+
+        Args:
+            Y_true (np.ndarray): Ground truth values.
+            Y_pred (np.ndarray): Predicted values.
+        Returns:
+            float: nMSE value.
+        """
+        return np.mean(np.sqrt((Y_true - Y_pred) ** 2)) / np.mean(np.sqrt(norm**2))
 
     # _______________________________________________________________________________________ TEST & PLOTTING FUNCTIONS
 
@@ -1021,7 +1124,7 @@ class EchoStateNetwork:
                  Y_test, 
                  pdf_file=None, 
                  Nt_test=None,
-                 max_L_tests=10, 
+                 max_L_tests=5, 
                  nbins=20, 
                 max_short_tests=10,
                 long_term=True,
@@ -1044,8 +1147,6 @@ class EchoStateNetwork:
         Returns:
             None. Prints error metrics and optionally saves plots.
         """
-        if hasattr(self, 'seed'):
-            seed = self.seed
 
         if max_L_tests is None and hasattr(self, 'max_L_tests'):
             max_L_tests = self.max_L_tests
@@ -1065,8 +1166,8 @@ class EchoStateNetwork:
 
         rng0 = self.rng
 
-        L, max_test_time, Nq = U_test.shape
-        max_test_time -= self.N_wash
+        L, max_test_time, Nq = U_test.shape[:3]
+        # max_test_time -= self.N_wash
 
         if Nq > 10:
             nrows, dims = 10, rng0.choice(Nq, 10, replace=False)
@@ -1089,15 +1190,22 @@ class EchoStateNetwork:
         # Prediction function
         def predict_Y(_input, _target):
 
-            # Reset state
-            self.reset_state(u=self.u * 0., r=self.r * 0.)
+            # Perform washout (open-loop without extra forecast step)
+            r_out = np.zeros((self.N_units, self.N_ens))
+            u_open = np.zeros_like(_target[:self.N_wash]) 
 
-            # Forecast washout in open loop and reset state
-            u_open, r_open = self.openLoop(_input[:self.N_wash], extra_closed=False)
-            self.reset_state(u=self.outputs_to_inputs(full_state=u_open[-1]),  r=r_open[-1])
 
-            # Closed-loop prediction
-            Y_closed = self.closedLoop(_target.shape[0])[0][1:]
+            for ii, u_in in enumerate(_input[:self.N_wash]):
+                u_out, r_out = self.step(u_in, r_out)
+                u_open[ii] = u_out.copy()
+
+
+            Y_closed = np.zeros_like(_target)
+            
+            for i in range(Y_closed.shape[0]):
+                u_input = self.outputs_to_inputs(full_state=u_out)
+                u_out, r_out = self.step(u_input, r_out)
+                Y_closed[i] = u_out.copy()
 
             return Y_closed, u_open
 
@@ -1106,7 +1214,8 @@ class EchoStateNetwork:
             if not isinstance(_axs, (list, np.ndarray)):
                 _axs = [_axs]
 
-            t_wash_in = _time[:self.N_wash]
+            t_wash_in = _time[:self.N_wash] - self.dt_ESN
+            t_wash_out = _time[:self.N_wash]
             t_out = _time[self.N_wash:]
 
             for dim_i, _ax in zip(range(self.N_dim), _axs):
@@ -1116,7 +1225,7 @@ class EchoStateNetwork:
                     _i = np.argmin(abs(observed_idx_np-dim_i))
                     _ax.plot(t_wash_in, _inputs[:self.N_wash, _i], 'x', c='C4', ms=5, label=f'Washout')
                     
-                _ax.plot(t_wash_in, _pred_open[:, dim_i], '-c', label=f'ESN open loop')
+                _ax.plot(t_wash_out, _pred_open[:, dim_i], '-co', mfc='none', label=f'ESN open loop')
                 _ax.plot(t_out, _pred_closed[:, dim_i], '--r', dashes=[2, .5],
                          label=[f'ESN closed-loop prediction \n error = {_err:.4}' if _err is not None else f'ESN closed-loop prediction'])
                 _ax.set(ylabel=f'$u_{dim_i}$')
@@ -1128,10 +1237,14 @@ class EchoStateNetwork:
 
         for Li in L_indices:
 
-            i0, errors = 0, [] # reset time index and errors for each Li
 
             # Select dataset
             U_test_l, Y_test_l = U_test[Li], Y_test[Li]
+
+            print(f'Running test for L={Li} with data shapes U: {U_test_l.shape}, Y: {Y_test_l.shape}')
+
+            norm_l = np.max(Y_test_l, axis=0) - np.min(Y_test_l, axis=0)
+
             t_l = (np.arange(U_test_l.shape[0])) * self.dt_ESN
             # set ylims for plotting
             ylims = [[np.min(Y_test_l[:, dim_i])*1.05, np.max(Y_test_l[:, dim_i])*1.05] for dim_i in range(self.N_dim)]
@@ -1142,40 +1255,51 @@ class EchoStateNetwork:
                 # predict over the entire test set
                 Y_closed, U_open = predict_Y(U_test_l[:-1], Y_test_l[self.N_wash:])
 
-
+                err_long = np.log10(self.compute_nRMSE(Y_closed, Y_test_l[self.N_wash:], norm=norm_l))
+                
                 fig_long, grid = plt.subplots(nrows=self.N_dim, ncols=2, figsize=[10, 2.5 * self.N_dim],
                                          sharex='col', sharey='row', layout='tight', width_ratios=[5, 1])
-                axs, axs_pdf = grid.T
-        
-                plot_time(_axs=axs, _time=t_l, _pred_closed=Y_closed, _pred_open=U_open, _inputs=U_test_l, _target=Y_test_l[self.N_wash:],)
+                
+                if self.N_dim == 1:
+                    axs, axs_pdf = [grid[0]], [grid[1]]
+                else:
+                    axs, axs_pdf = grid[:, 0], grid[:, 1]
+
+                plot_time(_axs=axs, 
+                          _time=t_l, 
+                          _pred_closed=Y_closed,
+                           _pred_open=U_open, 
+                          _inputs=U_test_l, 
+                          _target=Y_test_l[self.N_wash:],)
 
                 # Plot histograms]
-                if Nq == 1:
-                    axs_pdf = [axs_pdf]
-                for dim_i, ax_2 in zip(range(self.N_dim), axs_pdf):
+                for dim_i, ax_2 in enumerate(axs_pdf):
                     if dim_i in self.observed_idx:
                         _i = np.argmin(abs(observed_idx_np - dim_i))
-                        ax_2.hist(U_test_l[:, _i].T, color='k', lw=2, alpha=0.6, histtype='step', **hist_args)
+                        ax_2.hist(U_test_l[:, _i], color='k', lw=2, alpha=0.6, histtype='step', **hist_args)
 
-                    ax_2.hist(Y_test_l[:, dim_i].T, color='k', lw=.85, histtype='step', **hist_args)
+                    ax_2.hist(Y_test_l[:, dim_i], color='k', lw=.85, histtype='step', **hist_args)
                     ax_2.hist(Y_closed[:, dim_i], color='r', ls='--', histtype='stepfilled', alpha=0.5, **hist_args)
                     ax_2.hist(Y_closed[:, dim_i], color='r', ls='--', histtype='step', **hist_args)
 
                 # axs[0].legend(loc='lower center', ncol=4, bbox_to_anchor=(0.5, 1.0))
-                plt.suptitle(f'Test {test_counter+1}: Li = {Li}, observed idx = {self.observed_idx}')
+                plt.suptitle(f'Li = {Li}, observed idx = {self.observed_idx}, error = {err_long:.4}')
                 axs[-1].set(xlabel='$t/T$')
             else:
                 fig_long = None
 
 
             if short_term:
+                i0 = 0 # reset time index for each Li
                 figures_short = []
+                short_term_error = 0.
 
-                while i0 + Nt_test < max_test_time + 1:
+                while i0 + Nt_test < max_test_time:
                     if len(figures_short) >= max_short_tests:
                         break
                     test_counter += 1
-                    i1 = i0 + Nt_test 
+
+                    i1 = i0 + Nt_test + self.N_wash 
                     
                     current_input = U_test_l[i0:i1-1].copy()
                     current_target = Y_test_l[i0+self.N_wash:i1].copy()
@@ -1184,8 +1308,10 @@ class EchoStateNetwork:
                     # predict
                     Y_closed, U_open = predict_Y(current_input, current_target)
 
-                    current_error = np.log10(np.mean((Y_closed - current_target[..., np.newaxis]) ** 2) / np.mean(np.atleast_2d(self.norm ** 2)))
-                    errors.append(current_error)
+                    current_error = np.log10(self.compute_nRMSE(current_target, Y_closed, norm=norm_l))
+
+                    short_term_error += current_error
+                
 
                     if test_counter <= max_L_tests:
                         fig_short, axs_short = plt.subplots(nrows=nrows, ncols=1, figsize=[8, 1.5 * nrows], sharex='all', layout='tight')
@@ -1202,14 +1328,15 @@ class EchoStateNetwork:
 
                         figures_short.append(fig_short)
                     i0 += Nt_test
+
+                errors_all.append(short_term_error / max(1, (i0 // Nt_test)))
             else:
                 figures_short = [None]
 
-            errors_all.append(errors)
 
         # Compute errors over all Lis
         if test_counter > 0:
-            errors_all = np.array(errors_all)
+            errors_all = np.array(errors_all) 
             print(f'Overall tests min, max and mean MSE in {test_counter} tests = {np.min(errors_all):.4}, {np.max(errors_all):.4}, {np.mean(errors_all):.4}.')
         
         return [fig_long] + figures_short
@@ -1231,7 +1358,7 @@ class EchoStateNetwork:
         # Plot Wout matrix
         all_figs.append(self.plot_Wout())
         # Plot test results if applicable
-        if self.perform_test and U_test.shape[1] >= (self.N_wash+self.N_val):
+        if self.perform_test and U_test.shape[1] >= self.N_val:
             test_figs = self.run_test(U_test, Y_test, 
                                        long_term=True, short_term=True, max_short_tests=5)
             all_figs = all_figs + test_figs

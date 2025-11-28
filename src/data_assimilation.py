@@ -457,7 +457,15 @@ class Filter(object):
     def __call__(self, *args, **kwargs):
         raise NotImplementedError('Filter call method not implemented.')
 
-    
+    def print_parameters(self):
+
+        print('\n ------------------ Filter Config ------------------ ', 
+              f'Filter class name = {self.filter_name}',
+              f'ensemble size = {self.m}',
+              f'observation operator shape (Nq x Nphi+Na+Nq) = {self._M.shape}',
+              f'bias aware filter = {self.is_bias_aware}', sep='\n\t')
+
+
     def observation_operator(self, Af):
         """
         Adjust observation operator matrix in case of parameter estimation not active
@@ -470,7 +478,7 @@ class Filter(object):
 
     @property
     def filter_name(self):
-        return self.filter.__class__.__name__ if self.filter is not None else 'None'
+        return self.__class__.__name__ 
 
 
 
@@ -632,7 +640,7 @@ class rBA_EnKF_CMAME(Filter):
             if b.ndim == 1:
                 b = np.expand_dims(b, axis=1)
             # B = rng.multivariate_normal(b.squeeze(), Cbb, m).transpose()
-            B = np.repeat(b, m, axis=1)
+            B = np.repeat(b, self.m, axis=1)
 
         Y = Q + B
 

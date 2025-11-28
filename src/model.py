@@ -180,7 +180,6 @@ class Model(object):
                             reset=True)
         
         # ======================== SET RNG ================================== ##
-        self.rng = 10
         self.print_params = self.define_print_params()
         self.initialized = True
 
@@ -198,7 +197,11 @@ class Model(object):
         assert t.size == psi.shape[0], f"Length of t ({t.size}) must match number of time steps in psi ({psi.shape[0]})."
         self.history.update_history(psi, t=t, reset=reset, update_last_state=update_last_state)
 
-
+    @property
+    def name(self):
+        return self.__class__.__name__
+    
+    
     @property
     def hist(self):
         """Returns only the valid (non-empty) portion of the history buffer."""
@@ -283,7 +286,10 @@ class Model(object):
 
     @property
     def precision_t(self):
-        return int(-np.log10(self.dt)) + 2
+        if not hasattr(self, '_precision_t'):
+            self._precision_t = int(-np.log10(self.dt)) + 2
+        return self._precision_t
+    
     
     @property
     def dt_step(self):
@@ -317,7 +323,6 @@ class Model(object):
         self.governing_eqns_params.update(fixed_params)
 
 
-
     def create_long_timeseries(self, Nt=None):
         if Nt is None:
             Nt = int(self.t_transient * 10 / self.dt)
@@ -325,13 +330,25 @@ class Model(object):
         self.update_history(state, t)
         self.close()
 
+    
     @property
     def rng(self):
+        if not hasattr(self, '_rng'):
+            self._rng = np.random.default_rng(self.seed)
         return self._rng
+    
+    @property
+    def seed(self):
+        if not hasattr(self, '_seed'):
+            self._seed = 0
+        return self._seed
+    
+    @seed.setter
+    def seed(self, value: int):
+        self._seed = value
+        if hasattr(self, '_rng'):
+            del self._rng
 
-    @rng.setter
-    def rng(self, seed):
-        self._rng = np.random.default_rng(seed)
 
     def copy(self):
         return deepcopy(self)
@@ -348,7 +365,8 @@ class Model(object):
 
 
     def print_model_parameters(self):
-        print('\n ------------------ {} Model Parameters ------------------ '.format(self.name))
+        print('\n ------------------ Model Parameters ------------------ ')
+        print(f'\t Model class name: {self.__class__.__name__}')
         for key in sorted(self.print_params):
             val = getattr(self, key)
             print(f'\t {key} = {val:.6f}' if isinstance(val, float) else f'\t {key} = {val}')

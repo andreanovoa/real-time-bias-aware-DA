@@ -16,7 +16,7 @@ class ESN_model(EchoStateNetwork, Model):
         - Note: training data is a mandatory input to the initialization
     """
 
-    name: str = 'ESN_model'
+    # name: tr = 'ESN_model'
     figs_folder: str = 'figs/ESN_model/'
 
     update_reservoir = True
@@ -61,7 +61,6 @@ class ESN_model(EchoStateNetwork, Model):
         - plot_training: whether to plot or not the training data and training convergence.
         """
 
-        self.dt = dt
 
         # Increase ndim if there is only one set of parameters
         if data.ndim == 1:
@@ -74,7 +73,7 @@ class ESN_model(EchoStateNetwork, Model):
         Nt = data.shape[1]
         for key in ["train", "val", "test"]:
             if f"N_{key}" in kwargs: 
-                setattr(self, f"t_{key}", kwargs.pop(f"N_{key}") * self.dt)
+                setattr(self, f"t_{key}", kwargs.pop(f"N_{key}") * dt)
                 # print('setting t_{key} to {getattr(self, f"t_{key}")}, self.dt={self.dt}')s
 
         # Set other ESN_model attributes provided
@@ -83,14 +82,14 @@ class ESN_model(EchoStateNetwork, Model):
                 setattr(self, key, kwargs.pop(key))
 
         # _________________________ Set time attributes _________________________ #
-        t_total = Nt * self.dt
+        t_total = Nt * dt
         self.t_train = self.t_train or t_total * 0.8
         self.t_val = self.t_val or self.t_train * 0.2
 
         if self.perform_test:
             self.t_test = self.t_test or t_total - self.t_train - self.t_val
 
-            assert abs((ts := sum([self.t_train, self.t_val, self.t_test])) - t_total) <= self.dt / 2., \
+            assert abs((ts := sum([self.t_train, self.t_val, self.t_test])) - t_total) <= dt / 2., \
                 f"t_train + t_val + t_test {ts} <= t_total {t_total}"
 
 
@@ -104,16 +103,26 @@ class ESN_model(EchoStateNetwork, Model):
 
         EchoStateNetwork.__init__(self,
                                   y=data[0, 0],
-                                  dt=self.dt,
+                                  dt=dt,
                                   **ESN_dict)
 
         self.t_CR = self.t_val
+
+        # Set model time step
+        self.dt = dt  # to avoid conflict with EchoStateNetwork dt
+        self.dt = dt
+        print(f"Model time step dt set to: {self._dt}") 
 
         # ______________________ Train the EchoStateNetwork _______________________ #
         # Train the network
         self.train_network(data=data, 
                            plot_training=plot_training, 
                            **kwargs)
+        
+        # ========================== STEP 4: NETWORK INITIALIZATION ======================
+        if self.random_initialization:
+            self.initialise_state()
+            raise NotImplementedError('Random initialization not implemented yet for ESN_model')
 
         # Initialise SVD Wout terms if required
         if self.Wout_svd:
@@ -121,11 +130,10 @@ class ESN_model(EchoStateNetwork, Model):
             self.Wout_Sigma = self.Wout_Sigma0
 
         # ________________________________ Init Model _______________________________ #
-        
-        kwargs['psi0'] = self.build_psi(*self.get_reservoir_state())[0]
-
-        # print('Initializing Model with psi0 shape:', kwargs['psi0'].shape)
-        Model.__init__(self, integrator_class=DiscreteIntegrator, **kwargs)
+        # set the initial state to be just the reservoir state
+        Model.__init__(self, 
+                       psi0=self.reservoir_state, 
+                       integrator_class=DiscreteIntegrator, **kwargs)
 
 
 
@@ -276,6 +284,53 @@ class ESN_model(EchoStateNetwork, Model):
 
 
     # ______________________ Changed EchoStateNetwork class attributes ______________________ #
+    
+    # @property
+    # def N_ens(self):
+    #     if not self.ensemble:
+    #         return self.reservoir_state.shape[-1]
+    #     else:
+    #         return self.ensemble.get('m')
+
+
+    # def initialise_state(self, data, N_ens=1, seed=None):
+    #     if seed is not None:
+    #         rng0 = np.random.default_rng(seed)
+    #     else:
+    #         rng0 = self.rng
+
+    #     if hasattr(self, 'm'):
+    #         N_ens = getattr(self, 'm')
+
+        
+    #     # initialise state with a random sample from test data
+    #     r_init = np.empty((self.N_units, N_ens))
+        
+    #     # Random time windows and dimension
+    #     if data.shape[0] == 1:
+    #         dim_ids = [0] * N_ens
+    #     else:
+    #         if N_ens > data.shape[0]:
+    #             replace = False
+    #         else:
+    #             replace = True
+    #         dim_ids = rng0.choice(data.shape[0], size=N_ens, replace=replace)
+    #     t_ids = rng0.choice(data.shape[1] - self.N_wash, size=N_ens, replace=False)
+    #     # Open loop for each ensemble member
+        
+    #     for ii, ti, dim_i in zip(range(N_ens), t_ids, dim_ids):
+    #         # self.reset_reservoir_state(u=np.zeros((self.N_dim, 1)), r=np.zeros((self.N_units, 1)))
+
+    #         r_out = np.zeros((self.N_units, 1))
+    #         for u_in in data[dim_i, ti: ti + self.N_wash]:
+    #             _, r_out = self.step(u=u_in, r=r_out)
+
+    #         r_init[:, ii] = r_out.squeeze()
+                                            
+
+    #     # Set physical and reservoir states as ensembles
+    #     self.reservoir_state = r_init
+
 
 
     def initialise_state(self, data, N_ens=1, seed=0):
@@ -302,7 +357,8 @@ class ESN_model(EchoStateNetwork, Model):
             u_init[:, ii], r_init[:, ii] = u_open[-1], r_open[-1]
 
         # Set physical and reservoir states as ensembles
-        self.reset_state(u=u_init, r=r_init)
+        self.reservoir_state = r_init
+        print(f'Initialized ESN_model state with data at times {t_ids} and dimensions {dim_ids}')
 
 
     def train_network(self, data, plot_training=True, **kwargs):
@@ -320,7 +376,7 @@ class ESN_model(EchoStateNetwork, Model):
     def reset_ESN(self, data, u0=None, **kwargs):
 
         if u0 is None:
-            u0 = self.get_reservoir_state()[0]  # self.u
+            u0 = self.reservoir_to_physical(self.reservoir_state)
 
         EchoStateNetwork.__init__(self,
                                   y=u0,
@@ -340,46 +396,61 @@ class ESN_model(EchoStateNetwork, Model):
 
     @property
     def Nq(self):
-        return self.N_dim
+        return self.N_dim_in
 
 
     @property
     def state_labels(self):
-        labels = []
-        if self.update_state:
-            labels += self.obs_labels
-        if self.update_reservoir:
-            labels += [f'$r_{{{j+1}}}$' for j in np.arange(self.N_units)]
+        # labels = []
+        # if self.update_state:
+        #     labels += self.obs_labels
+        # if self.update_reservoir:
+        #     labels += [f'$r_{{{j+1}}}$' for j in np.arange(self.N_units)]
             
-        return labels
+        return [f'$r_{{{j+1}}}$' for j in np.arange(self.N_units)]
 
     @property
     def obs_labels(self):
-        return [f'$u_{j+1}$' for j in np.arange(self.N_dim)]
+        return [f'$u_{{{j+1}}}$' for j in np.arange(self.Nq)]
         
 
-    def reset_history(self, hist, t):
-        assert hist.shape[1] == self.N_dim + self.N_units + self.Na, \
-        f'psi.shape ={hist.shape}; Ndim, Nunit, Na = {self.N_dim}, {self.N_units}, {self.Na}'
+    def update_history(self, hist, t):
+        assert hist.shape[1] == self.N_dim_in + self.N_units + self.Na, \
+        f'psi.shape ={hist.shape}; Ndim, Nunit, Na = {self.N_dim_in}, {self.N_units}, {self.Na}'
 
         # Reset state and time history
         self.hist = hist
         self.hist_t = t
         # Reset EchoStateNetwork states
-        u, r = self.unbuild_psi()
-        self.reset_state(u=u, r=r)
+        _, r = self.unbuild_psi()
+        self.reservoir_state = r
+    
 
+    def update_history(self, psi: np.ndarray, t=None, reset=False, update_last_state=False):
+        psi = self.__format_state(psi)
+        if t is None:
+            t = (np.arange(0, psi.shape[0]) * self.dt).round(self.precision_t) + self.current_time
+        if isinstance(t, float):
+            t = np.array([t])
+        assert t.size == psi.shape[0], f"Length of t ({t.size}) must match number of time steps in psi ({psi.shape[0]})."
+        self.history.update_history(psi, t=t, reset=reset, update_last_state=update_last_state)
+
+        
     def reset_last_state(self, psi, t=None):
         
         self.hist[-1] = psi
         if t is not None:
             self.hist_t[-1] = t
             
-        u, r = self.unbuild_psi()
-        self.reset_state(u=u, r=r)
+        _, r = self.unbuild_psi()
+        self.reservoir_state = r
 
 
-    def reservoir_to_physical(self, r_aug=None):
+    def reservoir_to_physical(self, r):
+
+        bias_out = self.bias_out * np.ones((1, r.shape[-1]))
+        r_aug = np.concatenate((r, bias_out))
+
         if not self.Wout_svd:
             return np.dot(r_aug.T, self.Wout).T
         else:
@@ -406,37 +477,31 @@ class ESN_model(EchoStateNetwork, Model):
         # 1. get initial condition
 
 
-        interp_flag = False
-        Nt = Nt // self.upsample
-        if Nt % self.upsample:
-            Nt += 1
-            interp_flag = True
-
         t = np.round(self.current_time + np.arange(0, Nt + 1) * self.dt_ESN, self.precision_t)
 
 
-        r = np.empty((Nt + 1, self.N_units, self.u.shape[-1]))
-        u = np.empty((Nt + 1, self.N_dim, self.u.shape[-1]))
-        u[0, :], r[0] = self.get_reservoir_state()
+        r_out = np.empty((Nt + 1, self.N_units, self.N_ens))
+        u = np.empty((Nt + 1, self.N_dim, self.N_ens))
 
+        r_out[0] = self.reservoir_state
+        u[0] = self.reservoir_to_physical(r_out[0])
 
         if averaged:
             # Mean state
-            u_m, r_m = [np.mean(xx, axis=-1, keepdims=True) for xx in [u, r]]
+            u_m, r_m = [np.mean(xx, axis=-1, keepdims=True) for xx in [u, r_out]]
             # deviations from the mean
-            u_dev, r_dev = [xx - xm for xx, xm in zip([u, r], [u_m, r_m])]
+            u_dev, r_dev = [xx - xm for xx, xm in zip([u, r_out], [u_m, r_m])]
 
             for i in range(Nt):
                 u_m[i + 1], r_m[i + 1] = self._single_step(u_m[i], r_m[i])
 
             # copy into the ensemble members the mean + deviation
-            u, r = [xm + xd for xm, xd in zip([u_m, r_m], [u_dev, r_dev])]
+            u, r_out = [xm + xd for xm, xd in zip([u_m, r_m], [u_dev, r_dev])]
         else:
-
             for i in range(Nt):
-                u[i + 1], r[i + 1] = self._single_step(u[i], r[i])
+                u[i + 1], r_out[i + 1] = self._single_step(u[i], r_out[i])
 
-        return self.build_psi(u, r), t
+        return r_out, t
 
 
     def _single_step(self, u, r):
@@ -444,7 +509,7 @@ class ESN_model(EchoStateNetwork, Model):
         return self.step(u_input, r)
     
 
-    def build_psi(self, u, r):
+    def build_psi(self, r):
         """ Build the full state vector psi from physical states u and reservoir states r
          Returns:
             psi: full state vector (Nt x (Nphi + Na) x m)
@@ -457,14 +522,14 @@ class ESN_model(EchoStateNetwork, Model):
         if u.shape[0] != r.shape[0]:
             raise ValueError(f'Incompatible time dimension for u ({u.shape[0]}) and r ({r.shape[0]})')
     
-        if self.update_state and self.update_reservoir:
-            phi = np.concatenate((u, r), axis=1)
-        elif self.update_state:
-            phi = u
-        elif self.update_reservoir:
-            phi = r
-        else:
-            raise ValueError(f'Incompatible Nphi={self.Nphi} for ESN model with N_dim={self.N_dim} and N_units={self.N_units}')
+        # if self.update_state and self.update_reservoir:
+        #     phi = np.concatenate((u, r), axis=1)
+        # elif self.update_state:
+        #     phi = u
+        # elif self.update_reservoir:
+        #     phi = r
+        # else:
+        #     raise ValueError(f'Incompatible Nphi={self.Nphi} for ESN model with N_dim={self.N_dim} and N_units={self.N_units}')
         
         if self.Na > 0:
             alph = self.get_alpha_matrix

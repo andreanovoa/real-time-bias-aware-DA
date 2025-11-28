@@ -25,7 +25,7 @@ class KS(Model):
 	on the domain x in (0,L], where nu = (2pi/L)^2
     """
 
-    name: str = 'KS'
+    # name: str = 'KS'
     t_transient = 300.
     t_CR = 50.
     dt = 0.25

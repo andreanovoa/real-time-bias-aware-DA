@@ -23,7 +23,7 @@ class POD_ESN(ESN_model, POD):
             - Sigma: POD Sigmas [N_modes, ],  note: Lambdas can be computed as: Sigma = np.sqrt(Lambda)
     """
 
-    name: str = 'POD-ESN'
+    # name: str = 'POD-ESN'
     figs_folder: str = 'figs/POD-ESN/'
 
     Nq = 10

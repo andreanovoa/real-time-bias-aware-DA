@@ -11,7 +11,7 @@ from typing import Dict, Any, List
 class Lorenz63(Model):
     """ Lorenz 63 Class: Continuous System Model
     """
-    name: str = 'Lorenz63'
+    # name: str = 'Lorenz63'
 
     # --- Core Physics Parameters ---
     t_lyap = 0.9056 ** (-1)

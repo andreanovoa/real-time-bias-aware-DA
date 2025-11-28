@@ -10,7 +10,7 @@ class Rijke(Model):
         Rijke tube model with Galerkin discretization and gain-delay sqrt heat release law.
     """
 
-    name: str = 'Rijke'
+    # name: str = 'Rijke'
     t_transient = .25
     t_CR = 0.02
 

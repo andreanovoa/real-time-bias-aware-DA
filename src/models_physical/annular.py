@@ -9,8 +9,6 @@ class Annular(Model):
     """ Annular combustor model, which consists of two coupled oscillators
     """
 
-    name: str = 'Annular'
-
     t_transient = 0.5
     t_CR = 0.01
 
