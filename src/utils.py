@@ -56,8 +56,9 @@ def mean_vector_to_ensemble(rng: np.random.Generator,
     """
     if method not in ['uniform', 'normal']:
         raise ValueError(f'Distribution "{method}" not supported. Choose "uniform" or "normal".')
-        
-    mean_vec = np.asarray(mean_vec).flatten()
+    
+    mean_vec = mean_vec.copy()
+    # mean_vec = np.asarray(mean_vec).flatten()
     
     # Case 1: std is a dictionary (for estimated parameters 'alpha')
     if isinstance(std, dict):
@@ -76,14 +77,25 @@ def mean_vector_to_ensemble(rng: np.random.Generator,
                 ensemble_.append(rng.normal(loc=loc, scale=scale, size=m))
         ensemble_ = np.array(ensemble_) # Shape: (num_params, m)
 
-    # Case 2: std is a single float (relative standard deviation for state or parameters)
-    elif isinstance(std, float):
+    # Case 2: std is a single float or a different std for each component (relative standard deviation for state or parameters)
+    elif isinstance(std, float) or isinstance(std, np.ndarray):
         if method == 'uniform':
-            # Multiplicative uniform perturbation: mean * (1 +/- std)
+
+            # ensure std is an array with. compatible shape
+            if isinstance(std, float):
+                std = std * np.ones_like(mean_vec) 
+            if std.ndim == 1:
+                std = std[:, np.newaxis]
+
+            
             perturbation = 1.0 + rng.uniform(-std, std, size=(mean_vec.size, m))
             ensemble_ = mean_vec[:, np.newaxis] * perturbation
         
         else: # normal (using multivariate normal for state vector)
+
+            # Multiplicative uniform perturbation: mean * (1 +/- std)
+            print(f'Creating normal ensemble with std={std} for mean_vec of shape {mean_vec.shape} and m={m}')
+
             if np.iscomplexobj(mean_vec):
                 # Handle complex state by perturbing real and imaginary parts independently
                 cov_real = np.diag((mean_vec.real * std) ** 2)

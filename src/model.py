@@ -65,7 +65,6 @@ class Model(object):
         self.hist_t = np.array([0.])
         
         # ======================== SET RNG ================================== ##
-        self.rng = 10
         self.print_params = self.define_print_params()
         self.initialized = True
 
@@ -73,6 +72,57 @@ class Model(object):
         # The model holds an instance of the specific Integrator
         self.integrator = integrator_class(self)
 
+
+    def update_history(self, psi: np.ndarray, t=None, reset=False, update_last_state=False):
+        psi = self.__format_state(psi)
+        if t is None:
+            t = (np.arange(0, psi.shape[0]) * self.dt).round(self.precision_t) + self.current_time
+        if isinstance(t, float):
+            t = np.array([t])
+        assert t.size == psi.shape[0], f"Length of t ({t.size}) must match number of time steps in psi ({psi.shape[0]})."
+        self.history.update_history(psi, t=t, reset=reset, update_last_state=update_last_state)
+
+    @property
+    def name(self):
+        return self.__class__.__name__
+    
+    
+    @property
+    def hist(self):
+        """Returns only the valid (non-empty) portion of the history buffer."""
+        return self.history.hist
+
+    @property
+    def hist_t(self):
+        """Returns only the valid portion of the time history."""
+        return self.history.hist_t
+    
+    @property
+    def current_state(self):
+        return self.history.current_state
+
+    @property
+    def current_time(self):
+        return self.history.current_time
+    
+
+
+    def __format_state(self, psi: np.ndarray) -> np.ndarray:
+        """Ensure psi has the correct shape (Nt, N, m) for history storage.
+        Args:
+            psi: State array to format.
+        Returns:
+            Formatted state array with shape (Nt, N, m).
+        """ 
+        if psi.ndim == 1:
+            psi = psi[np.newaxis, :, np.newaxis]  # (N,) -> (1, N, 1)
+        elif psi.ndim == 2:
+            psi = psi[np.newaxis, :, :]  # (N, m) -> (1, N, m)
+        elif psi.ndim == 3:
+            pass  # Already in correct shape (Nt, N, m)
+        else:
+            raise ValueError(f"State array psi has invalid number of dimensions: {psi.ndim}={psi.shape}. Expected 1, 2, or 3.")
+        return psi
 
     def define_print_params(self):
         return [*self.alpha_labels, *self.extra_print_params]
@@ -121,7 +171,10 @@ class Model(object):
 
     @property
     def precision_t(self):
-        return int(-np.log10(self.dt)) + 2
+        if not hasattr(self, '_precision_t'):
+            self._precision_t = int(-np.log10(self.dt)) + 2
+        return self._precision_t
+    
     
     @property
     def dt_step(self):
@@ -173,13 +226,25 @@ class Model(object):
         self.update_history(state, t)
         self.close()
 
+    
     @property
     def rng(self):
+        if not hasattr(self, '_rng'):
+            self._rng = np.random.default_rng(self.seed)
         return self._rng
+    
+    @property
+    def seed(self):
+        if not hasattr(self, '_seed'):
+            self._seed = 0
+        return self._seed
+    
+    @seed.setter
+    def seed(self, value: int):
+        self._seed = value
+        if hasattr(self, '_rng'):
+            del self._rng
 
-    @rng.setter
-    def rng(self, seed):
-        self._rng = np.random.default_rng(seed)
 
     def copy(self):
         return deepcopy(self)
@@ -196,7 +261,8 @@ class Model(object):
 
 
     def print_model_parameters(self):
-        print('\n ------------------ {} Model Parameters ------------------ '.format(self.name))
+        print('\n ------------------ Model Parameters ------------------ ')
+        print(f'\t Model class name: {self.__class__.__name__}')
         for key in sorted(self.print_params):
             val = getattr(self, key)
             print(f'\t {key} = {val:.6f}' if isinstance(val, float) else f'\t {key} = {val}')

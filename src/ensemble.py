@@ -61,6 +61,10 @@ class Ensemble(object):
     
     activate_parameter_estimation: bool = True  # Whether to include parameter estimation in the analysis step
 
+    keys_to_print = ['m', 'est_phi', 'est_alpha', 'est_bias', 'Na',
+                     'regularization_factor', 'inflation_factor', 'inflation_factor_rejection',
+                     ]
+
     def __init__(self, 
                  parent_model: Type[Model], 
                  parent_bias: Type[Bias] = NoBias, 
@@ -325,7 +329,7 @@ class Ensemble(object):
         print(f'Init ensemble history with shape: {pm.hist.shape} and {pm.hist_t}')
 
 
-    def _init_bias(self, **Bdict):
+    def _init_bias(self, parent_bias, **Bdict):
         """Initializes the bias instance for the ensemble. If the bias is provided as a class, 
         it instantiates it using the model's current state as the mean observation.
         Parameters
@@ -334,9 +338,12 @@ class Ensemble(object):
             Additional keyword arguments to pass to the bias constructor.
         """
         
-        pb = self.bias
 
-        if isinstance(pb, type):
+        if isinstance(parent_bias, Bias):
+            self._bias = parent_bias.copy()
+            
+        elif isinstance(parent_bias, type) and issubclass(parent_bias, Bias):
+
             pm = self.model
             try:
                 # Get observable for one member to determine dimension
@@ -349,14 +356,20 @@ class Ensemble(object):
                 y0 = np.zeros(pm.Nq) 
             
             # remove dt, y, t from Bdict if they exist to avoid duplication
-            [Bdict.pop(key, None) for key in ['y', 't', 'dt']]
+            [Bdict.pop(key, None) for key in ['y', 't', 'dt']]            
 
-            self.bias = pb(
-                y=y0, 
-                t=pm.current_time, 
-                dt=pm.dt, 
-                **Bdict
-            )
+            self._bias = parent_bias(b=y0, 
+                                    t=pm.current_time, 
+                                    dt=pm.dt, 
+                                    initial_capacity=pm.history._initial_capacity,
+                                    forecast_model=pm,
+                                    **Bdict
+                                    )
+        else:
+            raise TypeError('parent_bias must be a Bias class or instance.')
+        
+
+            
 
 
 
@@ -730,20 +743,21 @@ class Ensemble(object):
         namedtuple
             Contains lists of times and reasons for each rejected analysis.
         """
-        if not hasattr(self, '_rejected_analysis'):
-            RejectedData = namedtuple('RejectedData', ['times', 'reasons'])
-            self._rejected_analysis =  RejectedData(times=[], reasons=[])
         return self._rejected_analysis
     
     @rejected_analysis.setter
     def rejected_analysis(self, value: tuple):
         
+        if not hasattr(self, '_rejected_analysis'):
+            RejectedData = namedtuple('RejectedData', ['times', 'reasons'])
+            self._rejected_analysis =  RejectedData(times=[], reasons=[])
+
         time, reason = value
         self._rejected_analysis.times.append(time)
         self._rejected_analysis.reasons.append(reason)
         
 
-        print(f'Number of non-physical analysis = {len(self._rejected_analysis.times)}/{len(self.assimilated_data.times)}')
+        print(f'Number of non-physical analysis = {len(self._rejected_analysis.times)}/{len(self.assimilated_data.times)+1}')
 
         
 
@@ -894,15 +908,20 @@ class Ensemble(object):
     def print_parameters(self) -> None:
         """
         Prints the ensemble configuration parameters in a readable format.
+        Side effects
+        ------------    
+        - Outputs ensemble configuration and model/bias parameters to the console.
+
         """
         print("Ensemble Configuration Parameters:")
-        for attr in dir(self):
-            if not attr.startswith('_') and not callable(getattr(self, attr)):
-                value = getattr(self, attr)
-                print(f"  {attr}: {value}")
+        for key, val in self.config().items():
+            print(f"  {key}: {val}")    
 
         self.model.print_model_parameters()
-        self.bias.print_bias_parameters()
+        if self.filter is not None:
+            self.filter.print_parameters()
+        if self.bias is not None:
+            self.bias.print_bias_parameters()
 
         
 
@@ -943,7 +962,7 @@ def normalized_time(reference_t: float, *times) -> Tuple[np.ndarray, str]:
         t_label = '$t$'
     else:
         t_label = f'$t/{reference_t}$'  
-        times = [t / reference_t  for t in times]
+        times = [t / reference_t if t is not None else None for t in times]   
 
     return times, t_label
 
@@ -1190,11 +1209,23 @@ def plot_observable_history(ensemble : Ensemble,
             if y_raw is not None:
                 ax.plot(t, y_raw[:, qi], label='raw truth', **C.true_noisy_props)
 
-            if pb.name != 'NoBias':
-                ax.plot(t, y_unbiased[:, qi], label='bias-corrected estimate', **C.y_unbias_props)
+            if y_unbiased is not None:
+                if plot_members:
+                    first_member = True
+                    for mi in range(y_unbiased.shape[-1]):
+                        if first_member:
+                            props = C.y_unbias_props.copy()
+                            props['label'] = 'bias-corrected members' 
+                            first_member = False
+                            ax.plot(t, y_unbiased[:, qi, mi], **props)
+                        else:
+                            ax.plot(t, y_unbiased[:, qi, mi], **C.y_unbias_props)
+                else:
+                    ax.plot(t, np.mean(y_unbiased[:, qi], axis=-1), label='bias-corrected estimate', **C.y_unbias_props)
 
             m = np.mean(y_model[:, qi], axis=-1)
             ax.plot(t, m, **C.y_biased_mean_props, label='model estimate')
+
             if plot_members:
                 first_member = True
                 for mi in range(y_model.shape[-1]):

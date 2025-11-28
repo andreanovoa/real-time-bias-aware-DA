@@ -10,7 +10,7 @@ class VdP(Model):
             Note: gamma appears only in the higher order polynomial which is currently commented out
     """
 
-    name: str = 'VdP'
+    # name: str = 'VdP'
     t_transient = 1.5
     t_CR = 0.04
 
