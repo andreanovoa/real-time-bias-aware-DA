@@ -196,6 +196,10 @@ class Model(object):
             t = np.array([t])
         assert t.size == psi.shape[0], f"Length of t ({t.size}) must match number of time steps in psi ({psi.shape[0]})."
         self.history.update_history(psi, t=t, reset=reset, update_last_state=update_last_state)
+        self.update_history_aux(psi, reset=reset, update_last_state=update_last_state)
+    
+    def update_history_aux(self, psi, reset=False, update_last_state=False):
+        pass
 
     @property
     def name(self):
@@ -282,12 +286,11 @@ class Model(object):
         """Setter for the time step."""
         if value <= 0:
             raise ValueError("Time step must be positive.")
+        self._precision_t = int(-np.log10(value)) + 2
         self._dt = np.round(value, self.precision_t)
 
     @property
     def precision_t(self):
-        if not hasattr(self, '_precision_t'):
-            self._precision_t = int(-np.log10(self.dt)) + 2
         return self._precision_t
     
     

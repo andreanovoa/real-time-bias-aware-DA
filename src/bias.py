@@ -196,9 +196,9 @@ class Bias:
         assert t.size == b.shape[0], f"Length of t ({t.size}) must match number of time steps in b ({b.shape[0]})."
         
         self.history.update_history(b, t=t, reset=reset, update_last_state=update_last_state)
-        self.update_aux_state(b, t=t, reset=reset, update_last_state=update_last_state, **kwargs)
+        self.update_history_aux(b, t=t, reset=reset, update_last_state=update_last_state, **kwargs)
     
-    def update_aux_state(self, b, t=None, reset=False, update_last_state=False, **kwargs):
+    def update_history_aux(self, b, t=None, reset=False, update_last_state=False, **kwargs):
         pass
 
 
@@ -275,8 +275,8 @@ class ESN_bias(Bias, EchoStateNetwork):
                 setattr(self, kwy, kwargs.pop(kwy))
 
 
-        Bias.__init__(self, integrator_class=DiscreteIntegrator, **kwargs)
         EchoStateNetwork.__init__(self, y=self.current_state, **kwargs)
+        Bias.__init__(self, integrator_class=DiscreteIntegrator, **kwargs)
 
 
         # --------------------------  Load or Create ESN Bias Model  ------------------------- #
@@ -418,13 +418,13 @@ class ESN_bias(Bias, EchoStateNetwork):
         return bias 
 
 
-    def update_aux_state(self, reset=False, update_last_state=False, **kwargs): 
+    def update_history_aux(self, reset=False, update_last_state=False, **kwargs): 
         if reset:
             self.reservoir_state *= 0.
         if update_last_state:
             self.reservoir_state = kwargs.get('r', None)
             if self.reservoir_state is None:
-                raise ValueError('r must be provided to update_last_state=True in update_aux_state()')
+                raise ValueError('r must be provided to update_last_state=True in update_history_aux()')
 
 
 
@@ -591,7 +591,11 @@ class ESN_bias(Bias, EchoStateNetwork):
             return state[:, self.observed_idx]
         else:
             raise AssertionError('state shape = {}'.format(state.shape))
-        
+    
+
+    @property
+    def dt_step(self):
+        return self.dt_ESN
         
     def _sample_model_states(self, 
                               fm: Model, 

@@ -341,7 +341,6 @@ class Ensemble(object):
                 f'Provided ensemble_psi0 has state size {self.ensemble_psi0.shape[1]}, expected {pm.Nphi + self.Na}.'
 
         # 3. Update the parent model's history (resets initial condition)
-        print('resetting model history with ensemble initial state of shape:', self.ensemble_psi0.shape)
         pm.update_history(psi=self.ensemble_psi0, 
                           t=pm.hist_t[[0]], 
                           reset=True)

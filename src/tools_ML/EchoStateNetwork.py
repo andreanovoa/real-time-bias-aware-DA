@@ -313,11 +313,11 @@ class EchoStateNetwork:
         Returns:
             np.ndarray: Input state vector mapped from the full state.
         """
-        assert full_state.shape[0] == self.N_dim
+        assert full_state.shape[0] == self.N_dim, f'full_state has shape {full_state.shape}, expected first dim to be {self.N_dim}'
 
         observed_state = full_state[self.observed_idx]
 
-        assert observed_state.shape[0] == self.N_dim_in
+        assert observed_state.shape[0] == self.N_dim_in, f'observed_state has shape {observed_state.shape}, expected first dim to be {self.N_dim_in}'
 
         if not add_parameters:
             return observed_state
@@ -562,6 +562,8 @@ class EchoStateNetwork:
         # Mark the model as trained
         self.trained = True
 
+        
+
 
     def generate_W_Win(self, seed=None):
         """
@@ -791,16 +793,9 @@ class EchoStateNetwork:
         if Y_wtv.shape[-1] != self.N_ens: 
             if self.N_ens == 1:
                 U_wtv, Y_wtv, U_test, Y_test= [yy[..., np.newaxis] for yy in [U_wtv, Y_wtv, U_test, Y_test]]
-                # Y_test = Y_test[:, :, np.newaxis]
 
             else:
                 raise ValueError(f'Inconsistent ensemble size for train/validation data: {Y_wtv.shape} vs {self.N_ens}')
-
-
-        # assert Y_wtv.shape[-1] == self.N_ens, \
-        #     f'Inconsistent ensemble size for train/validation data: {Y_wtv.shape} vs {self.N_ens}'
-        # assert Y_test.shape[-1] == self.N_ens, \
-        #     f'Inconsistent ensemble size for test data: {Y_test.shape} vs {self.N_ens}'
 
         # compute norm (normalize inputs by component range)
         self.norm, self.shift = EchoStateNetwork.__set_norm(U_wtv, method=self.norm_method)
@@ -1197,7 +1192,10 @@ class EchoStateNetwork:
 
             for ii, u_in in enumerate(_input[:self.N_wash]):
                 u_out, r_out = self.step(u_in, r_out)
-                u_open[ii] = u_out.copy()
+                try:
+                    u_open[ii] = u_out.squeeze()
+                except:
+                    u_open[ii] = u_out.copy()
 
 
             Y_closed = np.zeros_like(_target)
@@ -1205,7 +1203,10 @@ class EchoStateNetwork:
             for i in range(Y_closed.shape[0]):
                 u_input = self.outputs_to_inputs(full_state=u_out)
                 u_out, r_out = self.step(u_input, r_out)
-                Y_closed[i] = u_out.copy()
+                try:
+                    Y_closed[i] = u_out.squeeze()
+                except:
+                    Y_closed[i] = u_out.copy()
 
             return Y_closed, u_open
 

@@ -100,7 +100,7 @@ class DiscreteIntegrator(Integrator):
     def advance_single(self, Nt: int = 100, **kwargs) -> Tuple[np.ndarray, np.ndarray]:
         model = self.model
         
-        t_out = model.current_time + np.arange(Nt + 1) * self.dt_output
+        t_out = np.round(model.current_time + np.arange(Nt + 1) * self.dt_output, model.precision_t)
 
         Nt_step = int(np.ceil(Nt * self.relation_integrator_output))
 
@@ -109,14 +109,14 @@ class DiscreteIntegrator(Integrator):
         if len(t_out) == len(t):
             return psi[1:], t[1:]
         else:
-            print(f'Interpolating DiscreteIntegrator advance_single output because {t.shape} != {t_out.shape}')
             # Interpolate
+            assert t[-1] >= t_out[-1], "do not extrapolate beyond the integrator time range, {} vs {}".format(t[-1], t_out[-1])
+            
             psi_interp = interpolate(t, psi, t_eval=t_out, fill_values='extrapolate')
-            model.reset_last_state(psi_interp[-1], t_out[-1])
+            # model.reset_last_state(psi_interp[-1], t_out[-1])
             return psi_interp[1:], t_out[1:]
         
     def advance_ensemble(self, Nt = 100, averaged = False, alpha = None):
-        print('Using DiscreteIntegrator advance_ensemble')
 
         return self.advance_single(Nt, averaged=averaged, alpha=alpha)
 
