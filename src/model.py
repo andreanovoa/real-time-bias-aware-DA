@@ -147,7 +147,7 @@ class Model(object):
     initialized = False
 
 
-    def __init__(self, integrator_class=IVPIntegrator, psi0=None, **kwargs):
+    def __init__(self, psi0, dt, integrator_class=IVPIntegrator, **kwargs):
 
         # ================= INITIALISE PHYSICAL MODEL ================== ##
         keys = list(kwargs.keys())
@@ -164,7 +164,7 @@ class Model(object):
         elif isinstance(psi0, np.ndarray) and psi0.ndim == 1:
             psi0 = np.array([psi0]).T
         self.psi0 = psi0
-
+        self.dt = dt
         self.params = list([*self.alpha_labels])
         self.alpha0 = {par: getattr(self, par) for par in self.params}
         self.alpha = self.alpha0.copy()
@@ -291,6 +291,9 @@ class Model(object):
 
     @property
     def precision_t(self):
+        if not hasattr(self, '_precision_t'):
+            if not hasattr(self, '_dt'):
+                raise AttributeError("dt must be set before accessing precision_t.")
         return self._precision_t
     
     

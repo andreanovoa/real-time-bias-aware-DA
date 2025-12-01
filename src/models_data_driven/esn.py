@@ -7,8 +7,6 @@ from integrator import DiscreteIntegrator
 
 import inspect
 
-from utils import interpolate
-
 
 class ESN_model(EchoStateNetwork, Model):
     """ ESN model Class

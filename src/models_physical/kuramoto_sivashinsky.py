@@ -18,17 +18,22 @@ class KS(Model):
     """
     This class models the Kuramoto-Sivashinsky  equation
 
-	u_t + u_xx + nu u_xxxx + u*u_x = 0 or u_t = - u_xx - nu u_xxxx - u*u_x
+	u_t + u_xx + nu u_xxxx + u*u_x = 0    or     u_t = - u_xx - nu u_xxxx - u*u_x
 	B.C.s : u(t,0) = u(t,L)
 	        u_x(t,0) = u_x(t,L)
 
 	on the domain x in (0,L], where nu = (2pi/L)^2
+
+    We solve the KS equatiuon using ETDRK4 scheme in Fourier space. The fourier transform is defined as:
+        u_hat(k) = F[u(x)] = 1/L ∫[0 to L] u(x) exp(-i k x) dx
+        u(x) = F^{-1}[u_hat(k)] = ∑[k] u_hat(k) exp(i k x)
+    The nonlinear term is computed in physical space and transformed back to Fourier space.
+    
     """
 
     # name: str = 'KS'
     t_transient = 300.
     t_CR = 50.
-    dt = 0.25
 
     Nq = 4               # Number of sensors
     Nx = 256             # Spatial discretization
@@ -102,21 +107,17 @@ class KS(Model):
 
 
         #   Init Model  #
-
-        # Generate random initial condition in physical space (DEFAULT)
-        if 'psi0' not in model_dict.keys():
+        dt = model_dict.pop('dt', 0.25)
+        psi0 = model_dict.pop('psi0', None)
+        if psi0 is None:
             # Initialize state in physical space and transform to spectral space
-            # u0 = self.initial_amplitude * np.cos(self.x/2/np.pi)  # initial condition
             u0 = self.initial_amplitude * self.rng.standard_normal(self.Nx)
-            u0 -= np.mean(u0)
-
+            u0 -= np.mean(u0)  # Zero-mean initial condition
             u_hat = KS.physical_to_fourier(u0)[:, None]     # Transform to Fourier space
-            model_dict['psi0'] = np.array(u_hat)  
-            
+            psi0 = np.array(u_hat)  
+        
 
-
-        super().__init__(integrator_class=DiscreteIntegrator, **model_dict)
-
+        super().__init__(psi0=psi0, dt=dt, integrator_class=DiscreteIntegrator, **model_dict)
         
 
     # _______________ Modified Model methods ________________ #

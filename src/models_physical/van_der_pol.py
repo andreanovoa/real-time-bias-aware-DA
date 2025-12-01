@@ -7,7 +7,6 @@ class VdP(Model):
     """ Van der Pol Oscillator Class
         - cubic heat release law
         - atan heat release law
-            Note: gamma appears only in the higher order polynomial which is currently commented out
     """
 
     # name: str = 'VdP'
@@ -15,14 +14,14 @@ class VdP(Model):
     t_CR = 0.04
 
     Nq = 1
-    dt = 1e-4
-    law = 'tan'
 
-    beta = 70.
-    kappa = 4.0
-    zeta = 60.
-    gamma = 1.7
-    omega = 2 * np.pi * 120.
+    beta = 70. # Linear growth rate [1/s]
+    kappa = 4.0 # Nonlinear saturation coefficient [1/s]
+    zeta = 60.0 # Damping coefficient [1/s]
+    gamma = 1.7 # Higher order nonlinearity coefficient (used only if cubic law)
+    omega = 2 * np.pi * 120. # Natural frequency [rad/s]
+    law = 'tan' # 'cubic' or 'tan' heat release law
+
 
     alpha_labels = dict(beta='$\\beta$', zeta='$\\zeta$', kappa='$\\kappa$')
     alpha_lims = dict(zeta=(5, 120), kappa=(0.1, 20), beta=(5, 120))
@@ -35,10 +34,10 @@ class VdP(Model):
     # __________________________ Init method ___________________________ #
     def __init__(self, **model_dict):
 
-        if 'psi0' not in model_dict.keys():
-            model_dict['psi0'] = np.array([0.1, 0.1])  # initialise eta and mu
+        psi0 = model_dict.pop('psi0', np.array([0.1, 0.1]))
+        dt = model_dict.pop('dt', 1e-4)
 
-        super().__init__(integrator_class=IVPIntegrator, **model_dict)
+        super().__init__(psi0=psi0, dt=dt, integrator_class=IVPIntegrator, **model_dict)
 
         #  Add fixed input_parameters
         self.set_fixed_params()

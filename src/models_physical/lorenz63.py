@@ -1,28 +1,29 @@
-from model import *
+from model import Model
+from integrator import IVPIntegrator
+import matplotlib.pyplot as plt
 
 import numpy as np
-from typing import Dict, Any, List
+from typing import List
 
-# Assuming imports from your project:
-# from model import Model
-# from integrator import IVPIntegrator
-# from ensemble import Ensemble, NoBias # Assuming Ensemble and NoBias are defined
 
 class Lorenz63(Model):
-    """ Lorenz 63 Class: Continuous System Model
+    """ Lorenz 63 Model: Chaotic system with three state variables.
+        
+        Equations: 
+            dx/dt = sigma * (y - x)
+            dy/dt = x * (rho - z) - y
+            dz/dt = x * y - beta * z
     """
-    # name: str = 'Lorenz63'
 
     # --- Core Physics Parameters ---
     t_lyap = 0.9056 ** (-1)
     t_transient = 10 * t_lyap
     t_CR = 4 * t_lyap
     Nq = 3
-    dt = 0.02
+    
     rho = 28.
     sigma = 10.
     beta = 8. / 3.
-    observe_dims = range(3)
 
     # --- Ensemble/Augmentation Configuration Placeholders (Required by Model Base Class) ---
     # These are populated later, but required for property calculations in Model
@@ -35,31 +36,18 @@ class Lorenz63(Model):
     state_labels = ['$x$', '$y$', '$z$']
 
     # __________________________ Init method ___________________________ #
-    def __init__(self, ensemble_class=None, **kwargs):
+    def __init__(self, **model_dict):
         
-        # 1. Handle Model-specific default initialization (psi0, observe_dims)
-        model_dict = kwargs.copy()
         
-        if 'psi0' not in model_dict.keys():
-            model_dict['psi0'] = np.array([1.0, 1.0, 1.0])
+        psi0 = model_dict.pop('psi0', np.array([1.0, 1.0, 1.0]))
+        dt = model_dict.pop('dt', 0.02)
 
-        if 'observe_dims' in model_dict:
-            self.observe_dims = model_dict['observe_dims']
-        
+        self.observe_dims = model_dict.pop('observe_dims', [0, 1, 2]) # Default to observing all dimensions if not specified
         self.Nq = len(self.observe_dims)
         
-
-        # 2. Call Model Base Class Init (which handles integrator and ensemble instantiation)
-        # We pass the ensemble class here, which Model.__init__ will use.
-        super().__init__(integrator_class=IVPIntegrator, 
-                         ensemble_class=ensemble_class, 
-                         **model_dict)
+        super().__init__(psi0=psi0, dt=dt, integrator_class=IVPIntegrator, **model_dict)
 
 
-    # --- New required method for the Model base class ---
-    def get_ensemble_config(self):
-        """Returns the dictionary of ensemble configuration parameters."""
-        return getattr(self, '_ensemble_config', {})
 
     # _______________ Lorenz63 specific properties and methods ________________ #
 
@@ -68,7 +56,6 @@ class Lorenz63(Model):
         return [self.state_labels[kk] for kk in self.observe_dims]
 
     def get_observables(self, Nt=1, **kwargs):
-        # Assumes state is always [x, y, z, alpha1, alpha2, ...]
         if Nt == 1:
             return self.hist[-1, self.observe_dims, :]
         else:
@@ -81,7 +68,7 @@ class Lorenz63(Model):
         Note: This derivative must handle the augmented state vector (psi).
         The augmented parameters are stored after the core state (x, y, z).
         """
-        # Ensure only the core state (x, y, z) is used for the physics calculation
+       
         x1, x2, x3 = psi[:3]
         
         # The parameter values used for the current derivative calculation
@@ -90,10 +77,6 @@ class Lorenz63(Model):
         dx2 = x1 * (rho - x3) - x2
         dx3 = x1 * x2 - beta * x3
         
-        # The augmented parameters (if present) are constant or have their own governing eq. (e.g., d(alpha)/dt = 0)
-        # We assume the last (len(psi) - 3) elements are parameters with zero derivative.
-        
-        # Return a tuple of derivatives: (dx1, dx2, dx3, d(alpha1)/dt, d(alpha2)/dt, ...)
         return (dx1, dx2, dx3) + (0,) * (len(psi) - 3)
 
 
