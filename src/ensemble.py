@@ -4,7 +4,7 @@ from copy import deepcopy
 from typing import List, Tuple, Union, Dict, Type, Tuple
 from bias import Bias, NoBias
 from model import Model
-from utils_plotting import Palette
+from real_public.src.plotting.utils_plotting import Palette
 
 from observations import Observations
 from utils import allowed_kwargs_for_func, interpolate, mean_vector_to_ensemble
@@ -386,7 +386,7 @@ class Ensemble(object):
                                     t=pm.current_time, 
                                     dt=pm.dt, 
                                     initial_capacity=pm.history._initial_capacity,
-                                    forecast_model=pm,
+                                    rom=pm,
                                     **Bdict
                                     )
         else:

@@ -36,6 +36,7 @@ class EchoStateNetwork:
         - Input and output weight matrices (Win, Wout) and reservoir state matrix (W)
     """
 
+    augment_data = False  # Data augmentation during training?
     bayesian_update = False
     bias_in = np.array([0.1])  #
     bias_out = np.array([1.0])  # For symmetry breaking
@@ -44,7 +45,7 @@ class EchoStateNetwork:
     filename = 'my_ESN'  # Default ESN file name
 
     input_parameters = None #TODO: add input parameters functionality to enable parametric ESNs
- 
+
     N_folds = 4  # Folds over the training set
     N_func_evals = 20  # Total evals of Bayesian hyperparameter optimization (BHO)
     N_grid = 4  # BHO grid N_grid x N_grid \geq N_func_evals
@@ -108,10 +109,10 @@ class EchoStateNetwork:
         self.dt_ESN = dt * self.upsample
 
         #  Initialize ESN matrices -------------------------- #
+        
         self.trained = all([getattr(self, key) is not None for key in ['Wout', 'Win', 'W']])
         self.val_k = kwargs.get('val_k', 0)  # Validation counter
         self.initialised = False  # Flag for washout
-
 
     @property
     def W(self):
@@ -278,12 +279,19 @@ class EchoStateNetwork:
         else:
             self._WCout = value
 
-    
-    @property
-    def rng(self):
-        if not hasattr(self, '_rng'):
-            self._rng = np.random.default_rng(self.seed)
-        return self._rng
+    def normalize_input(self, data):
+        """
+        Normalizes the input data based on the specified normalization method.
+
+        Args:
+            data (np.ndarray): Input data to be normalized.
+
+        Returns:
+            np.ndarray: Normalized input data.
+        """
+        # if data.ndim == 1:
+        # print(data.shape, self.shift.shape, self.norm.shape)
+        return (data - self.shift[:, np.newaxis]) / self.norm[:, np.newaxis]
 
 
     @property
@@ -295,6 +303,26 @@ class EchoStateNetwork:
         """
         return 1. - self.connect / (self.N_units - 1)
 
+    def outputs_to_inputs(self, full_state, add_parameters=False):
+        """
+        Maps the full state (predicted or reconstructed) to input states for the ESN.
+
+        Args:
+            full_state (np.ndarray): Full physical state vector.
+
+        Returns:
+            np.ndarray: Input state vector mapped from the full state.
+        """
+        assert full_state.shape[0] == self.N_dim, f'full_state has shape {full_state.shape}, expected first dim to be {self.N_dim}'
+
+        observed_state = full_state[self.observed_idx]
+
+        assert observed_state.shape[0] == self.N_dim_in, f'observed_state has shape {observed_state.shape}, expected first dim to be {self.N_dim_in}'
+
+        if not add_parameters:
+            return observed_state
+        else:
+            return np.concatenate([observed_state, self.input_parameters], axis=0)
 
     @property
     def N_dim_in(self):
@@ -306,7 +334,30 @@ class EchoStateNetwork:
         else:
             return len(self.observed_idx) + self.input_parameters.shape[0]
         
+    
+    def copy(self):
+        return deepcopy(self)
 
+    # --------------------------------------------------------------------------------------------------------
+    def reset_hyperparams(self, params, names, tikhonov=None):
+        """
+        Updates specific hyperparameters with new values.
+
+        Args:
+            params (list): List of hyperparameter values to set.
+            names (list): Names of the hyperparameters to update.
+            tikhonov (float, optional): Value to set for the Tikhonov regularization parameter.
+
+        Outputs:
+            None. Updates internal hyperparameter values.
+        """
+        for hp, name in zip(params, names):
+            if name == 'sigma_in':
+                setattr(self, name, 10 ** hp)
+            else:
+                setattr(self, name, hp)
+        if tikhonov is not None:
+            setattr(self, 'tikh', tikhonov)
 
     @property
     def physical_state(self):
@@ -341,45 +392,51 @@ class EchoStateNetwork:
                 assert r.shape[-1] == self.N_ens, f'reservoir state r has shape {r.shape}, expected last dim to be {self.N_ens}'
             self._r = r
 
-    @property
-    def norm(self):
-        """
-        Returns the normalization factor for the input data.
-        """
-        if not hasattr(self, '_norm'):
-            return 1.
-        return self._norm
-    
-    @norm.setter
-    def norm(self, value):
-        """
-        Setter for the normalization factor. Ensures it is N_dim.
-        """
-        assert value.size == self.N_dim_in, \
-            f'Normalization factor must be dimension Ndim={self.N_dim}, got {value.shape}'
-        self._norm = value.flatten()
 
+    # _______________________________________________________________________________________________________ JACOBIAN
 
-    @property
-    def shift(self):
+    def Jacobian(self, open_loop_J=True, state=None):
         """
-        Returns the shift factor for the input data.
-        """
-        if not hasattr(self, '_shift'):
-            return 0.
-        return self._shift
-    
+        Computes the Jacobian matrix for the reservoir, either in open-loop or closed-loop mode.
 
-    @shift.setter
-    def shift(self, value):
-        """
-        Setter for the shift factor. Ensures it is N_dim.
-        """
-        assert value.size == self.N_dim_in, \
-            f'Shift factor must be dimension Ndim={self.N_dim}, got {value.shape}'
-        self._shift = value.flatten()   
+        Args:
+            open_loop_J (bool): If True (default), compute the open-loop Jacobian.
+            state (tuple, optional): Optional input state (u_in, r_in) to compute Jacobian.
 
-    # _______________________________________________________________________________________________________ STEP & JACOBIAN
+        Returns:
+            np.ndarray: Jacobian matrix of the reservoir dynamics.
+        """
+        if state is None:
+            r_in = self.reservoir_state
+            u_in = self.physical_state
+        else:
+            u_in, r_in = state
+
+        Win_1 = self.Win[:, :self.N_dim_in]
+        Wout_1 = self.Wout[:self.N_units, :].T
+
+        # # Option(i) rin function of bin:
+        rout = self.step(u_in, r_in)[1].squeeze()
+
+        tt = 1. - rout ** 2
+        g = 1. / self.norm
+
+        dr_di = self.sigma_in * Win_1.multiply(g)
+
+        if not open_loop_J:
+            # u_aug = np.concatenate((u_in / self.norm, self.bias_in))
+            # rout = np.tanh(self.sigma_in * self.Win.dot(u_aug) + self.rho * np.dot(self.WCout.T, u_in))
+            # dr_di = self.sigma_in * Win_1 / self.norm + self.rho * self.WCout.T
+            #  Win_G += dr_di ......
+            raise NotImplementedError('Numerical test of closed-loop Jacobian did not pass')
+
+        RHS = dr_di.T.multiply(tt)
+
+        # Compute Jacobian
+        return RHS.dot(Wout_1.T).T
+
+    # ___________________________________________________________________________________ FUNCTIONS TO FORECAST THE ESN
+
     def step(self, u, r):
         """
         Advances the reservoir by one time step and updates its internal state.
@@ -423,6 +480,7 @@ class EchoStateNetwork:
 
 
     def reservoir_to_physical(self, r):
+
         """ Converts the reservoir state to the physical state using the output weight matrix (Wout).
         Note: I change this in ESN_model
         Args:
@@ -435,85 +493,6 @@ class EchoStateNetwork:
 
         return np.dot(self.Wout.T, r_aug)
 
-    def normalize_input(self, data):
-        """
-        Normalizes the input data based on the specified normalization method.
-
-        Args:
-            data (np.ndarray): Input data to be normalized.
-
-        Returns:
-            np.ndarray: Normalized input data.
-        """
-        # if data.ndim == 1:
-        # print(data.shape, self.shift.shape, self.norm.shape)
-        return (data - self.shift[:, np.newaxis]) / self.norm[:, np.newaxis]
-
-
-    def outputs_to_inputs(self, full_state, add_parameters=False):
-        """
-        Maps the full state (predicted or reconstructed) to input states for the ESN.
-
-        Args:
-            full_state (np.ndarray): Full physical state vector.
-
-        Returns:
-            np.ndarray: Input state vector mapped from the full state.
-        """
-        assert full_state.shape[0] == self.N_dim, f'full_state has shape {full_state.shape}, expected first dim to be {self.N_dim}'
-
-        observed_state = full_state[self.observed_idx]
-
-        assert observed_state.shape[0] == self.N_dim_in, f'observed_state has shape {observed_state.shape}, expected first dim to be {self.N_dim_in}'
-
-        if not add_parameters:
-            return observed_state
-        else:
-            return np.concatenate([observed_state, self.input_parameters], axis=0)
-    
-
-    def Jacobian(self, open_loop_J=True, state=None):
-        """
-        Computes the Jacobian matrix for the reservoir, either in open-loop or closed-loop mode.
-
-        Args:
-            open_loop_J (bool): If True (default), compute the open-loop Jacobian.
-            state (tuple, optional): Optional input state (u_in, r_in) to compute Jacobian.
-
-        Returns:
-            np.ndarray: Jacobian matrix of the reservoir dynamics.
-        """
-        if state is None:
-            r_in = self.reservoir_state
-            u_in = self.physical_state
-        else:
-            u_in, r_in = state
-
-        Win_1 = self.Win[:, :self.N_dim_in]
-        Wout_1 = self.Wout[:self.N_units, :].T
-
-        # # Option(i) rin function of bin:
-        rout = self.step(u_in, r_in)[1].squeeze()
-
-        tt = 1. - rout ** 2
-        g = 1. / self.norm
-
-        dr_di = self.sigma_in * Win_1.multiply(g)
-
-        if not open_loop_J:
-            # u_aug = np.concatenate((u_in / self.norm, self.bias_in))
-            # rout = np.tanh(self.sigma_in * self.Win.dot(u_aug) + self.rho * np.dot(self.WCout.T, u_in))
-            # dr_di = self.sigma_in * Win_1 / self.norm + self.rho * self.WCout.T
-            #  Win_G += dr_di ......
-            raise NotImplementedError('Numerical test of closed-loop Jacobian did not pass')
-
-        RHS = dr_di.T.multiply(tt)
-
-        # Compute Jacobian
-        return RHS.dot(Wout_1.T).T
-
-
-    
 
     # _______________________________________________________________________________________ TRAIN & VALIDATE THE ESN
     def train(self, 
@@ -548,14 +527,14 @@ class EchoStateNetwork:
 
         # ========================== STEP 1: DATA FORMATTING ==========================
         # Format data into washout, train/validation, and test sets
-        U_wtv, Y_wtv, U_test, Y_test = self._split_and_format_data(train_data, 
+        U_wtv, Y_wtv, U_test, Y_test = self.split_and_format_data(train_data, 
                                                                  add_noise=add_noise)
 
         # print([xx.shape for xx in [U_wtv, Y_wtv, U_test, Y_test]])
 
         # Ensure W and Win matrices are initialized
         if self.W is None or self.Win is None:
-            self._generate_W_Win(seed=seed)
+            self.generate_W_Win(seed=seed)
 
         self.Wout = np.zeros((self.N_units + 1, self.N_dim))  # Initialize Wout with zeros
 
@@ -563,7 +542,7 @@ class EchoStateNetwork:
         self.val_k = 0  # Reset validation counter at the start of training
         # Perform hyperparameter optimization if required
         if self.hyperparameters_to_optimize:
-            bo_results = self._optimize_hyperparameters(U_wtv, Y_wtv, 
+            bo_results = self.optimize_hyperparameters(U_wtv, Y_wtv, 
                                                        validation_strategy,
                                                        print_convergence=plot_training)
         else:
@@ -583,14 +562,10 @@ class EchoStateNetwork:
         # Mark the model as trained
         self.trained = True
 
-    def copy(self):
-        return deepcopy(self)
-    
-    # _______________________________________________________________________________________ HELPER METHODS FOR ESN INITIALIZATION & TRAINING
         
 
 
-    def _generate_W_Win(self, seed=None):
+    def generate_W_Win(self, seed=None):
         """
         Generates the input weight matrix (Win) and reservoir weight matrix (W) with sparsity constraints.
 
@@ -670,7 +645,14 @@ class EchoStateNetwork:
 
             assert Uin_l.shape[0] > 0, \
                 f'Not enough data for training at segment {ll}: {Uin_l.shape}'
-            # Washout phase to initialize reservoir state
+
+
+            # print(f'Computing RR terms for segment {ll}, split with...',
+            #       f'U_wash_l: {U_wash_l.shape}, Uin_l: {Uin_l.shape}, Yout_l: {Yout_l.shape}')
+
+            # self.reset_reservoir_state(u=np.zeros((self.N_dim, 1)), r=np.zeros((self.N_units, 1)))   
+            # # Washout phase. Store the last r value only
+            # self.r = self.openLoop(U_wash_l)[1][-1]
 
             r = np.zeros((self.N_units, self.N_ens))
             for u_in in U_wash_l:
@@ -768,7 +750,7 @@ class EchoStateNetwork:
 
         return U, Y
 
-    def _split_and_format_data(self, data=None, add_noise=True):
+    def split_and_format_data(self, data=None, add_noise=True):
         """
         Formats the input data into washout, train/val, and test sets. Optionally adds noise to the input.
 
@@ -816,141 +798,46 @@ class EchoStateNetwork:
                 raise ValueError(f'Inconsistent ensemble size for train/validation data: {Y_wtv.shape} vs {self.N_ens}')
 
         # compute norm (normalize inputs by component range)
-        self.norm, self.shift = EchoStateNetwork._set_norm(U_wtv, method=self.norm_method)
+        self.norm, self.shift = EchoStateNetwork.__set_norm(U_wtv, method=self.norm_method)
 
         return U_wtv, Y_wtv, U_test, Y_test
     
-
-    # ___________________________________________________________________________________________ BAYESIAN OPTIMIZATION
-    def _reset_hyperparams(self, params, names, tikhonov=None):
+    @property
+    def norm(self):
         """
-        Updates specific hyperparameters with new values.
-
-        Args:
-            params (list): List of hyperparameter values to set.
-            names (list): Names of the hyperparameters to update.
-            tikhonov (float, optional): Value to set for the Tikhonov regularization parameter.
-
-        Outputs:
-            None. Updates internal hyperparameter values.
+        Returns the normalization factor for the input data.
         """
-        for hp, name in zip(params, names):
-            if name == 'sigma_in':
-                setattr(self, name, 10 ** hp)
-            else:
-                setattr(self, name, hp)
-        if tikhonov is not None:
-            setattr(self, 'tikh', tikhonov)
-
-
-    def _optimize_hyperparameters(self, U_wtv, Y_wtv, validation_strategy=None, print_convergence=True):
+        if not hasattr(self, '_norm'):
+            return 1.
+        return self._norm
+    @norm.setter
+    def norm(self, value):
         """
-        Performs Bayesian hyperparameter optimization to minimize the validation loss.
-
-        Args:
-            U_wtv (np.ndarray): Wash-train-validation input data.
-            Y_wtv (np.ndarray): Corresponding labels for train-validation data.
-            validation_strategy (function, optional): Validation function for hyperparameter tuning.
-                Defaults to `_RVC_Noise`.
-
-        Returns:
-            OptimizeResult: Results of the Bayesian optimization process.
+        Setter for the normalization factor. Ensures it is N_dim.
         """
-        # print("Starting Bayesian hyperparameter optimization...")
-
-        # Prepare search grid, space, and hyperparameter names
-        search_grid, search_space, hp_names = self._hyperparameter_search(print_convergence=print_convergence)
-        tikh_opt = np.zeros(self.N_func_evals)  # Track optimal Tikhonov regularization
-
-        # Use default or provided validation strategy
-        if validation_strategy is None:
-            validation_strategy = self._RVC_Noise
-
-        # Prepare the validation function
-        val_func = partial(validation_strategy,
-                           case=self,
-                           U_wtv=U_wtv.copy(),
-                           Y_wtv=Y_wtv.copy(),
-                           tikh_opt=tikh_opt,
-                           hp_names=hp_names,
-                           print_convergence=print_convergence
-                           )
-
-        # Configure ARD 5/2 Matern Kernel for Gaussian Process
-        kernel_ = (ConstantKernel(constant_value=1.0, constant_value_bounds=(1e-1, 3e0)) *
-                   Matern(length_scale=[0.2] * len(search_space), nu=2.5, length_scale_bounds=(1e-2, 1e1)))
-
-        # Gaussian Process reconstruction
-        gp_estimator = GPR(kernel=kernel_,
-                           normalize_y=True,
-                           n_restarts_optimizer=3,
-                           noise=1e-10,
-                           random_state=10)
-
-        # Perform Bayesian Optimization
-        result = gp_minimize(val_func,  # function to minimize
-                             search_space,  # bounds
-                             base_estimator=gp_estimator,  # GP kernel
-                             acq_func="gp_hedge",  # acquisition function
-                             n_calls=self.N_func_evals,  # number of evaluations
-                             x0=search_grid,  # Initial grid points
-                             n_random_starts=self.N_initial_rand,  # random initial points
-                             n_restarts_optimizer=3,  # tries per acquisition
-                             random_state=10)
-
-        # Process results
-        f_iters = np.array(result.func_vals)
-        best_idx = np.argmin(f_iters)
-
-        # Update hyperparameters with the best result
-        self._reset_hyperparams(result.x, hp_names, tikhonov=tikh_opt[best_idx])
-
-        print(f"seed {self.seed} \t Optimal hyperparameters: {result.x}, {self.tikh}, MSE: {result.fun}")
-
-        return dict(res=result,
-                    hp_names=hp_names)
-
-    def _hyperparameter_search(self, print_convergence=True):
+        assert value.size == self.N_dim_in, \
+            f'Normalization factor must be dimension Ndim={self.N_dim}, got {value.shape}'
+        self._norm = value.flatten()
+    @property
+    def shift(self):
         """
-        Prepares the search grid and search space for Bayesian hyperparameter optimization.
-        TODO: add noise to the optional input_parameters to optimize.
-
-        Returns:
-            tuple:
-                - search_grid (list): List of initial grid points for optimization.
-                - search_space (list): Search space objects for each hyperparameter.
-                - input_parameters (list): Names of the hyperparameters being optimized.
+        Returns the shift factor for the input data.
         """
-        parameters = [hp for hp in self.hyperparameters_to_optimize if hp != 'tikh']
+        if not hasattr(self, '_shift'):
+            return 0.
+        return self._shift
+    @shift.setter
+    def shift(self, value):
+        """
+        Setter for the shift factor. Ensures it is N_dim.
+        """
+        assert value.size == self.N_dim_in, \
+            f'Shift factor must be dimension Ndim={self.N_dim}, got {value.shape}'
+        self._shift = value.flatten()   
 
-        if 'tikh' not in self.hyperparameters_to_optimize:
-            setattr(self, 'tikh_range', [self.tikh])
-
-        param_grid = [None] * len(parameters)
-        search_space = [None] * len(parameters)
-        for hpi, hyper_param in enumerate(parameters):
-            range_ = getattr(self, hyper_param + '_range')
-            param_grid[hpi] = np.linspace(*range_, self.N_grid)
-            search_space[hpi] = Real(*range_, name=hyper_param)
-
-        # The first n_grid^2 points are from grid search
-        search_grid = product(*param_grid, repeat=1)  # list of tuples
-        search_grid = [list(sg) for sg in search_grid]
-
-        # Print optimization header
-        if print_convergence:
-            print('\n ----------------- HYPERPARAMETER SEARCH ------------------\n {0}x{0} grid'.format(self.N_grid) +
-                  ' and {} points with Bayesian Optimization\n\t'.format(self.N_func_evals - self.N_grid ** 2), end="")
-            for kk in self.hyperparameters_to_optimize:
-                print('\t {}'.format(kk), end="")
-            print('\t MSE val ')
-
-        return search_grid, search_space, parameters
-
-    # ___________________________________________________________________________________________ NORMALIZATION METHODS
 
     @staticmethod
-    def _set_norm(train_data, method=None):
+    def __set_norm(train_data, method=None):
         """
         Computes the normalization factor for the input data.
         Args:
@@ -1005,11 +892,115 @@ class EchoStateNetwork:
             
         return norm, shift
     
-    # ___________________________________________________________________________________________ VALIDATION STRATEGIES
 
+    # ___________________________________________________________________________________________ BAYESIAN OPTIMIZATION
+
+    def optimize_hyperparameters(self, U_wtv, Y_wtv, validation_strategy=None, print_convergence=True):
+        """
+        Performs Bayesian hyperparameter optimization to minimize the validation loss.
+
+        Args:
+            U_wtv (np.ndarray): Wash-train-validation input data.
+            Y_wtv (np.ndarray): Corresponding labels for train-validation data.
+            validation_strategy (function, optional): Validation function for hyperparameter tuning.
+                Defaults to `__RVC_Noise`.
+
+        Returns:
+            OptimizeResult: Results of the Bayesian optimization process.
+        """
+        # print("Starting Bayesian hyperparameter optimization...")
+
+        # Prepare search grid, space, and hyperparameter names
+        search_grid, search_space, hp_names = self.__hyperparameter_search(print_convergence=print_convergence)
+        tikh_opt = np.zeros(self.N_func_evals)  # Track optimal Tikhonov regularization
+
+        # Use default or provided validation strategy
+        if validation_strategy is None:
+            validation_strategy = self.__RVC_Noise
+
+        # Prepare the validation function
+        val_func = partial(validation_strategy,
+                           case=self,
+                           U_wtv=U_wtv.copy(),
+                           Y_wtv=Y_wtv.copy(),
+                           tikh_opt=tikh_opt,
+                           hp_names=hp_names,
+                           print_convergence=print_convergence
+                           )
+
+        # Configure ARD 5/2 Matern Kernel for Gaussian Process
+        kernel_ = (ConstantKernel(constant_value=1.0, constant_value_bounds=(1e-1, 3e0)) *
+                   Matern(length_scale=[0.2] * len(search_space), nu=2.5, length_scale_bounds=(1e-2, 1e1)))
+
+        # Gaussian Process reconstruction
+        gp_estimator = GPR(kernel=kernel_,
+                           normalize_y=True,
+                           n_restarts_optimizer=3,
+                           noise=1e-10,
+                           random_state=10)
+
+        # Perform Bayesian Optimization
+        result = gp_minimize(val_func,  # function to minimize
+                             search_space,  # bounds
+                             base_estimator=gp_estimator,  # GP kernel
+                             acq_func="gp_hedge",  # acquisition function
+                             n_calls=self.N_func_evals,  # number of evaluations
+                             x0=search_grid,  # Initial grid points
+                             n_random_starts=self.N_initial_rand,  # random initial points
+                             n_restarts_optimizer=3,  # tries per acquisition
+                             random_state=10)
+
+        # Process results
+        f_iters = np.array(result.func_vals)
+        best_idx = np.argmin(f_iters)
+
+        # Update hyperparameters with the best result
+        self.reset_hyperparams(result.x, hp_names, tikhonov=tikh_opt[best_idx])
+
+        print(f"seed {self.seed} \t Optimal hyperparameters: {result.x}, {self.tikh}, MSE: {result.fun}")
+
+        return dict(res=result,
+                    hp_names=hp_names)
+
+    def __hyperparameter_search(self, print_convergence=True):
+        """
+        Prepares the search grid and search space for Bayesian hyperparameter optimization.
+        TODO: add noise to the optional input_parameters to optimize.
+
+        Returns:
+            tuple:
+                - search_grid (list): List of initial grid points for optimization.
+                - search_space (list): Search space objects for each hyperparameter.
+                - input_parameters (list): Names of the hyperparameters being optimized.
+        """
+        parameters = [hp for hp in self.hyperparameters_to_optimize if hp != 'tikh']
+
+        if 'tikh' not in self.hyperparameters_to_optimize:
+            setattr(self, 'tikh_range', [self.tikh])
+
+        param_grid = [None] * len(parameters)
+        search_space = [None] * len(parameters)
+        for hpi, hyper_param in enumerate(parameters):
+            range_ = getattr(self, hyper_param + '_range')
+            param_grid[hpi] = np.linspace(*range_, self.N_grid)
+            search_space[hpi] = Real(*range_, name=hyper_param)
+
+        # The first n_grid^2 points are from grid search
+        search_grid = product(*param_grid, repeat=1)  # list of tuples
+        search_grid = [list(sg) for sg in search_grid]
+
+        # Print optimization header
+        if print_convergence:
+            print('\n ----------------- HYPERPARAMETER SEARCH ------------------\n {0}x{0} grid'.format(self.N_grid) +
+                  ' and {} points with Bayesian Optimization\n\t'.format(self.N_func_evals - self.N_grid ** 2), end="")
+            for kk in self.hyperparameters_to_optimize:
+                print('\t {}'.format(kk), end="")
+            print('\t MSE val ')
+
+        return search_grid, search_space, parameters
 
     @staticmethod
-    def _RVC_Noise(x, case, U_wtv, Y_wtv, tikh_opt, hp_names, print_convergence=True):
+    def __RVC_Noise(x, case, U_wtv, Y_wtv, tikh_opt, hp_names, print_convergence=True):
         """
         Implements Chaotic Recycle Validation for hyperparameter optimization.
 
@@ -1026,7 +1017,7 @@ class EchoStateNetwork:
         """
         # Re-set hyperparams as the optimization goes on
         if hp_names:
-            case._reset_hyperparams(x, hp_names)
+            case.reset_hyperparams(x, hp_names)
 
         N_tikh = len(case.tikh_range)
         nRMSE = np.zeros(N_tikh)
@@ -1117,6 +1108,11 @@ class EchoStateNetwork:
 
     # _______________________________________________________________________________________ TEST & PLOTTING FUNCTIONS
 
+    @property
+    def rng(self):
+        if not hasattr(self, '_rng'):
+            self._rng = np.random.default_rng(self.seed)
+        return self._rng
 
     def run_test(self, 
                  U_test, 

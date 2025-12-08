@@ -4,11 +4,10 @@ from .data_assimilation import *
 from .bias import *
 from .create import *
 
-# Optionally, expose subpackages so users can do: `import src.models_physical`
 from . import models_data_driven
 from . import models_physical
 
-__version__ = "0.1.0"
+# __version__ = "1.0.0"
 
 __all__ = [
     "model", 
@@ -16,6 +15,9 @@ __all__ = [
     "data_assimilation", 
     "bias", 
     "create",
+    "history", 
+    "integrator",
+    "ensemble",
     "models_data_driven", 
     "models_physical"
 ]

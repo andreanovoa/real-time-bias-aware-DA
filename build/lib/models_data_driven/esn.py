@@ -117,7 +117,7 @@ class ESN_model(EchoStateNetwork, Model):
                            **kwargs)
         
         # save validation data for initialization
-        Y_wtv = self.split_and_format_data(data)[1] 
+        Y_wtv = self.split_and_format_data(data)[1]
         self._validation_data = Y_wtv[-(self.N_wash + self.N_val):]
 
 
@@ -296,7 +296,7 @@ class ESN_model(EchoStateNetwork, Model):
             return self.ensemble.get('m')
 
 
-    def initialize_from_val_data(self, N_ens=1, seed=0):
+    def initialize_from_val_data(self, data=None, N_ens=1, seed=0):
 
         """ Initialise the ESN state using traiining data"""
         data = self._validation_data.copy()
