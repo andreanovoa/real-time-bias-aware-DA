@@ -176,7 +176,8 @@ class Model(object):
         """Setter for the time step."""
         if value <= 0:
             raise ValueError("Time step must be positive.")
-        self._precision_t = int(-np.log10(value)) + 2
+        self._precision_t = int(np.ceil(-np.log10(value) + 2))  # Set precision based on dt
+        print(f'Setting time step dt={value} with precision_t={self._precision_t}')
         self._dt = np.round(value, self.precision_t)
 
     @property
@@ -346,8 +347,7 @@ class Model(object):
 
     def get_alpha(self, psi=None):
         if not self.ensemble:
-            return self.alpha0.copy()
-
+            return [self.alpha0.copy()]
         if psi is None:
             psi = self.current_state
 

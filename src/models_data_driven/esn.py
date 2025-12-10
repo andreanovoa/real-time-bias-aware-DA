@@ -54,7 +54,7 @@ class ESN_model(EchoStateNetwork, Model):
                  **kwargs):
         """
         Arguments:
-        - data: data to train the ESN (train + validate + test). The data shape must be [Na x Nt x Ndim].
+        - data: data to train the ESN (train + validate + test). The data shape must be [L x Nt x Ndim].
         - psi0: initial state of the ESN prediction (not including the reservoir state).
         - plot_training: whether to plot or not the training data and training convergence.
         """
@@ -72,14 +72,13 @@ class ESN_model(EchoStateNetwork, Model):
         for key in ["train", "val", "test"]:
             if f"N_{key}" in kwargs: 
                 setattr(self, f"t_{key}", kwargs.pop(f"N_{key}") * dt)
-                # print('setting t_{key} to {getattr(self, f"t_{key}")}, self.dt={self.dt}')s
 
         # Set other ESN_model attributes provided
         for key in list(kwargs.keys()):
             if key in vars(ESN_model):
                 setattr(self, key, kwargs.pop(key))
 
-        # _________________________ Set time attributes _________________________ #
+        #  Set time attributes  #
         t_total = Nt * dt
         self.t_train = self.t_train or t_total * 0.8
         self.t_val = self.t_val or self.t_train * 0.2
@@ -91,7 +90,7 @@ class ESN_model(EchoStateNetwork, Model):
                 f"t_train + t_val + t_test {ts} <= t_total {t_total}"
 
 
-        # _________________________ Init EchoStateNetwork _______________________ #
+        # =================== STEP 1: EchoStateNetwork INITIALIZATION ======================
 
         ESN_dict = dict()
         for key in list(kwargs.keys()):
@@ -106,24 +105,21 @@ class ESN_model(EchoStateNetwork, Model):
 
         self.t_CR = self.t_val
 
-        # Set model time step
-        self.dt = dt  # to avoid conflict with EchoStateNetwork dt
-        print(f"Model time step dt set to: {self._dt}") 
-
-        # ______________________ Train the EchoStateNetwork _______________________ #
+        # =================== STEP 2: EchoStateNetwork TRAINING ======================
         # Train the network
-        self.train_network(data=data, 
-                           plot_training=plot_training, 
-                           **kwargs)
+        if plot_training:
+            self.plot_training_data(case=self, train_data=data, dt=dt)
+
+        self.train(train_data=data, plot_training=plot_training, **kwargs)
         
         # save validation data for initialization
-        Y_wtv = self.split_and_format_data(data)[1] 
+        Y_wtv = self._split_and_format_data(data)[1] 
         self._validation_data = Y_wtv[-(self.N_wash + self.N_val):]
 
 
-        # ========================== STEP 4: MODEL INITIALIZATION ======================
+        # ================== STEP 3: DEFINE INITIAL STATE & PARAMS ======================
 
-        psi0 = self.initialize_from_val_data()
+        psi0 = self.initialize_from_val_data()  # shape (Ndim + N_units + Na, m)
         self.reservoir_state = psi0[self.N_dim:self.N_dim+self.N_units, :]
 
         # Initialise SVD Wout terms if required
@@ -131,10 +127,9 @@ class ESN_model(EchoStateNetwork, Model):
             [self.Wout_U, self.Wout_Sigma0, self.Wout_Vh] = sla.svd(self.Wout, full_matrices=False)
             self.Wout_Sigma = self.Wout_Sigma0
 
-        # ________________________________ Init Model _______________________________ #
-        # set the initial state to be just the reservoir state
-        
+        # =================== STEP 4: Model INITIALIZATION ======================
         Model.__init__(self, 
+                       dt=dt,
                        psi0=psi0, 
                        integrator_class=DiscreteIntegrator, **kwargs)
 
@@ -335,19 +330,8 @@ class ESN_model(EchoStateNetwork, Model):
         return self.build_psi(u=u_init, r=r_init)
 
 
-    def train_network(self, data, plot_training=True, **kwargs):
 
-        if plot_training:
-            ESN_model.plot_training_data(train_data=data, case=self)
-        
-        # Get the arguments of interest
-        possible_args = inspect.getfullargspec(self.train)[0]
-        train_args = {key: val for key, val in kwargs.items() if key in possible_args}
-        # Train network        
-        self.train(train_data=data, plot_training=plot_training, **train_args)
-
-
-    def reset_ESN(self, data, u0=None, **kwargs):
+    def reset_ESN(self, data, u0=None, plot_training=False, **kwargs):
 
         if u0 is None:
             u0 = self.reservoir_to_physical(self.reservoir_state)
@@ -357,8 +341,13 @@ class ESN_model(EchoStateNetwork, Model):
                                   dt=self.dt,
                                   figs_folder=self.figs_folder,
                                   **kwargs)
+        # Train the network
+        possible_args = inspect.getfullargspec(self.train)[0]
+        train_args = {key: val for key, val in kwargs.items() if key in possible_args}
 
-        self.train_network(data, **kwargs)
+        # Train network        
+        self.train(train_data=data, plot_training=plot_training, **train_args)
+
 
         # Reset model class
         kwargs['psi0'] = self.build_psi()
@@ -544,24 +533,32 @@ class ESN_model(EchoStateNetwork, Model):
 
     # ______________________________ Plotting functions ______________________________ #
     @staticmethod
-    def plot_training_data(case, train_data):
+    def plot_training_data(case, train_data, dt=None):
         if train_data.ndim == 1:
             train_data = train_data[np.newaxis, :, np.newaxis]
         elif train_data.ndim == 2:
             train_data = train_data[np.newaxis, :]
 
         L, Nt, Ndim = train_data.shape
-        t_data = np.arange(0, Nt) * case.dt
-
+        if dt is None:
+            dt = case.dt
+        t_data = np.arange(0, Nt) * dt
         nrows = min(Ndim, 20)
-        for data_l in train_data:
 
-            fig, axs = plt.subplots(nrows=nrows, ncols=1,
-                                    figsize=(8, nrows), sharex=True,
-                                    layout='constrained')
+
+        fig, axs = plt.subplots(nrows=nrows*L, ncols=1,
+                                figsize=(8, nrows*L), sharex=True,
+                                layout='constrained')
+        if nrows * L > 1:
             axs = axs.T.flatten()
+        else:
+            axs = [axs]
 
-            for kk, ax in enumerate(axs):
+
+        for l, data_l in enumerate(train_data):
+            axs_dim = axs[l*nrows:(l+1)*nrows]
+
+            for kk, ax in enumerate(axs_dim):
                 ax.plot(t_data, data_l[:, kk], lw=1., color='k')
                 ax.axvspan(0, case.t_train, facecolor='orange',
                            alpha=0.3, zorder=-100, label='Train')
@@ -570,8 +567,10 @@ class ESN_model(EchoStateNetwork, Model):
                 ax.axvspan(case.t_train + case.t_val,
                            case.t_train + case.t_val + case.t_test, facecolor='navy',
                            alpha=0.2, zorder=-100, label='Test')
-            axs[0].legend(ncols=3, loc='upper center', bbox_to_anchor=(0.5, 1.5))
-
+                
+                ax.legend(ncols=1, loc='upper left', bbox_to_anchor=(1., 1.), frameon=False, title=f'L={l}, dim={kk}', fontsize='x-small', title_fontsize='small')
+        axs[-1].set(xlabel='time')
+        plt.show()
 
     def visualize_config(self):
         self.plot_Wout()

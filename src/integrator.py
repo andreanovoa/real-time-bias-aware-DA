@@ -27,14 +27,24 @@ class Integrator:
     """
     Abstract Base Class for all time integration strategies.
     Defines the interface for advancing the model state.
+    Child classes must implement advance_single and advance_ensemble methods.
+    ------
+    Implemented Integrator Strategies:
+        IVPIntegrator - for continuous, variable-step integration using scipy's solve_ivp
+            Governing equations: d(psi)/dt = f(t, psi, alpha). 
+            * The time_derivative method must be defined by the model
+        DiscreteIntegrator - for fixed, discrete-step integration (e.g., ETDRK4, ESN)
+            Solving psi_{t+dt} = F(psi_{t}, alpha)
+            * The time_step method must be defined by the model
+        ConstantIntegrator - holds state constant (for testing or NoBias)
+            returns psi(t) = psi(0)
     """
-    def __init__(self, model_instance):
-        """A pointer to the model instance to access self.time_derivative, self.dt, etc.
-        Note: model can be Model or Bias class, both have similar interface. 
-        Any other object will raise error unless it contains the required methods/attributes:
-        - time_derivative(t, psi, **params)
-        - dt
-        - is_ensemble
+
+    def __init__(self, model_instance: object):
+        """
+        Initialize the integrator with a model instance (not necessarily a Model, but must have the time_derivative/time_step method).
+        Parameters:
+            model_instance: A pointer instance to access self.time_derivative, self.dt, etc.
         """        
 
         self.model = model_instance
@@ -78,6 +88,29 @@ class Integrator:
         raise NotImplementedError("Child Integrator class must implement the advance_ensemble() method.")
 
 
+class ConstantIntegrator(Integrator):
+    """
+    Integrator that holds the state constant over time.
+    Useful for testing or as a placeholder.
+    """
+
+    def __init__(self, model_instance):
+        super().__init__(model_instance)
+
+    def advance_single(self, Nt: int = 100, **kwargs) -> Tuple[np.ndarray, np.ndarray]:
+        model = self.model
+        t_out = np.round(model.current_time + np.arange(Nt + 1) * model.dt, model.precision_t)
+        psi = np.repeat(model.current_state[:, :, np.newaxis], Nt + 1, axis=2)
+        # return psi, t_out, psi shoud have dimensions Nt x N x m
+        psi = psi.transpose((2, 0, 1))  # Nt+1 x N x m
+
+        return psi[1:], t_out[1:]
+
+    def advance_ensemble(self, Nt: int = 100, averaged: bool = False, alpha: Dict[str, Any] = None) -> Tuple[np.ndarray, np.ndarray]:
+        return self.advance_single(Nt=Nt, averaged=averaged, alpha=alpha)
+
+
+
 # %% =================================== CONCRETE STRATEGY 2: DISCRETE STEP ============================================= %% #
 class DiscreteIntegrator(Integrator):
     """
@@ -119,6 +152,8 @@ class DiscreteIntegrator(Integrator):
     def advance_ensemble(self, Nt = 100, averaged = False, alpha = None):
 
         return self.advance_single(Nt, averaged=averaged, alpha=alpha)
+
+
 
 
 
@@ -195,7 +230,7 @@ class IVPIntegrator(Integrator):
             alpha_list = pm.get_alpha()
             forecast_part = partial(ivp_forecast_helper, 
                                     fun=pm.time_derivative, t=t_all, method=self.method)
-            
+
             sol = [self.__pool.apply_async(forecast_part,
                                             kwds={'y0': psi0[:, mi].T, 'params': {**args, **alpha_list[mi]}})
                     for mi in range(pm.m)]

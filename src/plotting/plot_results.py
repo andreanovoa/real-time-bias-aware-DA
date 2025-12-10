@@ -2,11 +2,9 @@ import pickle
 import os
 import numpy as np
 from scipy.interpolate import interp2d
-from tabulate import tabulate
 from utils import interpolate, CR, get_error_metrics
 
-from real_public.src.plotting.utils_plotting import *
-
+from .utils_plotting import *
 # rc('animation', html='jshtml')
 
 

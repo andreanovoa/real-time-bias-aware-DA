@@ -17,7 +17,6 @@ class Rijke(Model):
     Nm = 10
     Nc = 10
     Nq = 6
-    dt = 1e-4
 
     beta, tau = 4.0, 1.5E-3
     C1, C2 = 0.05, 0.01
@@ -46,7 +45,8 @@ class Rijke(Model):
                 Nc = self.Nc
             model_dict['psi0'] = .05 * np.hstack([np.ones(2 * Nm), np.zeros(Nc)])
 
-        super().__init__(integrator_class=IVPIntegrator, **model_dict)
+        dt = model_dict.pop('dt', 1E-4)
+        super().__init__(dt=dt, integrator_class=IVPIntegrator, **model_dict)
 
         self.tau_adv = self.tau
         self.alpha_lims['tau'][-1] = self.tau_adv

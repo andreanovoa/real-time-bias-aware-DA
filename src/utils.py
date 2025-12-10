@@ -615,7 +615,7 @@ def correlation(y_true, y_est):
 
     # Check compatible time and spatial dimensions
     if y_true.shape[0] != y_est.shape[0] or y_true.shape[1] != y_est.shape[1]:
-        raise ValueError('Incompatible shapes: y_true and y_est must share first two dimensions (time, spatial).')
+        raise ValueError('Incompatible shapes: y_true and y_est must share first two dimensions (time, spatial). {} vs {}'.format(y_true.shape, y_est.shape))
 
     # Compute means
     y_tm = np.mean(y_true, axis=0, keepdims=True)  # shape (1, Nq, 1)

@@ -1320,7 +1320,7 @@ class EchoStateNetwork:
 
                     if test_counter <= max_L_tests:
                         fig_short, axs_short = plt.subplots(nrows=nrows, ncols=1, figsize=[8, 1.5 * nrows], sharex='all', layout='tight')
-                        if Nq == 1:
+                        if nrows == 1:
                             axs_short = [axs_short] 
 
                         plot_time(_axs=axs_short, _time=current_time, _pred_closed=Y_closed, _pred_open=U_open, 

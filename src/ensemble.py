@@ -2,9 +2,9 @@ from collections import namedtuple
 import numpy as np
 from copy import deepcopy
 from typing import List, Tuple, Union, Dict, Type, Tuple
-from bias import Bias, NoBias
+from bias import Bias
 from model import Model
-from real_public.src.plotting.utils_plotting import Palette
+from plotting import Palette
 
 from observations import Observations
 from utils import allowed_kwargs_for_func, interpolate, mean_vector_to_ensemble
@@ -80,8 +80,10 @@ class Ensemble(object):
         # Apply only attributes that exist on the Ensemble class
         for key in kwargs.keys():
             if hasattr(Ensemble, key):
-                setattr(self, key, ensemble_dict.pop(key))
-
+                try:
+                    setattr(self, key, ensemble_dict.pop(key))
+                except:
+                    raise AttributeError(f"Could not set attribute {key} on Ensemble instance.")
 
         # Ensure est_alpha is a list of parameter names if not provided
         if 'est_alpha' not in kwargs.keys():
@@ -93,9 +95,8 @@ class Ensemble(object):
         # 3. Initialize ensemble state and history in the parent model
         self._init_ensemble_model(parent_model, **ensemble_dict)
         
-        # 4. Initialize bias
-        if parent_bias is not None:
-            self._init_bias(parent_bias, **ensemble_dict)
+        # 4. Initialize bias instance if provided (if not, self.bias will be None)
+        self._init_bias(parent_bias, **ensemble_dict)
 
         # 5. Set up data assimilation filter if provided
         if da_method is not None:
@@ -389,8 +390,10 @@ class Ensemble(object):
                                     rom=pm,
                                     **Bdict
                                     )
+        elif parent_bias is None:
+            self._bias = None
         else:
-            raise TypeError('parent_bias must be a Bias class or instance.')
+            raise TypeError(f'parent_bias must be a Bias class or instance (or None), got {type(parent_bias)}.')
         
 
             
@@ -451,7 +454,7 @@ class Ensemble(object):
 
         psi, t = pm.time_integrate(**kwargs_local)
         if t_end is not None:
-            assert abs(t[-1] - t_end) < 1e-8, f"Final time {t[-1]} does not match requested t_end {t_end}."
+            assert abs(t[-1] - t_end) < pm.dt, f"Final time {t[-1]} does not match requested t_end {t_end}."
 
 
         # print('Forecasted ensemble shape:', psi.shape)
@@ -468,9 +471,8 @@ class Ensemble(object):
         if self.bias is not None:
             y = pm.get_observable_hist(Nt=psi.shape[0])  # Get observables for the forecasted states
             pb = self.bias
-            b, t_b = pb.time_integrate(t=t,
-                                    y=y, 
-                                    **kwargs)
+            b, t_b = pb.time_integrate(**kwargs_local)
+
             pb.update_history(b, t_b, reset=reset)
             if pm.current_time != pb.current_time:
                 raise AssertionError('t assertion', pm.current_time, pb.current_time)   

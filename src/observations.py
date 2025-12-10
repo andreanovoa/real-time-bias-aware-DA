@@ -284,6 +284,7 @@ class Observations():
 
             # Instantiate the model if a class is provided
             if isinstance(model, type):
+                
                 model = model(**kwargs)  
 
             # Define Time Windows based on Model properties
@@ -416,9 +417,11 @@ class Observations():
         bias_plot = b[t0_idx:t0_idx+t1_idx]
         if np.sum(abs(bias_plot)) < 1e-10:
             bias_plot = None
-        elif bias_plot.ndim == 1:
-            bias_plot = bias_plot[:, np.newaxis]
+        else:
+            if bias_plot.ndim == 1:
+                bias_plot = bias_plot[:, np.newaxis]
             _, PSD_bias = fun_PSD(dt, b[t0_idx:nt_PSD + t0_idx])
+        
 
 
         # X-limits for time plots

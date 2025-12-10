@@ -40,6 +40,16 @@ class HistoryTracker:
         self._ti = value
 
 
+    def __init__(self, initial_capacity=1000):
+        """ Initialises the history arrays.
+        Args:
+            initial_capacity: Initial capacity of the history arrays.
+        """
+
+        self._initial_capacity = initial_capacity
+        self.current_ti = 0  # Current time index in history
+
+
     def _reset_history(self, new_history, t_reset):
         """Resets the history arrays to the provided new_history and t_reset.
         Args:
@@ -83,7 +93,7 @@ class HistoryTracker:
             t1 = t0 + state.shape[0]
 
             if t1 > self.capacity:
-                self._increase_hist_size(Nt=state.shape[0]*10, Ndim=state.shape[1])
+                self._increase_hist_size(Nt=state.shape[0]*10)
 
             self._hist[t0:t1] = state
             self._hist_t[t0:t1] = t
