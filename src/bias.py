@@ -264,8 +264,8 @@ class Bias:
                     print('\t {} = {:.6}'.format(key, val))
                 else:
                     print('\t {} = {}'.format(key, val))
-        if hasattr(self.forecaster, 'print_model_parameters'):
-            self.forecaster.print_model_parameters()
+        if hasattr(self.forecaster, 'print_parameters'):
+            self.forecaster.print_parameters(show_header=False)
 
 
     def copy(self):

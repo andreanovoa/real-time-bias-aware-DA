@@ -1240,13 +1240,13 @@ class EchoStateNetwork:
         hist_args = dict(bins=nbins, density=True, orientation='horizontal', stacked=False)
 
 
+        print(f'Running test for L=', end=' ')
         for Li in L_indices:
-
+            print(f'{Li}', end=' ')
 
             # Select dataset
             U_test_l, Y_test_l = U_test[Li], Y_test[Li]
 
-            print(f'Running test for L={Li} with data shapes U: {U_test_l.shape}, Y: {Y_test_l.shape}')
 
             norm_l = np.max(Y_test_l, axis=0) - np.min(Y_test_l, axis=0)
 
@@ -1447,3 +1447,181 @@ class EchoStateNetwork:
         plt.colorbar(im, orientation='horizontal', extend='both')
         ax.set(ylabel='$N_u$', xlabel='$N_r$', title='$\\mathbf{W}_\\mathrm{out}$')
         return fig
+
+
+#     @classmethod
+#     def load(cls, directory):
+#         """
+#         Load an EchoStateNetwork instance from a directory, restoring attributes
+#         automatically from config and data files.
+        
+#         Args:
+#             directory (str): Path to the saved model directory.
+        
+#         Returns:
+#             EchoStateNetwork: The loaded model instance.
+#         """
+#         # 1. Load Configuration File
+#         config_filepath = os.path.join(directory, 'config.json')
+#         with open(config_filepath, 'r') as f:
+#             config = json.load(f)
+        
+#         # 2. Create Instance (using __new__ to skip __init__)
+#         instance = cls.__new__(cls)
+        
+#         # 3. Restore simple attributes from config
+#         for key, value in config.items():
+#             if key in ['class_name', 'module_name', 'array_files']:
+#                 continue
+            
+#             # Convert lists back to NumPy arrays if they were small arrays
+#             if isinstance(value, list):
+#                 setattr(instance, key, np.array(value))
+#             else:
+#                 setattr(instance, key, value)
+        
+#         # 4. Load Numerical Data Arrays
+#         array_mapping = config['array_files']
+#         for attr_name, filename in array_mapping.items():
+#             filepath = os.path.join(directory, filename)
+            
+#             if not os.path.exists(filepath):
+#                  # Skip if array was not saved (e.g., W was None before training)
+#                  print(f"Warning: Array file {filename} not found, skipping attribute {attr_name}.")
+#                  continue
+                 
+#             # Check if it's a sparse matrix file
+#             if filename.endswith('.npy') and 'matrix' in filename:
+#                 # Attempt to load a structured numpy file (assuming csr_matrix format saved with np.savez)
+#                 try:
+#                     loaded = np.load(filepath, allow_pickle=True)
+#                     if all(k in loaded for k in ['data', 'indices', 'indptr', 'shape']):
+#                         array = csr_matrix((loaded['data'], loaded['indices'], loaded['indptr']), 
+#                                            shape=loaded['shape'])
+#                     else:
+#                         # If it's a plain .npy file, treat it as a dense array
+#                         array = loaded
+#                 except Exception:
+#                     # Fallback for standard .npy file
+#                     array = np.load(filepath)
+#             else:
+#                 array = np.load(filepath)
+                
+#             # Restore the internal attribute
+#             setattr(instance, attr_name, array)
+
+
+#         # 5. Finalize the instance
+        
+#         # Re-initialize the RNG property (which depends on restored self._seed)
+#         if hasattr(instance, '_seed'):
+#             del instance.rng # Force re-creation of the property on first access
+
+#         # Set derived/runtime flags
+#         instance.trained = all([getattr(instance, key) is not None for key in ['Wout', 'Win', 'W']])
+#         instance.val_k = 0 # Reset counter
+#         instance.initialised = False # Reset flag
+
+#         # Note: You may need to manually re-compute self.N_dim and self.N_ens 
+#         # if they are not stored directly, but they look like they are derived 
+#         # from the reservoir_state shape, which is restored via '_r'.
+        
+#         print(f"Model loaded successfully from directory: {directory}")
+#         return instance
+
+
+#     def save(self, directory):
+#         """
+#         Save the EchoStateNetwork instance to a directory using automatic 
+#         config/data separation.
+        
+#         Args:
+#             directory (str): Path to the directory where the model will be saved.
+#         """
+#         if not os.path.exists(directory):
+#             os.makedirs(directory)
+
+#         config = {
+#             'class_name': self.__class__.__name__,
+#             'module_name': self.__class__.__module__,
+#             'matrices_file': 'sparse_matrices.npz',
+#         }
+        
+#         # 1. Automatically capture and filter all simple attributes
+#         for key, value in self.__dict__.items():
+            
+#             # Skip excluded attributes and arrays (arrays are handled below)
+#             if key in self.EXCLUDE_FROM_CONFIG or key in self.ARRAY_MAPPING or key.startswith('__'):
+#                 continue
+            
+#             # Handle NumPy arrays that are NOT large (like bias_in, bias_out)
+#             if isinstance(value, np.ndarray):
+#                 # Convert small NumPy arrays to lists for JSON serialization
+#                 config[key] = value.tolist()
+            
+#             # Handle other simple serializable types
+#             elif isinstance(value, (int, float, str, bool, list, dict, type(None))):
+#                  config[key] = value
+            
+#             # Handle sparse matrices that are NOT large (unlikely, but safe)
+#             elif isinstance(value, csr_matrix):
+#                 # We expect sparse matrices to be in ARRAY_MAPPING, but if not:
+#                 print(f"Warning: Skipping unexpected CSR matrix attribute '{key}'. It should be in ARRAY_MAPPING.")
+
+
+#         # 2. Save Configuration File (config.json)
+#         config_filepath = os.path.join(directory, 'config.json')
+#         with open(config_filepath, 'w') as f:
+#             json.dump(config, f, indent=4)
+
+#         # 3. Save Numerical Data Arrays (including sparse matrices)
+#         for attr_name, filename in self.ARRAY_MAPPING.items():
+#             array = getattr(self, attr_name, None)
+#             if array is None:
+#                 # Skip if the attribute hasn't been initialized (e.g., W, Win before training)
+#                 continue 
+            
+#             filepath = os.path.join(directory, filename)
+            
+#             if isinstance(array, csr_matrix):
+#                 # Save sparse matrix data, indices, and shape for reconstruction
+#                 np.savez(filepath, data=array.data, indices=array.indices, 
+#                          indptr=array.indptr, shape=array.shape)
+#             elif isinstance(array, np.ndarray):
+#                 np.save(filepath, array)
+            
+#         print(f"Model saved successfully to directory: {directory}")
+
+
+
+# # 1. Attributes that contain large arrays and must be saved separately as .npy
+#     ARRAY_MAPPING = {
+#         '_W': 'W_matrix.npy',       # Internal storage for the sparse reservoir matrix
+#         '_Win': 'Win_matrix.npy',   # Internal storage for the sparse/dense input matrix
+#         '_Wout': 'Wout_matrix.npy', # Internal storage for the output matrix
+#         '_r': 'reservoir_state.npy', # Current reservoir state
+#         '_norm': 'norm_factor.npy', # Normalization factor array
+#         '_shift': 'shift_factor.npy', # Shift factor array
+#         # Note: self.bias_in and self.bias_out are already np arrays but they are small; 
+#         # we'll save them as simple values in the config if they are small/static.
+#     }
+    
+#     # 2. Complex objects or computed properties to EXCLUDE from the automatic config saving
+#     EXCLUDE_FROM_CONFIG = [
+#         # Internal properties defined via @property
+#         '_rng', 
+#         '_WCout', 
+#         # Objects that must be re-initialized or are redundant
+#         'reservoir_state', # Redundant, saved via '_r'
+#         'W', 'Win', 'Wout', # Properties, not the underlying data
+#         'rng', 'seed', 'sparsity', # Computed properties or handles
+#         'trained', # We can restore this based on Wout existence
+#         'val_k', 'initialised' # Runtime flags
+#     ]
+
+
+if __name__ == "__main__":
+
+    print(vars(EchoStateNetwork))
+
+    pass

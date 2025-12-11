@@ -14,9 +14,6 @@ class ESN_model(EchoStateNetwork, Model):
         - Note: training data is a mandatory input to the initialization
     """
 
-    # name: tr = 'ESN_model'
-    figs_folder: str = 'figs/ESN_model/'
-
     update_reservoir = True
     update_state = True
 
@@ -339,7 +336,7 @@ class ESN_model(EchoStateNetwork, Model):
         EchoStateNetwork.__init__(self,
                                   y=u0,
                                   dt=self.dt,
-                                  figs_folder=self.figs_folder,
+                                  figs_folder=self.results_folder,
                                   **kwargs)
         # Train the network
         possible_args = inspect.getfullargspec(self.train)[0]

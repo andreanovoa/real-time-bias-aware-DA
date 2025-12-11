@@ -35,7 +35,7 @@ class Model(object):
     filename = ''
 
     initialized = False
-
+    results_folder = None
 
     def __init__(self, psi0, dt, integrator_class=IVPIntegrator, **kwargs):
 
@@ -114,6 +114,18 @@ class Model(object):
     def current_time(self):
         return self.history.current_time
     
+    @property
+    def filename(self):
+        suffix = ''
+        for key, val in self.alpha0.items(): 
+            if val != getattr(self.__class__, key):
+                if np.log10(abs(val)) < -3:
+                    suffix += key + f'{val:.2e}_'
+                else:
+                    suffix += key + f'{val}_'
+        if len(suffix) == 0:
+            suffix = 'default'
+        return f"{self.name}_{suffix}"
 
 
     def __format_state(self, psi: np.ndarray) -> np.ndarray:
@@ -261,8 +273,9 @@ class Model(object):
         return self.get_observables(Nt, **kwargs)
 
 
-    def print_model_parameters(self):
-        print('\n ------------------ Model Parameters ------------------ ')
+    def print_parameters(self, show_header=True):
+        if show_header:
+            print('\n ------------------ Model Parameters ------------------ ')
         print(f'\t Model class name: {self.__class__.__name__}')
         for key in sorted(self.print_params):
             val = getattr(self, key)

@@ -257,7 +257,6 @@ class Observations():
         else:
             self.y_raw = np.atleast_3d(self.y_raw)  # Ensure y_raw is at least 3D
         
-            
 
 
     def _create_observations(self, model, **kwargs):
@@ -294,17 +293,7 @@ class Observations():
 
             # ============================================================
             # Add key input_parameters to filename
-            suffix = ''
-            for key, val in kwargs.items(): 
-                if key in model.alpha_labels.keys():
-                    if type(val) is str:
-                        suffix += val + '_'
-                    else:
-                        suffix += key + '{:.2e}'.format(val) + '_'
-            if len(suffix) == 0:
-                suffix = 'default'
-
-            name_truth = f'Truth_{model.name}_{suffix}'
+            name_truth = f'Truth_{model.filename}'
 
             if self.results_folder is not None:
                 full_path = os.path.join(self.results_folder, name_truth) 

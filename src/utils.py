@@ -757,7 +757,8 @@ def create_Lorenz63_dataset(noise_level=0.02, num_lyap_times=300, seed=0, **kwar
 
 
     # Default filename
-    filename = f"{''.join([f'{key}{val:.2f}_' for key, val in model.alpha0.items()])}Nlyap{num_lyap_times}_noise{noise_level}_seed{seed}"
+    filename = model.filename
+    filename += f"Nlyap{num_lyap_times}_noise{noise_level}_seed{seed}"
 
     t_lyap = model.t_lyap
     dt = model.dt

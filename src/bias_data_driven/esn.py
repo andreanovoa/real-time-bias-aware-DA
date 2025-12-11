@@ -15,7 +15,9 @@ class ESN_bias(DataDrivenBias):
         # ---------------  Initialize ESN_model and Bias via DataDrivenBias ------------------- #
 
         super().__init__(rom=rom, reference_data=reference_data, 
-                         forecaster_class= ESN_model, filename=filename, **kwargs)
+                         forecaster_class= ESN_model, filename=filename, 
+                         
+                         **kwargs)
 
 
          # ----------------- Initialize reservoir state and reset Bias history ---------------------- #

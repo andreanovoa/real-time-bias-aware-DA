@@ -61,6 +61,8 @@ class Ensemble(object):
     
     activate_parameter_estimation: bool = True  # Whether to include parameter estimation in the analysis step
 
+    results_folder: str = None
+
     keys_to_print = ['m', 'est_phi', 'est_alpha', 'est_bias', 'Na',
                      'regularization_factor', 'inflation_factor', 'inflation_factor_rejection',
                      ]
@@ -955,7 +957,7 @@ class Ensemble(object):
         for key, val in self.config().items():
             print(f"  {key}: {val}")    
 
-        self.model.print_model_parameters()
+        self.model.print_parameters()
         if self.filter is not None:
             self.filter.print_parameters()
         if self.bias is not None:

@@ -655,7 +655,7 @@ if __name__ == "__main__":
     # # Plot results
     # plot_timeseries(filter_ens, truth=truth, plot_states=True, plot_ensemble_members=1)
 
-    # # filter_ens.print_model_parameters()
+    # # filter_ens.print_parameters()
 
     # plot_covariance(filter_ens)
 
