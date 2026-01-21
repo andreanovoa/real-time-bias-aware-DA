@@ -1,10 +1,12 @@
-from bias import *
+from bias import Bias
 from observations import Observations
-from tools_ML import EchoStateNetwork
+from model import Model
 
 from typing import Dict, Type, List, Tuple, Union
-from utils import mean_vector_to_ensemble, save_to_pickle_file, load_from_pickle_file, check_valid_file
-from utils import correlation
+from utils import mean_vector_to_ensemble, save_to_pickle_file, load_from_pickle_file, check_valid_file, correlation
+from typeguard import typechecked
+
+import numpy as np
 
 
 class DataDrivenBias(Bias):
@@ -22,11 +24,11 @@ class DataDrivenBias(Bias):
     augment_data = True
     N_ens = 1
 
-
+    @typechecked
     def __init__(self, 
-                 rom: Type[Model],  
-                 forecaster_class: Type[Model],
-                 reference_data: Union[Type[Observations], List[Type[Observations]]] = None,
+                 rom: Model,  
+                 forecaster_class: Model,
+                 reference_data: Union[Observations, List[Observations]] = None,
                  filename: str = None,
                  **kwargs):
         

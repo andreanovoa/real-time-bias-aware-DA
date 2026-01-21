@@ -6,11 +6,12 @@ import numpy as np
 import warnings
 import matplotlib.pyplot as plt
 
-from integrator import IVPIntegrator
+from integrator import IVPIntegrator, Integrator
 from history import HistoryTracker
+from typeguard import typechecked
 
 
-
+from typing import List, Type, Union
 
 # %% =================================== PARENT MODEL CLASS ============================================= %% #
 class Model(object):
@@ -32,12 +33,16 @@ class Model(object):
     Nq = 1
     seed = 6
     alpha = None
-    filename = ''
 
     initialized = False
     results_folder = None
 
-    def __init__(self, psi0, dt, integrator_class=IVPIntegrator, **kwargs):
+    @typechecked
+    def __init__(self, 
+                 psi0: Union[np.ndarray, List], 
+                 dt: float, 
+                 integrator_class: Type[Integrator] = IVPIntegrator, 
+                 **kwargs):
 
         # ================= INITIALISE PHYSICAL MODEL ================== ##
         keys = list(kwargs.keys())
@@ -51,8 +56,9 @@ class Model(object):
         # Ensure psi0 is ndarray with ndim=2
         if psi0 is None:
             raise ValueError("Initial state psi0 must be provided during Model initialization.")
-        elif isinstance(psi0, np.ndarray) and psi0.ndim == 1:
+        elif (isinstance(psi0, np.ndarray) and psi0.ndim == 1) or isinstance(psi0, list):
             psi0 = np.array([psi0]).T
+            
         self.psi0 = psi0
         self.dt = dt
         self.params = list([*self.alpha_labels])
@@ -116,17 +122,24 @@ class Model(object):
     
     @property
     def filename(self):
-        suffix = ''
-        for key, val in self.alpha0.items(): 
-            if val != getattr(self.__class__, key):
-                if np.log10(abs(val)) < -3:
-                    suffix += key + f'{val:.2e}_'
-                else:
-                    suffix += key + f'{val}_'
-        if len(suffix) == 0:
-            suffix = 'default'
-        return f"{self.name}_{suffix}"
+        if not hasattr(self, '_filename'):
+            suffix = ''
+            for key, val in self.alpha0.items(): 
+                if val != getattr(self.__class__, key):
+                    if np.log10(abs(val)) < -3:
+                        suffix += f'_{key}{val:.2e}'
+                    else:
+                        suffix += f'_{key}{val}'
+            if len(suffix) == 0:
+                suffix = '_default'
+            self._filename = f"{self.name}{suffix}"
 
+        return self._filename
+    
+    @filename.setter
+    def filename(self, value):
+        self._filename = value
+            
 
     def __format_state(self, psi: np.ndarray) -> np.ndarray:
         """Ensure psi has the correct shape (Nt, N, m) for history storage.
@@ -189,7 +202,7 @@ class Model(object):
         if value <= 0:
             raise ValueError("Time step must be positive.")
         self._precision_t = int(np.ceil(-np.log10(value) + 2))  # Set precision based on dt
-        print(f'Setting time step dt={value} with precision_t={self._precision_t}')
+        # print(f'Setting time step dt={value} with precision_t={self._precision_t}')
         self._dt = np.round(value, self.precision_t)
 
     @property

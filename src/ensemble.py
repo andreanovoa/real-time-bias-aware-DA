@@ -10,7 +10,9 @@ from observations import Observations
 from utils import allowed_kwargs_for_func, interpolate, mean_vector_to_ensemble
 import matplotlib.pyplot as plt
 
-from data_assimilation import Filter, EnSRKF
+from typeguard import typechecked
+
+from data_assimilation import Filter
 
 
 class Ensemble(object):
@@ -67,10 +69,11 @@ class Ensemble(object):
                      'regularization_factor', 'inflation_factor', 'inflation_factor_rejection',
                      ]
 
+    @typechecked
     def __init__(self, 
-                 parent_model: Type[Model], 
-                 parent_bias: Type[Bias] = None, 
-                 da_method: Type[Filter] = None, 
+                 parent_model: Union[Model, Type[Model]], 
+                 parent_bias: Union[Bias, Type[Bias], None] = None, 
+                 da_method: Union[Filter, Type[Filter], None] = None, 
                  **kwargs):
         """
         Initializes the Ensemble and links it back to the parent Model instance.
@@ -132,23 +135,6 @@ class Ensemble(object):
             return None
 
     
-    def _init_filter(self, filter_instance: Type[Filter]) -> None:
-        """
-        Sets the data assimilation filter instance for the ensemble.
-        Parameters
-        ----------
-        filter_instance : Type[Filter]
-            The filter class or instance to be used for data assimilation.
-        """
-        if isinstance(filter_instance, Filter):
-            print('Setting filter instance for Ensemble.')
-            self._filter = filter_instance
-        elif isinstance(filter_instance, type) and issubclass(filter_instance, Filter):
-            self._filter = filter_instance(m=self.m, 
-                                           M=self.model.M,
-                                           gamma=self.regularization_factor)
-        else:
-            raise TypeError('filter_instance must be a Filter class or instance.')
 
 
     @property
@@ -248,8 +234,8 @@ class Ensemble(object):
         self._assimilated_times.append(t_obs)
     
 
-
-    def _init_ensemble_model(self, parent_model: Type[Model], **kwargs):
+    @typechecked
+    def _init_ensemble_model(self, parent_model: Union[Model, Type[Model]], **kwargs):
         """
         Initializes ensemble members.
         This method creates an ensemble of model states (phi) and, optionally,
@@ -284,23 +270,15 @@ class Ensemble(object):
 
         if isinstance(parent_model, Model):
             self._model = parent_model.copy()
-        elif isinstance(parent_model, type) and issubclass(parent_model, Model):
-            self._model = parent_model(**kwargs)
         else:
-            raise TypeError('parent_model must be a Model class or instance.')
+            self._model = parent_model(**kwargs)
 
         # Push the new configuration snapshot to the Model immediately
         self.update_model_settings()
-
-
         self.rng = self.model.rng
         
         
         pm = self.model
-
-        # print(f'Initializing ensemble for model {getattr(pm, "name", "Model")} with ensemble size {self.m}')
-        # print('current state shape:', pm.current_state.shape)
-
         
 
         if self.ensemble_psi0 is None:
@@ -349,17 +327,17 @@ class Ensemble(object):
                           reset=True)
         
         # 4. Update parent model settings/filename
-        pm.filename += '_{}_ensemble_m{}'.format(getattr(pm, 'name', 'Model'), self.m)
+        pm.filename += '_ensemble_m{}'.format(self.m)
 
-        print(f'Init ensemble history with shape: {pm.hist.shape} and {pm.hist_t}')
+        print(f'Init {pm.filename} history with shape: {pm.hist.shape} and {pm.hist_t}')
 
-
-    def _init_bias(self, parent_bias: Type[Bias] = None, **Bdict):
+    @typechecked
+    def _init_bias(self, parent_bias: Union[Bias, Type[Bias], None] = None, **Bdict):
         """Initializes the bias instance for the ensemble. If the bias is provided as a class, 
         it instantiates it using the model's current state as the mean observation.
         Parameters
         ----------
-        parent_bias : type or Bias instance, optional
+        parent_bias : Union[Bias, Type[Bias], None], optional
             The class of the bias model to instantiate or an existing Bias instance. If None, uses the current bias instance.
         Bdict : dict, optional
             Additional keyword arguments to pass to the bias constructor.
@@ -392,13 +370,25 @@ class Ensemble(object):
                                     rom=pm,
                                     **Bdict
                                     )
-        elif parent_bias is None:
-            self._bias = None
         else:
-            raise TypeError(f'parent_bias must be a Bias class or instance (or None), got {type(parent_bias)}.')
+            self._bias = None
         
 
-            
+    @typechecked
+    def _init_filter(self, filter_instance: Union[Filter, Type[Filter]]) -> None:
+        """
+        Sets the data assimilation filter instance for the ensemble.
+        Parameters
+        ----------
+        filter_instance : Type[Filter]
+            The filter class or instance to be used for data assimilation.
+        """
+        if isinstance(filter_instance, Filter):
+            self._filter = filter_instance
+        else:
+            self._filter = filter_instance(m=self.m, 
+                                           M=self.model.M,
+                                           gamma=self.regularization_factor)
 
 
 

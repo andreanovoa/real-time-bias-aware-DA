@@ -1,12 +1,3 @@
-import os
-import matplotlib.pyplot as plt
-
-from integrator import Integrator
-from history import HistoryTracker
-from model import Model
-from data_assimilation import EnKF
-
-from typing import Type 
 
 import numpy as np
 from copy import deepcopy
@@ -15,6 +6,30 @@ from copy import deepcopy
 
 
 class Bias:
+    '''
+    Docstring for Bias
+    Base class for bias models used in data assimilation.
+    Attributes:
+        upsample (int): Factor to upsample bias model time step relative to data assimilation cycle
+        L (int): Length of bias state vector
+        augment_data (bool): Whether to augment data with bias information
+        bayesian_update (bool): Whether to perform Bayesian update to state
+        biased_observations (bool): Whether observations are biased
+    Methods:
+        __init__: Initializes the Bias model with given parameters
+        get_bias: Extracts bias from the full state
+        get_innovations: Extracts innovations from the full state
+        time_integrate: Advances the bias state in time
+        update_history: Updates the history of the bias state
+    Properties:
+        name: Name of the bias model class
+        bias_idx: Indices of the bias components in the state vector
+        forecaster: The forecasting model used for bias prediction
+        history: History object storing past bias states
+        integrator: Integrator used by the bias model
+        forecaster_class: Class of the forecaster model
+        forecaster_class_defaults: Default attributes of the forecaster class
+    '''
     upsample = 1
     L = 1
     augment_data = False

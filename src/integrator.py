@@ -8,6 +8,8 @@ from scipy.integrate import solve_ivp
 from functools import partial
 from copy import deepcopy
 
+from typeguard import typechecked
+
 from typing import Dict, Tuple, Any
 
 import numpy as np
@@ -40,6 +42,7 @@ class Integrator:
             returns psi(t) = psi(0)
     """
 
+    @typechecked
     def __init__(self, model_instance: object):
         """
         Initialize the integrator with a model instance (not necessarily a Model, but must have the time_derivative/time_step method).

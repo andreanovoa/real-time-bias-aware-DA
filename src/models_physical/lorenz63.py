@@ -1,3 +1,5 @@
+# %%
+
 from model import Model
 from integrator import IVPIntegrator
 import matplotlib.pyplot as plt
@@ -154,11 +156,19 @@ def plot_attractor(psi_cases, color=None, figsize=(8, 6)):
 
 
 
+# %%
+
+
 if __name__ == "__main__":
     # test Lorenz63 model
     model = Lorenz63()
-    model.time_integrate(Nt=1000)
+    psi, t = model.time_integrate(Nt=100)
+    model.update_history(psi, t)
 
-    model.close()
     print(model.get_observables(Nt=5))
+
+
+
     
+
+# %%

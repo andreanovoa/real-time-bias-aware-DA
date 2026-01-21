@@ -1,4 +1,5 @@
 # %%
+from typing import Type, Union
 import numpy as np
 import matplotlib.pyplot as plt
 import os  
@@ -6,6 +7,8 @@ import os
 from model import Model
 
 from utils import load_from_pickle_file, save_to_pickle_file, load_from_mat_file, colour_noise, fun_PSD
+from typeguard import typechecked
+
 
 rng = np.random.default_rng() 
 
@@ -35,7 +38,8 @@ class Observations():
 
     _frozen = False
 
-    def __init__(self, model, **kwargs):
+    @typechecked
+    def __init__(self, model: Union[Model, Type[Model]], **kwargs):
         """
         Initializes the Observations object, loading or creating truth data,
         applying bias, adding noise, and interpolating to observation times.
