@@ -3,12 +3,114 @@ requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "real-time-DA"
-version = "2.1"
+name = "real-time-da"
+version = "2.2.0"
 description = "Real-time Bias-Aware Data Assimilation"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}  
 authors = [
-  {name = "Andrea Nóvoa", email = "a.novoa@imperial.ac.uk"}
+    {name = "Andrea Nóvoa", email = "a.novoa@imperial.ac.uk"}
 ]
+keywords = ["data-assimilation", "bias-estimation", "real-time", "ensemble-kalman-filter"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+
+dependencies = [
+    "h5py>=3.14,<4.0",
+    "matplotlib>=3.9,<4.0",
+    "multiprocess>=0.70",
+    "numba>=0.60,<1.0",
+    "numpy>=2.0,<3.0",
+    "pyts>=0.13",
+    "requests>=2.32",
+    "scikit-optimize>=0.10",
+    "scipy>=1.13,<2.0",
+    "seaborn>=0.13",
+    "tabulate>=0.9",
+    "tqdm>=4.67",
+    "torch",  # PyTorch
+    "torchvision",
+    "torchaudio",
+    "typeguard",
+    "ipython-genutils>=0.2",
+    "modulo-vki==2.1",
+    "pyqt5>=5.15",
+    "wandb",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.4",
+    "ipykernel>=6.30",
+    "ipywidgets>=8.1",
+    "jupyter>=1.1",
+]
+
+# Add notebook dependencies separately if you want
+notebook = [
+    "ipykernel>=6.30",
+    "ipywidgets>=8.1",
+    "jupyter>=1.1",
+]
+
+# All extras combined
+all = [
+    "real-time-da[dev,notebook]",
+]
+
+[project.urls]
+Homepage = "https://github.com/andreanovoa/real-time-da"
+Repository = "https://github.com/andreanovoa/real-time-da"
+Issues = "https://github.com/andreanovoa/real-time-da/issues"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+namespaces = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--strict-markers",
+]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "N",  # pep8-naming
+    "UP", # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+] 

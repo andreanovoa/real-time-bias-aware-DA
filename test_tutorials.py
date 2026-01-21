@@ -1,3 +1,4 @@
+import json
 import os
 import nbformat
 from nbconvert.preprocessors import ExecutePreprocessor
@@ -13,6 +14,8 @@ logging.basicConfig(level=logging.INFO)
 
 # --- Configuration (can be set via environment variables) ---
 FOLDER_TO_TEST = os.environ.get("NB_TEST_FOLDER", "scripts/tutorials")
+SUBFOLDERS = json.loads(os.getenv("SUBFOLDERS", '["0","1","2","3"]'))
+
 TIMEOUT = int(os.environ.get("NB_TEST_TIMEOUT", "600"))
 QUICK = os.environ.get("NB_TEST_QUICK", "False").lower() in ("1", "true", "yes")
 
@@ -67,9 +70,13 @@ def find_notebooks_in_folder(folder_path):
     for root, _, files in os.walk(folder_path):
         if '.ipynb_checkpoints' in root:
             continue
-        for file in files:
-            if file.endswith('.ipynb'):
-                notebooks.append(os.path.join(root, file))
+        # First character of the last part of the path should be in SUBFOLDERS
+        fist_char = os.path.basename(root)[:1]
+        if fist_char in SUBFOLDERS:
+            for file in files:
+                if file.endswith('.ipynb'):
+                    notebooks.append(os.path.join(root, file))
+                    print(f"Found notebook: {file}")
     return sorted(notebooks)
 
 
