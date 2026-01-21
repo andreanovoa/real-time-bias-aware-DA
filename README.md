@@ -18,21 +18,14 @@ git clone https://github.com/andreanovoa/real-time-bias-aware-DA
 cd yourproject
 ```
 
-3. **Create and activate the Conda Environment** 
-NB. The `environment.yml` installation works in MacOS. For Linux use `environment_linux.yml`
+3. Install the package in editable mode 
 ```
-conda env create -f environment.yml
-conda activate real-time-da
+pip install -e .[all] --use-pep517
 ```
 
-4. Install the package in editable mode 
+4. (Optional) Run the tests and save the output onto a text file
 ```
-pip install -e . --use-pep517
-```
-
-5. (Optional) Run the tests and save the output onto a text file
-```
-pytest -s --log-cli-level=INFO test_tutorials.py >> test_output.txt 2>&1
+SUBFOLDERS='["0","1"]' pytest -s --log-cli-level=INFO test_tutorials.py >> test_output.txt 2>&1
 ```
 
 Checkout the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/scripts/tutorials), which includes several jupyter notebooks aiming to ease the understanding of the repository.
@@ -78,14 +71,18 @@ Checkout the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aw
 │   └── tutorials/ 
 ├── src/               # Source code including all the objects, classes and functions required in scripts
 │   ├── bias.py
+|   ├── bias_data_driven/
+│   │   │── base.py
+│   │   │── esn.py
+│   │   └── nobias.py
 │   ├── create.py   
 │   ├── data_assimilation.py
 │   ├── integrator.py
 │   ├── model.py
-│   ├── models_datadriven
-│   │   │── EchoStateNetwork.py
-│   │   └── POD.py
-│   ├── models_physical
+│   ├── models_data_driven/
+│   │   │── esn.py
+│   │   └── pod.py
+│   ├── models_physical/
 │   │   │── annular.py
 │   │   │── kuramoto_sivashinsky.py
 │   │   │── lorenz63.py
@@ -98,7 +95,6 @@ Checkout the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aw
 │   │   └── POD.py
 │   └── util.py
 ├─ tests_tutorials.py    # Unit tests
-├─ environment.yml       # Conda environment definition
 ├─ pyproject.toml        # Python package setup
 └─ README.md             # This file
 
