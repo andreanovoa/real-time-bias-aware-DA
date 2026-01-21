@@ -8,7 +8,7 @@ class ESN_bias(DataDrivenBias):
 
     def __init__(self,
                  rom: Type[Model],  
-                 reference_data: Union[Type[Observations], List[Type[Observations]]] = None,
+                 reference_data: Union[Observations, Type[Observations], List[Observations]] = None,
                  filename: str = None,
                  **kwargs):
 

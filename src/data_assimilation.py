@@ -112,9 +112,6 @@ class EnSRKF(Filter):
 
 
 
-
-
-
 class EnKF(Filter):
     """Ensemble Kalman Filter as derived in Evensen (2009) eq. 9.27.
             Inputs:
@@ -160,81 +157,6 @@ class EnKF(Filter):
             print('Aa not real')
         return Aa
 
-
-class rBA_EnKF_CMAME(Filter):
-    """ Bias-aware Ensemble Kalman Filter.
-        Inputs:
-            Af: forecast ensemble at time t (augmented with Y) [N x m]
-            d: observation at time t [Nq x 1]
-            Cdd: observation error covariance matrix [Nq x Nq]
-            Cbb: bias covariance matrix [Nq x Nq]
-            k: bias penalisation factor
-            b: bias of the forecast observables (Y = MAf + B) [Nq x 1]
-            J: derivative of the bias with respect to the input [Nq x Nq]
-        Returns:
-            Aa: analysis ensemble (or Af is Aa is not real)
-    """
-
-    is_bias_aware = True
-
-
-    def __init__(self, m, M, gamma=1.0, **kwargs):
-        self.gamma = gamma
-        super().__init__(m, M)
-
-    def __call__(self, Af, d, Cdd, Cbb, k, M, b, J):
-        """ Bias-aware Ensemble Kalman Filter.
-            Inputs:
-                Af: forecast ensemble at time t (augmented with Y) [N x m]
-                d: observation at time t [Nq x 1]
-                Cdd: observation error covariance matrix [Nq x Nq]
-                Cbb: bias covariance matrix [Nq x Nq]
-                k: bias penalisation factor
-                b: bias of the forecast observables (Y = MAf + B) [Nq x 1]
-                J: derivative of the bias with respect to the input [Nq x Nq]
-            Returns:
-                Aa: analysis ensemble (or Af is Aa is not real)
-        """
-        M = self.observation_operator(Af)
-        Nq = len(d)
-
-        Iq = np.eye(Nq)
-        # Mean and deviations of the ensemble
-        Psi_f = Af - np.mean(Af, 1, keepdims=True)
-        S = np.dot(M, Psi_f)
-        Q = np.dot(M, Af)
-
-        # Create an ensemble of observations
-        D = rng.multivariate_normal(d, Cdd, self.m).transpose()
-
-        if b.ndim > 1 and b.shape[-1] == self.m:
-            B = b
-        else:
-            if b.ndim == 1:
-                b = np.expand_dims(b, axis=1)
-            # B = rng.multivariate_normal(b.squeeze(), Cbb, m).transpose()
-            B = np.repeat(b, self.m, axis=1)
-
-        Y = Q + B
-
-        Cqq = np.dot(S, S.T)  # covariance of observations M Psi_f Psi_f.T M.T
-        if np.array_equiv(Cdd, Cbb):
-            CdWb = Iq
-        else:
-            CdWb = np.dot(Cdd, linalg.inv(Cbb))
-
-        Cinv = ((self.m - 1) * Cdd + np.dot(Iq + J, np.dot(Cqq, (Iq + J).T)) +
-                k * np.dot(CdWb, np.dot(J, np.dot(Cqq, J.T))))
-
-        K = np.dot(Psi_f, np.dot(S.T, linalg.inv(Cinv)))
-        Aa = Af + np.dot(K, np.dot(Iq + J, D - Y) - k * np.dot(CdWb, np.dot(J, B)))
-
-
-        if not np.isreal(Aa).all():
-            print('Aa not real')
-            Aa = Af
-
-        return Aa
 
 
 class rBA_EnKF(Filter):

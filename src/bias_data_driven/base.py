@@ -27,9 +27,9 @@ class DataDrivenBias(Bias):
     @typechecked
     def __init__(self, 
                  rom: Model,  
-                 forecaster_class: Model,
-                 reference_data: Union[Observations, List[Observations]] = None,
-                 filename: str = None,
+                 forecaster_class: Union[Model, Type[Model]],
+                 reference_data: Union[Observations, List[Observations], None] = None,
+                 filename: Union[str, None] = None,
                  **kwargs):
         
 

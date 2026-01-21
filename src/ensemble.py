@@ -345,7 +345,9 @@ class Ensemble(object):
 
         if isinstance(parent_bias, Bias):
             self._bias = parent_bias.copy()
-        elif isinstance(parent_bias, type) and issubclass(parent_bias, Bias):
+        if parent_bias is None:
+            self._bias = None
+        else:
 
             pm = self.model
             try:
@@ -370,8 +372,6 @@ class Ensemble(object):
                                     rom=pm,
                                     **Bdict
                                     )
-        else:
-            self._bias = None
         
 
     @typechecked
@@ -471,41 +471,6 @@ class Ensemble(object):
 
         if close:
             pm.close()
- 
-
-        
-
-    # @property
-    # def current_unbiased_obs(self) -> np.ndarray:
-    #     """
-    #     Returns the current bias-corrected ensemble state.
-    #     """
-    #     pm = self.model
-    #     pb = self.bias
-
-    #     y_model = pm.get_observables()  # Shape: (obs_dim, m)
-
-
-    #     if pb.__class__.__name__ == 'NoBias':
-    #         return y_model  # No bias correction needed
-        
-    #     t_model = pm.current_time # Scalar
-    #     t_b = pb.current_time # Scalar
-
-    #     if t_model == t_b:
-    #         b = pb.current_bias  # Shape: (obs_dim,) or (obs_dim, 1)
-    #         # Ensure shape is (obs_dim,1 or m)
-    #         if b.ndim == 1:
-    #             b = b[:, np.newaxis]
-    #         return y_model + b  # Shape: (obs_dim, m)
-    #     else:
-    #         # Expand to allow interpolation function to work correctly
-    #         y_model = y_model[np.newaxis, :]
-    #         t_model = t_model[np.newaxis]
-    #         # Interpolate bias to model time point
-    #         y_unbiased = self._recover_unbiased_solution(pb.hist_t, pb.hist, 
-    #                                                     t_model, y_model)
-        
     
 
     @property
