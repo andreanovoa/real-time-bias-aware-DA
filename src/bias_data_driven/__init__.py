@@ -1,7 +1,7 @@
-from .base import DataDrivenBias
 from .esn import ESN_bias
+from .constantbias import ConstantBias
 
 __all__ = [
     "ESN_bias",
-    "DataDrivenBias",
+    "ConstantBias",
 ]

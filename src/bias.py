@@ -54,8 +54,12 @@ class Bias:
 
         # ================== Initialize Forecaster & HISTORY ================= ##
         bias_state = self.build_state(innovation)
-        self._init_forecaster(y0=bias_state, **kwargs)
+        self._init_forecaster(state=bias_state, **kwargs)
         self.update_history(bias_state, t=t, reset=True)
+        self.N_dim = bias_state.shape[1]
+        self.N_bias = bias_state.shape[1] // (2 if self.biased_observations else 1)
+        self.observed_idx = np.arange(self.N_bias)
+ 
 
     @property
     def name(self):
@@ -184,7 +188,6 @@ class Bias:
 
         return _config
 
-
     @property
     def N_ens(self):
         return self.current_state.shape[-1]
@@ -213,16 +216,9 @@ class Bias:
             return state[nb:, :, :]
         else:
             return state
-
-    def get_ML_state(self, **kwargs):
-        return None
     
     def get_bias_hist(self, mean=False):
         return self.get_bias(state=self.hist, mean=mean)
-
-
-
-
 
     def time_integrate(self, Nt, y=None, wash_t=None, wash_obs=None):
         return self.integrator.advance(Nt=Nt)
@@ -266,7 +262,6 @@ class Bias:
             return state[:, self.observed_idx]
         else:
             raise AssertionError('state shape = {}'.format(state.shape))
-
 
 
     def print_bias_parameters(self):

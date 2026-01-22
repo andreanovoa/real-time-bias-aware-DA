@@ -1,5 +1,5 @@
 
-from .base import *
+from base_dd import *
 from models_data_driven import ESN_model
 
 
@@ -7,21 +7,20 @@ from models_data_driven import ESN_model
 class ESN_bias(DataDrivenBias):
 
     def __init__(self,
-                 rom: Type[Model],  
-                 reference_data: Union[Observations, Type[Observations], List[Observations]] = None,
-                 filename: str = None,
+                 rom: Model,  
+                 reference_data = None,
                  **kwargs):
 
         # ---------------  Initialize ESN_model and Bias via DataDrivenBias ------------------- #
 
-        super().__init__(rom=rom, reference_data=reference_data, 
-                         forecaster_class= ESN_model, filename=filename, 
-                         
+        super().__init__(rom=rom, 
+                         reference_data=reference_data, 
+                         forecaster_class=ESN_model, 
                          **kwargs)
 
 
          # ----------------- Initialize reservoir state and reset Bias history ---------------------- #
-        state0 = self.forecaster.initialize_from_val_data(N_ens=self.N_ens)
+        state0 = self.forecaster.initialize_from_val_data(N_ens=self.N_ens) # this method belongd to ESN_model
 
         self.forecaster.reservoir_state = state0[self.N_dim:self.N_dim+self.N_units, :]
         self.forecaster.update_history(state0, reset=True)
@@ -100,7 +99,8 @@ if __name__ == '__main__':
                         )
 
     esnb = ESN_bias(t=0.0, 
-                    rom=ensemble.model, reference_data=truth,
+                    rom=ensemble.model, 
+                    reference_data=truth,
                     L=12,
                     std_phi=0.1,        # Initial uncertainty in the state
                     std_alpha=alpha0,       # Initial uncertainty in the parameters

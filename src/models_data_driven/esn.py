@@ -1,3 +1,5 @@
+from pathlib import Path
+from typing import Optional, Union
 from model import Model
 from tools_ML.EchoStateNetwork import EchoStateNetwork
 import matplotlib.pyplot as plt
@@ -16,8 +18,10 @@ class ESN_model(EchoStateNetwork, Model):
 
     update_reservoir = True
     update_state = True
+    training_data_filename = None # Filename of the data used for training (for config saving/loading)
 
     Wout_svd = False
+    validation_data = None
 
     t_train, t_val, t_test = None, None, 0.
 
@@ -45,73 +49,56 @@ class ESN_model(EchoStateNetwork, Model):
 
 
     def __init__(self,
-                 data,
                  dt,
+                 data: Optional[np.ndarray] = None,
+                 y0: Optional[np.ndarray] = None,
                  plot_training=True, 
                  **kwargs):
         """
         Arguments:
-        - data: data to train the ESN (train + validate + test). The data shape must be [L x Nt x Ndim].
-        - psi0: initial state of the ESN prediction (not including the reservoir state).
+        - data: data to train the ESN 
+            np.array to train with shape [L x Nt x Ndim], where 
+                L is the number of different sets of parameters (e.g., different experiments),
+                Nt is the number of time steps (train + validate + test), and 
+                Ndim is the number of dimensions of the system.
+        - y0: initial state to initialize the ESN (if None, use first data point)
         - plot_training: whether to plot or not the training data and training convergence.
         """
 
 
-        # Increase ndim if there is only one set of parameters
-        if data.ndim == 1:
-            data = data[np.newaxis, :, np.newaxis]
-        elif data.ndim == 2:
-            data = data[np.newaxis, :]
-        
-
-        # Check that the times are provided and not in time steps
-        Nt = data.shape[1]
-        for key in ["train", "val", "test"]:
-            if f"N_{key}" in kwargs: 
-                setattr(self, f"t_{key}", kwargs.pop(f"N_{key}") * dt)
-
-        # Set other ESN_model attributes provided
-        for key in list(kwargs.keys()):
-            if key in vars(ESN_model):
-                setattr(self, key, kwargs.pop(key))
-
-        #  Set time attributes  #
-        t_total = Nt * dt
-        self.t_train = self.t_train or t_total * 0.8
-        self.t_val = self.t_val or self.t_train * 0.2
-
-        if self.perform_test:
-            self.t_test = self.t_test or t_total - self.t_train - self.t_val
-
-            assert abs((ts := sum([self.t_train, self.t_val, self.t_test])) - t_total) <= dt / 2., \
-                f"t_train + t_val + t_test {ts} <= t_total {t_total}"
-
 
         # =================== STEP 1: EchoStateNetwork INITIALIZATION ======================
 
-        ESN_dict = dict()
-        for key in list(kwargs.keys()):
-            if key in vars(EchoStateNetwork):
-                ESN_dict[key] = kwargs.pop(key)
+        [setattr(self, key, kwargs.pop(key)) for key in list(kwargs.keys()) if key in vars(ESN_model)]
 
+        if isinstance(data, np.ndarray):
+            data = self._process_initialization_data(data, dt, **kwargs)
+            y0 = data[0, 0]
+        elif y0 is None:
+            raise ValueError('Either training data or initial state y0 must be provided to initialize the ESN_model.')
 
+        initial_dict = {key: kwargs.pop(key) for key in list(kwargs.keys()) if key in vars(EchoStateNetwork)}
         EchoStateNetwork.__init__(self,
-                                  y=data[0, 0],
-                                  dt=dt,
-                                  **ESN_dict)
+                                y=y0,
+                                dt=dt,
+                                **initial_dict)
 
-        self.t_CR = self.t_val
 
         # =================== STEP 2: EchoStateNetwork TRAINING ======================
-        # Train the network
-        if plot_training:
-            self.plot_training_data(case=self, train_data=data, dt=dt)
+        # Train the network if not already trained
+        if not self.trained:
+            print('Training ESN model...')
+            if plot_training:
+                self.plot_training_data(case=self, train_data=data, dt=dt)
 
-        self.train(train_data=data, plot_training=plot_training, **kwargs)
-        
-        # save validation data for initialization
-        Y_wtv = self._split_and_format_data(data)[1] 
-        self._validation_data = Y_wtv[-(self.N_wash + self.N_val):]
+            for key, val in kwargs.items():
+                print(f'Key {key}={val} not used in ESN_model initialization.')
+
+            self.train(train_data=data, plot_training=plot_training, **kwargs)
+            
+            # save validation data for initialization
+            Y_wtv = self._split_and_format_data(data)[1] 
+            self.validation_data = Y_wtv[-(self.N_wash + self.N_val):]
 
 
         # ================== STEP 3: DEFINE INITIAL STATE & PARAMS ======================
@@ -130,6 +117,36 @@ class ESN_model(EchoStateNetwork, Model):
                        psi0=psi0, 
                        integrator_class=DiscreteIntegrator, **kwargs)
 
+
+    def _process_initialization_data(self, data, dt, **kwargs):
+        """ Process the data input for initialization
+        """
+        # Increase ndim if there is only one set of parameters
+        if data.ndim == 1:
+            data = data[np.newaxis, :, np.newaxis]
+        elif data.ndim == 2:
+            data = data[np.newaxis, :]
+
+        # Check that the times are provided and not in time steps
+        Nt = data.shape[1]
+        for key in ["train", "val", "test"]:
+            if f"N_{key}" in kwargs: 
+                setattr(self, f"t_{key}", kwargs.pop(f"N_{key}") * dt)
+
+        # Set other ESN_model attributes provided
+
+        #  Set time attributes  #
+        t_total = Nt * dt
+        self.t_train = self.t_train or t_total * 0.8
+        self.t_val = self.t_val or self.t_train * 0.2
+
+        if self.perform_test:
+            self.t_test = self.t_test or t_total - self.t_train - self.t_val
+
+            assert abs((ts := sum([self.t_train, self.t_val, self.t_test])) - t_total) <= dt / 2., \
+                f"t_train + t_val + t_test {ts} <= t_total {t_total}"
+
+        return data
 
 
     # ______________________ New class attributes ______________________ #
@@ -172,6 +189,10 @@ class ESN_model(EchoStateNetwork, Model):
         return self.dt_ESN
     
     @property
+    def t_CR(self):
+        return self.t_val
+
+    @property
     def alpha_labels(self):
         lbls = {}
         if len(self.est_alpha) > 0:
@@ -187,7 +208,6 @@ class ESN_model(EchoStateNetwork, Model):
     def alpha_lims(self):
         return {key: (None, None) for key in self.est_alpha}
     
-
 
     @property
     def Wout_U(self):
@@ -291,7 +311,7 @@ class ESN_model(EchoStateNetwork, Model):
     def initialize_from_val_data(self, N_ens=1, seed=0):
 
         """ Initialise the ESN state using traiining data"""
-        data = self._validation_data.copy()
+        data = self.validation_data.copy()
         
         if hasattr(self, 'seed'):
             seed = self.seed
@@ -349,6 +369,9 @@ class ESN_model(EchoStateNetwork, Model):
         # Reset model class
         kwargs['psi0'] = self.build_psi()
         self.reset_model(**kwargs) 
+
+
+
 
 
     # ______________________ Changed Model class attributes ______________________ #

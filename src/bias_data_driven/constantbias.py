@@ -5,15 +5,17 @@ from types import SimpleNamespace
 
 
 
-class NoBias(Bias):
+class ConstantBias(Bias):
+    biased_observations = True  # Whether observations are biased or not
+    def __init__(self, innovation, t, dt, k=None, **kwargs):
+        
+        if k is not None:
+            innovation = np.ones(innovation.shape) * k  # Constant innovation
 
-    def __init__(self, y, t, dt, **kwargs):
-        super().__init__(innovation=np.zeros(y.shape), t=t, dt=dt, **kwargs)
-        self.N_dim = self.hist.shape[1]
-        self.observed_idx = np.arange(self.N_dim)
-
+        super().__init__(innovation=innovation, t=t, dt=dt, **kwargs)
+        
     def state_derivative(self):
-        return np.zeros([self.N_dim, self.N_dim])
+        return np.zeros([self.N_bias, self.N_bias])
 
 
     def _init_forecaster(self, state, **kwargs):
@@ -36,10 +38,17 @@ class NoBias(Bias):
 
 
 if __name__ == '__main__':
-    nb = NoBias(y=np.zeros((10,)), t=0.0, dt=0.1)
-    print(nb)
+    nb = ConstantBias(innovation=np.ones((2,7)), t=0.0, dt=0.1)
 
-    state, t = nb.time_integrate(Nt=1000)
+    state, t = nb.time_integrate(Nt=10)
     nb.update_history(state, t)
     
-    print(nb.history.hist.shape)
+
+    reset_constant = np.array([np.random.rand(nb.N_dim)]).T * np.ones_like(state[-1])
+    nb.update_history(reset_constant, update_last_state=True)
+
+    state, t = nb.time_integrate(Nt=10)
+    nb.update_history(state, t)
+    
+
+    print(nb.history.hist.shape, nb.get_bias_hist())

@@ -792,7 +792,7 @@ def create_Lorenz63_dataset(noise_level=0.02, num_lyap_times=300, seed=0, **kwar
                        N_lyap=N_lyap)
         save_to_mat_file(data_folder + filename, dataset)
 
-    return dataset
+    return dataset, data_folder + filename
 
 
 
