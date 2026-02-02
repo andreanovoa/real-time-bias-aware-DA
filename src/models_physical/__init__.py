@@ -8,6 +8,7 @@ __all__ = [
     "Annular",
     "KS",
     "Lorenz63",
+    "Lorenz96",
     "Rijke",
     "VdP"
 ]

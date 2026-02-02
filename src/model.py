@@ -29,6 +29,7 @@ class Model(object):
     t = 0.
     t_transient = 0.
     t_CR = 10 * 0.01
+    
 
     Nq = 1
     seed = 6
@@ -77,6 +78,7 @@ class Model(object):
         
         # ======================== SET RNG ================================== ##
         self.print_params = self.define_print_params()
+        self.set_fixed_params()
         self.initialized = True
 
         # ================= INITIALISE INTEGRATOR STRATEGY ================== ##

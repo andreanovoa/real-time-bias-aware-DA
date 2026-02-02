@@ -45,6 +45,7 @@ Checkout the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aw
    * Rijke tube model (dimensional with Galerkin projection)
    * Van der Pols
    * Lorenz63
+   * Lorenz96
    * Azimuthal thermoaocustics model
    * Kuramoto-Sivashinsky equation
    
