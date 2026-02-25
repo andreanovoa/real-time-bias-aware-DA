@@ -1,44 +1,18 @@
-## Getting started
 
-From the terminal:
-
-1. Clone repository: ```git clone https://github.com/andreanovoa/real-time-bias-aware-DA```
-2. Access the repository: ```cd path-to-repo ```
-3. Create virtual environment with anaconda/miniconda and activate environment:
-   ```
-   conda create --yes --name da-env python=3.9
-   conda activate da-env
-   ```
-4. Install the required packages for the repository:
-   ```
-   pip install -r requirements.txt
-   ```
-5. Access the tutorials folder and launch the jupyter notebooks:
-   ```
-   cd tutorials
-   jupyter lab
-   ```
-Note: if the environment ```da-env``` is not listed in jupyter lab run the following in the terminal and restart the notebook:
-```
-ipython kernel install --user --name=<da-env>
-```
-
-
-
-***
-***
 
 ## Structure of the tutorials
 Each tutorial file name starts with a two-digit code, which indicates the category. 
-If the tutorial is not checked is because it is under development. Keep tuned!
+If the tutorial is not checked is because it is under development. _Keep tuned!_
 
 ### Repo-specific tutorials [0x]
 - [x] 00 - Class Model
 - [x] 01 - Class EchoStateNetwork
 - [x] 02 - Class ESN_model -- combining 00 and 01
 - [x] 03 - POD with Modulo
-- [x] 04 - Create truth
+- [x] 04 - Class Observations
+- [ ] 05 - Class Bias
 
+***
 
 ### Data Assimilation tutorials [1x]
 
@@ -47,7 +21,8 @@ If the tutorial is not checked is because it is under development. Keep tuned!
 * [x] 12 - Twin experiment on the Lorenz63
 * [x] 13 - Introduction to bias-aware DA with a twin experiment on Van der Pol model  
 
- 
+ ***
+
 ### Data Assimilation on thermoacoustics [2x]
 
 * Longitudinal thermoacoustics ([Nóvoa et al. 2023](https://doi.org/10.1016/j.cma.2023.116502))
@@ -61,8 +36,10 @@ If the tutorial is not checked is because it is under development. Keep tuned!
     * [x] 25 - Real-time digital twin of raw experimental data
     <!-- * [ ] 25 - Generalizability of the real-time digital twin  -->
 
+***
 
-###  POD-ESN  on a cylinder flow [3x] ([Nóvoa & Magri 2025](http://arxiv.org/abs/2504.16767))
+
+###  POD-ESN  on a cylinder flow [3x] ([Nóvoa & Magri 2025](https://doi.org/10.1007/978-3-031-97567-7_5))
 * [x] 30 - Introduction to the POD-ESN model and the dataset
 * [x] 31 - Online adaptation of the ESN via data assimilation
  

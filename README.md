@@ -31,7 +31,6 @@ SUBFOLDERS='["0","1"]' pytest -s --log-cli-level=INFO test_tutorials.py >> test_
 Checkout the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/scripts/tutorials), which includes several jupyter notebooks aiming to ease the understanding of the repository.
 
 
-
 ---
 
 
@@ -73,24 +72,24 @@ Checkout the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aw
 ├── src/               # Source code including all the objects, classes and functions required in scripts
 │   ├── bias.py
 |   ├── bias_data_driven/
-│   │   │── base.py
 │   │   │── esn.py
-│   │   └── nobias.py
-│   ├── create.py   
+│   │   └── constantbias.py
+│   ├── config         
+│   │   └── esn_config.py
 │   ├── data_assimilation.py
 │   ├── integrator.py
 │   ├── model.py
-│   ├── models_data_driven/
+│   ├── models_data_driven/ 
 │   │   │── esn.py
-│   │   └── pod.py
+│   │   └── pod_esn.py
 │   ├── models_physical/
 │   │   │── annular.py
 │   │   │── kuramoto_sivashinsky.py
 │   │   │── lorenz63.py
+│   │   │── lorenz96.py
 │   │   │── rijke.py
 │   │   └── van_der_pol.py
-│   ├── plot_fns.py
-│   ├── run.py
+│   ├── plotting/ 
 │   ├── tools_ML/
 │   │   │── EchoStateNetwork.py
 │   │   └── POD.py
@@ -105,7 +104,7 @@ Checkout the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aw
 
 ---
 
-## 📚 Main publications and presentations
+## 📚 Main publications from this repository
 
 ##### Journal papers
 
@@ -121,13 +120,13 @@ Checkout the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aw
 ##### PhD theses
 - [x] Nóvoa (2024). Real-time data assimilation in nonlinear dynamcal systems. University of Cambridge. [Thesis](https://doi.org/10.17863/CAM.113001). 
 
-##### Conference presentations _(incomplete list)_
+<!-- ##### Conference presentations _(incomplete list)_
 - **APS-DFD 2024, Salt Lake City:** [Abstract](https://meetings.aps.org/Meeting/DFD24/Session/C02.14) | [Poster](https://github.com/user-attachments/files/17966063/APS-poster-final-version.pdf).
 - **APS-DFD 2023, Washington DC:** [Abstract](https://meetings.aps.org/Meeting/DFD23/Session/L30.8).
 - **EFMC14 2022, Athens:** [Abstract](https://euromech.org/conferences/proceedings.htm).
-- **APS-DFD 2022, Phoenix:** [Abstract](https://meetings.aps.org/Meeting/DFD22/Session/G12.4).
+- **APS-DFD 2022, Phoenix:** [Abstract](https://meetings.aps.org/Meeting/DFD22/Session/G12.4). -->
 
 --- 
 ## 🤝 Contributing
 
-Contributions, bug reports, and feature requests are welcome! Please open an issue or submit a pull request. For questions or collaborations, please reach out to [A. Nóvoa](https://scholar.google.com/citations?user=X0TjtAgAAAAJ&hl=en).
+Contributions, bug reports, and feature requests are welcome! Please open an issue or submit a pull request. For questions or collaborations, please reach out to [A. Nóvoa](https://andreanovoa.github.io/).
