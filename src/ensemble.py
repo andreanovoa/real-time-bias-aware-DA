@@ -182,7 +182,7 @@ class Ensemble(object):
                     try:
                         setattr(self, key, val)
                     except AttributeError:
-                        print(f"Warning: Could not set attribute {key} on Ensemble instance.")
+                        print(f"! Warning: Could not set attribute {key}={val} on Ensemble instance.")
             # Re-apply model ensemble settings after sync
             self.model.ensemble = self.config()
 
@@ -329,7 +329,7 @@ class Ensemble(object):
         # 4. Update parent model settings/filename
         pm.filename += '_ensemble_m{}'.format(self.m)
 
-        print(f'Init {pm.filename} history with shape: {pm.hist.shape} and {pm.hist_t}')
+        print(f'OK: Initialized {pm.filename} history with shape: {pm.hist.shape} and {pm.hist_t}')
 
     @typechecked
     def _init_bias(self, parent_bias: Union[Bias, Type[Bias], None] = None, **Bdict):

@@ -18,7 +18,7 @@ class ESN_model(EchoStateNetwork, Model):
 
     update_reservoir = True
     update_state = True
-    training_data_filename = None # Filename of the data used for training (for config saving/loading)
+    training_data_filename = None # Filename of the data used for training (for config saving/loading only, not used in the actual training)
 
     Wout_svd = False
     validation_data = None
@@ -41,7 +41,7 @@ class ESN_model(EchoStateNetwork, Model):
 
     # Hyperparameter optimization ranges
     rho_range = (.2, .8)
-    sigma_in_range = (np.log10(0.5), np.log10(50.))
+    sigma_in_range = (-2, 2) 
     tikh_range = [1E-6, 1E-9, 1E-12]
 
     extra_print_params = ['rho', 'sigma_in', 'N_units', 'N_wash', 'upsample', 
@@ -72,7 +72,7 @@ class ESN_model(EchoStateNetwork, Model):
         [setattr(self, key, kwargs.pop(key)) for key in list(kwargs.keys()) if key in vars(ESN_model)]
 
         if isinstance(data, np.ndarray):
-            data = self._process_initialization_data(data, dt, **kwargs)
+            data = self._process_initialization_data(data, dt, kwargs)
             y0 = data[0, 0]
         elif y0 is None:
             raise ValueError('Either training data or initial state y0 must be provided to initialize the ESN_model.')
@@ -118,7 +118,7 @@ class ESN_model(EchoStateNetwork, Model):
                        integrator_class=DiscreteIntegrator, **kwargs)
 
 
-    def _process_initialization_data(self, data, dt, **kwargs):
+    def _process_initialization_data(self, data, dt, kwargs):
         """ Process the data input for initialization
         """
         # Increase ndim if there is only one set of parameters
@@ -130,10 +130,10 @@ class ESN_model(EchoStateNetwork, Model):
         # Check that the times are provided and not in time steps
         Nt = data.shape[1]
         for key in ["train", "val", "test"]:
-            if f"N_{key}" in kwargs: 
+            if f"N_{key}" in kwargs.keys(): 
                 setattr(self, f"t_{key}", kwargs.pop(f"N_{key}") * dt)
 
-        # Set other ESN_model attributes provided
+        # Set other ESN_model attributes provided in kwargs
 
         #  Set time attributes  #
         t_total = Nt * dt
@@ -152,7 +152,7 @@ class ESN_model(EchoStateNetwork, Model):
     # ______________________ New class attributes ______________________ #
     def modify_settings(self, **kwargs):
         # Modify the settings of the ESN_model
-        print('Modifyig settings...')
+        # print('Modifyig settings...')
         for key, val in kwargs.items():
             if hasattr(self, key):
                 setattr(self, key, val)
@@ -161,7 +161,6 @@ class ESN_model(EchoStateNetwork, Model):
         
 
         if self.ensemble:
-            print(self.ensemble.keys())
             est_alpha = self.est_alpha.copy()
 
             if 'Wout' in est_alpha:
@@ -177,9 +176,10 @@ class ESN_model(EchoStateNetwork, Model):
                     key = f'svd_{qj}'
                     setattr(self, key, self.Wout_Sigma0[qj])
                     est_alpha.append(key)
-            print('Updated est_alpha:', est_alpha)
+
+            # print('Updated est_alpha:', est_alpha)
             self.est_alpha = est_alpha
-            print('New est_alpha in config:', self.est_alpha)
+            # print('New est_alpha in config:', self.est_alpha)
 
         # Set the M matrix to None to force re-computation
         self.M = None 
@@ -684,7 +684,6 @@ class ESN_model(EchoStateNetwork, Model):
                 if len(lbl) > 6:
                     lbl, ytx = [zz[::len(lbl)//5] for zz in (lbl, ytx)]
                     
-                axs[1].set(xlabel="$t$")
                 [ax.set(yticks=ytx, yticklabels=lbl) for ax in axs] 
                 fig.colorbar(im, ax=axs, orientation='vertical', shrink=1/nrows) 
         else:

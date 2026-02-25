@@ -451,7 +451,7 @@ class Observations():
         for q_i in range(Nq):
             # Column 0: Raw Time Series (y_raw)
             ax = axes[q_i, 0]
-            ax.plot(t_plot, y_raw_plot[:, q_i], color=c_raw, label=f'$\~{{y}}_{q_i}$')
+            ax.plot(t_plot, y_raw_plot[:, q_i], color=c_raw, label=f'$y_{q_i}$')
             if y_obs is not None:
                 ax.plot(t_obs, y_obs[:, q_i], 'ro', ms=3, mec='k', lw=.1)
             ax.legend(fontsize='x-small', )
@@ -504,7 +504,7 @@ class Observations():
             ax = axes[q_i, 4]
 
             noise = y_true_plot[:, q_i] - y_raw_plot[:, q_i]
-            ax.plot(t_plot, noise, color=c_diff, label=f'$y^t - \~{{y}}_{q_i}$')
+            ax.plot(t_plot, noise, color=c_diff, label=f'$y^t - y_{q_i}$')
             ax.axhline(np.mean(noise), color='k', lw=.5, ls='--')
 
             if bias_plot is not None:

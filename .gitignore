@@ -26,3 +26,4 @@ __pycache__
 **/build/*
 
 **/saved_configs/
+**/esn_configs/

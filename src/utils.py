@@ -43,6 +43,40 @@ def allowed_kwargs_for_func(func, kwargs):
 
 
 
+
+def convert_to_python_type(obj, *, float_ndigits=12):
+    """Convert numpy types to native Python types, with canonical float rounding."""
+    if obj is None:
+        return "none"
+
+    if isinstance(obj, np.generic):
+        if np.issubdtype(type(obj), np.integer):
+            return int(obj)
+        elif np.issubdtype(type(obj), np.floating):
+            return round(float(obj), float_ndigits)
+        elif np.issubdtype(type(obj), np.bool_):
+            return bool(obj)
+        elif np.issubdtype(type(obj), np.complexfloating):
+            c = complex(obj)
+            return (round(c.real, float_ndigits), round(c.imag, float_ndigits))
+        else:
+            return obj.item()
+
+    elif isinstance(obj, float):
+        return round(obj, float_ndigits)
+
+    elif isinstance(obj, np.ndarray):
+        return [convert_to_python_type(x, float_ndigits=float_ndigits) for x in obj.tolist()]
+    elif isinstance(obj, tuple):
+        return [convert_to_python_type(item, float_ndigits=float_ndigits) for item in obj]
+    elif isinstance(obj, list):
+        return [convert_to_python_type(item, float_ndigits=float_ndigits) for item in obj]
+    elif isinstance(obj, dict):
+        return {k: convert_to_python_type(v, float_ndigits=float_ndigits) for k, v in obj.items()}
+
+    return obj
+
+
 def mean_vector_to_ensemble(rng: np.random.Generator, 
                             mean_vec: np.ndarray, 
                             std: Union[float, Dict[str, Union[float, List[float]]]], 
@@ -94,7 +128,7 @@ def mean_vector_to_ensemble(rng: np.random.Generator,
         else: # normal (using multivariate normal for state vector)
 
             # Multiplicative uniform perturbation: mean * (1 +/- std)
-            print(f'Creating normal ensemble with std={std} for mean_vec of shape {mean_vec.shape} and m={m}')
+            # print(f'Creating normal ensemble with std={std} for mean_vec of shape {mean_vec.shape} and m={m}')
 
             if np.iscomplexobj(mean_vec):
                 # Handle complex state by perturbing real and imaginary parts independently
@@ -242,6 +276,19 @@ def find_first_ascending_folder(start_dir, target_names):
         dir_path = parent
 
 
+def get_project_root( root='.'):
+    """Return the project root directory."""
+
+    project_root, found = find_first_ascending_folder(root, ['src', 'dev']) 
+    if found[0] == 'dev':
+        project_root = os.path.join(project_root, 'real_public')
+        print('On dev folder, root=' , project_root)
+        
+    elif not found:
+        raise FileNotFoundError("Project root directory not found. Ensure you are in the correct directory structure.")
+    
+    return project_root
+
 
 
 def set_working_directories(subfolder='', root='.'):
@@ -255,15 +302,9 @@ def set_working_directories(subfolder='', root='.'):
         subfolder += '/'
 
     
-    tutorial = 'tutorials' in os.getcwd()
+    project_root = get_project_root(root)
 
-    project_root, found = find_first_ascending_folder(root, ['src', 'dev']) 
-    if found[0] == 'dev':
-        project_root = os.path.join(project_root, 'real_public')
-        print('On dev folder, root=' , project_root)
-        
-    elif not found:
-        raise FileNotFoundError("Project root directory not found. Ensure you are in the correct directory structure.")
+    tutorial = 'tutorials' in os.getcwd()
 
     #  Set results and fgures folders
     if tutorial:

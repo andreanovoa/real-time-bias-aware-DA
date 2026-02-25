@@ -1,5 +1,5 @@
 
-from base_dd import *
+from .base_dd import *
 from models_data_driven import ESN_model
 
 
