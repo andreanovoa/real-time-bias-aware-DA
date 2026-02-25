@@ -46,7 +46,6 @@ class Rijke(Model):
             model_dict['psi0'] = .05 * np.hstack([np.ones(2 * Nm), np.zeros(Nc)])
 
         dt = model_dict.pop('dt', 1E-4)
-        super().__init__(dt=dt, integrator_class=IVPIntegrator, **model_dict)
 
         self.tau_adv = self.tau
         self.alpha_lims['tau'][-1] = self.tau_adv
@@ -72,7 +71,7 @@ class Rijke(Model):
         self.meanFlow['rho'] = self.meanFlow['p'] / (self.meanFlow['R'] * self.meanFlow['T'])
         self.meanFlow['c'] = np.sqrt(self.meanFlow['gamma'] * self.meanFlow['R'] * self.meanFlow['T'])
 
-        self.set_fixed_params()
+        super().__init__(dt=dt, integrator_class=IVPIntegrator, **model_dict)
 
         # Wave input_parameters ############################################################################################
         # c1: 347.2492    p1: 1.0131e+05      rho1: 1.1762    u1: 10          M1: 0.0288          T1: 300
