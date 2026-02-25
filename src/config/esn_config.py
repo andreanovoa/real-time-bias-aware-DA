@@ -1,14 +1,16 @@
 from dataclasses import dataclass, asdict, field
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 import numpy as np
 import yaml
 from pathlib import Path
 import hashlib
 import json
-
+from utils import get_project_root, convert_to_python_type
 
 from models_data_driven import ESN_model
 
+
+BASE_CONFIG_DIR = get_project_root() + '/src/config'
 
 INIT_KEYS = [# fixed hyperparameter settings
             'N_units',
@@ -87,7 +89,7 @@ class ESNConfig:
 
     # Hyperparameter optimization ranges
     rho_range: Tuple[float, float] = (0.2, 0.8)
-    sigma_in_range: Tuple[float, float] = (-0.30103, 1.69897)
+    sigma_in_range: Tuple[float, float] = (-2, 2)
     tikh_range: Tuple[float, ... ] = (1e-6, 1e-9, 1e-12)
     hyperparameters_to_optimize: Tuple[str, ...] = ('rho', 'sigma_in', 'tikh')
     
@@ -108,35 +110,6 @@ class ESNConfig:
     validation_data: Optional[np.ndarray] = None
     reservoir_state: Optional[np.ndarray] = None
     
-    @staticmethod
-    def _convert_to_python_type(obj):
-        """Convert numpy types to native Python types (NumPy 2. 0 compatible)."""
-        if obj is None:
-            return "none"
-        # Check for numpy scalar types
-        if isinstance(obj, np.generic):
-            # NumPy 2.0 compatible way to handle all numpy scalars
-            if np.issubdtype(type(obj), np.integer):
-                return int(obj)
-            elif np.issubdtype(type(obj), np.floating):
-                return float(obj)
-            elif np.issubdtype(type(obj), np.bool_):
-                return bool(obj)
-            elif np.issubdtype(type(obj), np.complexfloating):
-                return complex(obj)
-            else:
-                # Fallback: try to convert to Python type
-                return obj. item()
-        elif isinstance(obj, np.ndarray):
-            return obj.tolist()
-        elif isinstance(obj, tuple):
-            # Convert tuples to lists for YAML compatibility
-            return [ESNConfig._convert_to_python_type(item) for item in obj]
-        elif isinstance(obj, list):
-            return [ESNConfig._convert_to_python_type(item) for item in obj]
-        elif isinstance(obj, dict):
-            return {k: ESNConfig._convert_to_python_type(v) for k, v in obj.items()}
-        return obj
     
     @staticmethod
     def _init_config_dict(case):
@@ -154,7 +127,13 @@ class ESNConfig:
         """
         
         hash_params = ESNConfig._init_config_dict(self)
-        hash_params = ESNConfig._convert_to_python_type(hash_params)
+
+        # ensure bias_in, bias_out are np arrays
+        for key in ['bias_in', 'bias_out']:
+            if isinstance(hash_params[key], (float, int)):
+                hash_params[key] = np.array([hash_params[key]])
+
+        hash_params = convert_to_python_type(hash_params)
 
         # Convert to JSON string (sorted keys for consistency)
         hash_string = json.dumps(hash_params, sort_keys=True)
@@ -165,25 +144,16 @@ class ESNConfig:
     
     @classmethod
     def from_esn_model(cls, 
-                       esn_model, 
-                       save_dir: Optional[Path] = None):
+                       esn_model):
         """
         Create config from an existing ESN_model instance.
         
         Args:
-            esn_model: Instance of ESN_model
-            save_dir: Directory to save matrices
-            initial_params: Dict of initial parameters (before optimization) for hash computation
+            esn_model: Instance of ESN_model to extract configuration from
         
         Returns:
             ESNConfig instance
         """
-        if save_dir is None:
-            save_dir = Path('./esn_config')
-        else:
-            save_dir = Path(save_dir)
-        
-        save_dir.mkdir(parents=True, exist_ok=True)
         
         
         config_dict = cls._init_config_dict(esn_model)
@@ -206,8 +176,21 @@ class ESNConfig:
         """
         
         config_dict = {key: kwargs[key] for key in INIT_KEYS if key in kwargs}
-        
-        return cls(**config_dict)
+
+        # If N_test, N_val, N_train are not provided, compute them from t_test, t_val, t_train and dt
+        for key in ['train', 'val', 'test']:
+            if f'N_{key}' in kwargs.keys():
+                config_dict[f't_{key}'] = kwargs[f'N_{key}'] * kwargs['dt']
+
+        init_config = cls(**config_dict)
+        if init_config.N_dim is None:
+            assert 'data' in kwargs.keys(), "N_dim not provided and data not available to infer it."
+            init_config.N_dim = kwargs['data'].shape[1]
+
+        if init_config.observed_idx is None:
+            init_config.observed_idx = list(range(init_config.N_dim))
+
+        return init_config
     
     
     def to_esn_model(self, data=None, retrain:  bool = False, **override_kwargs):
@@ -216,7 +199,7 @@ class ESNConfig:
         
         Args:
             data:  Training data (only needed if retraining)
-            load_trained_data: If True, load saved matrices instead of retraining
+            load_trained_matrices: If True, load saved matrices instead of retraining
             **override_kwargs: Any parameters to override from the config
         
         Returns: 
@@ -227,7 +210,7 @@ class ESNConfig:
             # Load pre-trained model
             config = asdict(self)
             config['y0'] = np.zeros((self.N_dim,self.reservoir_state.shape[-1]))  # Dummy initial state
-            print("Loading pre-trained ESN_model...")
+            # print("Loading pre-trained ESN_model...")
             return ESN_model(**config)
         else:
             # Create new model (requires training data)
@@ -248,47 +231,56 @@ class ESNConfig:
         filepath = Path(save_dir / "esn_config.yaml")
         filepath.parent.mkdir(parents=True, exist_ok=True)
         
-        # Convert to dict and ensure all types are Python native
-        config_dict = asdict(self)
-        # Convert tuples to lists for YAML compatibility
-        config_dict = self._convert_to_python_type(config_dict)
+        # Get initial parameters only
+        config_dict = ESNConfig._init_config_dict(self)  
+
+        # Convert tuples to lists for YAML compatibility and  sort keys for consistent ordering in YAML file
+        config_dict = convert_to_python_type(config_dict)
+        config_dict = dict(sorted(config_dict.items()))
+
         
         with open(filepath, 'w') as f:
             yaml.dump(config_dict, f, default_flow_style=False, sort_keys=False)
 
-        print(f"Configuration saved to {save_dir}")
+        # Print the last 3 folders and name of the save directory for confirmation
+        print(f"Configuration saved to ...{'/'.join(list(save_dir.parts)[-3:])}/esn_config.yaml")
 
 
     @classmethod
-    def load(cls, load_dir: Path):
+    def load(cls, load_dir: Path, verbose=1):
         """Load configuration from YAML file."""
         # if yaml file is given, get its parent directory
-        if load_dir.suffix == '.yaml':
-            load_dir = load_dir.parent
+        try:
+            if load_dir.suffix == '.yaml':
+                load_dir = load_dir.parent
 
-        filepath = Path(load_dir / 'esn_config.yaml')
-        with open(filepath, 'r') as f:
-            config_dict = yaml.safe_load(f)
+            filepath = Path(load_dir / 'esn_config.yaml')
+            with open(filepath, 'r') as f:
+                config_dict = yaml.safe_load(f)
 
-        for key in config_dict.keys():
-            if config_dict[key] == "none":
-                config_dict[key] = None
+            for key in config_dict.keys():
+                if config_dict[key] == "none":
+                    config_dict[key] = None
+
+            if verbose:
+                print(f"Configuration loaded from ...{'/'.join(list(load_dir.parts)[-3:])}/esn_config.yaml")
+            return cls(**config_dict)
         
-        print(f"Configuration loaded from {load_dir}")
+        except Exception as e:
+            print(f"Error loading configuration from {load_dir}: {e}")
+            raise e
 
-
-        return cls(**config_dict)
     
 
     @staticmethod
-    def save_trained_data(esn_model, save_dir: Path):
+    def save_trained_matrices(esn_model, save_dir: Path):
         """
         Save large matrices and other metadata defined after training the network.
         """ 
         data_to_save = {key: getattr(esn_model, key, None) for key in TRAINED_KEYS }
         
-        np.savez_compressed(save_dir / 'trained_data.npz', **data_to_save)
-        print(f"Trained data saved to {save_dir / 'trained_data.npz'}")
+        np.savez_compressed(save_dir / 'trained_matrices.npz', **data_to_save)
+        print(f"Trained matrices saved to ...{'/'.join(list(save_dir.parts)[-3:])}/trained_matrices.npz")
         
     
     def update(self, update_dict: dict):
@@ -303,7 +295,7 @@ class ESNConfig:
                 setattr(self, key, value)
 
     @staticmethod
-    def load_trained_data(save_dir: Path):
+    def load_trained_matrices(save_dir: Path):
         """
         Load saved matrices from a single .npz file.
         
@@ -313,7 +305,7 @@ class ESNConfig:
         Returns:
             dict: Loaded matrices
         """
-        saved_file = Path(save_dir / 'trained_data.npz')
+        saved_file = Path(save_dir / 'trained_matrices.npz')
         
         if not saved_file.exists():
             # Return dict with None values if file doesn't exist
@@ -333,7 +325,7 @@ class ESNConfig:
 
 
 # Convenience functions
-def save_esn_config(esn_model, save_dir: str, name: str):
+def save_esn_config(esn_model, save_dir: str = None, name: str = None):
     """
     Convenience function to save an ESN model configuration.
     
@@ -345,24 +337,34 @@ def save_esn_config(esn_model, save_dir: str, name: str):
     Returns:
         Tuple of (config, save_path)
     """
+
+    if save_dir is None:
+        save_dir = Path(BASE_CONFIG_DIR) / "esn_configs"
+
     save_dir = Path(save_dir)
     
-    save_path = save_dir / name
-    config = ESNConfig.from_esn_model(esn_model, save_dir=save_path)
+
+    config = ESNConfig.from_esn_model(esn_model)
+
+    if name is None:
+        name = save_dir / f"{config.to_hash()}"
+
+    save_path = save_dir / name 
     config.save(save_path)
 
-    ESNConfig.save_trained_data(esn_model, save_path)
+    ESNConfig.save_trained_matrices(esn_model, save_path)
     
-    print(f"✓ Saved ESN config:  {name}")
     return config, save_path
 
 
-def load_esn_config(load_dir: str,  
-                   data=None, retrain:  bool = False, **override_kwargs):
+def load_esn_config(config: Optional[ESNConfig]=None, 
+                    load_dir: str = Path(BASE_CONFIG_DIR) / "esn_configs",
+                    data=None, retrain:  bool = False, **override_kwargs):
     """
     Convenience function to load an ESN model from saved configuration.
     
     Args:
+        config: ESNConfig instance to load
         load_dir: Directory containing saved configuration
         data: Training data (only needed if retrain=True)
         retrain: If True, retrain the model; otherwise load saved matrices
@@ -371,15 +373,31 @@ def load_esn_config(load_dir: str,
     Returns: 
         ESN_model instance
     """
+    
+    if config is not None:
+        if isinstance(config, ESNConfig):
+            q = config.to_hash()
+        else:
+            raise ValueError("Input config must be an instance of ESNConfig")
 
-    config = ESNConfig.load(load_dir)
+        matching_path = find_matching_config(load_dir, q)
+
+        if not matching_path:
+            print(f"No matching config found in {load_dir}. Cannot load model {q}.")
+            return None
+    else:
+        # print(f"No query provided. Loading default config from {load_dir}...")
+        matching_path = Path(load_dir)
+
+
+    config = ESNConfig.load(matching_path)
 
     # load trained keys from npz if available
     if not retrain:
-        trained_data = ESNConfig.load_trained_data(load_dir)
-        if trained_data:
-            config.update(trained_data)
-            print(f"Trained data loaded from {load_dir / 'trained_data.npz'}")
+        trained_matrices = ESNConfig.load_trained_matrices(matching_path)
+        if trained_matrices:
+            config.update(trained_matrices)
+            print(f"Trained matrices loaded from ...{'/'.join(list(matching_path.parts)[-3:])}/trained_matrices.npz")
         else:
             print("No trained data found; retraining the model.")
             retrain = True
@@ -408,32 +426,33 @@ def find_matching_config(search_dir: str, query_hash):
     
     
     # First check for hash-based directory name
-    hash_based_path = search_dir / f"esn_{query_hash}"
+    hash_based_path = search_dir / f"{query_hash}"
     if hash_based_path.exists() and (hash_based_path / "esn_config.yaml").exists():
-        print(f"✓ Found matching config: {hash_based_path}")
+        print(f"✓ Found matching config: {query_hash}")
         return hash_based_path
      
-    # Search for matching hash in all yaml files. [I MAY DELETE THIS LATER, BUT IT'S USEFUL FOR DEBUGGING NOW] 
-    for yaml_file in search_dir.glob("*/esn_config.yaml"):
-        try:
-            saved_config = ESNConfig.load(yaml_file.parent)
-            saved_hash = saved_config.to_hash()
-            print(f"Checking {yaml_file.parent}: saved hash = {saved_hash}")
+    # # Search for matching hash in all yaml files. [I MAY DELETE THIS LATER, BUT IT'S USEFUL FOR DEBUGGING NOW] 
+    # print(f"Searching for matching config with hash {query_hash} in {search_dir}...")
+    # for yaml_file in search_dir.glob("*/esn_config.yaml"):
+    #     try:
+    #         saved_config = ESNConfig.load(yaml_file.parent, verbose=0)
+    #         saved_hash = saved_config.to_hash()
+    #         print(f"\t {yaml_file.parent}: saved hash = {saved_hash}")
             
-            if saved_hash == query_hash: 
-                print(f"✓ Found matching config: {yaml_file.parent}")
-                return yaml_file.parent
-        except Exception as e: 
-            # Skip invalid configs
-            print(f"  Skipping {yaml_file} due to {type(e).__name__}: {e}")
-            continue
+    #         if saved_hash == query_hash: 
+    #             print(f"✓ Found matching config: {yaml_file.parent}")
+    #             return yaml_file.parent
+    #     except Exception as e: 
+    #         # Skip invalid configs
+    #         print(f"  Skipping {yaml_file} due to {type(e).__name__}: {e}")
+    #         continue
     
     print("✗ No matching config found")
     return None
 
 
 def auto_load_or_create(data, 
-                        config_dir: str = "./esn_configs", 
+                        config_dir: str = Path(BASE_CONFIG_DIR) / "esn_configs", 
                         auto_save: bool = True, 
                         force_create: bool = False,
                         **kwargs):
@@ -454,10 +473,11 @@ def auto_load_or_create(data,
     
     # Store initial parameters before training
     initial_params = kwargs.copy()
+    initial_params['data'] = data
     query_config = ESNConfig.from_init_params(**initial_params)
     query_hash = query_config.to_hash()
 
-    print(f"Searching for config with hash: {query_hash}...")
+    # print(f"Searching for config with hash: {query_hash}...")
 
     
     # Try to find matching config
@@ -465,26 +485,42 @@ def auto_load_or_create(data,
         print("Force creating new model (skipping search)...")
         matching_path = None
     else:
-        print(f"Searching for matching config... {config_dir} and hash {query_hash}")
+        # print(f"Searching for matching config... {config_dir} and hash {query_hash}")
         matching_path = find_matching_config(config_dir, query_hash)
     
     if matching_path:
         # Load existing model
         config = ESNConfig.load(matching_path)
-        config.update(ESNConfig.load_trained_data(matching_path))
+        config.update(ESNConfig.load_trained_matrices(matching_path))
         return config.to_esn_model(data=data)
     else:
         # Train new model
-        initial_params = ESNConfig._init_config_dict(query_config)
-        print(initial_params)
-        model = ESN_model(data=data, **initial_params)
+        model = ESN_model(data=data, **kwargs)
         if auto_save:
             print(f"Saving new model to {config_dir}")
-            save_esn_config(model, save_dir=config_dir, name=f"esn_{query_hash}")
+            save_esn_config(model, save_dir=config_dir, name=f"{query_hash}")
         return model
     
 
+def load_esn_model(q: str=None, load_dir: str = Path(BASE_CONFIG_DIR) / "esn_configs"):
+    """
+    Load an ESN_model instance from a saved configuration.
+    Args:
+        q: Query string to match against saved config hashes
+        load_dir: Directory containing saved configuration
+    """
 
+    matching_path = find_matching_config(load_dir, q)
+
+    if not matching_path:
+        print(f"No matching config found in {load_dir}. Cannot load model {q}.")
+        return None
+
+    config = ESNConfig.load(matching_path)
+    config.update(ESNConfig.load_trained_matrices(matching_path))
+
+    return config.to_esn_model() # Note: data is not needed to load a trained model since matrices are loaded separately
+    
 
 
 def list_saved_configs(search_dir: str, verbose=True):
@@ -502,8 +538,12 @@ def list_saved_configs(search_dir: str, verbose=True):
     configs = []
     
     if not search_dir.exists():
-        print(f"Directory not found: {search_dir}")
-        return configs
+
+        search_dir = Path(BASE_CONFIG_DIR) / search_dir
+        if not search_dir.exists():
+
+            print(f"Directory not found: {search_dir}")
+            return configs
     
     for yaml_file in sorted(search_dir.glob("*/esn_config.yaml")):
         try:
@@ -521,10 +561,11 @@ def list_saved_configs(search_dir: str, verbose=True):
             
             if verbose:
                 print(f"\n{yaml_file.parent.name}:")
-                print(f"  Path: {yaml_file.parent}")
+                print(f"  Training data: {config.training_data_filename}")
                 print(f"  N_units: {config.N_units}")
                 print(f"  N_dim: {config.N_dim}")
                 print(f"  dt:  {config.dt}")
+                print(f"  etc.: ...")
         
         except Exception as e:
             if verbose:

@@ -10,7 +10,6 @@ import numpy as np
 
 
 class DataDrivenBias(Bias):
-
     """
     Abstract Base Class for data-driven bias estimation models.
     Child classes must implement the following methods:

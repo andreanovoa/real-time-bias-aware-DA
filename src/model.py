@@ -430,7 +430,7 @@ class Model(object):
 
         # Plot the time evolution of the observables
         t_zoom = int(self.t_CR / self.dt)
-        nrows = min(self.Nq, max_modes)
+        nrows = min(self.Nphi, max_modes)
 
         fig = plt.figure(figsize=(8, nrows+1), layout="constrained")
         plt.suptitle('State time evolution')
