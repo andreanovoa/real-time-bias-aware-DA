@@ -128,10 +128,26 @@ class ESNConfig:
         
         hash_params = ESNConfig._init_config_dict(self)
 
-        # ensure bias_in, bias_out are np arrays
+        # Normalize types to ensure consistent hashing
+        # Convert all numpy arrays and lists to consistent format
         for key in ['bias_in', 'bias_out']:
-            if isinstance(hash_params[key], (float, int)):
-                hash_params[key] = np.array([hash_params[key]])
+            if hash_params[key] is not None:
+                if isinstance(hash_params[key], (float, int)):
+                    hash_params[key] = [float(hash_params[key])]
+                elif isinstance(hash_params[key], np.ndarray):
+                    hash_params[key] = hash_params[key].tolist()
+                    
+        # Normalize observed_idx to list
+        if hash_params.get('observed_idx') is not None:
+            if isinstance(hash_params['observed_idx'], np.ndarray):
+                hash_params['observed_idx'] = hash_params['observed_idx'].tolist()
+            elif not isinstance(hash_params['observed_idx'], list):
+                hash_params['observed_idx'] = list(hash_params['observed_idx'])
+        
+        # Normalize tikh_range to tuple (canonical form)
+        if hash_params.get('tikh_range') is not None:
+            if isinstance(hash_params['tikh_range'], (list, np.ndarray)):
+                hash_params['tikh_range'] = tuple(hash_params['tikh_range'])
 
         hash_params = convert_to_python_type(hash_params)
 
@@ -184,7 +200,7 @@ class ESNConfig:
 
         init_config = cls(**config_dict)
         if init_config.N_dim is None:
-            assert 'data' in kwargs.keys(), "N_dim not provided and data not available to infer it."
+            assert 'data' in kwargs and kwargs['data'] is not None, "N_dim not provided and data not available to infer it."
             init_config.N_dim = kwargs['data'].shape[1]
 
         if init_config.observed_idx is None:
@@ -325,7 +341,7 @@ class ESNConfig:
 
 
 # Convenience functions
-def save_esn_config(esn_model, save_dir: str = None, name: str = None):
+def save_esn_model_to_config(esn_model, save_dir: str = None, name: str = None):
     """
     Convenience function to save an ESN model configuration.
     
@@ -357,24 +373,21 @@ def save_esn_config(esn_model, save_dir: str = None, name: str = None):
     return config, save_path
 
 
-def load_esn_config(config: Optional[ESNConfig]=None, 
-                    load_dir: str = Path(BASE_CONFIG_DIR) / "esn_configs",
-                    data=None, retrain:  bool = False, **override_kwargs):
+
+def load_esn_model_from_config(q: Optional[str]=None,
+                               config: Optional[ESNConfig]=None, 
+                               load_dir: str = Path(BASE_CONFIG_DIR) / "esn_configs"):
     """
-    Convenience function to load an ESN model from saved configuration.
-    
+    Load an ESN_model instance from a saved configuration.
     Args:
-        config: ESNConfig instance to load
-        load_dir: Directory containing saved configuration
-        data: Training data (only needed if retrain=True)
-        retrain: If True, retrain the model; otherwise load saved matrices
-        **override_kwargs:  Parameters to override from saved config
-    
-    Returns: 
-        ESN_model instance
+        q: Query string to match against saved config hashes
+        config: ESNConfig instance to load (if not None, q is ignored)
     """
-    
-    if config is not None:
+    if q is not None:
+
+        matching_path = find_matching_config(load_dir, q)
+
+    elif config is not None:
         if isinstance(config, ESNConfig):
             q = config.to_hash()
         else:
@@ -382,28 +395,18 @@ def load_esn_config(config: Optional[ESNConfig]=None,
 
         matching_path = find_matching_config(load_dir, q)
 
-        if not matching_path:
-            print(f"No matching config found in {load_dir}. Cannot load model {q}.")
-            return None
     else:
-        # print(f"No query provided. Loading default config from {load_dir}...")
-        matching_path = Path(load_dir)
+        raise ValueError("Either query string q or config instance must be provided to load ESN_model")
 
+    if not matching_path:
+        print(f"No matching config {q} found in {load_dir}.")
+        return None
 
     config = ESNConfig.load(matching_path)
+    config.update(ESNConfig.load_trained_matrices(matching_path))
 
-    # load trained keys from npz if available
-    if not retrain:
-        trained_matrices = ESNConfig.load_trained_matrices(matching_path)
-        if trained_matrices:
-            config.update(trained_matrices)
-            print(f"Trained matrices loaded from ...{'/'.join(list(matching_path.parts)[-3:])}/trained_matrices.npz")
-        else:
-            print("No trained data found; retraining the model.")
-            retrain = True
-
-    return config.to_esn_model(data=data, retrain=retrain, **override_kwargs)
-
+    return config.to_esn_model() # Note: data is not needed to load a trained model since matrices are loaded separately
+    
 
 def find_matching_config(search_dir: str, query_hash):
     """
@@ -451,10 +454,11 @@ def find_matching_config(search_dir: str, query_hash):
     return None
 
 
-def auto_load_or_create(data, 
-                        config_dir: str = Path(BASE_CONFIG_DIR) / "esn_configs", 
+def auto_load_or_create(config_dir: str = Path(BASE_CONFIG_DIR) / "esn_configs", 
                         auto_save: bool = True, 
                         force_create: bool = False,
+                        query_hash: Optional[str] = None,
+                        data: Optional[np.ndarray] = None, 
                         **kwargs):
     """
     Automatically load a matching config or create and train a new model.
@@ -469,13 +473,13 @@ def auto_load_or_create(data,
         ESN_model instance (loaded or newly trained)
     """
     
-    # Add data info to kwargs for matching
     
-    # Store initial parameters before training
-    initial_params = kwargs.copy()
-    initial_params['data'] = data
-    query_config = ESNConfig.from_init_params(**initial_params)
-    query_hash = query_config.to_hash()
+    # If query_hash is provided, skip config creation and search directly for matching hash
+    if query_hash is None:
+        initial_params = kwargs.copy()
+        initial_params['data'] = data
+        query_config = ESNConfig.from_init_params(**initial_params)
+        query_hash = query_config.to_hash()
 
     # print(f"Searching for config with hash: {query_hash}...")
 
@@ -498,29 +502,10 @@ def auto_load_or_create(data,
         model = ESN_model(data=data, **kwargs)
         if auto_save:
             print(f"Saving new model to {config_dir}")
-            save_esn_config(model, save_dir=config_dir, name=f"{query_hash}")
+            save_esn_model_to_config(model, save_dir=config_dir, name=f"{query_hash}")
         return model
     
 
-def load_esn_model(q: str=None, load_dir: str = Path(BASE_CONFIG_DIR) / "esn_configs"):
-    """
-    Load an ESN_model instance from a saved configuration.
-    Args:
-        q: Query string to match against saved config hashes
-        load_dir: Directory containing saved configuration
-    """
-
-    matching_path = find_matching_config(load_dir, q)
-
-    if not matching_path:
-        print(f"No matching config found in {load_dir}. Cannot load model {q}.")
-        return None
-
-    config = ESNConfig.load(matching_path)
-    config.update(ESNConfig.load_trained_matrices(matching_path))
-
-    return config.to_esn_model() # Note: data is not needed to load a trained model since matrices are loaded separately
-    
 
 
 def list_saved_configs(search_dir: str, verbose=True):

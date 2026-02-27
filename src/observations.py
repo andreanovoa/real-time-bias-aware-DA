@@ -21,6 +21,7 @@ class Observations():
     noise_type = 'gauss, add'
     Nt_obs = 20
     noise_level = 0.05
+    add_noise = False
     
 
     # Instance Attributes (Defaults - Will be set in __init__)
@@ -34,12 +35,11 @@ class Observations():
 
     true_parameters = None
     results_folder = None
-    add_noise = True
 
     _frozen = False
 
     @typechecked
-    def __init__(self, model: Union[Model, Type[Model]], **kwargs):
+    def __init__(self, model: Union[Model, Type[Model], str, None]=None, **kwargs):
         """
         Initializes the Observations object, loading or creating truth data,
         applying bias, adding noise, and interpolating to observation times.
@@ -51,7 +51,32 @@ class Observations():
                 setattr(self, key, model_dict.pop(key))
 
         # 2. Generate or Load Truth Data
-        self.y_raw, self.y_true, self.t_true, self.name_truth = self._create_observations(model, **model_dict)
+        if model is None:
+            assert ('y_raw' in kwargs or 'y_true' in kwargs) and 't_true' in kwargs, "If model is None, y_raw, y_true, and t_true must be provided as kwargs."
+            
+            self.y_raw = kwargs.get('y_raw', None)
+            if self.y_raw is None:
+                self.y_raw = kwargs.get('y_true')
+
+            self.y_true = kwargs.get('y_true', self.y_raw)
+
+            for key in ['y_raw', 'y_true']:
+                val = getattr(self, key)
+                if val.ndim == 1:
+                    val = val[:, np.newaxis, np.newaxis]
+                elif val.ndim == 2:
+                    val = val[:, :, np.newaxis]
+                assert val.ndim == 3
+                setattr(self, key, val)
+
+            self.t_true = kwargs['t_true']
+            self.t_start = kwargs.get('t_start', self.t_true[0])
+            self.t_stop = kwargs.get('t_stop', self.t_true[-1])
+            self.name_truth =  kwargs.get('name_truth', 'Truth_Provided')
+            
+        else:    
+            self.y_raw, self.y_true, self.t_true, self.name_truth = self._create_observations(model, **model_dict)
+        
         self.dt = self.t_true[1] - self.t_true[0]
 
         # 3. Add noise and bias if requested (in this order and only if y_raw is None)
@@ -73,7 +98,7 @@ class Observations():
 
         # Calculate indices
         self._frozen = True  # Freeze attributes to prevent further modification
-        print('Observations initialized.')
+        print('OK: Observations initialized.')
 
 
     @property
@@ -228,7 +253,7 @@ class Observations():
 
 
         if self.add_noise:
-            print(f'Adding noise: {self.noise_type}')
+            print(f'...Adding noise: {self.noise_type} with level {self.noise_level}.')
 
             
             if self.y_raw is None:
@@ -316,8 +341,8 @@ class Observations():
                 Nt_forecast = int((self.t_max - true_model.hist_t[-1]) / true_model.dt) + 1
                 psi, t = true_model.time_integrate(Nt_forecast)
                 true_model.update_history(psi, t)
-
-                true_model.close()
+                if psi.shape[-1] > 1: # close pools
+                    true_model.close()
                 
                 if self.results_folder is not None:
                     save_to_pickle_file(full_path, true_model)

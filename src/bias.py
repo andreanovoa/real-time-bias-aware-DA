@@ -54,11 +54,15 @@ class Bias:
 
         # ================== Initialize Forecaster & HISTORY ================= ##
         bias_state = self.build_state(innovation)
-        self._init_forecaster(state=bias_state, **kwargs)
+        
+        forcaster_dict = {'state':bias_state, **kwargs}
+
+        self.init_forecaster(**forcaster_dict)
         self.update_history(bias_state, t=t, reset=True)
-        self.N_dim = bias_state.shape[1]
-        self.N_bias = bias_state.shape[1] // (2 if self.biased_observations else 1)
-        self.observed_idx = np.arange(self.N_bias)
+
+        # self.N_dim = bias_state.shape[1]
+        # self.N_bias = bias_state.shape[1] // (2 if self.biased_observations else 1)
+        # self.observed_idx = np.arange(self.N_bias)
  
 
     @property

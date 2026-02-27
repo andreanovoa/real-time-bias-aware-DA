@@ -191,8 +191,8 @@ class IVPIntegrator(Integrator):
             self.__pool.join()
             delattr(self, "_pool")
         else:
-            print("No multiprocessing pool to close.")
-
+            # print("No multiprocessing pool to close.")
+            pass
 
     def advance_single(self, Nt = 100, averaged=False, alpha = None):
         # print('Using IVPIntegrator advance_single')

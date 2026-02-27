@@ -74,6 +74,10 @@ def convert_to_python_type(obj, *, float_ndigits=12):
     elif isinstance(obj, dict):
         return {k: convert_to_python_type(v, float_ndigits=float_ndigits) for k, v in obj.items()}
 
+    # if Path, change to sttring
+    elif isinstance(obj, os.PathLike):
+        return str(obj)
+
     return obj
 
 
@@ -403,7 +407,7 @@ def colour_noise(dims, noise_colour='pink', beta=2, ff=None):
 
 def check_valid_file(load_case, params_dict):
     # check that true and forecast model input_parameters
-    print('Test if loaded file is valid', end='')
+    # print('Test if loaded file is valid', end='')
     for key, val in params_dict.items():
         if hasattr(load_case, key):
             print('\n\t', key, val, getattr(load_case, key), end='')
@@ -415,6 +419,7 @@ def check_valid_file(load_case, params_dict):
                 if any([x1 != x2 for x1, x2 in zip(getattr(load_case, key), val)]):
                     print('\t <--- Re-init model!')
                     return False
+    # print('... OK\n')
     return True
 
 

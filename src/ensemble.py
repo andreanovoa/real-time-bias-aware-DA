@@ -331,6 +331,7 @@ class Ensemble(object):
 
         print(f'OK: Initialized {pm.filename} history with shape: {pm.hist.shape} and {pm.hist_t}')
 
+
     @typechecked
     def _init_bias(self, parent_bias: Union[Bias, Type[Bias], None] = None, **Bdict):
         """Initializes the bias instance for the ensemble. If the bias is provided as a class, 
@@ -365,7 +366,7 @@ class Ensemble(object):
             print(f"Initializing bias model {parent_bias.name} with initial state shape {y0.shape} at time {pm.current_time}")
             
 
-            self._bias = parent_bias(b=y0, 
+            self._bias = parent_bias(innovation=y0, 
                                     t=pm.current_time, 
                                     dt=pm.dt, 
                                     initial_capacity=pm.history._initial_capacity,

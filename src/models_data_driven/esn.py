@@ -91,8 +91,8 @@ class ESN_model(EchoStateNetwork, Model):
             if plot_training:
                 self.plot_training_data(case=self, train_data=data, dt=dt)
 
-            for key, val in kwargs.items():
-                print(f'Key {key}={val} not used in ESN_model initialization.')
+            # for key, val in kwargs.items():
+            #     print(f'Key {key}={val} not used in ESN_model initialization.')
 
             self.train(train_data=data, plot_training=plot_training, **kwargs)
             

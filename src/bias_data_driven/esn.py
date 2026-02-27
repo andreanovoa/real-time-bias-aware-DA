@@ -1,7 +1,7 @@
 
 from .base_dd import *
 from models_data_driven import ESN_model
-
+from config.esn_config import ESNConfig, find_matching_config, load_esn_model_from_config, save_esn_model_to_config, save_esn_model_to_config
 
 
 class ESN_bias(DataDrivenBias):
@@ -40,11 +40,72 @@ class ESN_bias(DataDrivenBias):
         u_mean = esn.reservoir_to_physical(r_mean)
         esn_J = esn.Jacobian(open_loop_J=True, state=(u_mean, r_mean))  # Compute ESN Jacobian
 
-        
-
         db_din = esn_J[np.array(self.bias_idx), np.array([self.bias_idx]).T]
         return -db_din
     
+
+    def load_forecaster(self, hash=None, data=None, **kwargs):
+        """Load ESN_model forecaster from disk using hash or kwargs if hash is None.  
+        Arguments:
+            hash: Optional[str] - Hash corresponding to the ESN_model forecaster configuration to load
+            data: Optional[np.ndarray] - Data to use for creating the ESN_model forecaster if hash is not provided. 
+            kwargs: Additional keyword arguments that can be used to create the ESN_model forecaster configuration if hash is not provided. 
+                This can include specific hyperparameters for the ESN_model or parameters used to create a hash based on the data characteristics.
+        Returns:
+            ESN_model instance if loading is successful, None otherwise.
+
+        """
+
+        if hash is None:
+            initial_params = kwargs.copy()
+            initial_params['data'] = data
+            # Create ESNConfig from kwargs and compute hash to find matching saved model configuration
+            # ensute only the relevant kwargs are used to create the ESNConfig and hash
+            # for k in list(initial_params.keys()):
+            #     if k not in ESNConfig.__dict__:
+            #         initial_params.pop(k)
+            # print(f'Attempting to load ESN_model with configuration: {initial_params}')
+            query_config = ESNConfig.from_init_params(**initial_params)
+            query_hash = query_config.to_hash()
+
+            # print(query_config)
+        else:            
+            query_hash = hash
+
+        return load_esn_model_from_config(q=query_hash)
+
+
+    def create_forecaster(self, data, **kwargs):
+
+        # Train new model
+        esn_model = ESN_model(data=data, **kwargs)
+
+
+        # query_config = ESNConfig.from_esn_model(esn_model)
+        
+        # print(f'Created ESNConfig: {query_config}')
+
+        # Save model configuration to disk and return hash
+        save_esn_model_to_config(esn_model)
+
+        return esn_model
+
+
+    def save_forecaster(self, forecaster):
+        """Save ESN_model forecaster to disk and return the hash corresponding to the saved model configuration. 
+        Arguments:
+            forecaster: ESN_model instance to save
+            config_dir: Optional[str] - Directory to save the ESN_model configuration file. If None, uses default directory.
+            kwargs: Additional keyword arguments that can be used to create a hash based on the model configuration or training data characteristics.
+        Returns:
+            str: Hash corresponding to the saved ESN_model configuration.
+        """
+
+        # Save ESNConfig to disk and return hash
+        return save_esn_model_to_config(forecaster)
+
+
+
 
 
 if __name__ == '__main__':
