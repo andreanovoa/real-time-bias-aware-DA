@@ -30,21 +30,23 @@ class Bias:
         forecaster_class: Class of the forecaster model
         forecaster_class_defaults: Default attributes of the forecaster class
     '''
+
     upsample = 1
     L = 1
     augment_data = False
 
     
     bayesian_update = False         # Default to not perform bayesian update to state
-    biased_observations = False
+    biased_observations = False  # Whether observations are biased or not
 
-    keys_to_print = ['bayesian_update', 'upsample', 'biased_observations']
+    keys_to_print = ['bayesian_update', 'upsample', 'biased_observations', 'observed_idx']
     extra_keys_to_print = []
 
     def __init__(self, innovation, t, dt, **kwargs):
 
         self.precision_t = int(-np.log10(dt)) + 2
         self.dt = dt
+        self.Nq = self._format_state(innovation).shape[1] 
 
         # ===================== ASSIGN PROVIDED KWARGS ======================= ##
         keys = list(kwargs.keys())
@@ -52,30 +54,38 @@ class Bias:
 
         self.keys_to_print += self.extra_keys_to_print
 
-        # ================== Initialize Forecaster & HISTORY ================= ##
+        # ================== Setup dimensions ================= ##
         bias_state = self.build_state(innovation)
-        
-        forcaster_dict = {'state':bias_state, **kwargs}
+        assert bias_state.shape[1] == self.N_dim, f"Bias state shape {bias_state.shape} does not match expected N_dim = {self.N_dim}."
 
+        # ================== Initialize Forecaster & HISTORY ================= ##
+
+        forcaster_dict = {'state':bias_state, **kwargs}
+        
         self.init_forecaster(**forcaster_dict)
         self.update_history(bias_state, t=t, reset=True)
-
-        # self.N_dim = bias_state.shape[1]
-        # self.N_bias = bias_state.shape[1] // (2 if self.biased_observations else 1)
-        # self.observed_idx = np.arange(self.N_bias)
  
 
     @property
     def name(self):
         return self.__class__.__name__
+    
+    @property
+    def N_dim(self):
+        return self.Nq if not self.biased_observations else 2*self.Nq
+    
 
     @property
     def bias_idx(self):
+        return np.arange(self.Nq)
+
+    @property
+    def observed_idx(self):
         if self.biased_observations:
-            return [a for a in np.arange(self.N_dim) if a not in self.observed_idx]
+            return self.bias_idx + self.Nq
         else:
-            return self.observed_idx
-        
+            return self.bias_idx
+
     @property
     def forecaster(self):
         if not hasattr(self, '_forecaster'):
@@ -206,13 +216,24 @@ class Bias:
         """Returns the current innovations computed from the current state."""
         return self.get_innovations(state=self.current_state)
 
-    def get_bias(self, state, **kwargs):
 
-        if self.biased_observations:
-            nb = state.shape[1] // 2
-            return state[:nb, :, :]
-        else:
-            return state
+
+    def get_bias(self, state, mean=False):
+        if mean:
+            state = np.mean(state, axis=-1, keepdims=True)
+
+        state = self._format_state(state)
+        return state[:, self.bias_idx, :]
+    
+
+    def get_innovations(self, state, mean=False):
+        if mean:
+            state = np.mean(state, axis=-1, keepdims=True)
+
+        state = self._format_state(state)
+        return state[:, self.observed_idx, :]
+
+
 
     def get_innovations(self, state, **kwargs):
         if self.biased_observations:
@@ -242,30 +263,8 @@ class Bias:
         self._update_history_aux(reset=reset, update_last_state=update_last_state, **kwargs)
     
     def _update_history_aux(self, **kwargs):
+        """Auxiliary method to update any additional history attributes in child classes if needed."""
         pass
-
-
-    def get_bias(self, state, mean=True):
-        if mean:
-            state = np.mean(state, axis=-1, keepdims=True)
-
-        if state.shape[0] == self.N_dim:
-            return state[self.bias_idx]
-        elif state.shape[1] == self.N_dim:
-            return state[:, self.bias_idx]
-        else:
-            raise AssertionError('state shape = {}'.format(state.shape))
-
-    def get_innovations(self, state, mean=True):
-        if mean:
-            state = np.mean(state, axis=-1, keepdims=True)
-
-        if state.shape[0] == self.N_dim:
-            return state[self.observed_idx]
-        elif state.shape[1] == self.N_dim:
-            return state[:, self.observed_idx]
-        else:
-            raise AssertionError('state shape = {}'.format(state.shape))
 
 
     def print_bias_parameters(self):

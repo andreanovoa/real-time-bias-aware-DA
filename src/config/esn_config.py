@@ -384,7 +384,6 @@ def load_esn_model_from_config(q: Optional[str]=None,
         config: ESNConfig instance to load (if not None, q is ignored)
     """
     if q is not None:
-
         matching_path = find_matching_config(load_dir, q)
 
     elif config is not None:

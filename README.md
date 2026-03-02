@@ -71,7 +71,7 @@ Checkout the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aw
 │   └── tutorials/ 
 ├── src/               # Source code including all the objects, classes and functions required in scripts
 │   ├── bias.py
-|   ├── bias_data_driven/
+|   ├── bias_estimators/
 │   │   │── esn.py
 │   │   └── constantbias.py
 │   ├── config         

@@ -1,29 +1,50 @@
-from .base_dd import *
+import numpy as np
+
+from bias import Bias
 from integrator import ConstantIntegrator
 from history import HistoryTracker
 from types import SimpleNamespace
 
 
+# TODO: This is currently just a placeholder for the constant bias model, 
+# which is a special case of the DriftLinearBias with zero drift and zero linear coupling. 
+
+# TODO: k shiould be a parameter which can be estimated within the data assimilation loop. So, 
+# we need the option to have an ensemble of k values, which can be updated during the data assimilation loop. 
+# This would allow us to capture uncertainty in the constant bias estimate and potentially improve the performance 
+# of the bias correction.
 
 class ConstantBias(Bias):
-    biased_observations = True  # Whether observations are biased or not
+    upsample = 20 # High upsample in time as constant forecast steps do not affect computation
+
     def __init__(self, innovation, t, dt, k=None, **kwargs):
         
         if k is not None:
             innovation = np.ones(innovation.shape) * k  # Constant innovation
 
         super().__init__(innovation=innovation, t=t, dt=dt, **kwargs)
-        
+    
+
+    @property
+    def N_dim(self):
+        return self._N_dim
+
     def state_derivative(self):
-        return np.zeros([self.N_bias, self.N_bias])
+        n_bias = self.N_dim // 2 if self.biased_observations else self.N_dim
+        return np.zeros([n_bias, n_bias])
 
 
-    def _init_forecaster(self, state, **kwargs):
+    def init_forecaster(self, state, **kwargs):
         """
-        default _init_forecaster, with no model
+        Default constant forecaster, with no model.
         
         """
         self._forecaster = SimpleNamespace()  # Create empty forecaster object
+        self._N_dim = state.shape[1]
+        if self.biased_observations:
+            self.observed_idx = np.arange(self._N_dim // 2)
+        else:
+            self.observed_idx = np.arange(self._N_dim)
 
         if 'initial_capacity' in kwargs.keys():
             initial_capacity = kwargs.pop('initial_capacity')
