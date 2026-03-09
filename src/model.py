@@ -11,17 +11,13 @@ from history import HistoryTracker
 from typeguard import typechecked
 
 
-from typing import List, Type, Union
+from typing import List, Optional, Type, Union
 
 # %% =================================== PARENT MODEL CLASS ============================================= %% #
 class Model(object):
     """ Parent Class with the general model properties and methods definitions.
     """
 
-    alpha_labels: dict = dict()
-    alpha_lims: dict = dict()
-
-    state_labels: list = []
     fixed_params = []
     extra_print_params = []
     governing_eqns_params = dict()
@@ -32,7 +28,6 @@ class Model(object):
     
 
     Nq = 1
-    seed = 6
     alpha = None
 
     initialized = False
@@ -99,11 +94,49 @@ class Model(object):
     def update_history_aux(self, psi, reset=False, update_last_state=False):
         pass
 
+
+    @property
+    def state_labels(self):
+        return  [f'$\\phi_{{{kk}}}$' for kk in range(self.Nphi)]
+    
+    @property
+    def obs_labels(self):
+        raise NotImplementedError("obs_labels property must be implemented in the child class.")
+
+
     @property
     def name(self):
         return self.__class__.__name__
     
+    @property
+    def alpha_lims(self):
+        if isinstance(self.ensemble, dict):
+            return {key: val for key, val in self._alpha_lims if key in self.est_alpha}
+        else:
+            return self._alpha_lims
     
+    @alpha_lims.setter
+    def alpha_lims(self, value: dict = dict()):
+        defaults = {key: (None, None) for key in self.params}
+        value.update(defaults)
+
+        self._alpha_lims = value #type: dict
+
+
+    @property
+    def alpha_labels(self):
+        return self._alpha_labels
+
+
+    @alpha_labels.setter
+    def alpha_labels(self ,value: dict = dict()):
+
+        defaults = {f'$\\alpha_{ii}$': val for ii, val in enumerate(self.params)}
+        
+        defaults.update(value) # this may be wrong TODO: check that I am onot rewriting the default labels with the new ones, but only for the parameters that are in self.params
+        self._alpha_labels = defaults  #type: dict
+
+
     @property
     def hist(self):
         """Returns only the valid (non-empty) portion of the history buffer."""
@@ -228,10 +261,10 @@ class Model(object):
 
     @property
     def Na(self):
-        if not self.ensemble:
-            return 0
-        else:
+        if isinstance(self.ensemble, dict):
             return self.ensemble.get('Na', 0)
+        else:
+            return 0
 
     @property
     def N(self):
@@ -320,9 +353,9 @@ class Model(object):
     @property
     def Ma(self):
         if not hasattr(self, '_Ma'):
-            setattr(self, '_Ma', np.hstack((np.zeros([self.Na, self.Nphi]),
+            self._Ma = np.hstack((np.zeros([self.Na, self.Nphi]),
                                             np.eye(self.Na),
-                                            np.zeros([self.Na, self.Nq]))))
+                                            np.zeros([self.Na, self.Nq])))
         return self._Ma
 
     # ------------------------- Functions for update/initialise the model --------------------------- #
@@ -350,7 +383,7 @@ class Model(object):
         self.integrator.close()
 
     @property
-    def ensemble(self):
+    def ensemble(self) -> Union[dict, bool]:
         """Public accessor for ensemble configuration (preferred over touching _ensemble_config)."""
         return getattr(self, '_ensemble_config', False)
     
@@ -359,22 +392,23 @@ class Model(object):
         """Setter for ensemble configuration."""
         self._ensemble_config = config
     
+
     @property
     def est_alpha(self):
-        if not self.ensemble:
-            return []
-        else:
+        if isinstance(self.ensemble, dict):
             return self.ensemble.get('est_alpha', [])
+        else:
+            return []
         
     @est_alpha.setter
     def est_alpha(self, value):
-        if not self.ensemble:
+        if not isinstance(self.ensemble, dict):
             raise AttributeError("Cannot set est_alpha when ensemble is not configured.")
         self._ensemble_config['est_alpha'] = value
 
 
     def get_alpha(self, psi=None):
-        if not self.ensemble:
+        if not isinstance(self.ensemble, dict):
             return [self.alpha0.copy()]
         if psi is None:
             psi = self.current_state

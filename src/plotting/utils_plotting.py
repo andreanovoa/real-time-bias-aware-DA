@@ -1,4 +1,5 @@
 
+from matplotlib import colors
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import numpy as np
@@ -6,7 +7,8 @@ import numpy as np
 import contextlib
 from PIL import Image
 from dataclasses import dataclass
-from matplotlib.colors import to_rgba
+
+import glob
 
 
 # Figures colors
@@ -36,12 +38,12 @@ class Palette:
     def get_color(name: str, alpha: float = 1.0):
         val = getattr(Palette, name.upper())
         if isinstance(val, list):
-            return [to_rgba(c, alpha) for c in val]
-        return to_rgba(val, alpha)
+            return [colors.to_rgba(c, alpha) for c in val]
+        return colors.to_rgba(val, alpha)
 
     @staticmethod
     def get_color_params(n=-1, alpha: float = 1.0):
-        return [to_rgba(c, alpha) for c in Palette.PARAMS[:n]]
+        return [colors.to_rgba(c, alpha) for c in Palette.PARAMS[:n]]
 
     @property
     def y_unbias_props(self):
@@ -89,11 +91,11 @@ def categorical_cmap(nc, nsc, cmap="tab10", continuous=False):
         ccolors = plt.get_cmap(cmap)(np.arange(nc, dtype=int))
     cols = np.zeros((nc * nsc, 3))
     for i, c in enumerate(ccolors):
-        chsv = mpl.colors.rgb_to_hsv(c[:3])
+        chsv = colors.rgb_to_hsv(c[:3])
         arhsv = np.tile(chsv, nsc).reshape(nsc, 3)
         arhsv[:, 1] = np.linspace(chsv[1], 0.25, nsc)
         arhsv[:, 2] = np.linspace(chsv[2], 1, nsc)
-        rgb = mpl.colors.hsv_to_rgb(arhsv)
+        rgb = colors.hsv_to_rgb(arhsv)
         cols[i * nsc:(i + 1) * nsc, :] = rgb
     return cols
 

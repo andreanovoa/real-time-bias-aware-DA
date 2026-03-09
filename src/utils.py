@@ -9,6 +9,7 @@ import numpy as np
 import pickle
 from functools import lru_cache
 import matplotlib as mpl
+from matplotlib import colors
 import matplotlib.pyplot as plt
 import scipy.io as sio
 import scipy.ndimage as ndimage
@@ -21,7 +22,8 @@ import requests
 from tqdm import tqdm
 import zipfile
 
-from typing import List, Tuple, Union, Dict, Type, Tuple
+from typing import List, Tuple, Union, Dict, Type, Optional
+from numpy.typing import NDArray
 
 from PIL import Image
 
@@ -81,11 +83,14 @@ def convert_to_python_type(obj, *, float_ndigits=12):
     return obj
 
 
-def mean_vector_to_ensemble(rng: np.random.Generator, 
-                            mean_vec: np.ndarray, 
-                            std: Union[float, Dict[str, Union[float, List[float]]]], 
-                            m: int, 
-                            method: str = 'uniform', 
+def mean_vector_to_ensemble(rng: np.random.Generator,
+                            mean_vec: NDArray[np.floating],
+                            std: Union[float,
+                                       NDArray[np.floating], 
+                                       List[float], 
+                                       Dict[str, Union[float, List[float]]]],
+                            m: int,
+                            method: str = 'uniform',
                             ensure_mean_at_init: bool = False) -> np.ndarray:
     """
     Adds uncertainty to a mean state vector/value for ensemble generation.
@@ -94,9 +99,8 @@ def mean_vector_to_ensemble(rng: np.random.Generator,
     """
     if method not in ['uniform', 'normal']:
         raise ValueError(f'Distribution "{method}" not supported. Choose "uniform" or "normal".')
-    
-    mean_vec = mean_vec.copy()
-    # mean_vec = np.asarray(mean_vec).flatten()
+     
+    mean_vec = np.asarray(mean_vec.copy())
     
     # Case 1: std is a dictionary (for estimated parameters 'alpha')
     if isinstance(std, dict):
@@ -104,7 +108,7 @@ def mean_vector_to_ensemble(rng: np.random.Generator,
         for sa in std.values():
             if method == 'uniform':
                 # For uniform, std values are [min_val, max_val]
-                ensemble_.append(rng.uniform(low=sa[0], high=sa[1], size=m))
+                ensemble_.append(rng.uniform(low=sa[0], high=sa[1], size=m)) #type: ignore
             else: # normal
                 # Use mean of bounds as location, and half the range as a heuristic scale (std)
                 loc = np.mean(sa)
@@ -118,7 +122,6 @@ def mean_vector_to_ensemble(rng: np.random.Generator,
     # Case 2: std is a single float or a different std for each component (relative standard deviation for state or parameters)
     elif isinstance(std, float) or isinstance(std, np.ndarray):
         if method == 'uniform':
-
             # ensure std is an array with. compatible shape
             if isinstance(std, float):
                 std = std * np.ones_like(mean_vec) 
@@ -136,10 +139,11 @@ def mean_vector_to_ensemble(rng: np.random.Generator,
 
             if np.iscomplexobj(mean_vec):
                 # Handle complex state by perturbing real and imaginary parts independently
-                cov_real = np.diag((mean_vec.real * std) ** 2)
-                cov_imag = np.diag((mean_vec.imag * std) ** 2)
-                real_part = rng.multivariate_normal(mean_vec.real, cov_real, size=m).T
-                imag_part = rng.multivariate_normal(mean_vec.imag, cov_imag, size=m).T
+                # ensure we have a numpy array so static type checkers accept real/imag access
+                real_mu = np.real(mean_vec)
+                imag_mu = np.imag(mean_vec)
+                real_part = rng.multivariate_normal(real_mu, np.diag((real_mu * std) ** 2), size=m).T
+                imag_part = rng.multivariate_normal(imag_mu,  np.diag((imag_mu * std) ** 2), size=m).T
                 ensemble_ = real_part + 1j * imag_part
             else:
                 # Covariance matrix is diagonal, perturbation scaled by mean and relative std
@@ -193,7 +197,7 @@ def set_cylinder_truth(case, X_filter, X_filter_true, Nt_obs = 25, visualize=Fal
 
 
 
-def add_noise_to_flow(U, V, noise_level=0.05, noise_type="gauss", spatial_smooth=0):
+def add_noise_to_flow(U, V, noise_level=0.05, noise_type="gauss", spatial_smooth=0.):
     """
     Adds noise to a 3D velocity field (Nt x Nx x Ny).
 
@@ -273,7 +277,7 @@ def find_first_ascending_folder(start_dir, target_names):
     while True:
         existing = [name for name in target_names if name in os.listdir(dir_path)]
         if existing:
-            return dir_path, existing
+            return dir_path, existing[0]
         parent = os.path.dirname(dir_path)
         if parent == dir_path:
             return None, False
@@ -284,8 +288,9 @@ def get_project_root( root='.'):
     """Return the project root directory."""
 
     project_root, found = find_first_ascending_folder(root, ['src', 'dev']) 
-    if found[0] == 'dev':
-        project_root = os.path.join(project_root, 'real_public')
+    if found == 'dev':
+        
+        project_root = f'{project_root}/real_public'
         print('On dev folder, root=' , project_root)
         
     elif not found:
@@ -305,21 +310,20 @@ def set_working_directories(subfolder='', root='.'):
     if subfolder[-1] != '/':
         subfolder += '/'
 
-    
+    # Get project root, i.e., where real_time_DA is
     project_root = get_project_root(root)
 
-    tutorial = 'tutorials' in os.getcwd()
-
     #  Set results and fgures folders
-    if tutorial:
-        results_folder = os.path.join(project_root, 'results/tutorials', subfolder)
-        figs_folder = os.path.join(project_root, 'docs/figs', subfolder)
+    if 'tutorials' in os.getcwd():
+        results_folder = f'{project_root}/results/tutorials/{subfolder}'
+        figs_folder = f'{project_root}/docs/figs/{subfolder}'
     else:
-        results_folder = os.path.join(project_root, 'results', subfolder)
-        figs_folder = os.path.join(project_root, 'results/figs', subfolder)
+        results_folder = f'{project_root}/results/{subfolder}'
+        figs_folder = f'{project_root}/results/figs/{subfolder}'
 
     #  Set data folder. Note: some data is not provided in the repository.  
-    data_folder = os.path.join(project_root, 'data', subfolder)
+    
+    data_folder = f'{project_root}/data/{subfolder}'
 
     return data_folder, results_folder, figs_folder
 
@@ -462,7 +466,7 @@ def RK4(t, q0, func, *kwargs):
     return np.array(qhist)
 
 
-def interpolate(t_y, y, t_eval, fill_values=None):
+def interpolate(t_y, y, t_eval, fill_values: Optional[tuple[float, float]] = None):
     # interpolator = PchipInterpolator(t_y, y)
 
     if fill_values is None:
@@ -472,7 +476,8 @@ def interpolate(t_y, y, t_eval, fill_values=None):
                             axis=0,  # interpolate along columns
                             bounds_error=False,
                             kind='linear',
-                            fill_value=fill_values)
+                            fill_value=fill_values # type: ignore #tuple[float, float]
+                            )
     return interpolator(t_eval)
 
 
@@ -591,8 +596,8 @@ def plot_train_data(truth, y_ref, t_ref, t_CR, folder):
     sub_figs = fig.subfigures(2, 1, height_ratios=[1, 1])
     axs_top = sub_figs[0].subplots(1, 2)
     axs_bot = sub_figs[1].subplots(1, 2)
-    norm = mpl.colors.Normalize(vmin=true_RMS, vmax=1.5)
-    cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.viridis)
+    norm = colors.Normalize(vmin=true_RMS, vmax=1.5)
+    cmap = plt.cm.ScalarMappable(norm=norm, cmap=mpl.colormaps['viridis'])
     cmap.set_clim(true_RMS, 1.5)
     axs_top[0].plot(tt, yt[:, 0], color='silver', linewidth=6, alpha=.8)
     axs_top[-1].plot(tt, bt[:, 0], color='silver', linewidth=4, alpha=.8)
@@ -684,117 +689,169 @@ def correlation(y_true, y_est):
 
 
 
-
+# I used this for the CMAME paper, but it is not used in the current version of the code.
+#  I keep it here for reference and possible future use.
 def get_error_metrics(results_folder):
-    print('computing error metrics...')
-    out = dict(Ls=[], ks=[])
+    raise NotImplementedError('To be redefined withh the new project architecture')
 
-    L_dirs, k_files = [], []
-    LLL = os.listdir(results_folder)
-    for Ldir in LLL:
-        if os.path.isdir(results_folder + Ldir + '/') and Ldir[0] == 'L':
-            L_dirs.append(results_folder + Ldir + '/')
-            out['Ls'].append(float(Ldir.split('L')[-1]))
+# def get_error_metrics(results_folder):
+#     print('computing error metrics...')
+#     out = dict(Ls=[], ks=[])
 
-    for ff in os.listdir(L_dirs[0]):
-        k = float(ff.split('_k')[-1])
-        out['ks'].append(k)
-        k_files.append(ff)
+#     L_dirs, k_files = [], []
+#     LLL = os.listdir(results_folder)
+#     for Ldir in LLL:
+#         if os.path.isdir(results_folder + Ldir + '/') and Ldir[0] == 'L':
+#             L_dirs.append(results_folder + Ldir + '/')
+#             out['Ls'].append(float(Ldir.split('L')[-1]))
 
-    # sort ks and Ls
-    idx_ks = np.argsort(np.array(out['ks']))
-    out['ks'] = np.array(out['ks'])[idx_ks]
-    out['k_files'] = [k_files[i] for i in idx_ks]
+#     for ff in os.listdir(L_dirs[0]):
+#         k = float(ff.split('_k')[-1])
+#         out['ks'].append(k)
+#         k_files.append(ff)
 
-    idx = np.argsort(np.array(out['Ls']))
-    out['L_dirs'] = [L_dirs[i] for i in idx]
-    out['Ls'] = np.array(out['Ls'])[idx]
+#     # sort ks and Ls
+#     idx_ks = np.argsort(np.array(out['ks']))
+#     out['ks'] = [out['ks'][i] for i in idx_ks]
+#     out['k_files'] = [k_files[i] for i in idx_ks]
 
-    # Output quantities
-    keys = ['R_biased_DA', 'R_biased_post',
-            'C_biased_DA', 'C_biased_post',
-            'R_unbiased_DA', 'R_unbiased_post',
-            'C_unbiased_DA', 'C_unbiased_post']
-    for key in keys:
-        out[key] = np.empty([len(out['Ls']), len(out['ks'])])
+#     idx = np.argsort(np.array(out['Ls']))
+#     out['L_dirs'] = [L_dirs[i] for i in idx]
+#     out['Ls'] = [out['Ls'][i] for i in idx]
 
-    print(out['Ls'])
-    print(out['ks'])
+#     # Output quantities
+#     keys = ['R_biased_DA', 'R_biased_post',
+#             'C_biased_DA', 'C_biased_post',
+#             'R_unbiased_DA', 'R_unbiased_post',
+#             'C_unbiased_DA', 'C_unbiased_post']
+#     for key in keys:
+#         out[key] = np.empty([len(out['Ls']), len(out['ks'])])
 
-    ii = -1
-    for Ldir in out['L_dirs']:
-        ii += 1
-        print('L = ', out['Ls'][ii])
-        jj = -1
-        for ff in out['k_files']:
-            jj += 1
-            # Read file
-            truth, filter_ens = load_from_pickle_file(Ldir + ff)[1:]
-            truth = truth.copy()
+#     print(out['Ls'])
+#     print(out['ks'])
 
-            print('\t k = ', out['ks'][jj], '({}, {})'.format(filter_ens.bias.L, filter_ens.regularization_factor))
-            # Compute biased and unbiased signals
-            y, t = filter_ens.get_observable_hist(), filter_ens.hist_t
-            b, t_b = filter_ens.bias.hist, filter_ens.bias.hist_t
-            y_mean = np.mean(y, -1)
+#     ii = -1
+#     for Ldir in out['L_dirs']:
+#         ii += 1
+#         print('L = ', out['Ls'][ii])
+#         jj = -1
+#         for ff in out['k_files']:
+#             jj += 1
+#             # Read file
+#             truth, filter_ens = load_from_pickle_file(Ldir + ff)[1:]
+#             truth = truth.copy()
 
-            # Unbiased signal error
-            if hasattr(filter_ens.bias, 'upsample'):
-                y_unbiased = interpolate(t, y_mean, t_b) + b
-                y_unbiased = interpolate(t_b, y_unbiased, t)
-            else:
-                y_unbiased = y_mean + b
+#             print('\t k = ', out['ks'][jj], '({}, {})'.format(filter_ens.bias.L, filter_ens.regularization_factor))
+#             # Compute biased and unbiased signals
+#             y, t = filter_ens.get_observable_hist(), filter_ens.hist_t
+#             b, t_b = filter_ens.bias.hist, filter_ens.bias.hist_t
+#             y_mean = np.mean(y, -1)
 
-            # if jj == 0:
-            N_CR = int(filter_ens.t_CR // filter_ens.dt)  # Length of interval to compute correlation and RMS
-            i0 = np.argmin(abs(t - truth['t_obs'][0]))  # start of assimilation
-            i1 = np.argmin(abs(t - truth['t_obs'][-1]))  # end of assimilation
+#             # Unbiased signal error
+#             if hasattr(filter_ens.bias, 'upsample'):
+#                 y_unbiased = interpolate(t, y_mean, t_b) + b
+#                 y_unbiased = interpolate(t_b, y_unbiased, t)
+#             else:
+#                 y_unbiased = y_mean + b
 
-            # cut signals to interval of interest
-            y_mean, t, y_unbiased = y_mean[i0 - N_CR:i1 + N_CR], t[i0 - N_CR:i1 + N_CR], y_unbiased[i0 - N_CR:i1 + N_CR]
+#             # if jj == 0:
+#             N_CR = int(filter_ens.t_CR // filter_ens.dt)  # Length of interval to compute correlation and RMS
+#             i0 = np.argmin(abs(t - truth['t_obs'][0]))  # start of assimilation
+#             i1 = np.argmin(abs(t - truth['t_obs'][-1]))  # end of assimilation
 
-            if ii == 0 and jj == 0:
-                i0_t = np.argmin(abs(truth['t'] - truth['t_obs'][0]))  # start of assimilation
-                i1_t = np.argmin(abs(truth['t'] - truth['t_obs'][-1]))  # end of assimilation
-                y_truth, t_truth = truth['y'][i0_t - N_CR:i1_t + N_CR], truth['t'][i0_t - N_CR:i1_t + N_CR]
-                y_truth_b = y_truth - truth['b'][i0_t - N_CR:i1_t + N_CR]
+#             # cut signals to interval of interest
+#             y_mean, t, y_unbiased = y_mean[i0 - N_CR:i1 + N_CR], t[i0 - N_CR:i1 + N_CR], y_unbiased[i0 - N_CR:i1 + N_CR]
 
-                out['C_true'], out['R_true'] = CR(y_truth[-N_CR:], y_truth_b[-N_CR:])
-                out['C_pre'], out['R_pre'] = CR(y_truth[:N_CR], y_mean[:N_CR])
-                out['t_interp'] = t[::N_CR]
-                scale = np.max(y_truth, axis=0)
-                for key in ['error_biased', 'error_unbiased']:
-                    out[key] = np.empty([len(out['Ls']), len(out['ks']), len(out['t_interp']), y_mean.shape[-1]])
+#             if ii == 0 and jj == 0:
+#                 i0_t = np.argmin(abs(truth['t'] - truth['t_obs'][0]))  # start of assimilation
+#                 i1_t = np.argmin(abs(truth['t'] - truth['t_obs'][-1]))  # end of assimilation
+#                 y_truth, t_truth = truth['y'][i0_t - N_CR:i1_t + N_CR], truth['t'][i0_t - N_CR:i1_t + N_CR]
+#                 y_truth_b = y_truth - truth['b'][i0_t - N_CR:i1_t + N_CR]
 
-            # End of assimilation
-            for yy, key in zip([y_mean, y_unbiased], ['_biased_DA', '_unbiased_DA']):
-                C, R = CR(y_truth[-N_CR * 2:-N_CR], yy[-N_CR * 2:-N_CR])
-                out['C' + key][ii, jj] = C
-                out['R' + key][ii, jj] = R
+#                 out['C_true'], out['R_true'] = CR(y_truth[-N_CR:], y_truth_b[-N_CR:])
+#                 out['C_pre'], out['R_pre'] = CR(y_truth[:N_CR], y_mean[:N_CR])
+#                 out['t_interp'] = t[::N_CR]
+#                 scale = np.max(y_truth, axis=0)
+#                 for key in ['error_biased', 'error_unbiased']:
+#                     out[key] = np.empty([len(out['Ls']), len(out['ks']), len(out['t_interp']), y_mean.shape[-1]])
 
-            # After Assimilaiton
-            for yy, key in zip([y_mean, y_unbiased], ['_biased_post', '_unbiased_post']):
-                C, R = CR(y_truth[-N_CR:], yy[-N_CR:])
-                out['C' + key][ii, jj] = C
-                out['R' + key][ii, jj] = R
+#             # End of assimilation
+#             for yy, key in zip([y_mean, y_unbiased], ['_biased_DA', '_unbiased_DA']):
+#                 C, R = CR(y_truth[-N_CR * 2:-N_CR], yy[-N_CR * 2:-N_CR])
+#                 out['C' + key][ii, jj] = C
+#                 out['R' + key][ii, jj] = R
 
-            # Compute mean errors
-            b_obs = y_truth - y_mean
-            b_obs_u = y_truth - y_unbiased
-            ei, a = -N_CR, -1
-            while ei < len(b_obs) - N_CR - 1:
-                a += 1
-                ei += N_CR
-                out['error_biased'][ii, jj, a, :] = np.mean(abs(b_obs[ei:ei + N_CR]), axis=0) / scale
-                out['error_unbiased'][ii, jj, a, :] = np.mean(abs(b_obs_u[ei:ei + N_CR]), axis=0) / scale
+#             # After Assimilaiton
+#             for yy, key in zip([y_mean, y_unbiased], ['_biased_post', '_unbiased_post']):
+#                 C, R = CR(y_truth[-N_CR:], yy[-N_CR:])
+#                 out['C' + key][ii, jj] = C
+#                 out['R' + key][ii, jj] = R
 
-            save_to_pickle_file(results_folder + 'CR_data', out)
+#             # Compute mean errors
+#             b_obs = y_truth - y_mean
+#             b_obs_u = y_truth - y_unbiased
+#             ei, a = -N_CR, -1
+#             while ei < len(b_obs) - N_CR - 1:
+#                 a += 1
+#                 ei += N_CR
+#                 out['error_biased'][ii, jj, a, :] = np.mean(abs(b_obs[ei:ei + N_CR]), axis=0) / scale
+#                 out['error_unbiased'][ii, jj, a, :] = np.mean(abs(b_obs_u[ei:ei + N_CR]), axis=0) / scale
+
+#             save_to_pickle_file(results_folder + 'CR_data', out)
 
 
 
 
 
 def create_Lorenz63_dataset(noise_level=0.02, num_lyap_times=300, seed=0, **kwargs):
+    """
+    Create or load a Lorenz-63 time series dataset, optionally add Gaussian observation noise,
+    and persist the result to disk for reuse.
+
+    Parameters
+    ----------
+    noise_level : float, optional.  Default is 0.02.
+        Relative standard deviation of additive Gaussian noise applied to each observable.
+        The actual noise standard deviation for variable j is noise_level * std(clean_data[:, j]).
+    num_lyap_times : int, optional. Default 300.
+        The total number of time steps produced is num_lyap_times * N_lyap where N_lyap = int(model.t_lyap / model.dt).
+    seed : int, optional
+        Seed for the numpy.random.default_rng used to generate observation noise. Default is 0.
+    **kwargs
+        Additional keyword arguments forwarded to the Lorenz63 model initializer (models_physical.Lorenz63).
+
+    Returns
+    -------
+    tuple
+        (dataset, filepath)
+        - dataset : dict with keys
+            - clean_data : ndarray, shape (Nt, n_vars)
+                Clean model observables (no observation noise).
+            - noisy_data : ndarray, shape (Nt, n_vars)
+                Clean data with added Gaussian noise as described above.
+            - t : ndarray, shape (Nt,)
+                Time vector corresponding to the rows of the data arrays.
+            - N_lyap : int
+                Number of timesteps per Lyapunov time (computed as int(model.t_lyap / model.dt)).
+        - filepath : str
+            Full path of the .mat file used for loading/saving the dataset.
+
+    Raises
+    ------
+    FileNotFoundError
+        Propagated if any required file operations fail in an unexpected manner (the function
+        itself catches the expected "dataset not present" case and proceeds to generate data).
+    ImportError
+        If models_physical.Lorenz63 or helper functions (set_working_directories, load_from_mat_file,
+        save_to_mat_file) are not available, an ImportError or NameError may be raised.
+
+    Example
+    -------
+    >>> dataset, path = create_Lorenz63_dataset(noise_level=0.05, num_lyap_times=200, seed=42, sigma=10.0)
+    >>> print(dataset['clean_data'].shape, dataset['t'].shape, path)
+
+    """
+
     from models_physical import Lorenz63
 
     # Load or create training data from the Lorenz 63 model
@@ -909,43 +966,49 @@ def unzip_file(file_path, output_folder=None, remove_first_folder=True):
             else:
                 target = member
 
-            dest_path = os.path.join(output_folder, target)
+            dest_path = f'{output_folder}/{target}'
             os.makedirs(os.path.dirname(dest_path), exist_ok=True)
             with zip_ref.open(member) as source, open(dest_path, 'wb') as target_file:
                 target_file.write(source.read())
         print(f"Unzipped '{zip_name}.zip' in '{output_folder}'")
 
 
-def get_annular_data(data_folder=None):
+def get_annular_data(data_folder: Optional[str] = None):
     """
     Download and unzip the annular data from Zenodo if not already present.
     """
+
     if data_folder is None:
-        data_folder = set_working_directories('annular/')
+        laod_dir = set_working_directories('annular/')[0] #type: str
+    else:
+        laod_dir = data_folder
 
     zenodo_dir = "https://zenodo.org/records/15609832/files"
     
     download_zenodo_file(f'{zenodo_dir}/annular.zip?download=1', 
-                         data_folder, 
+                         laod_dir, 
                         filename='annular_data.zip')
 
-    download_zenodo_file(f'{zenodo_dir}/README.md?download=1', data_folder)
+    download_zenodo_file(f'{zenodo_dir}/README.md?download=1', laod_dir)
 
 
 
-def get_wake_data(data_folder=None, case='circle_re_100'):
+def get_wake_data(data_folder: Optional[str] = None, case='circle_re_100'):
     """
     Download and unzip the bluff bodies wake flow data from Zenodo if not already present.
     """
+
     if data_folder is None:
-        data_folder = set_working_directories('wakes/')
+        laod_dir = set_working_directories('wakes/')[0] #type: str
+    else:
+        laod_dir = data_folder
 
     zenodo_dir = "https://zenodo.org/records/15623774/files/"
     
     download_zenodo_file(f'{zenodo_dir}/{case}.mat?download=1"', 
-                         data_folder, filename=f'{case}.mat')
+                         laod_dir, filename=f'{case}.mat')
 
-    download_zenodo_file(f'{zenodo_dir}/README.md?download=1', data_folder)
+    download_zenodo_file(f'{zenodo_dir}/README.md?download=1', laod_dir)
 
 
 
@@ -1073,7 +1136,7 @@ def animate_flowfields(datsets, n_frames=40, cmaps=None, titles=None, rms_cmap='
         if 'RMS' in ttl:
             ims.append(ax.pcolormesh(D[0], rasterized=True, cmap=plt.get_cmap(rms_cmap), vmin=0, vmax=1))
         else:
-            norm = mpl.colors.Normalize(vmin=np.min(D), vmax=np.max(D))
+            norm = colors.Normalize(vmin=np.min(D), vmax=np.max(D))
             ims.append(ax.pcolormesh(D[0], rasterized=True, cmap=plt.get_cmap(cmap), norm=norm))
         
         ax.set(xticks=[], yticks=[])
@@ -1116,13 +1179,13 @@ def get_figsize_based_on_domain(domain, total_subplots, max_cols=5, total_width=
     aspect_ratio = y_span / x_span if x_span != 0 else 1
 
     # Favor rows if aspect ratio is tall; favor cols if wide
-    if aspect_ratio > 1:
+    if aspect_ratio >= 1:
         ncols = min(max_cols, total_subplots)
         nrows = int(np.ceil(total_subplots / ncols))
         fig_width = total_width
         fig_height =   (total_width / ncols) * aspect_ratio * nrows
 
-    elif aspect_ratio < 1:
+    else:
         nrows = min(max_cols, total_subplots)
         ncols = int(np.ceil(total_subplots / nrows))
         fig_height = total_width
@@ -1175,10 +1238,9 @@ def get_cropped_indices(original_grid,
 
 
 def crop_data_to_domain_of_interest(data,
-                                    original_domain: 'list | tuple',
-                                    domain_of_interest: 'list | tuple',
-                                    down_sample: 'int | list | tuple' = None,
-                                    visualize=True):
+                                    original_domain: Union[list[float], tuple],
+                                    domain_of_interest:  Union[list[float], tuple],
+                                    down_sample: Optional[Union[int, list, tuple]] = None):
         """
         Adjust the domain and grid shape for a given dataset.
 
@@ -1186,6 +1248,7 @@ def crop_data_to_domain_of_interest(data,
             - data: The dataset to process. Shape: (Nu, Nt), Nx, Ny
             - original_domain: (x_min, x_max, y_min, y_max) tuple for the entire data domain
             - domain_of_interest: (x_min, x_max, y_min, y_max) tuple specifying subdomain to crop to
+            - down_sample: Optional down-sampling factor(s) for the cropped data
 
         Returns:
             - Processed dataset, new domain, new grid shape, and the index mapping.
@@ -1197,59 +1260,12 @@ def crop_data_to_domain_of_interest(data,
             raise ValueError(f'data input shape must be [(Nu, Nt) x Nx x Ny], got {data.shape}')
 
         # # Extract original and DOI boundaries
-        # Nx, Ny = original_grid
-        # x_min, x_max, y_min, y_max = original_domain
-        # doi_x_min, doi_x_max, doi_y_min, doi_y_max = domain_of_interest
-
-        # # Generate 1D spatial grids for original domain
-        # x = np.linspace(x_min, x_max, Nx)
-        # y = np.linspace(y_min, y_max, Ny)
-
-        # # Find indices within domain_of_interest along each axis
-        # x_idx = np.where((x >= doi_x_min) & (x <= doi_x_max))[0]
-        # y_idx = np.where((y >= doi_y_min) & (y <= doi_y_max))[0]
-
-
-        # if len(x_idx) == 0 or len(y_idx) == 0:
-        #     raise ValueError('Domain of interest does not overlap with original domain grid.')
-
-
-        # if down_sample is not None:
-        #     if isinstance(down_sample, int):
-        #         down_sample = [down_sample]
-        #     if len(down_sample) == 1:
-        #         step_x = step_y = down_sample[0]
-        #     elif len(down_sample) == 2:
-        #         step_x, step_y = down_sample
-        #     else:
-        #         raise AssertionError(f'Too many downsample entries: {down_sample}')
-
-        #     x_idx = x_idx[::step_x]
-        #     y_idx = y_idx[::step_y]
-
-
-        # cropped_grid_indices = np.ix_(x_idx, y_idx)
 
         cropped_grid_indices = get_cropped_indices(original_grid, original_domain, 
                                                    domain_of_interest, down_sample)
 
         data_cropped = data[..., cropped_grid_indices[0], cropped_grid_indices[1]].copy()
 
-        if visualize:
-
-            _, ax = plt.subplots(figsize=(12, 3), layout='constrained', nrows=1, ncols=1, sharex=True, sharey=True)
-            
-            X, Y = np.meshgrid(x, y, indexing='ij')
-
-            only_u_i = np.zeros(data.ndim, dtype=object)
-            only_u_i[-2:] = slice(None)
-
-            u = data[tuple(only_u_i)].copy()
-            u_c = data_cropped[tuple(only_u_i)].copy()
-
-            im0 = ax.pcolormesh(X, Y, u, cmap='Grays', rasterized=True)
-            im1 = ax.pcolormesh(X[cropped_grid_indices], Y[cropped_grid_indices], u_c, cmap='viridis', rasterized=True)
-            
         return data_cropped, cropped_grid_indices
 
 

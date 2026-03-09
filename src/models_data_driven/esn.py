@@ -118,7 +118,7 @@ class ESN_model(EchoStateNetwork, Model):
                        integrator_class=DiscreteIntegrator, **kwargs)
 
 
-    def _process_initialization_data(self, data, dt, kwargs):
+    def _process_initialization_data(self, data, dt, kwargs) -> np.ndarray:
         """ Process the data input for initialization
         """
         # Increase ndim if there is only one set of parameters
@@ -152,7 +152,6 @@ class ESN_model(EchoStateNetwork, Model):
     # ______________________ New class attributes ______________________ #
     def modify_settings(self, **kwargs):
         # Modify the settings of the ESN_model
-        # print('Modifyig settings...')
         for key, val in kwargs.items():
             if hasattr(self, key):
                 setattr(self, key, val)
@@ -171,15 +170,24 @@ class ESN_model(EchoStateNetwork, Model):
 
                 # Replace wout for the SVD components to estimate them
                 est_alpha.remove('Wout')
+                self.alpha_lims.pop('Wout', None)  # remove old limits if they exist
+                self.alpha_labels.pop('Wout', None)  # remove old limits if they exist
 
                 for qj in np.arange(self.N_dim):
                     key = f'svd_{qj}'
                     setattr(self, key, self.Wout_Sigma0[qj])
                     est_alpha.append(key)
 
-            # print('Updated est_alpha:', est_alpha)
-            self.est_alpha = est_alpha
-            # print('New est_alpha in config:', self.est_alpha)
+                # Update the est_alpha list with the new SVD component keys
+                a_lbls, a_lims = self.alpha_labels.copy(), self.alpha_lims.copy()  # copy old labels and limits
+                for key in est_alpha:
+                    if 'svd' in key:
+                        _j = key.split('_')[1]
+                        a_lims[key] = (None, None) # set new limits for the SVD components (can be adjusted as needed)
+                        a_lbls[key] = f'$\\sigma_{{{_j}}}$'
+                self.alpha_lims = a_lims
+                self.alpha_labels = a_lbls
+                self.est_alpha = est_alpha
 
         # Set the M matrix to None to force re-computation
         self.M = None 
@@ -192,21 +200,6 @@ class ESN_model(EchoStateNetwork, Model):
     def t_CR(self):
         return self.t_val
 
-    @property
-    def alpha_labels(self):
-        lbls = {}
-        if len(self.est_alpha) > 0:
-            for key in self.est_alpha:
-                if 'svd' in key:
-                    _j = key.split('_')[1]
-                    lbls[key] = f'$\\sigma_{_j}$'
-                else:
-                    lbls[key] = key
-        return lbls
-
-    @property
-    def alpha_lims(self):
-        return {key: (None, None) for key in self.est_alpha}
     
 
     @property
@@ -240,14 +233,15 @@ class ESN_model(EchoStateNetwork, Model):
     @property
     def alpha_to_Sigma(self):
         alpha_matrix = self.get_alpha_matrix
-        alpha_labels = self.est_alpha
+        # alpha_labels = self.est_alpha
+        self.alpha_labels = dict()  # update the alpha labels with the new ones (e.g., svd_0, svd_1, etc.)
 
         eigs = np.zeros((self.m, self.N_dim, self.N_dim))
 
         for qi in range(self.N_dim):
             key = f'svd_{qi}'
-            if key in alpha_labels:
-                ai = alpha_labels.index(key)
+            if key in self.est_alpha:
+                ai = self.est_alpha.index(key)
                 vals = alpha_matrix[ai]
             else:
                 vals = self.Wout_Sigma0[qi] * np.ones(self.m)
@@ -255,7 +249,19 @@ class ESN_model(EchoStateNetwork, Model):
             eigs[:, qi, qi] = vals
 
         return eigs
-    
+
+    # @alpha_labels
+    # def alpha_labels(self):
+    #     lbls = {}
+    #     if len(self.est_alpha) > 0:
+    #         for key in self.est_alpha:
+    #             if 'svd' in key:
+    #                 _j = key.split('_')[1]
+    #                 lbls[key] = f'$\\sigma_{_j}$'
+    #             else:
+    #                 lbls[key] = key
+    #     return lbls
+
     @property
     def get_alpha_matrix(self):
         alpha = np.empty((len(self.est_alpha), self.m))
@@ -302,15 +308,18 @@ class ESN_model(EchoStateNetwork, Model):
     
     @property
     def N_ens(self):
-        if not self.ensemble:
-            return self.reservoir_state.shape[-1]
-        else:
+        if isinstance(self.ensemble, dict):
             return self.ensemble.get('m')
+        else: 
+            return self.reservoir_state.shape[-1]
+        
 
 
     def initialize_from_val_data(self, N_ens=1, seed=0):
 
         """ Initialise the ESN state using traiining data"""
+        assert self.validation_data is not None
+        
         data = self.validation_data.copy()
         
         if hasattr(self, 'seed'):
@@ -335,6 +344,7 @@ class ESN_model(EchoStateNetwork, Model):
         for ii, ti, dim_i in zip(range(N_ens), t_ids, dim_ids):
             u_wash = data[dim_i, ti:ti+self.N_wash]
             r_open = np.zeros((self.N_units, 1))
+            u_open = np.zeros((self.N_dim, 1))
             # Open-loop reservoir
             for u_in in u_wash:
                 u_open, r_open = self._single_step(u_in, r_open)
@@ -395,6 +405,7 @@ class ESN_model(EchoStateNetwork, Model):
     def update_history_aux(self, psi, reset=False, update_last_state=False, **kwargs): 
         if reset or update_last_state:
             _, r = self.unbuild_psi(psi)
+            assert r is not None, 'Reservoir state is None, cannot update history'
             self.reservoir_state = r[-1] if r.ndim == 3 else r
 
     @property
@@ -569,7 +580,7 @@ class ESN_model(EchoStateNetwork, Model):
         fig, axs = plt.subplots(nrows=nrows*L, ncols=1,
                                 figsize=(8, nrows*L), sharex=True,
                                 layout='constrained')
-        if nrows * L > 1:
+        if nrows * L > 1 and isinstance(axs, np.ndarray):
             axs = axs.T.flatten()
         else:
             axs = [axs]
@@ -640,7 +651,7 @@ class ESN_model(EchoStateNetwork, Model):
 
 
 
-    def visualize_spatiotemporal_hist(self,  y_hist=None, t=None, nrows=None, averaged=False):
+    def visualize_spatiotemporal_hist(self,  y_hist=None, t=None, nrows=None, averaged=False, **kwargs):
         
         if y_hist is None:
             n_t = int(self.t_CR // self.dt)
@@ -685,7 +696,7 @@ class ESN_model(EchoStateNetwork, Model):
                     lbl, ytx = [zz[::len(lbl)//5] for zz in (lbl, ytx)]
                     
                 [ax.set(yticks=ytx, yticklabels=lbl) for ax in axs] 
-                fig.colorbar(im, ax=axs, orientation='vertical', shrink=1/nrows) 
+                fig.colorbar(im, ax=axs, orientation='vertical', shrink=1/nrows)  #type: ignore
         else:
 
             for y_hist, ttl, lbl, cmap in zip(y_hist_list, titles, labels, cmaps):
@@ -727,10 +738,6 @@ class ESN_model(EchoStateNetwork, Model):
                 [ax.set(yticks=ytx, yticklabels=lbl) for ax in axs] 
 
 
-
-
-
-
     def plot_Wout(self):
         
         if not self.Wout_svd:
@@ -758,5 +765,5 @@ class ESN_model(EchoStateNetwork, Model):
                 fig.colorbar(im, ax=ax, shrink=.9, orientation='horizontal')
 
 
-
+        return fig
 

@@ -6,7 +6,7 @@ from utils import add_pdf_page
 
 from copy import deepcopy
 import matplotlib.pyplot as plt
-
+from typing import Any, Optional, Union
 
 # Validation methods
 from functools import partial
@@ -43,7 +43,7 @@ class EchoStateNetwork:
     figs_folder = './figs_ESN/'
     filename = 'my_ESN'  # Default ESN file name
 
-    input_parameters = None #TODO: add input parameters functionality to enable parametric ESNs
+    input_parameters: Optional[np.ndarray] = None #TODO: add input parameters functionality to enable parametric ESNs
  
     N_folds = 4  # Folds over the training set
     N_func_evals = 20  # Total evals of Bayesian hyperparameter optimization (BHO)
@@ -52,7 +52,6 @@ class EchoStateNetwork:
     N_split = 4  # Splits of training data for faster computation
     N_units = 100  # Number of neurones
     N_wash = 50  # Number of washout steps
-    N_dim = None  # Dimension of the physical system
 
     max_L_tests = 10
     perform_test = True  # Run tests during training?
@@ -63,7 +62,6 @@ class EchoStateNetwork:
     upsample = 5  # Upsample x dt_model = dt_ESN
     Win_type = 'sparse'  # Type of Wim definition [sparse/dense]
     norm_method = 'range' # Normalization method for input data
-    observed_idx = None  # Indices of observed variables (default: full observability)
 
     # Default hyperparameters and optimization ranges -----------------------
     noise = 1e-10
@@ -97,35 +95,35 @@ class EchoStateNetwork:
             raise AssertionError(f'y.shape={y.shape}. The input y must have 2 dimension')
 
 
-        self.observed_idx = kwargs.pop('observed_idx', None) 
-        if self.observed_idx is None:
-            self.observed_idx = np.arange(y.shape[0]) # Default: full observability 
-            
+        #   Initialise state dimensions and reservoir state to zeros ------------ #
+        self.N_dim = y.shape[0] # Dimension of the physical system i.e., the output dimension 
+        self.observed_idx = kwargs.pop('observed_idx', np.arange(self.N_dim)) # Default to full observability
+        self.reservoir_state = np.zeros((self.N_units, y.shape[1]))            
 
-        # Set input parameters if provided ------------------------- #
-
-        [setattr(self, key, val) for key, val in kwargs.items() if hasattr(EchoStateNetwork, key)]
-
-        #   Initialise state and reservoir state to zeros ------------ #
-        self.N_dim = y.shape[0]
-        self.reservoir_state = np.zeros((self.N_units, y.shape[1]))
+        # Set provided input parameters ------------------------- #
+        keys = list(kwargs.keys())
+        [setattr(self, key, kwargs.pop(key)) for key in keys if hasattr(EchoStateNetwork, key)]
 
         #  Define time steps and time windows -------------------- #
         self.dt_ESN = dt * self.upsample
 
         #  Initialize ESN matrices -------------------------- #
-        self.trained = all([getattr(self, key) is not None for key in ['Wout', 'Win', 'W']])
+        # self.trained = all([getattr(self, key) is not None for key in ['Wout', 'Win', 'W']])
         self.val_k = kwargs.get('val_k', 0)  # Validation counter
         self.initialised = False  # Flag for washout
 
+    @property
+    def trained(self):
+        """Flag to check if the model has been trained"""
+        return hasattr(self, '_Win') and hasattr(self, '_Wout') and hasattr(self, '_W')
 
     @property
-    def W(self):
+    def W(self) -> csr_matrix:
         """
         Returns the reservoir state matrix (W) in CSR format.
         """
-        if not hasattr(self, '_W'):
-            return None
+        # if not hasattr(self, '_W'):
+        #     return None
         return self._W
 
     
@@ -170,12 +168,12 @@ class EchoStateNetwork:
         return self.reservoir_state.shape[-1]
 
     @property
-    def Win(self):
+    def Win(self) -> Any[np.ndarray, csr_matrix]:
         """
         Returns the input matrix (Win).
         """
-        if not hasattr(self, '_Win'):
-            return None
+        # if not hasattr(self, '_Win'):
+        #     return None
         return self._Win
     
     @Win.setter
@@ -202,16 +200,16 @@ class EchoStateNetwork:
 
 
     @property
-    def Wout(self):
+    def Wout(self) -> np.ndarray:
         """
         Returns the output matrix (Wout).
         """
-        if not hasattr(self, '_Wout'):
-            return None
+        # if not hasattr(self, '_Wout'):
+        #     return None
         return self._Wout
 
     @Wout.setter
-    def Wout(self, value):
+    def Wout(self, value: np.ndarray):
         """
         Setter for the reservoir state matrix (W). 
         """
@@ -273,8 +271,8 @@ class EchoStateNetwork:
         Lazily computes the closed-loop reservoir weight matrix (W Cout) if it has not been precomputed.
         This matrix is only computed if the Jacobian in closed loop is needed.
         """
-        if not hasattr(self, '_WCout'):
-            return None
+        # if not hasattr(self, '_WCout'):
+        #     return None
         return self._WCout
     
     @WCout.setter
@@ -282,17 +280,11 @@ class EchoStateNetwork:
         """
         Setter for the closed-loop reservoir weight matrix (W Cout).
         """
-        if self._WCout is None:
+        assert self.trained, 'ESN must be trained with washout before calling step method. Call ESN.train() first.'
+        if value is None:
             self._WCout = np.linalg.lstsq(self.Wout[:-1], self.W.toarray(), rcond=None)[0]
         else:
             self._WCout = value
-
-    
-    @property
-    def rng(self):
-        if not hasattr(self, '_rng'):
-            self._rng = np.random.default_rng(self.seed)
-        return self._rng
 
 
     @property
@@ -356,7 +348,7 @@ class EchoStateNetwork:
         Returns the normalization factor for the input data.
         """
         if not hasattr(self, '_norm'):
-            return 1.
+            return np.ones((self.N_dim_in,))
         return self._norm
     
     @norm.setter
@@ -376,7 +368,7 @@ class EchoStateNetwork:
         Returns the shift factor for the input data.
         """
         if not hasattr(self, '_shift'):
-            return 0.
+            return np.zeros((self.N_dim_in,))
         return self._shift
     
 
@@ -397,13 +389,15 @@ class EchoStateNetwork:
         Advances the reservoir by one time step and updates its internal state.
 
         Args:
-            u (np.ndarray): Input physical state at the current time step.
-            r (np.ndarray): Reservoir state at the current time step.
+            u (np.ndarray): Input physical state at the current time step. Shape = (N_dim x N_ens)
+            r (np.ndarray): Reservoir state at the current time step. Shape = (N_units x N_ens)
 
         Returns:
             tuple: (u_out, r_out) where u_out is the output state and r_out is the updated reservoir state.
         """
         # Normalise input data and augment with input bias (ESN symmetry parameter)
+
+        # assert self.trained, 'ESN must be trained with washout before calling step method. Call ESN.train() first.'
 
         if u.ndim == 1:
             u = np.expand_dims(u, axis=-1)
@@ -426,8 +420,6 @@ class EchoStateNetwork:
         # Forecast the reservoir state
         r_out = np.tanh(self.sigma_in * self.Win.dot(u_aug) + self.rho * self.W.dot(r))
 
-        # output bias added
-
         # compute output from ESN if not during training
         u_out = self.reservoir_to_physical(r_out)
         return u_out, r_out
@@ -440,8 +432,10 @@ class EchoStateNetwork:
         Args:
             r_aug (np.ndarray): Augmented reservoir state including output bias.
         """
+        
         # print(f'Wout shape: {self.Wout.shape}, r_aug shape: {r_aug.shape}')
 
+        # output bias added
         bias_out = self.bias_out * np.ones((1, r.shape[-1]))
         r_aug = np.concatenate((r, bias_out))
 
@@ -457,12 +451,10 @@ class EchoStateNetwork:
         Returns:
             np.ndarray: Normalized input data.
         """
-        # if data.ndim == 1:
-        # print(data.shape, self.shift.shape, self.norm.shape)
         return (data - self.shift[:, np.newaxis]) / self.norm[:, np.newaxis]
 
 
-    def outputs_to_inputs(self, full_state, add_parameters=False):
+    def outputs_to_inputs(self, full_state):
         """
         Maps the full state (predicted or reconstructed) to input states for the ESN.
 
@@ -478,7 +470,7 @@ class EchoStateNetwork:
 
         assert observed_state.shape[0] == self.N_dim_in, f'observed_state has shape {observed_state.shape}, expected first dim to be {self.N_dim_in}'
 
-        if not add_parameters:
+        if self.input_parameters is None:
             return observed_state
         else:
             return np.concatenate([observed_state, self.input_parameters], axis=0)
@@ -495,6 +487,9 @@ class EchoStateNetwork:
         Returns:
             np.ndarray: Jacobian matrix of the reservoir dynamics.
         """
+        assert self.trained, 'ESN must be trained before computing the Jacobian. Call ESN.train() first.'
+
+
         if state is None:
             r_in = self.reservoir_state
             u_in = self.physical_state
@@ -551,8 +546,8 @@ class EchoStateNetwork:
         """
         if self.trained:
             print("ESN is already trained. Skipping training.")
-            return
-        
+            pass #  skip training
+
         for key, val in kwargs.items():
             if hasattr(self, key):
                 print(f'Modifying {key} = {getattr(self, key)} -> {val} at training.')
@@ -566,7 +561,7 @@ class EchoStateNetwork:
         # print([xx.shape for xx in [U_wtv, Y_wtv, U_test, Y_test]])
 
         # Ensure W and Win matrices are initialized
-        if self.W is None or self.Win is None:
+        if not hasattr(self, '_W') or not hasattr(self, '_Win'):
             self._generate_W_Win(seed=seed)
 
         self.Wout = np.zeros((self.N_units + 1, self.N_dim))  # Initialize Wout with zeros
@@ -592,8 +587,8 @@ class EchoStateNetwork:
         if plot_training:
             self._plot_training_results(U_test, Y_test, bo_results, save_ESN_training, folder)
 
-        # Mark the model as trained
-        self.trained = True
+        # # Mark the model as trained
+        # self.trained = True
 
     def copy(self):
         return deepcopy(self)
@@ -621,7 +616,7 @@ class EchoStateNetwork:
             rng0 = np.random.default_rng(seed)
 
         # Input matrix: Sparse random matrix where only one element per row is different from zero
-        if self.Win is None:
+        if not hasattr(self, '_Win'):
             Win = lil_matrix((self.N_units,
                               self.N_dim_in + 1))  # +1 accounts for input bias
             if self.Win_type == 'sparse':
@@ -634,18 +629,14 @@ class EchoStateNetwork:
                 raise ValueError("Win type {} not implemented ['sparse', 'dense']".format(self.Win_type))
             # Store
             self.Win = Win
-        else:
-            print('Skipping Win generation, using provided Win matrix.')
 
         # Reservoir state matrix: Erdos-Renyi network
-        if self.W is None:
+        if not hasattr(self, '_W'):
             W = csr_matrix(rng0.uniform(low=-1, high=1, size=(self.N_units, self.N_units)) *
                         (rng0.random(size=(self.N_units, self.N_units)) < (1 - self.sparsity)))
             # scale W by the spectral radius to have unitary spectral radius
             spectral_radius = np.abs(sparse_eigs(W, k=1, which='LM', return_eigenvectors=False))[0]
             self.W = (1. / spectral_radius) * W
-        else:
-            print('Skipping W generation, using provided W matrix.')
 
 
     def _compute_RR_terms(self, U_wtv, Y_wtv):
@@ -664,8 +655,9 @@ class EchoStateNetwork:
                 - U_RR (list): List of input states split by L-segments.
                 - R_RR (list): List of reservoir states split by L-segments.
         """
-
-        LHS, RHS = 0., 0.
+ 
+        LHS = np.zeros((self.N_units + 1, self.N_units + 1))
+        RHS = np.zeros((self.N_units + 1, self.N_dim))
         R_RR = [np.empty([0, self.N_units])] * U_wtv.shape[0]
         U_RR = [np.empty([0, self.N_dim])] * U_wtv.shape[0]
 
@@ -682,17 +674,15 @@ class EchoStateNetwork:
 
             assert Uin_l.shape[0] > 0, \
                 f'Not enough data for training at segment {ll}: {Uin_l.shape}'
+            
             # Washout phase to initialize reservoir state
-
             r = np.zeros((self.N_units, self.N_ens))
             for u_in in U_wash_l:
                 _, r = self.step(u_in, r)
 
-
             # Split training data for faster computations
             U_train = np.array_split(Uin_l, self.N_split, axis=0)
             Y_target = np.array_split(Yout_l, self.N_split, axis=0)
-
 
             for U_t, Y_t in zip(U_train, Y_target):
                 if Y_t.ndim == 3:
@@ -715,9 +705,9 @@ class EchoStateNetwork:
 
                 # Compute matrices for linear regression system
                 bias_out = np.ones([r_open.shape[0], 1]) * self.bias_out
-                r_aug = np.hstack((r_open, bias_out))
+                r_aug = np.hstack((r_open, bias_out)) 
                 
-                LHS += np.dot(r_aug.T, r_aug)
+                LHS += np.dot(r_aug.T, r_aug) 
                 RHS += np.dot(r_aug.T, Y_t)
 
         return LHS, RHS, U_RR, R_RR
@@ -909,7 +899,7 @@ class EchoStateNetwork:
                              n_random_starts=self.N_initial_rand,  # random initial points
                              n_restarts_optimizer=3,  # tries per acquisition
                              random_state=10)
-
+        assert result is not None, 'gp_minimize retuned a None instance'
         # Process results
         f_iters = np.array(result.func_vals)
         best_idx = np.argmin(f_iters)
@@ -917,7 +907,7 @@ class EchoStateNetwork:
         # Update hyperparameters with the best result
         self._reset_hyperparams(result.x, hp_names, tikhonov=tikh_opt[best_idx])
 
-        print(f"seed {self.seed} \t Optimal hyperparameters: {result.x}, {self.tikh}, MSE: {result.fun}")
+        print(f"seed {self.seed} \t Optimal hyperparameters: {result.x}, {self.tikh}, MSE: {result.fun}")  # type: ignore
 
         return dict(res=result,
                     hp_names=hp_names)
@@ -938,15 +928,14 @@ class EchoStateNetwork:
         if 'tikh' not in self.hyperparameters_to_optimize:
             setattr(self, 'tikh_range', [self.tikh])
 
-        param_grid = [None] * len(parameters)
-        search_space = [None] * len(parameters)
-        for hpi, hyper_param in enumerate(parameters):
-            range_ = getattr(self, hyper_param + '_range')
-            param_grid[hpi] = np.linspace(*range_, self.N_grid)
-            search_space[hpi] = Real(*range_, name=hyper_param)
+        param_grid, search_space = [], [] 
+        for hyper_param in parameters:
+            range_ = getattr(self, hyper_param + '_range')  # type: tuple[float,float]
+            param_grid.append(np.linspace(*range_, self.N_grid)) 
+            search_space.append(Real(*range_, name=hyper_param))
 
         # The first n_grid^2 points are from grid search
-        search_grid = product(*param_grid, repeat=1)  # list of tuples
+        search_grid = product(*param_grid, repeat=1) 
         search_grid = [list(sg) for sg in search_grid]
 
         # Print optimization header
@@ -981,7 +970,8 @@ class EchoStateNetwork:
             L = 1
             Nens = 1
             Ndim = train_data.shape[1]
-            # raise ValueError(f'U_wtv must be a 3D or 4D array, got {train_data.ndim}D: ({train_data.shape})')
+        else:
+            raise ValueError(f'U_wtv must be a 2D, 3D or 4D array, got {train_data.ndim}D: ({train_data.shape})')
 
         if method is None:
             return np.ones(Ndim), np.zeros(Ndim)
@@ -991,7 +981,6 @@ class EchoStateNetwork:
         shifted_data  = train_data - shift[:, np.newaxis, :]
 
         if method == 'std':
-
             shift = np.mean(train_data, axis=1) 
             norm = np.std(shifted_data, axis=1)
         elif method == 'max':
@@ -1076,6 +1065,7 @@ class EchoStateNetwork:
 
                 # Perform washout (open-loop without extra forecast step)
                 r_out = np.zeros((case.N_units, case.N_ens))
+                u_out = np.zeros((case.N_dim, case.N_ens))
 
                 for u_in in U_wash:
                     u_out, r_out = case.step(u_in, r_out)
@@ -1203,6 +1193,7 @@ class EchoStateNetwork:
 
             # Perform washout (open-loop without extra forecast step)
             r_out = np.zeros((self.N_units, self.N_ens))
+            u_out = np.zeros((self.N_dim, self.N_ens))
             u_open = np.zeros_like(_target[:self.N_wash]) 
 
 
@@ -1350,6 +1341,9 @@ class EchoStateNetwork:
             else:
                 figures_short = [None]
 
+        else: 
+            fig_long = None
+            figures_short = [None]
 
         # Compute errors over all Lis
         if test_counter > 0:
@@ -1415,8 +1409,8 @@ class EchoStateNetwork:
             res_x = np.array(res.x_iters)
 
             for hpi in range(len(hp_names) - 1):
-                range_1 = getattr(self, f'{hp_names[hpi]}_range')
-                range_2 = getattr(self, f'{hp_names[hpi + 1]}_range')
+                range_1 = getattr(self, f'{hp_names[hpi]}_range')  # type: tuple[float, float]
+                range_2 = getattr(self, f'{hp_names[hpi + 1]}_range')  # type: tuple[float, float]
 
                 n_len = 100  # points to evaluate the GP at
                 xx, yy = np.meshgrid(np.linspace(*range_1, n_len), np.linspace(*range_2, n_len))

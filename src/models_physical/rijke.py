@@ -1,4 +1,4 @@
-from model import *
+from model import Model, IVPIntegrator, np, plt
 
 from scipy.interpolate import splrep, splev
 from utils import Cheb
@@ -180,7 +180,7 @@ class Rijke(Model):
     
 
 
-    def visualize_spatiotemporal_hist(self, y_hist=None, t=None, nrows=None, averaged=False):
+    def visualize_spatiotemporal_hist(self, y_hist=None, t=None, nrows=None, averaged=False, **kwargs):
         """
         Visualize the spatiotemporal evolution of the KS model in the physical space.
         """
@@ -216,7 +216,7 @@ class Rijke(Model):
                 ax.set(ylabel="$x$")
                 ax.set_yticks(ticks)
                 # ax.set_yticklabels(tick_labels)
-            fig.colorbar(im, ax=axs, orientation='vertical', shrink=1/nrows) 
+            fig.colorbar(im, ax=axs, orientation='vertical', shrink=1/nrows) #type: ignore
                 
                 
             axs[0].set(title=rf"Rijke spatiotemporal evolution $x_f={self.xf}$")

@@ -88,22 +88,20 @@ class Bias:
 
     @property
     def forecaster(self):
-        if not hasattr(self, '_forecaster'):
-            raise AttributeError('Forecaster not initialized yet.')
-
-        return self._forecaster
+        assert hasattr(self, '_forecaster'), 'Forecaster not initialized yet.'
+        return self._forecaster # type: ignore #should be an instance of a forecaster model, e.g., ESN_model
     
 
     @property
     def history(self):
-        return self._forecaster.history
+        return self._forecaster.history  # type: ignore
     
     @property
     def integrator(self):
         """
         This is the integrator used by the model of the bias. E.g., DiscreteIntegrator if using ESN_model as forecaster.
         """
-        return self._forecaster.integrator
+        return self._forecaster.integrator  # type: ignore
     
     @property
     def forecaster_class(self):
@@ -120,13 +118,20 @@ class Bias:
         return default_attrs
 
 
-    def _init_forecaster(self, **kwargs):
+    def init_forecaster(self, **kwargs):
         """
         initial_capacity = kwargs.pop('initial_capacity', max(1000, state.shape[0]*10))
         self._forecaster = forecaster_model(**kwargs)
         """
         raise NotImplementedError('Bias child classes must implement _init_forecaster() method.')
 
+    @property
+    def state_derivative(self):
+        """
+        Returns the derivative of the bias state, which is used for time integration.
+        This is typically computed by the forecaster model.
+        """
+        raise NotImplementedError('Bias child classes must implement state_derivative property, typically computed by the forecaster model.')
     
 
     def _format_state(self, b):
@@ -233,14 +238,6 @@ class Bias:
         state = self._format_state(state)
         return state[:, self.observed_idx, :]
 
-
-
-    def get_innovations(self, state, **kwargs):
-        if self.biased_observations:
-            nb = state.shape[1] // 2
-            return state[nb:, :, :]
-        else:
-            return state
     
     def get_bias_hist(self, mean=False):
         return self.get_bias(state=self.hist, mean=mean)

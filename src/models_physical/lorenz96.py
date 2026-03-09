@@ -33,7 +33,7 @@ class Lorenz96(Model):
     # --- Parameter and State Labels ---
     alpha_labels = dict(F='$F$')
     alpha_lims = dict(F=(None, None))
-    extra_print_params = ['observe_dims', 'Nq', 't_lyap', 'Nx']
+    extra_print_params = ['observed_idx', 'Nq', 't_lyap', 'Nx']
     fixed_params = ['Nx']
 
     # __________________________ Init method ___________________________ #
@@ -43,8 +43,8 @@ class Lorenz96(Model):
         psi0 = model_dict.pop('psi0', np.array([1.6] + [1.0] * (self.Nx - 1)))
         dt = model_dict.pop('dt', 0.01)
 
-        self.observe_dims = model_dict.pop('observe_dims', [0, 1, 2]) # Default to observing first three dimensions if not specified
-        self.Nq = len(self.observe_dims)
+        self.observed_idx = model_dict.pop('observed_idx', [0, 1, 2]) # Default to observing first three dimensions if not specified
+        self.Nq = len(self.observed_idx)
         
         super().__init__(psi0=psi0, dt=dt, integrator_class=IVPIntegrator, **model_dict)
 
@@ -53,18 +53,20 @@ class Lorenz96(Model):
     # _______________ Lorenz63 specific properties and methods ________________ #
 
     @property
-    def obs_labels(self):
-        return [self.state_labels[kk] for kk in self.observe_dims]
-
-    @property
     def state_labels(self):
         return [f'$x_{{{kk}}}$' for kk in range(self.Nx)]
+    
+
+    @property
+    def obs_labels(self):
+        return [self.state_labels[kk] for kk in self.observed_idx]
 
     def get_observables(self, Nt=1, **kwargs):
         if Nt == 1:
-            return self.hist[-1, self.observe_dims, :]
+            return self.hist[-1, self.observed_idx, :]
         else:
-            return self.hist[-Nt:, self.observe_dims, :]
+            return self.hist[-Nt:, self.observed_idx, :]
+
 
     @staticmethod
     def time_derivative(t, psi, Nx, F):
@@ -80,7 +82,7 @@ class Lorenz96(Model):
 
 
     
-    def visualize_spatiotemporal_hist(self, y_hist=None, t=None, nrows=None, averaged=False):
+    def visualize_spatiotemporal_hist(self, y_hist=None, t=None, nrows=None, averaged=False, **kwargs):
 
         if y_hist is None:
             y_hist = self.hist[:, :self.Nx]
@@ -109,7 +111,7 @@ class Lorenz96(Model):
             axs[0].set(title=rf"Lorenz96 spatiotemporal evolution. $F={self.F:.2f}, N_x={self.Nx}$")
             axs[-1].set(xlabel="$t$")
 
-            fig.colorbar(im, ax=axs, orientation='vertical', shrink=1/nrows) 
+            fig.colorbar(im, ax=axs, orientation='vertical', shrink=1/nrows) #type: ignore
         else:
             # Averaged ensemble visualization
             y_mean_hist = np.mean(y_hist, axis=-1)
@@ -161,18 +163,18 @@ def plot_attractor(psi_cases, color=None, figsize=(8, 6)):
         psi_cases = [p[:, :, np.newaxis] if p.ndim == 2 else p for p in psi_cases]
 
     if color is None:
-        color = plt.cm.viridis(np.linspace(0, 1, len(psi_cases)))
+        color = plt.colormaps['viridis'](np.linspace(0, 1, len(psi_cases)))
     elif type(color) is str:
         color = [color] * len(psi_cases)
     
     # Check for 3D state dimension
     if psi_cases[0].shape[1] == 3:
-        mosaic = [['A', 'ax_xy'],
-                ['A', 'ax_xz'],
-                    ['A', 'ax_yz',]]
+        mosaic = [('A', 'ax_xy'),
+                ('A', 'ax_xz'),
+                ('A', 'ax_yz')]
         
         # Create figure and axes with ratios for larger 3D plot
-        fig, axes = plt.subplot_mosaic(mosaic, figsize=figsize, layout='tight', width_ratios=[2,1])
+        fig, axes = plt.subplot_mosaic(mosaic, figsize=figsize, layout='tight', width_ratios=[2,1]) # type: ignore
         lbl = ['$x$', '$y$', '$z$']
         projections = [
             (axes['ax_xy'], 0, 1), # XY

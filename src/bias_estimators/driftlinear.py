@@ -138,10 +138,10 @@ class DriftLinearBias(Bias):
         self._forecaster = SimpleNamespace()
         self._N_dim = state.shape[1]
         
-        if self.biased_observations:
-            self.observed_idx = np.arange(self._N_dim // 2)
-        else:
-            self.observed_idx = np.arange(self._N_dim)
+        # if self.biased_observations:
+        #     self.observed_idx = np.arange(self._N_dim // 2)
+        # else:
+        #     self.observed_idx = np.arange(self._N_dim)
         
         if 'initial_capacity' in kwargs.keys():
             initial_capacity = kwargs.pop('initial_capacity')
@@ -152,7 +152,9 @@ class DriftLinearBias(Bias):
         
         # Use DiscreteIntegrator for time stepping
         self._forecaster.integrator = DiscreteIntegrator(self)
-    
+
+        # TODO: return the forecaster instance instead of storing it as an attribute, for vcompatibility with Bias class design. 
+        # This may require refactoring the Bias class to not assume a single forecaster instance stored as an attribute.
     
     def time_step(self, Nt: int = 100):
         """

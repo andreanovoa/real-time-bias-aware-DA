@@ -9,8 +9,9 @@ from utils import get_project_root, convert_to_python_type
 
 from models_data_driven import ESN_model
 
+ROOT = get_project_root()
 
-BASE_CONFIG_DIR = get_project_root() + '/src/config'
+BASE_CONFIG_DIR = f'{ROOT}/src/config' if ROOT is not None else 'config'
 
 INIT_KEYS = [# fixed hyperparameter settings
             'N_units',
@@ -54,7 +55,7 @@ class ESNConfig:
     """Configuration class for ESN_model to enable easy save/load without retraining."""
     
     # Model dimensions
-    N_dim: Optional[int] = None
+    N_dim: int = 0
     observed_idx: Optional[list] = None
     update_reservoir: bool = True
     update_state: bool = True
@@ -199,7 +200,7 @@ class ESNConfig:
                 config_dict[f't_{key}'] = kwargs[f'N_{key}'] * kwargs['dt']
 
         init_config = cls(**config_dict)
-        if init_config.N_dim is None:
+        if init_config.N_dim == 0:
             assert 'data' in kwargs and kwargs['data'] is not None, "N_dim not provided and data not available to infer it."
             init_config.N_dim = kwargs['data'].shape[1]
 
@@ -224,8 +225,11 @@ class ESNConfig:
         
         if not retrain:
             # Load pre-trained model
+            if self.N_dim is None or self.reservoir_state is None:
+                raise ValueError("N_dim and reservoir_state must be set to load a pre-trained model")
+            
             config = asdict(self)
-            config['y0'] = np.zeros((self.N_dim,self.reservoir_state.shape[-1]))  # Dummy initial state
+            config['y0'] = np.zeros((self.N_dim, self.reservoir_state.shape[-1]))  # Dummy initial state
             # print("Loading pre-trained ESN_model...")
             return ESN_model(**config)
         else:
@@ -251,8 +255,8 @@ class ESNConfig:
         config_dict = ESNConfig._init_config_dict(self)  
 
         # Convert tuples to lists for YAML compatibility and  sort keys for consistent ordering in YAML file
-        config_dict = convert_to_python_type(config_dict)
-        config_dict = dict(sorted(config_dict.items()))
+        config_dict = convert_to_python_type(config_dict) 
+        config_dict = dict(sorted(config_dict.items()))# type: ignore
 
         
         with open(filepath, 'w') as f:
@@ -293,7 +297,7 @@ class ESNConfig:
         """
         Save large matrices and other metadata defined after training the network.
         """ 
-        data_to_save = {key: getattr(esn_model, key, None) for key in TRAINED_KEYS }
+        data_to_save = {key: getattr(esn_model, key, False) for key in TRAINED_KEYS }
         
         np.savez_compressed(save_dir / 'trained_matrices.npz', **data_to_save)
         print(f"Trained matrices saved to ...{'/'.join(list(save_dir.parts)[-3:])}/trained_matrices.npz")
@@ -326,7 +330,6 @@ class ESNConfig:
         if not saved_file.exists():
             # Return dict with None values if file doesn't exist
             return {name: None for name in TRAINED_KEYS}
-            # return None
         
         trained_dict = {}
         with np.load(saved_file, allow_pickle=True) as data:
@@ -341,7 +344,7 @@ class ESNConfig:
 
 
 # Convenience functions
-def save_esn_model_to_config(esn_model, save_dir: str = None, name: str = None):
+def save_esn_model_to_config(esn_model, save_dir: Union[str, Path] =  Path(BASE_CONFIG_DIR) / "esn_configs", name: Optional[str] = None):
     """
     Convenience function to save an ESN model configuration.
     
@@ -354,16 +357,14 @@ def save_esn_model_to_config(esn_model, save_dir: str = None, name: str = None):
         Tuple of (config, save_path)
     """
 
-    if save_dir is None:
-        save_dir = Path(BASE_CONFIG_DIR) / "esn_configs"
-
-    save_dir = Path(save_dir)
+    if isinstance(save_dir, str):
+        save_dir = Path(save_dir)
     
 
     config = ESNConfig.from_esn_model(esn_model)
 
     if name is None:
-        name = save_dir / f"{config.to_hash()}"
+        name = f"{config.to_hash()}"
 
     save_path = save_dir / name 
     config.save(save_path)
@@ -376,7 +377,7 @@ def save_esn_model_to_config(esn_model, save_dir: str = None, name: str = None):
 
 def load_esn_model_from_config(q: Optional[str]=None,
                                config: Optional[ESNConfig]=None, 
-                               load_dir: str = Path(BASE_CONFIG_DIR) / "esn_configs"):
+                               load_dir: Union[str, Path] = Path(BASE_CONFIG_DIR) / "esn_configs"):
     """
     Load an ESN_model instance from a saved configuration.
     Args:
@@ -407,7 +408,7 @@ def load_esn_model_from_config(q: Optional[str]=None,
     return config.to_esn_model() # Note: data is not needed to load a trained model since matrices are loaded separately
     
 
-def find_matching_config(search_dir: str, query_hash):
+def find_matching_config(search_dir: Union[str, Path], query_hash: str) -> Optional[Path]:
     """
     Search for a saved config that matches the given initialization parameters.
     
@@ -453,7 +454,7 @@ def find_matching_config(search_dir: str, query_hash):
     return None
 
 
-def auto_load_or_create(config_dir: str = Path(BASE_CONFIG_DIR) / "esn_configs", 
+def auto_load_or_create(config_dir: Union[str,Path] = Path(BASE_CONFIG_DIR) / "esn_configs", 
                         auto_save: bool = True, 
                         force_create: bool = False,
                         query_hash: Optional[str] = None,
@@ -507,7 +508,7 @@ def auto_load_or_create(config_dir: str = Path(BASE_CONFIG_DIR) / "esn_configs",
 
 
 
-def list_saved_configs(search_dir: str, verbose=True):
+def list_saved_configs(search_dir: Union[str, Path], verbose=True):
     """
     List all saved ESN configs in a directory.
     

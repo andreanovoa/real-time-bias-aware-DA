@@ -18,7 +18,8 @@ rng = np.random.default_rng(6)
 
 
 class Filter(object):
-    is_bias_aware = False
+    gamma = None  # regularization factor for bias-aware filters, e.g., rBA-EnKF. Only used if is_bias_aware = True.
+
     def __init__(self, m, M):
         self.m = m  # ensemble size
         self._M = M  # observation operator matrix
@@ -53,7 +54,9 @@ class Filter(object):
     def filter_name(self):
         return self.__class__.__name__ 
 
-
+    @property
+    def is_bias_aware(self):
+        return self.gamma is not None
 
 class EnSRKF(Filter):
     """Ensemble Square-Root Kalman Filter based on Evensen (2009)
@@ -84,8 +87,8 @@ class EnSRKF(Filter):
 
         # Matrix to invert
         C = (self.m - 1) * Cdd + np.dot(S, S.T)
-        L, Z = linalg.eig(C)
-        Linv = linalg.inv(np.diag(L.real))
+        L, Z = linalg.eig(C)[:2]
+        Linv = linalg.inv(np.diag(np.real(L)))
 
         X2 = np.dot(linalg.sqrtm(Linv), np.dot(Z.T, S))
         E, V = linalg.svd(X2)[1:]
@@ -161,26 +164,26 @@ class EnKF(Filter):
 
 class rBA_EnKF(Filter):
 
-    is_bias_aware = True
+    """Regularized Bias-Aware Ensemble Kalman Filter (r-EnKF) based on the derivation in Nóvoa et al. (CMAME, 2024).  
+        Inputs:
+            Af: forecast ensemble at time t (augmented with Y)
+            d: observation at time t
+            Cdd: observation error covariance matrix
+            Cbb: bias covariance matrix
+            M: matrix mapping from state to observation space
+            b: bias of the forecast observables (Y = MAf + B)   
+            J: derivative of the bias with respect to the input
+            gamma: regularization factor for the bias term [default = 1.0]. 
+                Higher values of gamma correspond to stronger regularization (i.e., more weight on the bias term in the cost function).
+        Returns:
+            Aa: analysis ensemble (or Af is Aa is not real)
+    """
 
     def __init__(self, m, M, gamma=1.0, **kwargs):
         self.gamma = gamma
         super().__init__(m, M)
 
     def __call__(self, Af, d, Cdd, Cbb, b, J):
-        """ Bias-aware Ensemble Kalman Filter.
-            Inputs:
-                Af: forecast ensemble at time t (augmented with Y) [N x Nm]
-                d: observation at time t [Nq x 1]
-                Cdd: observation error covariance matrix [Nq x Nq]
-                Cbb: bias covariance matrix [Nq x Nq]
-                M: matrix mapping from state to observation space [Nq x N]
-                b: bias of the forecast observables (Y = MAf + B) [Nq x 1]
-                J: derivative of the bias with respect to the input [Nq x Nq]
-            Returns:
-                Aa: analysis ensemble (or Af is Aa is not real)
-                cost: (optional) calculation of the DA cost function and its derivative
-        """
 
         Nq = len(d)
         M = self.observation_operator(Af)

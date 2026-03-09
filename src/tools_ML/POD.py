@@ -1,8 +1,11 @@
+from matplotlib import colors, patches
+from matplotlib.figure import Figure
 from utils import save_figs_to_pdf, get_figsize_based_on_domain, crop_data_to_domain_of_interest
 from copy import deepcopy
 
 import numpy as np
 import os as os
+from typing import Optional, Union
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -30,13 +33,13 @@ class POD:
     N_modes = 20
     method = 'snapshot'
     eig_solver = 'svd_sklearn_randomized'
-    Q_mean = None
+    # Q_mean = None # mean flow, assigned at init
 
     field_labels = ['$u_x$', '$u_y$']
     POD_attrs = ['Phi', 'Psi', 'Sigma', 'grid_shape', 'Q_mean', 'domain']
 
 
-    domain = [-1, 1, -1, 1]
+    domain = [-1., 1, -1, 1]
     indices_to_original_grid = None
 
     filename = 'POD'
@@ -47,7 +50,7 @@ class POD:
                  X=None,
                  plot_decomposition=False,
                  save_decomposition=False,
-                 domain_of_interest = None,   ## TODO: if provided, cut the data and down sample it
+                 domain_of_interest: Optional[list] = None,   ## TODO: if provided, cut the data and down sample it
                  down_sample = None,
                  **kwargs):
         """
@@ -102,6 +105,7 @@ class POD:
                     assert isinstance(down_sample, list)
 
                 # (Nu, Nx, Ny, Nt) = X.shape
+                domain_of_interest = domain_of_interest if domain_of_interest is not None else self.domain
                 original_data = X.transpose(0, 3, 1, 2) # (Nu, Nt, Nx, Ny)
                 cropped_data, cropped_grid_indices = crop_data_to_domain_of_interest(original_data, 
                                                                                      original_domain=self.domain,
@@ -135,7 +139,8 @@ class POD:
             POD.plot_POD_modes(case=self, num_modes=self.N_modes, cmap='viridis')
             POD.plot_time_coefficients(case=self)
             POD.plot_spectrum(case=self)
-            POD.plot_flows_rms(case=self, datasets=X.copy(), names=['Original data'])
+            if X is not None:
+                POD.plot_flows_rms(case=self, datasets=X.copy(), names=['Original data'])
 
             if save_decomposition:
                 os.makedirs(self.figs_folder, exist_ok=True)
@@ -248,7 +253,7 @@ class POD:
         new_shape = list(np.ones(Phi.ndim, dtype=int))
         new_shape[-2] = self.N_modes
 
-        Sigma = np.reshape(self.Sigma, newshape=new_shape)
+        Sigma = np.reshape(self.Sigma, shape=new_shape)
 
 
         Q_POD = np.dot(Psi, Sigma * Phi)
@@ -280,9 +285,9 @@ class POD:
             if data.shape[:len(self.grid_shape)] == self.grid_shape:
                 return data
             else:
-                return np.reshape(data, newshape=(*self.grid_shape, data.shape[1]))
+                return np.reshape(data, shape=(*self.grid_shape, data.shape[1]))
         else:
-            return np.reshape(data, newshape=(*self.grid_shape,))
+            return np.reshape(data, shape=(*self.grid_shape,))
 
     # ========================================== METRICS ==================================================
     @staticmethod
@@ -461,8 +466,8 @@ class POD:
                 axs = [axs]
             else:
                 axs = axs.ravel()
-            norm = mpl.colors.Normalize(vmin=np.min(data[..., 0]), vmax=np.max(data[..., 0]))
-
+            norm = colors.Normalize(vmin=np.min(data[..., 0]), vmax=np.max(data[..., 0]))
+            
             for kk, ax in zip(range(num_modes), axs):
                 im0 = ax.pcolormesh(X1, X2, data[..., kk], cmap=mpl.colormaps[cmap], norm=norm, rasterized=True)
 
@@ -475,7 +480,7 @@ class POD:
 
                 ax.set_aspect('equal')
 
-            fig1.colorbar(mappable=im0, ax=axs, shrink=0.5, aspect=20)
+            fig1.colorbar(mappable=im0, ax=axs, shrink=0.5, aspect=20) # type: ignore
 
 
             if num_modes < len(axs):
@@ -526,15 +531,17 @@ class POD:
         fig1 = plt.figure(figsize=(10, 1.5*nrows), layout='tight')  #timeseries
 
         axs1 = fig1.subplots(nrows=nrows, ncols=1, sharey=False, sharex=False)
-        norm = mpl.colors.Normalize(vmin=np.min(Phi), vmax=np.max(Phi))
+        norm = colors.Normalize(vmin=np.min(Phi), vmax=np.max(Phi))
         i0 = -1
 
         if nrows == 1:
             axs1 = [axs1]
+
+        im0 = None
         for ax, phi in zip(axs1, time_coeffs):
             i0 += 1
             extent = [i0*window, (i0+1)*window, 0, num_modes]
-            im0 = ax.imshow(phi.T, cmap=mpl.cm.viridis, 
+            im0 = ax.imshow(phi.T, cmap=mpl.colormaps['viridis'], 
                             norm=norm, 
                 aspect='auto',
                 extent=extent,
@@ -542,6 +549,7 @@ class POD:
             ax.set(xlim=(i0*window,(i0+1)*window-1))
             # POD.new_method()
 
+        assert im0 is not None
         fig1.colorbar(mappable=im0, ax=axs1[0], shrink=0.75, orientation='vertical')
 
         if plot_recurrence:
@@ -562,19 +570,17 @@ class POD:
             fig2 = plt.figure(figsize=(4 * ncols1, 3 * nrows1)) #recurrent plot
             gs = GridSpec(1, 1, figure=fig2)  # Define a single GridSpec slot
             grid = ImageGrid(fig2, gs[0, 0], nrows_ncols=(nrows1, ncols1), axes_pad=0.1, share_all=True)
-            for i, xx in enumerate(X_rp):
-                grid[i].imshow(xx, cmap='binary', origin='lower')
+            ii = 0
+            for ii, xx in enumerate(X_rp):
+                grid[ii].imshow(xx, cmap='binary', origin='lower')
 
             grid[0].get_yaxis().set_ticks([])
             grid[0].get_xaxis().set_ticks([])
             
             if num_modes < len(grid):
-                for jj_del in np.arange(i, num_modes, 1):
+                for jj_del in np.arange(ii, num_modes, 1):
                     fig1.delaxes(grid[jj_del])
 
-    @staticmethod
-    def new_method():
-        i0 += 100
 
 
     @staticmethod
@@ -599,12 +605,14 @@ class POD:
         axs[0].set(xlabel='Mode number $j$', title='$\\lambda_j / \\lambda_0$',
                     xlim=[0, max(case.N_modes, 10)])
         axs[1].plot(np.arange(case.N_modes)+1, np.cumsum(Lambda) / sum(Lambda), color='C4',
-                        label='$\\dfrac{\\sum_{j}{\,\\lambda_j}}{ \\sum_{k=0}^{' + f'{case.N_modes}' + '}\\lambda_k}$')
+                        label='$\\dfrac{\\sum_{j}{\\lambda_j}}{ \\sum_{k=0}^{' + f'{case.N_modes}' + '}\\lambda_k}$')
 
         if case._TKE is not None:
             energy = Lambda / 2 / case.Phi.shape[0]
             axs[1].plot(np.arange(case.N_modes)+1, np.cumsum(energy) / case._TKE,
-                            dashes=[10, 5], color='k', label='$\\dfrac{\\sum_{j}{\,\\lambda_j}}{\mathrm{TKE}}$')
+                            dashes=[10, 5], color='k', label='$\\dfrac{\\sum_{j}{\\lambda_j}}{\\mathrm{TKE}}$')
+        else:
+            energy= False
 
         axs[1].grid(visible=True, linestyle='--', alpha=0.5)
         axs[1].set(xlabel='Mode number $j$', title='Cumulative energy')
@@ -614,18 +622,18 @@ class POD:
         # Zoom insets
         if max_mode is not None and max_mode < case.N_modes:
             # Spectrum inset
-            ax_zoom0 = fig.add_axes([0.3, 0.5, 0.15, 0.35])  # [left, bottom, width, height] in figure coordinates
+            ax_zoom0 = fig.add_axes((0.3, 0.5, 0.15, 0.35))  # [left, bottom, width, height] in figure coordinates
             ax_zoom0.bar(np.arange(max_mode)+1, normalized_Lambda[:max_mode], color='C4')
-            ax_zoom0.set_xlim([0, max_mode+1])
-            ax_zoom0.set_ylim([0, None])
+            ax_zoom0.set_xlim((0, max_mode+1))
+            ax_zoom0.set_ylim(ymin=0)
 
             # Cumulative energy inset
-            ax_zoom1 = fig.add_axes([0.72, 0.2, 0.15, 0.35])
+            ax_zoom1 = fig.add_axes((0.72, 0.2, 0.15, 0.35))
             ax_zoom1.grid(visible=True, linestyle='--', alpha=0.5)
             ax_zoom1.plot(np.arange(max_mode)+1, np.cumsum(Lambda[:max_mode]) / np.sum(Lambda), color='C4')
-            if case._TKE is not None:
+            if energy:
                 ax_zoom1.plot(np.arange(max_mode)+1, np.cumsum(energy[:max_mode]) / case._TKE, dashes=[5, 2], color='k')
-            ax_zoom1.set_xlim([0, max_mode+1])
+            ax_zoom1.set_xlim((0, max_mode+1))
 
 
     @staticmethod
@@ -633,7 +641,7 @@ class POD:
                        datasets,
                        reconstructed_data=None,
                        display_dims=None,
-                       display_RMS='all',
+                       display_RMS: Union[str, int, list[int]]='all',
                        names=None,
                        norm_flow=None,
                        norm_rms=None,
@@ -675,21 +683,24 @@ class POD:
             """Compute global min and max for consistent RMS and flow scaling."""
             if _norm_rms is None:
                 _rms_data = np.array([_d for _d, _t in zip(_datasets, _datasets_titles) if 'RMS' in _t])
-                _norm_rms = mpl.colors.Normalize(vmin=0., vmax=_rms_data.max())
+                _norm_rms = colors.Normalize(vmin=0., vmax=_rms_data.max())
 
             if _norm_flow is None:
                 _norm_flow = []
                 for r in range(nrows):
                     _row = np.array([_yy[r] for _yy in _prepared_datasets])
-                    _norm_flow.append(mpl.colors.Normalize(vmin=np.min(_row), vmax=np.max(_row)))
+                    _norm_flow.append(colors.Normalize(vmin=np.min(_row), vmax=np.max(_row)))
             return _norm_flow, _norm_rms
 
         datasets = datasets if isinstance(datasets, list) else [datasets]
 
         if display_RMS == 'all':
-            display_RMS = list(np.arange(len(datasets)))
+            display_RMS_id = list(np.arange(len(datasets), dtype=int))
         else:
-            display_RMS = display_RMS if isinstance(display_RMS, list) else [display_RMS]
+            if isinstance(display_RMS, int):
+                display_RMS = [display_RMS]
+
+            display_RMS_id =  [int(ii) for ii in display_RMS]
 
         if reconstructed_data is None:
             reconstructed_data = case.reconstruct(Phi=case.Phi[-1], reshape=True)
@@ -705,12 +716,11 @@ class POD:
         X1, X2 = case.domain_mesh
 
         if display_sensors and hasattr(case, 'sensor_locations'):
-            X1_r, X2_r = X1.ravel(), X2.ravel()
             idx = case.sensor_locations[case.sensor_locations < len(X1.ravel())]
-            dom = case.domain_of_measurement
-            display_dom = case.domain != case.domain_of_measurement and dom is not None
+            display_dom = case.domain != case.domain_of_measurement
         else:
-            display_sensors = False
+            idx = []
+            display_sensors, display_dom = False, False
 
         # Prepare data titles and cmaps to plot
         _datasets = [reconstructed_data]
@@ -722,7 +732,7 @@ class POD:
             _datasets.append(dataset)
             _cmaps.append(cmap_flow)
             _titles.append(name or f'dataset {ii}')
-            if ii in display_RMS:
+            if ii in display_RMS_id:
                 RMS = POD.compute_RMS(reconstructed_data, dataset)
                 _datasets.append(RMS)
                 _titles.append(f'RMS({name or f"dataset {ii}"})')
@@ -740,6 +750,7 @@ class POD:
                               layout='constrained').subfigures(nrows=nrows, ncols=1)
 
         for jj, (fig, norm_f) in enumerate(zip(sub_figs if nrows > 1 else [sub_figs], norm_flow)):
+            assert isinstance(fig, Figure)
             axs = fig.subplots(nrows=1, ncols=ncols, sharex=True, sharey=True)
             im_rms, im_flow = None, None
 
@@ -752,18 +763,19 @@ class POD:
                     im_flow = ax.pcolormesh(X1, X2, dataset[jj], cmap=cmap, norm=norm_f, rasterized=True)
 
                 if display_sensors:
-                    ax.scatter(X1_r[idx], X2_r[idx], c=np.arange(len(idx)), cmap='YlOrRd', edgecolors='k', s=12.25,
-                               lw=.5)
+                    X1_r, X2_r = X1.ravel(), X2.ravel()
+                    ax.scatter(X1_r[idx], X2_r[idx], c=np.arange(len(idx)), 
+                               cmap='YlOrRd', edgecolors='k', s=12.25, lw=.5)
                     if display_dom:
-                        ax.add_patch(mpl.patches.Rectangle((dom[0], dom[2]), dom[1] - dom[0], dom[3] - dom[2],
-                                                           edgecolor='orange', facecolor='none', lw=3, ls='--'))
+                        dom = case.domain_of_measurement
+                        ax.add_patch(patches.Rectangle((dom[0], dom[2]), dom[1] - dom[0], dom[3] - dom[2],
+                                                        edgecolor='orange', facecolor='none', lw=3, ls='--'))
 
                 ax.set(ylabel='$x$' if kk == 0 else None, title=title if jj == 0 else None, xlabel='$y$' if jj > 0 else None)
-
                 ax.set_aspect('equal')
 
             # Add colorbars for flow and RMS plots
-            [fig.colorbar(im, ax=axs, shrink=0.5) for im in [im_rms, im_flow] if im]
+            [plt.colorbar(im, ax=axs, shrink=0.5) for im in [im_rms, im_flow] if im]
 
         if save:
             plt.savefig(f'{case.figs_folder}{case.filename}_flows_rms.png', dpi=300)
