@@ -1,0 +1,16 @@
+repos:
+  - repo: local
+    hooks:
+      - id: nbconvert-clean
+        name: Clean Jupyter notebooks with nbconvert
+        language: system
+        types: [jupyter]
+        entry: >
+          jupyter nbconvert
+          --to=notebook
+          --inplace
+          --clear-output
+          --ClearMetadataPreprocessor.enabled=True
+          --ClearMetadataPreprocessor.preserve_cell_metadata_mask="{}"
+          --
+        stages: [commit]
