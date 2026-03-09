@@ -1139,62 +1139,62 @@ def plot_observable_history(ensemble : Ensemble,
     
     y_unbiased, y_model = ensemble.get_observable_hist()
 
-    # Get truth if available ----
-    y_raw: Optional[np.ndarray] =  np.asarray(truth.y_raw.copy()) if truth is not None else None
-    y_true: Optional[np.ndarray] = np.asarray(truth.y_true.copy()) if truth is not None else None
-    t_true: Optional[np.ndarray] = np.asarray(truth.t_true.copy()) if truth is not None else None
+    # Normalize and cut signals to interval of interest -----
+    (y_unbiased, y_model), y_labels = normalized_y(reference_y, pm.obs_labels, 
+                                                    y_unbiased, y_model)
     
-    (t, t_margin, t_true), t_label = normalized_time(reference_t, 
-                                                     pm.hist_t.copy(),  np.array(pm.t_CR), t_true)
+    (t, t_margin), t_label = normalized_time(reference_t, 
+                                             pm.hist_t.copy(),  np.array(pm.t_CR))
     
-    t_margin = t_margin[0]  # type: ignore # Ensure t_margin is a scalar for later calculations
-    assert isinstance(t, np.ndarray), "Model history time array is required for plotting observable history."
-
-    # Get observations if available ----
     if  len(ensemble.assimilated_data.times) > 0: 
         t_obs = np.array(ensemble.assimilated_data.times)
-        y_obs = np.array(ensemble.assimilated_data.data)[..., np.newaxis]
-        t_obs = normalized_time(reference_t, t_obs)[0][0]  # Normalize observation time using the same reference time as the model history
-        
-        assert t_obs is not None, "Observation history is required for plotting observable history."
-        assert t_obs.ndim == 1, "Observation time array must be 1D for plotting observable history."
-        assert y_obs is not None, "Observation history is required for plotting observable history."
-        assert t_obs.shape[0] == y_obs.shape[0], "Time dimension of observations does not match time array for plotting observable history."
-
         if max_time is None:
             max_time = min(t_obs[-2] + t_margin, t[-1]) 
         min_time = t_obs[0] - 0.25 * t_margin       
-
-        plot_observations = True
     else:        
-        plot_observations = False
+        t_obs = None
         min_time, max_time = t[0], t[-1]
 
-    # cut signals to interval of interest -----
     t, (y_model, y_unbiased) = cut_signals(t, y_model, y_unbiased, min_time=min_time, max_time=max_time)
-    t_true, (y_raw, y_true) = cut_signals(t_true, y_raw, y_true,  min_time=min_time, max_time=max_time)
-    if len(t) != len(t_true):
-        y_raw = interpolate(t_true, y_raw, t)
-        y_true = interpolate(t_true, y_true, t)
+
+    # Get truth if available ----
+    if truth is not None:
+        y_raw  =  np.asarray(truth.y_raw.copy()) 
+        y_true = np.asarray(truth.y_true.copy()) 
+        t_true = np.asarray(truth.t_true.copy()) 
         
-    # Nomalize ys ----  
-    (y_unbiased, y_model, y_raw, y_true), y_labels = normalized_y(reference_y, pm.obs_labels, 
-                                                                  y_unbiased, y_model, y_raw, y_true)
-    assert y_model is not None, "Model observable history is required for plotting observable history."
-    assert y_model.shape[0] == len(t), "Time dimension of model history does not match time array after cutting."
+        t_true = normalized_time(reference_t,  t_true)[0][0]
+        (y_raw, y_true), y_labels = normalized_y(reference_y, pm.obs_labels, 
+                                                  y_raw, y_true)
 
-    if plot_observations:
-        y_obs = normalized_y(reference_y, pm.obs_labels, y_obs)[0][0] # type: ignore 
-
-    # % PLOT time series ------------------------------------------------------------------------------------------
-    if y_true is not None:
+        t_true, (y_raw, y_true) = cut_signals(t_true, y_raw, y_true,  min_time=min_time, max_time=max_time)
+        if len(t) != len(t_true):
+            y_raw = interpolate(t_true, y_raw, t)
+            y_true = interpolate(t_true, y_true, t)
+            
+        
         y_margin = 0.15 * np.mean(abs(y_true), axis=(0, 2))
         max_y = np.max(y_true, axis=(0, 2), keepdims=False)
         min_y = np.min(y_true, axis=(0, 2), keepdims=False)
     else:
+        assert y_model is not None, "Model history is required for plotting observable history when truth is not provided."
         y_margin = 0.15 * np.mean(abs(y_model), axis=(0, 2))
         max_y = np.max(y_model, axis=(0, 2), keepdims=False)
         min_y = np.min(y_model, axis=(0, 2), keepdims=False)
+
+    # Get observations if available ----
+    if  t_obs is not None:
+        t_obs = np.array(ensemble.assimilated_data.times)
+        y_obs = np.array(ensemble.assimilated_data.data)[..., np.newaxis]
+        t_obs = normalized_time(reference_t, t_obs)[0][0]  # Normalize observation time using the same reference time as the model history
+        
+        assert y_obs is not None, "Observation history is required for plotting observable history."
+        assert t_obs.shape[0] == y_obs.shape[0], "Time dimension of observations does not match time array for plotting observable history."
+
+        y_obs = normalized_y(reference_y, pm.obs_labels, y_obs)[0][0] 
+
+
+    # % PLOT time series ------------------------------------------------------------------------------------------
     
     Nq = pm.Nq
     if dims == 'all':
@@ -1217,10 +1217,10 @@ def plot_observable_history(ensemble : Ensemble,
         yl = [min_y[qi] - y_margin[qi], max_y[qi] + y_margin[qi]]
 
         for col_i, (ax, xl) in enumerate(zip(ax_all[row_i], x_lims)):
-            if y_true is not None:
+            if truth is not None:
                 ax.plot(t, y_true[:, qi, :], label='truth', **C.true_props)
-            if y_raw is not None:
-                ax.plot(t, y_raw[:, qi], label='raw truth', **C.true_noisy_props)
+                if y_raw is not None:
+                    ax.plot(t, y_raw[:, qi], label='raw truth', **C.true_noisy_props)
 
             if isinstance(y_unbiased, np.ndarray) and y_unbiased.ndim == 3:
                 if plot_members:
@@ -1253,7 +1253,7 @@ def plot_observable_history(ensemble : Ensemble,
                 s = np.std(y_model[:, qi], axis=-1)
                 ax.fill_between(t, m + s, m - s, color=C.get_color('BIASED', 0.5))
 
-            if plot_observations:
+            if t_obs is not None:
                 ax.plot(t_obs, y_obs[:, qi], label='data', **C.obs_props) # type: ignore 
 
             if col_i == 0:

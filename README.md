@@ -20,7 +20,7 @@ cd yourproject
 
 3. Install the package in editable mode 
 ```
-pip install -e .[all] --use-pep517
+pip install -e .[all] --use-pep517 # use .'[all]' in macos
 ```
 
 4. (Optional) Run the tests and save the output onto a text file

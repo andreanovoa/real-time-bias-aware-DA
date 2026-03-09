@@ -42,7 +42,7 @@ dependencies = [
     "torchaudio>=2.0.0,<=2.2.2",
     "typeguard",
     "ipython-genutils>=0.2",
-    "modulo-vki==2.1",
+    "modulo-vki>=2.1",
     "pyqt5>=5.15",
     "wandb",
 ]

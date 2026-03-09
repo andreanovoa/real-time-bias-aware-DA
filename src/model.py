@@ -125,8 +125,10 @@ class Model(object):
 
     @property
     def alpha_labels(self):
-        return self._alpha_labels
-
+        if hasattr(self, '_alpha_labels'):
+            return self._alpha_labels
+        else:
+            return {}
 
     @alpha_labels.setter
     def alpha_labels(self ,value: dict = dict()):

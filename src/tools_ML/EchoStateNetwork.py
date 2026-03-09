@@ -20,7 +20,7 @@ from skopt.plots import plot_convergence
 from scipy.sparse import csr_matrix, lil_matrix
 from scipy.sparse.linalg import eigs as sparse_eigs
 
-XDG_RUNTIME_DIR = 'tmp/'
+# XDG_RUNTIME_DIR = 'tmp/'
 
 
 class EchoStateNetwork:
@@ -168,12 +168,10 @@ class EchoStateNetwork:
         return self.reservoir_state.shape[-1]
 
     @property
-    def Win(self) -> Any[np.ndarray, csr_matrix]:
+    def Win(self) -> Union[np.ndarray, csr_matrix]:
         """
         Returns the input matrix (Win).
         """
-        # if not hasattr(self, '_Win'):
-        #     return None
         return self._Win
     
     @Win.setter
