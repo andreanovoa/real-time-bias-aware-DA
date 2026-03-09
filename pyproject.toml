@@ -7,7 +7,7 @@ name = "real-time-da"
 version = "2.2.1"
 description = "Real-time Bias-Aware Data Assimilation"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.9,<3.14"
 license = {text = "MIT"}  
 authors = [
     {name = "Andrea Nóvoa", email = "a.novoa@imperial.ac.uk"}
@@ -20,13 +20,15 @@ classifiers = [
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
 
 dependencies = [
     "h5py>=3.14,<4.0",
     "matplotlib>=3.9,<4.0",
     "multiprocess>=0.70",
-    "numba>=0.60,<1.0",
+    "numba==0.60.0",
     "numpy>=2.0,<3.0",
     "pyts>=0.13",
     "requests>=2.32",
@@ -35,9 +37,9 @@ dependencies = [
     "seaborn>=0.13",
     "tabulate>=0.9",
     "tqdm>=4.67",
-    "torch",  # PyTorch
-    "torchvision",
-    "torchaudio",
+    "torch>=2.0.0,<=2.2.2",  # PyTorch
+    "torchvision>=0.15.0,<=0.17.2",
+    "torchaudio>=2.0.0,<=2.2.2",
     "typeguard",
     "ipython-genutils>=0.2",
     "modulo-vki==2.1",
