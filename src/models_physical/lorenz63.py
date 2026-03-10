@@ -2,6 +2,8 @@
 
 from model import Model
 from integrator import IVPIntegrator
+
+from matplotlib import colormaps
 import matplotlib.pyplot as plt
 
 import numpy as np
@@ -32,10 +34,8 @@ class Lorenz63(Model):
     est_a: List[str] = []
 
     # --- Parameter and State Labels ---
-    alpha_labels = dict(rho='$\\rho$', sigma='$\\sigma$', beta='$\\beta$')
-    alpha_lims = dict(rho=(None, None), sigma=(None, None), beta=(None, None))
+    params = ['rho', 'sigma', 'beta']
     extra_print_params = ['observe_dims', 'Nq', 't_lyap']
-    state_labels = ['$x$', '$y$', '$z$']
 
     # __________________________ Init method ___________________________ #
     def __init__(self, **model_dict):
@@ -49,13 +49,17 @@ class Lorenz63(Model):
         
         super().__init__(psi0=psi0, dt=dt, integrator_class=IVPIntegrator, **model_dict)
 
-
+        self.alpha_labels = dict(rho='$\\rho$', sigma='$\\sigma$', beta='$\\beta$') 
 
     # _______________ Lorenz63 specific properties and methods ________________ #
 
     @property
     def obs_labels(self):
         return [self.state_labels[kk] for kk in self.observe_dims]
+    
+    @property
+    def state_labels(self):
+        return ['$x$', '$y$', '$z$']
 
     def get_observables(self, Nt=1, **kwargs):
         if Nt == 1:
@@ -115,18 +119,20 @@ def plot_attractor(psi_cases, color=None, figsize=(8, 6)):
         psi_cases = [p[:, :, np.newaxis] if p.ndim == 2 else p for p in psi_cases]
 
     if color is None:
-        color = plt.cm.viridis(np.linspace(0, 1, len(psi_cases)))
+        color = colormaps['viridis'](np.linspace(0, 1, len(psi_cases)))
     elif type(color) is str:
         color = [color] * len(psi_cases)
     
     # Check for 3D state dimension
     if psi_cases[0].shape[1] == 3:
-        mosaic = [['A', 'ax_xy'],
-                ['A', 'ax_xz'],
-                    ['A', 'ax_yz',]]
+        mosaic = [  ["A", "ax_xy"],
+                    ["A", "ax_xz"],
+                    ["A", "ax_yz"]
+                 ]
         
         # Create figure and axes with ratios for larger 3D plot
-        fig, axes = plt.subplot_mosaic(mosaic, figsize=figsize, layout='tight', width_ratios=[2,1])
+        fig, axes = plt.subplot_mosaic(mosaic, figsize=figsize, layout='tight', width_ratios=[2,1]) # type: ignore
+
         lbl = ['$x$', '$y$', '$z$']
         projections = [
             (axes['ax_xy'], 0, 1), # XY

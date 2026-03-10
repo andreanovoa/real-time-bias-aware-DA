@@ -24,8 +24,8 @@ class Rijke(Model):
     xf, L = 0.2, 1.
     law = 'sqrt'
 
-    alpha_labels = dict(beta='$\\beta$', tau='$\\tau$', C1='$C_1$', C2='$C_2$', kappa='$\\kappa$')
-    alpha_lims = dict(beta=(0.01, 5), tau=[1E-6, None], C1=(0., 1.), C2=(0., 1.), kappa=(1E3, 1E8))
+    # --- Parameter and fixed parameter lists ---
+    params = ['beta', 'tau', 'C1', 'C2', 'kappa']
 
     fixed_params = ['cosomjxf', 'Dc', 'gc', 'jpiL', 'L',
                     'law', 'meanFlow', 'Nc', 'Nm', 'tau_adv', 'sinomjxf']
@@ -48,7 +48,10 @@ class Rijke(Model):
         dt = model_dict.pop('dt', 1E-4)
 
         self.tau_adv = self.tau
-        self.alpha_lims['tau'][-1] = self.tau_adv
+
+        self.alpha_labels = dict(beta='$\\beta$', tau='$\\tau$', C1='$C_1$', C2='$C_2$', kappa='$\\kappa$')
+        self.alpha_lims =  dict(beta=(0.01, 5), tau=(1E-6, self.tau_adv), C1=(0., 1.), C2=(0., 1.), kappa=(1E3, 1E8))
+
 
         # Chebyshev modes
         self.Dc, self.gc = Cheb(self.Nc, getg=True)
@@ -84,7 +87,8 @@ class Rijke(Model):
         if 'tau' in self.est_alpha:
             extra_Nc = 50 - self.Nc
             self.tau_adv, self.Nc = 1E-2, 50
-            self.alpha_lims['tau'][-1] = self.tau_adv
+            self.alpha_lims = dict(tau=(1E-6, self.tau_adv)) # this updates the limits for tau to reflect the new tau_adv value
+            
             psi = self.current_state
             
             new_psi = np.concatenate([psi,

@@ -3,6 +3,7 @@
 # %%
 
 
+from matplotlib.colors import Normalize
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm as cm
@@ -38,13 +39,9 @@ class KS(Model):
     Nq = 4               # Number of sensors
     Nx = 256             # Spatial discretization
     nu = 0.08            # 'Viscosity' parameter of the KS equation.
-    L = None             # Domain length (0, L]
+    L = -1         # Domain length (0, L] NB. Will be set to 2*pi/sqrt(nu) if not specified.
     
-    seed = 0
     initial_amplitude = 0.01
-
-    # alpha_labels = dict(nu='$\\nu$')
-    # alpha_lims = dict(nu=(0., None))
 
     extra_print_params = ['Nx']
     sensor_placement_method = 'grid'
@@ -78,20 +75,20 @@ class KS(Model):
         if self.Nx % 2 != 0:
             raise ValueError("Nx must be even.")
 		
-        if self.L is None and self.nu is None:
+        if self.L is None or self.L <= 0 and self.nu is None:
             raise ValueError("Either L or nu must be specified.")
-        elif self.L is None:
+        elif self.L is None or self.L <= 0:
             self.L = 2 * np.pi / np.sqrt(self.nu)
-        elif self.nu is None:
-            # self.nu = (2 * np.pi / self.L)**2
-            self.nu = 1
-
+        else:
+            self.nu = 1.
+        
+        assert self.L is not None and self.L > 0, "L must be positive."
+        assert self.nu is not None and self.nu > 0, "nu must be positive."
         
         # Define Fourier wavenumbers k on the nondimensional domain
         self.k = 2 * np.pi * np.fft.rfftfreq(self.Nx, d=self.L / self.Nx)
 
         self.ETDRK4_f_terms = None  # This simply trigers the setter method.
-        self.rng = np.random.default_rng(self.seed)
 
 
         #  Select sensors ___________________________ #
@@ -130,7 +127,7 @@ class KS(Model):
 
     @property
     def state_labels(self):
-        return [f"$\hat{{u}}_{{{j+1}}}$" for j in np.arange(self.Nphi)]
+        return [f"$\\hat{{u}}_{{{j+1}}}$" for j in np.arange(self.Nphi)]
 
 
     def get_observables(self, Nt=1, loc=None, **kwargs):
@@ -456,7 +453,7 @@ class KS(Model):
     
 
     
-    def visualize_spatiotemporal_hist(self, y_hist=None, t=None, nrows=None, averaged=False):
+    def visualize_spatiotemporal_hist(self, y_hist=None, t=None, nrows=None, averaged=False, **kwargs):
         """
         Visualize the spatiotemporal evolution of the KS model in the physical space.
         """
@@ -488,7 +485,7 @@ class KS(Model):
             axs[0].set(title=rf"KS spatiotemporal evolution. $L={self.L/np.pi:.2f}\pi, \nu={self.nu}$")
             axs[-1].set(xlabel="$t$")
 
-            fig.colorbar(im, ax=axs, orientation='vertical', shrink=1/nrows) 
+            fig.colorbar(im, ax=axs, orientation='vertical', shrink=1/nrows)  #type: ignore
         else:
             # Averaged ensemble visualization
             y_mean_hist = np.mean(y_hist, axis=-1)
@@ -501,7 +498,7 @@ class KS(Model):
                                 aspect='auto', origin='lower', 
                                 cmap='RdBu_r', vmin=-lim_mean, vmax=lim_mean,
                                 extent=[t[0], t[-1], self.x[0], self.x[-1]])
-            axs[0].set(title=rf"KS averaged spatiotemporal evolution (mean and std). $L={self.L/np.pi:.2f}\pi, \nu={self.nu}$")
+            axs[0].set(title=rf"KS averaged spatiotemporal evolution (mean and std). $L={self.L/np.pi:.2f}\pi, \nu={self.nu}$") #type: ignore
             fig.colorbar(im0, ax=axs[0], orientation='vertical') 
 
             # Deviation covariance evolution
@@ -519,6 +516,7 @@ class KS(Model):
         # add the ticks and labels
 
         # Set spatial ticks as multiples of L
+        assert self.L is not None, "L must be defined to set spatial ticks."
         ticks = (np.arange(4) + 1)* self.L/4
         tick_labels = [r"$L/4$", r"$L/2$", r"$3L/4$",r"$L$"]
         for ax in axs:
@@ -544,7 +542,7 @@ class KS(Model):
             for mi in plot_m:
                 ax.plot(model.hist_t, E[:, mi], c=cmap(mi / max_lines))
 
-            sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=0, vmax=max_lines-1))
+            sm = plt.cm.ScalarMappable(cmap=cmap, norm=Normalize(vmin=0, vmax=max_lines-1))
             sm.set_array([])
             cbar = plt.colorbar(sm, ax=ax, 
                                 orientation='vertical', ticks=plot_m)
@@ -601,7 +599,7 @@ if __name__ == "__main__":
         solution, times = model.time_integrate(Nt=Nt)
         model.update_history(psi=solution, t=times)
 
-        KS.plot_spatiotemporal(model=model)
+        KS.visualize_spatiotemporal_hist(model)
         KS.plot_temporal_E(model=model)
 
 
@@ -617,7 +615,7 @@ if __name__ == "__main__":
 
         model = KS( Nx=Nx,
                     dt=dt,
-                    seed=seed,
+                    seed=2,
                     initial_amplitude=1.,
                     L=48*np.pi)   
 
@@ -644,7 +642,7 @@ if __name__ == "__main__":
 
         model.update_history(psi=solution, t=times)
         
-        KS.plot_spatiotemporal(model=model)
+        KS.visualize_spatiotemporal_hist(model)
         KS.plot_temporal_E(model=model)
 
     plt.show()

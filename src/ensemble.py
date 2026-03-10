@@ -75,7 +75,8 @@ class Ensemble(object):
                  parent_model: Union[Model, Type[Model]], 
                  parent_bias: Optional[Union[Bias, Type[Bias]]] = None, 
                  da_method: Optional[Union[Filter, Type[Filter]]] = None, 
-                 **kwargs):
+                 **kwargs #type: ignore
+                 ):
         """
         Initializes the Ensemble and links it back to the parent Model instance.
         """
@@ -134,8 +135,6 @@ class Ensemble(object):
             return self._filter
         else:
             return None
-
-    
 
 
     @property
@@ -204,8 +203,6 @@ class Ensemble(object):
         - Getter returns the stored assimilated observations and times.
         - Setter appends new observation data and time to the lists.
         """
-
-        # return self._assimilated_data, self._assimilated_times
 
         if not hasattr(self, '_assimilated_data'):
             self._assimilated_data = []
@@ -286,9 +283,6 @@ class Ensemble(object):
             # 1. Generate initial state (phi) ensemble
             mean_phi0 = np.mean(pm.current_state, axis=-1)
 
-            # print('Generating ensemble for state with mean shape', mean_phi0.shape,
-            #       f'pm.current_state shape {pm.current_state.shape} and m={self.m}')
-
             ensemble_psi0 = mean_vector_to_ensemble(pm.rng, 
                                                  mean_vec=mean_phi0, 
                                                  std=self.std_phi,
@@ -298,16 +292,16 @@ class Ensemble(object):
         
             # 2. Augment ensemble with estimated parameters (alpha)
             if self.est_alpha:  
-                assert self.Na == len(self.est_alpha)
+                assert self.Na == len(self.est_alpha), f"Number of parameters to estimate (Na={self.Na}) must match length of est_alpha list ({len(self.est_alpha)})."
                 mean_a = np.array([getattr(pm, a) for a in self.est_alpha])
+
                 ensemble_alpha0 = mean_vector_to_ensemble(pm.rng, 
-                                                            mean_vec=mean_a, 
-                                                            std=self.std_alpha, 
-                                                            m=self.m,
-                                                            method=self.distribution_alpha, 
-                                                            ensure_mean_at_init=self.ensure_mean_at_init)
-                # print(f'Generated ensemble for parameters {self.est_alpha} with shape {ensemble_alpha0.shape}'
-                #       f'ensemble_phi0 shape {ensemble_psi0.shape}')
+                                                          mean_vec=mean_a, 
+                                                          std=self.std_alpha, 
+                                                          m=self.m,
+                                                          method=self.distribution_alpha, 
+                                                          ensure_mean_at_init=self.ensure_mean_at_init)
+                
                 ensemble_psi0 = np.concatenate((ensemble_psi0, ensemble_alpha0), axis=0)
 
             # Store the generated ensemble
@@ -388,10 +382,7 @@ class Ensemble(object):
         if isinstance(filter_instance, Filter):
             self._filter = filter_instance
         else:
-            filter_params = dict(m=self.m, M=self.model.M)
-            if filter_instance.is_bias_aware:
-                filter_params['gamma'] = self.regularization_factor
-                
+            filter_params = dict(m=self.m, M=self.model.M, gamma=self.regularization_factor)                
             self._filter = filter_instance(**filter_params)
 
 
@@ -1145,18 +1136,20 @@ def plot_observable_history(ensemble : Ensemble,
     
     (t, t_margin), t_label = normalized_time(reference_t, 
                                              pm.hist_t.copy(),  np.array(pm.t_CR))
-    
+    assert isinstance(t, np.ndarray), "Model history time array is required for plotting observable history."
+
     if  len(ensemble.assimilated_data.times) > 0: 
         t_obs = np.array(ensemble.assimilated_data.times)
         if max_time is None:
             max_time = min(t_obs[-2] + t_margin, t[-1]) 
-        min_time = t_obs[0] - 0.25 * t_margin       
-    else:        
+        min_time = t_obs[0] - 0.25 * t_margin  #type: ignore
+    else:         
         t_obs = None
         min_time, max_time = t[0], t[-1]
 
     t, (y_model, y_unbiased) = cut_signals(t, y_model, y_unbiased, min_time=min_time, max_time=max_time)
-
+    assert y_model is not None, "Model history is required for plotting observable history."
+    
     # Get truth if available ----
     if truth is not None:
         y_raw  =  np.asarray(truth.y_raw.copy()) 
@@ -1170,17 +1163,18 @@ def plot_observable_history(ensemble : Ensemble,
         t_true, (y_raw, y_true) = cut_signals(t_true, y_raw, y_true,  min_time=min_time, max_time=max_time)
         if len(t) != len(t_true):
             y_raw = interpolate(t_true, y_raw, t)
-            y_true = interpolate(t_true, y_true, t)
-            
+            y_true = interpolate(t_true, y_true, t) 
         
-        y_margin = 0.15 * np.mean(abs(y_true), axis=(0, 2))
-        max_y = np.max(y_true, axis=(0, 2), keepdims=False)
+        assert y_true is not None, "True history is required for plotting observable history when truth is provided."
+        y_margin = 0.15 * np.mean(abs(y_true), axis=(0, 2)) 
+        max_y = np.max(y_true, axis=(0, 2), keepdims=False) 
         min_y = np.min(y_true, axis=(0, 2), keepdims=False)
     else:
         assert y_model is not None, "Model history is required for plotting observable history when truth is not provided."
         y_margin = 0.15 * np.mean(abs(y_model), axis=(0, 2))
         max_y = np.max(y_model, axis=(0, 2), keepdims=False)
         min_y = np.min(y_model, axis=(0, 2), keepdims=False)
+        y_true, y_raw = None, None
 
     # Get observations if available ----
     if  t_obs is not None:
@@ -1189,7 +1183,7 @@ def plot_observable_history(ensemble : Ensemble,
         t_obs = normalized_time(reference_t, t_obs)[0][0]  # Normalize observation time using the same reference time as the model history
         
         assert y_obs is not None, "Observation history is required for plotting observable history."
-        assert t_obs.shape[0] == y_obs.shape[0], "Time dimension of observations does not match time array for plotting observable history."
+        assert t_obs is not None and t_obs.shape[0] == y_obs.shape[0], "Time dimension of observations does not match time array for plotting observable history."
 
         y_obs = normalized_y(reference_y, pm.obs_labels, y_obs)[0][0] 
 
@@ -1217,7 +1211,7 @@ def plot_observable_history(ensemble : Ensemble,
         yl = [min_y[qi] - y_margin[qi], max_y[qi] + y_margin[qi]]
 
         for col_i, (ax, xl) in enumerate(zip(ax_all[row_i], x_lims)):
-            if truth is not None:
+            if y_true is not None:
                 ax.plot(t, y_true[:, qi, :], label='truth', **C.true_props)
                 if y_raw is not None:
                     ax.plot(t, y_raw[:, qi], label='raw truth', **C.true_noisy_props)

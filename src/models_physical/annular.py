@@ -83,13 +83,7 @@ class Annular(Model):
     c2beta = c2b_1 * ER + c2b_2
     kappa = 1.2E-4
 
-    alpha_labels = dict(omega='$\\omega$', nu='$\\nu$', c2beta='$c_2\\beta $', kappa='$\\kappa$',
-                        epsilon='$\\epsilon$', theta_b='$\\Theta_\\beta$', theta_e='$\\Theta_\\epsilon$')
-    alpha_lims = dict(omega=(1000 * 2 * np.pi, 1300 * 2 * np.pi),
-                      nu=(-60., 100.), c2beta=(0., 100.), kappa=(None, None),
-                      epsilon=(None, None), theta_b=(0, 2 * np.pi), theta_e=(0, 2 * np.pi))
-
-    state_labels = ['$\\eta_{a}$', '$\\dot{\\eta}_{a}$', '$\\eta_{b}$', '$\\dot{\\eta}_{b}$']
+    params = ['omega', 'nu', 'c2beta', 'kappa', 'epsilon', 'theta_b', 'theta_e'] 
 
     # __________________________ Init method ___________________________ #
     def __init__(self, **model_dict):
@@ -114,6 +108,13 @@ class Annular(Model):
             
         super().__init__(psi0=psi0, dt=dt, integrator_class=IVPIntegrator, **model_dict)
 
+        self.alpha_labels = dict(omega='$\\omega$', nu='$\\nu$', c2beta='$c_2\\beta $', kappa='$\\kappa$',
+                                 epsilon='$\\epsilon$', theta_b='$\\Theta_\\beta$', theta_e='$\\Theta_\\epsilon$')
+        
+        self.alpha_lims =  dict(omega=(1000 * 2 * np.pi, 1300 * 2 * np.pi), 
+                                nu=(-60., 100.), c2beta=(0., 100.), 
+                                theta_b=(0, 2 * np.pi), theta_e=(0, 2 * np.pi))
+
     # _______________  Specific properties and methods ________________ #
     @property
     def obs_labels(self, loc=None, measure_modes=False):
@@ -123,6 +124,10 @@ class Annular(Model):
             if loc is None:
                 loc = self.theta_mic
             return ["$p(\\theta={}^\\circ)$".format(int(np.round(np.degrees(th)))) for th in np.array(loc)]
+    @property
+    def state_labels(self):
+        return  ['$\\eta_{a}$', '$\\dot{\\eta}_{a}$', '$\\eta_{b}$', '$\\dot{\\eta}_{b}$']
+
 
     @staticmethod
     def nu_from_ER(ER):

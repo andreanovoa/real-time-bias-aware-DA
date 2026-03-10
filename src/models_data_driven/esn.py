@@ -44,6 +44,7 @@ class ESN_model(EchoStateNetwork, Model):
     sigma_in_range = (-2, 2) 
     tikh_range = [1E-6, 1E-9, 1E-12]
 
+    # params = ['Wout']
     extra_print_params = ['rho', 'sigma_in', 'N_units', 'N_wash', 'upsample', 
                           'update_reservoir', 'update_state']
 
@@ -91,9 +92,6 @@ class ESN_model(EchoStateNetwork, Model):
             if plot_training:
                 self.plot_training_data(case=self, train_data=data, dt=dt)
 
-            # for key, val in kwargs.items():
-            #     print(f'Key {key}={val} not used in ESN_model initialization.')
-
             self.train(train_data=data, plot_training=plot_training, **kwargs)
             
             # save validation data for initialization
@@ -102,6 +100,8 @@ class ESN_model(EchoStateNetwork, Model):
 
 
         # ================== STEP 3: DEFINE INITIAL STATE & PARAMS ======================
+        if not hasattr(self, 'Nq'):
+            self.Nq = len(self.observed_idx)  # Number of observed dimensions (for the physical state)
 
         psi0 = self.initialize_from_val_data()  # shape (Ndim + N_units + Na, m)
         self.reservoir_state = psi0[self.N_dim:self.N_dim+self.N_units, :]
@@ -161,33 +161,19 @@ class ESN_model(EchoStateNetwork, Model):
 
         if self.ensemble:
             est_alpha = self.est_alpha.copy()
-
+            # If Wout is being estimated, we need to update the est_alpha list to include the SVD components
+            # and remove Wout. We do not directly estimate Wout, but rather its singular values.
             if 'Wout' in est_alpha:
                 if not self.Wout_svd:
                     self.Wout_svd = True
                     [self.Wout_U, self.Wout_Sigma0, self.Wout_Vh] = sla.svd(self.Wout, full_matrices=False)
                     self.Wout_Sigma = self.Wout_Sigma0
-
-                # Replace wout for the SVD components to estimate them
-                est_alpha.remove('Wout')
-                self.alpha_lims.pop('Wout', None)  # remove old limits if they exist
-                self.alpha_labels.pop('Wout', None)  # remove old limits if they exist
-
-                for qj in np.arange(self.N_dim):
-                    key = f'svd_{qj}'
-                    setattr(self, key, self.Wout_Sigma0[qj])
-                    est_alpha.append(key)
-
                 # Update the est_alpha list with the new SVD component keys
-                a_lbls, a_lims = self.alpha_labels.copy(), self.alpha_lims.copy()  # copy old labels and limits
-                for key in est_alpha:
-                    if 'svd' in key:
-                        _j = key.split('_')[1]
-                        a_lims[key] = (None, None) # set new limits for the SVD components (can be adjusted as needed)
-                        a_lbls[key] = f'$\\sigma_{{{_j}}}$'
-                self.alpha_lims = a_lims
-                self.alpha_labels = a_lbls
-                self.est_alpha = est_alpha
+                new_keys = [f'svd_{qi}' for qi in range(self.N_dim)]
+                self.est_alpha = [a for a in est_alpha if a != 'Wout'] + new_keys
+                self.alpha_labels = {key: f'$\\sigma_{{{key.split('_')[1]}}}$' for key in new_keys}  # update the alpha labels with the new ones (e.g., svd_0, svd_1, etc.)
+                self.alpha_lims = {key: (None, None) for key in new_keys}  # update the alpha lims with the new ones (e.g., svd_0, svd_1, etc.)
+                
 
         # Set the M matrix to None to force re-computation
         self.M = None 
@@ -233,8 +219,6 @@ class ESN_model(EchoStateNetwork, Model):
     @property
     def alpha_to_Sigma(self):
         alpha_matrix = self.get_alpha_matrix
-        # alpha_labels = self.est_alpha
-        self.alpha_labels = dict()  # update the alpha labels with the new ones (e.g., svd_0, svd_1, etc.)
 
         eigs = np.zeros((self.m, self.N_dim, self.N_dim))
 
@@ -249,18 +233,6 @@ class ESN_model(EchoStateNetwork, Model):
             eigs[:, qi, qi] = vals
 
         return eigs
-
-    # @alpha_labels
-    # def alpha_labels(self):
-    #     lbls = {}
-    #     if len(self.est_alpha) > 0:
-    #         for key in self.est_alpha:
-    #             if 'svd' in key:
-    #                 _j = key.split('_')[1]
-    #                 lbls[key] = f'$\\sigma_{_j}$'
-    #             else:
-    #                 lbls[key] = key
-    #     return lbls
 
     @property
     def get_alpha_matrix(self):
@@ -278,6 +250,11 @@ class ESN_model(EchoStateNetwork, Model):
     @Wout_Sigma0.setter
     def Wout_Sigma0(self, eigs):
         self._Wout_Sigma0 = eigs
+
+        for eig_i, val in enumerate(eigs):
+            setattr(self, f'svd_{eig_i}', val)
+            self.params.append(f'svd_{eig_i}')
+            print(f'Setting svd_{eig_i} to {val}')
 
 
     @Wout_Sigma.setter
@@ -386,10 +363,6 @@ class ESN_model(EchoStateNetwork, Model):
 
     # ______________________ Changed Model class attributes ______________________ #
         
-
-    @property
-    def Nq(self):
-        return self.N_dim_in
 
 
     @property
@@ -625,7 +598,8 @@ class ESN_model(EchoStateNetwork, Model):
 
             # Choose a colormap
             cmap = plt.get_cmap('tab10', pm.m)  
-
+            if pm.Nq == 1:
+                axs1 = [axs1]
             for ii, ax in enumerate(axs1):
                 [ax.plot(pm.hist_t, u[:, ii, mi], c=cmap(mi)) for mi in range(pm.m)]
                 ax.set(ylabel=lbl[ii])

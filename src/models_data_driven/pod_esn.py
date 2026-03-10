@@ -1,9 +1,12 @@
 
 from tools_ML import POD
 from models_data_driven import ESN_model
-from model import *
 import scipy.linalg as sla
-from utils import *
+import numpy as np
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+from matplotlib import pyplot as plt
+from utils import get_figsize_based_on_domain, add_pdf_page, plt_pdf
 
 
 class POD_ESN(ESN_model, POD):
@@ -27,8 +30,6 @@ class POD_ESN(ESN_model, POD):
     figs_folder: str = 'figs/POD-ESN/'
 
     Nq = 10
-    t_CR = 0.5
-    
 
     measure_modes = False  # Wether measurements are the POD coefficients
     sensor_locations = None
@@ -203,14 +204,12 @@ class POD_ESN(ESN_model, POD):
     @property
     def domain_of_measurement(self):
         if not hasattr(self, '_domain_of_measurement'):
-            self._domain_of_measurement = None
+            self._domain_of_measurement = self.domain
         return self._domain_of_measurement
 
     @domain_of_measurement.setter
     def domain_of_measurement(self, dom):
-        if dom is None:
-            dom = self.domain
-        self._domain_of_measurement = dom
+        self._domain_of_measurement = dom #type: list
 
     @property
     def down_sample_measurement(self):
@@ -224,8 +223,8 @@ class POD_ESN(ESN_model, POD):
         if dsm is not None:
             if isinstance(dsm, int):
                 dsm = [dsm, dsm]
-            elif self.down_sample is not None:
-                dsm = [int(x / y) for x, y in zip(dsm, self.down_sample)]
+            # elif self.down_sample is not None:
+            #     dsm = [int(x / y) for x, y in zip(dsm, self.down_sample)]
             else:
                 raise ValueError()
 
@@ -329,75 +328,69 @@ class POD_ESN(ESN_model, POD):
 
 
 
-    @staticmethod
-    def plot_sensors(case, background_data=None):
-        if background_data is None:
-            background_data = case.reconstruct(Phi=case.Phi[-1], reshape=True)
+    # @staticmethod
+    # def plot_sensors(case, background_data=None):
+    #     if background_data is None:
+    #         background_data = case.reconstruct(Phi=case.Phi[-1], reshape=True)
 
-        if background_data.ndim > 3:
-            background_data = background_data[..., -1].copy()
+    #     if background_data.ndim > 3:
+    #         background_data = background_data[..., -1].copy()
 
-        # Original domain of the data
-        Ux = background_data.copy()
+    #     # Original domain of the data
+    #     Ux = background_data.copy()
 
-        # subset = not np.array_equal(case.domain_og, case.domain_of_interest)
-        # if subset:
-        #     X1_og, X2_og = POD.domain_mesh(domain=case.domain_og,
-        #                                    grid_shape=case.grid_shape_og,
-        #                                    ravel=False)[:2]
+    #     # Domain of interest, i.e., cut version of the original
+    #     Ux_focus = case.original_to_domain_of_interest(original_data=Ux)
 
-        # Domain of interest, i.e., cut version of the original
-        Ux_focus = case.original_to_domain_of_interest(original_data=Ux)
+    #     X1, X2, grid_idx = POD.domain_mesh(domain=case.domain_og,
+    #                                        grid_shape=case.grid_shape_og,
+    #                                        down_sample=case.down_sample,
+    #                                        domain_of_interest=case.domain_of_interest,
+    #                                        ravel=False)
+    #     # Domain of measurement
+    #     idx_s = case.sensor_locations[case.sensor_locations < len(X1.ravel())]
 
-        X1, X2, grid_idx = POD.domain_mesh(domain=case.domain_og,
-                                           grid_shape=case.grid_shape_og,
-                                           down_sample=case.down_sample,
-                                           domain_of_interest=case.domain_of_interest,
-                                           ravel=False)
-        # Domain of measurement
-        idx_s = case.sensor_locations[case.sensor_locations < len(X1.ravel())]
-
-        down_sampled = case.down_sample != case.down_sample_measurement
-        if down_sampled:
-            grid_idx_m = POD.domain_mesh(domain=case.domain,
-                                         grid_shape=case.grid_shape,
-                                         down_sample=case.down_sample_measurement,
-                                         domain_of_interest=case.domain_of_measurement,
-                                         ravel=True)[-1]
+    #     down_sampled = case.down_sample != case.down_sample_measurement
+    #     if down_sampled:
+    #         grid_idx_m = POD.domain_mesh(domain=case.domain,
+    #                                      grid_shape=case.grid_shape,
+    #                                      down_sample=case.down_sample_measurement,
+    #                                      domain_of_interest=case.domain_of_measurement,
+    #                                      ravel=True)[-1]
 
 
-        figsize, ncols, nrows = get_figsize_based_on_domain(domain=case.domain_of_interest, total_subplots=2)
+    #     figsize, ncols, nrows = get_figsize_based_on_domain(domain=case.domain_of_interest, total_subplots=2)
     
 
-        fig, axs = plt.subplots(ncols=ncols, nrows=nrows, figsize=figsize, sharey=True, sharex=True)
+    #     fig, axs = plt.subplots(ncols=ncols, nrows=nrows, figsize=figsize, sharey=True, sharex=True)
 
-        norms = [mpl.colors.Normalize(vmin=np.min(u), vmax=np.max(u)) for u in [Ux[0], Ux[1]]]
+    #     norms = [mpl.colors.Normalize(vmin=np.min(u), vmax=np.max(u)) for u in [Ux[0], Ux[1]]]
 
-        # windowed = case.domain_og != case.domain_of_measurement
-        windowed = not np.array_equal(case.domain_of_interest, case.domain_of_measurement)
+    #     # windowed = case.domain_og != case.domain_of_measurement
+    #     windowed = not np.array_equal(case.domain_of_interest, case.domain_of_measurement)
 
-        for ii, ax in enumerate(axs):
-            # if subset:
-            #     ax.pcolormesh(X1_og, X2_og, Ux[ii],
-            #                   cmap=mpl.colormaps['Greys'], norm=norms[ii], rasterized=True)
-            ax.pcolormesh(X1, X2, Ux_focus[ii],
-                          cmap=mpl.colormaps['viridis'], norm=norms[ii], rasterized=True)
-            if windowed:
-                dom = case.domain_of_measurement.copy()
-                square = mpl.patches.Rectangle((dom[0], dom[2]), dom[1] - dom[0], dom[3] - dom[2],
-                                               edgecolor='k', facecolor='none', lw=2,
-                                               label="Domain of measurement", zorder=-10)
+    #     for ii, ax in enumerate(axs):
+    #         # if subset:
+    #         #     ax.pcolormesh(X1_og, X2_og, Ux[ii],
+    #         #                   cmap=mpl.colormaps['Greys'], norm=norms[ii], rasterized=True)
+    #         ax.pcolormesh(X1, X2, Ux_focus[ii],
+    #                       cmap=mpl.colormaps['viridis'], norm=norms[ii], rasterized=True)
+    #         if windowed:
+    #             dom = case.domain_of_measurement.copy()
+    #             square = mpl.patches.Rectangle((dom[0], dom[2]), dom[1] - dom[0], dom[3] - dom[2],
+    #                                            edgecolor='k', facecolor='none', lw=2,
+    #                                            label="Domain of measurement", zorder=-10)
 
-                ax.add_patch(square)
-            ax.set_aspect('equal')
+    #             ax.add_patch(square)
+    #         ax.set_aspect('equal')
 
-            if down_sampled:
-                ax.plot(X1.ravel()[grid_idx_m], X2.ravel()[grid_idx_m], 'x', color='w', ms=5,
-                        label="Possible sensor locations")
+    #         if down_sampled:
+    #             ax.plot(X1.ravel()[grid_idx_m], X2.ravel()[grid_idx_m], 'x', color='w', ms=5,
+    #                     label="Possible sensor locations")
 
-            ax.scatter(X1.ravel()[idx_s], X2.ravel()[idx_s],
-                       c=np.arange(len(X2.ravel()[idx_s])),
-                       cmap='YlOrRd', edgecolors='k', s=3.5 ** 2, lw=.5, label="Sensor locations")
+    #         ax.scatter(X1.ravel()[idx_s], X2.ravel()[idx_s],
+    #                    c=np.arange(len(X2.ravel()[idx_s])),
+    #                    cmap='YlOrRd', edgecolors='k', s=3.5 ** 2, lw=.5, label="Sensor locations")
 
 
 

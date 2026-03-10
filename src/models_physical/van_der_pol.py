@@ -9,27 +9,22 @@ class VdP(Model):
         - atan heat release law
     """
 
-    # name: str = 'VdP'
     t_transient = 1.5
     t_CR = 0.04
 
     Nq = 1
 
-    beta = 70. # Linear growth rate [1/s]
-    kappa = 4.0 # Nonlinear saturation coefficient [1/s]
-    zeta = 60.0 # Damping coefficient [1/s]
-    gamma = 1.7 # Higher order nonlinearity coefficient (used only if cubic law)
-    omega = 2 * np.pi * 120. # Natural frequency [rad/s]
-    law = 'tan' # 'cubic' or 'tan' heat release law
+    beta = 70.                  # Linear growth rate [1/s]
+    kappa = 4.0                 # Nonlinear saturation coefficient [1/s]
+    zeta = 60.0                 # Damping coefficient [1/s]
+    gamma = 1.7                 # Higher order nonlinearity coefficient (used only if cubic law)
+    omega = 2 * np.pi * 120.    # Natural frequency [rad/s]
+    law = 'tan'                 # 'cubic' or 'tan' heat release law
 
-
-    alpha_labels = dict(beta='$\\beta$', zeta='$\\zeta$', kappa='$\\kappa$')
-    alpha_lims = dict(zeta=(5, 120), kappa=(0.1, 20), beta=(5, 120))
-
-    state_labels: list = ['$\\eta$', '$\\mu$']
-
-    fixed_params = ['law', 'omega']
-    extra_print_params = ['law', 'omega']
+    # --- Parameters ---
+    params = ['beta', 'zeta', 'kappa']      # Parameters that can be varied for sensitivity analysis or parameter estimation
+    fixed_params = ['law', 'omega']         # Parameters that are fixed, but needed for the model equations
+    extra_print_params = ['law', 'omega']   
 
     # __________________________ Init method ___________________________ #
     def __init__(self, **model_dict):
@@ -40,7 +35,12 @@ class VdP(Model):
         super().__init__(psi0=psi0, dt=dt, integrator_class=IVPIntegrator, **model_dict)
 
         #  Add fixed input_parameters
-        self.set_fixed_params()
+        self.alpha_labels = dict(beta='$\\beta$', zeta='$\\zeta$', kappa='$\\kappa$')
+        self.alpha_lims = dict(zeta=(5, 120), kappa=(0.1, 20), beta=(5, 120))
+
+    @property
+    def state_labels(self):
+        return  ['$\\eta$', '$\\mu$']
 
     # _______________ VdP specific properties and methods ________________ #
     @property

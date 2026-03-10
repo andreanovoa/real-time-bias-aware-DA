@@ -31,8 +31,7 @@ class Lorenz96(Model):
     est_a: List[str] = []
 
     # --- Parameter and State Labels ---
-    alpha_labels = dict(F='$F$')
-    alpha_lims = dict(F=(None, None))
+    params = ['F']
     extra_print_params = ['observed_idx', 'Nq', 't_lyap', 'Nx']
     fixed_params = ['Nx']
 
@@ -43,12 +42,11 @@ class Lorenz96(Model):
         psi0 = model_dict.pop('psi0', np.array([1.6] + [1.0] * (self.Nx - 1)))
         dt = model_dict.pop('dt', 0.01)
 
-        self.observed_idx = model_dict.pop('observed_idx', [0, 1, 2]) # Default to observing first three dimensions if not specified
+        self.observed_idx = model_dict.pop('observed_idx', [0, self.Nx//2, self.Nx]) # Default to observing three dimensions if not specified 
         self.Nq = len(self.observed_idx)
         
         super().__init__(psi0=psi0, dt=dt, integrator_class=IVPIntegrator, **model_dict)
-
-
+        self.alpha_labels = dict(F='$F$')
 
     # _______________ Lorenz63 specific properties and methods ________________ #
 
