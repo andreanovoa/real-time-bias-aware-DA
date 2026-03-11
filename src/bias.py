@@ -45,9 +45,6 @@ class Bias:
 
     def __init__(self, innovation, t, dt, **kwargs):
 
-        self.precision_t = int(-np.log10(dt)) + 2
-        self.dt = dt
-        self.Nq = self._format_state(innovation).shape[1] 
 
         # ===================== ASSIGN PROVIDED KWARGS ======================= ##
         keys = list(kwargs.keys())
@@ -56,6 +53,11 @@ class Bias:
         self.keys_to_print += self.extra_keys_to_print
 
         # ================== Setup dimensions ================= ##
+
+        self.precision_t = int(-np.log10(dt)) + 2
+        self.dt = dt
+        self.Nq = self._format_state(innovation).shape[1] 
+        
         bias_state = self.build_state(innovation)
         assert bias_state.shape[1] == self.N_dim, f"Bias state shape {bias_state.shape} does not match expected N_dim = {self.N_dim}."
 
@@ -71,6 +73,20 @@ class Bias:
     def name(self):
         return self.__class__.__name__
     
+    @property
+    def N_ens(self):
+        return self.history.current_state.shape[-1]
+    
+    @property
+    def initialize_bias_state(self, N_ens):
+        """
+        Only used at initialization. If the forecaster is a model, this shoiuld be hanfdled by the child class.
+        """
+        if self.biased_observations:
+            return np.zeros((self.Nq, self.N_ens))
+        else:
+            return np.zeros((2* self.Nq, self.N_ens))
+
     @property
     def forecaster(self):
         assert hasattr(self, '_forecaster'), 'Forecaster not initialized yet.'
@@ -121,7 +137,7 @@ class Bias:
     def state_derivative(self):
         """
         Returns the derivative of the bias state, which is used for time integration.
-        This is typically computed by the forecaster model.
+        This is computed by the forecaster model.
         """
         raise NotImplementedError('Bias child classes must implement state_derivative property, typically computed by the forecaster model.')
     
@@ -131,12 +147,17 @@ class Bias:
         """
         if b.ndim == 3:
             return b # already (nt, nb, nens)
-        if b.ndim == 1: 
-            return b.reshape((1, b.size, 1)) # (nb,) -> (1, nb, 1)
-        if b.ndim == 2:
-            return b.reshape((1, *b.shape))  # (nb, nens) -> (1, nb, nens)
+        elif b.ndim == 1: 
+            b_repeated = np.repeat(b[:, np.newaxis], self.N_ens, axis=1)  # (nb,) -> (nb, nens)
+            return b_repeated[np.newaxis, :, :]  # (nb, nens) -> (1, nb, nens) Add extra dimension for time
         
-        raise AssertionError('b must have 1, 2 or 3 dimensions, got {}'.format(b.ndim))
+        elif b.ndim == 2 and b.shape[-1] == self.N_ens:
+            return b[np.newaxis, :, :]  # (nb, nens) -> (1, nb, nens) # Add extra dimension for time
+        elif b.ndim == 2 and b.shape[-1] != self.N_ens:
+            return np.repeat(b[:, :, np.newaxis], self.N_ens, axis=2)  # (nt, nb) -> (nt, nb, nens)
+        else:        
+            raise AssertionError(f'b must have 1, 2 or 3 dimensions, got {b.ndim}=({b.shape})')
+
 
     def build_state(self, innovation, model_bias=None) -> np.ndarray:
         """
@@ -196,10 +217,6 @@ class Bias:
                 _config[key] = getattr(self, key)
 
         return _config
-
-    @property
-    def N_ens(self):
-        return self.current_state.shape[-1]
 
     @property
     def current_bias(self):

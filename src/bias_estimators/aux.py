@@ -219,25 +219,28 @@ def load_bias_training_dataset(
 
     try: #Check if file exists... 
         loaded_train_data = load_from_pickle_file(filename)
-        assert isinstance(loaded_train_data, dict), f'File {filename} does not contain a dictionary.'
     except FileNotFoundError or AssertionError:
         print(f'Run multi-parameter training data: file {filename} not  found or does not contain a dictionary')
         return None
-
+    
     #Check if loaded file is valid... 
-    if not check_valid_file(loaded_train_data, necessary_properties):
+    if not isinstance(loaded_train_data, dict):
+        print(f'Loaded file is invalid: {type(loaded_train_data)}: {loaded_train_data}')
         return None
-    # Check if the data has enough time steps and matches the expected shape based on augment_data_length and L
-    data = loaded_train_data['data']
-    if data.shape[1] < minimum_training_steps:
-        print('Re-run multi-parameter training data: Increase the length of the training data')
+    elif not check_valid_file(loaded_train_data, necessary_properties):
         return None
-    if augment_data_length > 1 and data.shape[0] != L * augment_data_length:
-        print('Re-run multi-parameter training data: augment_data_length does not match the number of samples in the loaded training data')
-        return None
+    else:
+        # Check if the data has enough time steps and matches the expected shape based on augment_data_length and L
+        data = loaded_train_data['data']
+        if data.shape[1] < minimum_training_steps:
+            print('Re-run multi-parameter training data: Increase the length of the training data')
+            return None
+        if augment_data_length > 1 and data.shape[0] != L * augment_data_length:
+            print('Re-run multi-parameter training data: augment_data_length does not match the number of samples in the loaded training data')
+            return None
 
-    print('OK: Loaded training dataset for bias model.')
-    return loaded_train_data
+        print('OK: Loaded training dataset for bias model.')
+        return loaded_train_data
 
 
 

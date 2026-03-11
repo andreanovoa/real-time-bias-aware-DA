@@ -62,8 +62,7 @@ class Ensemble(object):
     distribution_phi: str = 'normal'    # Distribution for state (psi) uncertainty
     ensure_mean_at_init: bool = False    # Force one ensemble member to be the mean
     
-    activate_parameter_estimation: bool = True  # Whether to include parameter estimation in the analysis step
-
+    
     results_folder: Optional[str] = None
 
     keys_to_print = ['m', 'est_phi', 'est_alpha', 'est_bias', 'Na',
@@ -108,7 +107,9 @@ class Ensemble(object):
         # 5. Set up data assimilation filter if provided
         if da_method is not None:
             self._init_filter(da_method)
-    
+
+
+    #  =============================== PROPERTIES ========================= ##
     @property
     def model(self) -> Model:
         """
@@ -278,7 +279,7 @@ class Ensemble(object):
         
         pm = self.model
         
-
+        # If ensemble_psi0 is not provided, generate the ensemble of model states ans parameters using the specified configuration
         if self.ensemble_psi0 is None:
             # 1. Generate initial state (phi) ensemble
             mean_phi0 = np.mean(pm.current_state, axis=-1)
@@ -324,11 +325,11 @@ class Ensemble(object):
         # 4. Update parent model settings/filename
         pm.filename += '_ensemble_m{}'.format(self.m)
 
-        print(f'OK: Initialized {pm.filename} history with shape: {pm.hist.shape} and {pm.hist_t}')
+        print(f'OK: Initialized {pm.name} history with shape: {pm.hist.shape} and {pm.hist_t}')
 
 
     @typechecked
-    def _init_bias(self, parent_bias: Optional[Union[Bias, Type[Bias]]] = None, **Bdict):
+    def _init_bias(self, parent_bias: Optional[Union[Bias, Type[Bias]]] = None, N_ens=1, **Bdict):
         """Initializes the bias instance for the ensemble. If the bias is provided as a class, 
         it instantiates it using the model's current state as the mean observation.
         Parameters
@@ -339,35 +340,45 @@ class Ensemble(object):
             Additional keyword arguments to pass to the bias constructor.
         """
 
-        if isinstance(parent_bias, Bias):
-            self._bias = parent_bias.copy()
-        elif parent_bias is None:
+        if parent_bias is None:
             self._bias = None
         else:
-            assert isinstance(parent_bias, type) and issubclass(parent_bias, Bias), "parent_bias must be a subclass of Bias"
-            pm = self.model
-            try:
-                # Get observable for one member to determine dimension
-                y0_all = pm.get_observables()
-                y0 = np.mean(y0_all, axis=-1, keepdims=True)  # Shape (Nq, 1)
 
-            except (AttributeError, IndexError):
-                # Fallback if the model cannot yet produce observables
-                y0 = np.zeros((1, pm.Nq, 1)) 
-            
-            # remove dt, y, t from Bdict if they exist to avoid duplication
-            [Bdict.pop(key, None) for key in ['y', 't', 'dt']]            
+            if isinstance(parent_bias, Bias):
+                pb = parent_bias.copy()
+            else:
+                assert isinstance(parent_bias, type) and issubclass(parent_bias, Bias), "parent_bias must be a subclass of Bias"
+                pm = self.model
+                try:
+                    # Get observable for one member to determine dimension
+                    y0_all = pm.get_observables()
+                    y0 = np.mean(y0_all, axis=-1, keepdims=True)  # Shape (Nq, 1)
 
-            print(f"Initializing bias model {parent_bias.name} with initial state shape {y0.shape} at time {pm.current_time}")
-            
+                except (AttributeError, IndexError):
+                    # Fallback if the model cannot yet produce observables
+                    y0 = np.zeros((1, pm.Nq, 1)) 
+                
+                # remove dt, y, t from Bdict if they exist to avoid duplication
+                [Bdict.pop(key, None) for key in ['y', 't', 'dt']]            
 
-            self._bias = parent_bias(innovation=y0, 
-                                    t=pm.current_time, 
-                                    dt=pm.dt, 
-                                    initial_capacity=pm.history._initial_capacity,
-                                    rom=pm,
-                                    **Bdict
-                                    )
+                print(f"Initializing bias model {parent_bias.name} with initial state shape {y0.shape} at time {pm.current_time}")
+                
+
+                pb = parent_bias(innovation=y0, 
+                                        t=pm.current_time, 
+                                        dt=pm.dt, 
+                                        initial_capacity=pm.history._initial_capacity,
+                                        rom=pm,
+                                        **Bdict
+                                        )
+            # Initialize the bias state and history
+            b0 = pb.initialize_bias_state(N_ens=N_ens)  # Shape (Nq, N_ens) or (2*Nq, N_ens) depending on bias state definition
+            pb.update_history(b=b0, t=self.current_time, reset=True)
+            # Store the parent bias instance in the ensemble
+            self._bias = pb
+                
+            print(f'OK: Initialized {pb.name} history with shape: {pb.hist.shape} and {pb.hist_t}')
+
         
 
     @typechecked
@@ -669,11 +680,6 @@ class Ensemble(object):
         M = self.model.M.copy()     # Observation operator matrix [Nd] x [Nphi + Na]
 
 
-        if self.Na > 0 and not self.activate_parameter_estimation:
-            Af = Af[:-self.Na, :]
-            M = M[:, :-self.Na]
-
-
         # ================== DEFINE AUGMENTED STATE VECTOR =================== #
         y = self.model.get_observables()
         Af = np.vstack((Af, y))
@@ -681,33 +687,27 @@ class Ensemble(object):
 
         # ======================== APPLY SELECTED FILTER ======================== #
         if self.filter.is_bias_aware:
-            assert self.bias is not None, "Bias-aware filter selected but no bias instance found. Please initialize self.bias with a Bias instance before calling analysis_step."
+            assert self.bias is not None, "Bias-aware filter selected but no bias instance found."
 
             # ----------------- Retrieve bias and its Jacobian ----------------- #
             b = self.bias.current_bias  
             J = self.bias.state_derivative()
-
-            if self.bias.biased_observations:
-                # Adjust observations if they are biased
-                obs_bias = np.mean(b - self.bias.current_innovations, axis=-1)
-                d = d + obs_bias
+            bd = b - self.bias.current_innovations 
                 
-            
             # -------------- Define bias Covariance and the weight -------------- #
             Cbb = Cdd.copy()  # Bias covariance matrix same as obs cov matrix for now
 
-            filter_args = (Af, d, Cdd, Cbb, b, J)
+            filter_args = (Af, d, Cdd, Cbb, b, bd, J)
         
         else:
             filter_args = (Af, d, Cdd)
 
-        # Apply the selected filter and inflate
-
+        # Compute the analysis and inflate
         Aa = self.filter(*filter_args)
         if self.inflation_factor > 1.0:
             Aa = self.inflate(Aa, self.inflation_factor, d=d, additive=True)
 
-        # =========== CHECK SPREAD AND PARAMETERS  ========== #
+        # =========== CHECK SPREAD AND PARAMETERS ARE VALID ========== #
         if not self.has_valid_spread(Aa[:self.model.Nphi, :]):
             self.rejected_analysis = (self.current_time,  'Invalid analysis spread')
 
@@ -719,12 +719,15 @@ class Ensemble(object):
                 self.rejected_analysis = (self.current_time, f'Non-physical parameters {idx_alpha}')
                 Aa = self.inflate(Af, self.inflation_factor_rejection, d=d, additive=True)
 
-        # =========== UPDATE MODEL HISTORY ========== #
-        self.update_history(Aa[:self.model.Nphi + self.Na, :], 
-                            self.current_time, update_last_state=True)
-        self.assimilated_data = (d, self.current_time)
+        # =========== UPDATE MODEL & BIAS HISTORY ========== #
 
-    
+
+        self.model.update_history(Aa[:self.model.Nphi + self.Na, :], 
+                                  self.current_time, update_last_state=True)
+        if self.bias is not None:
+            innovation = d - self.model.get_observables()  # Innovation (observation - analysis)
+            self.bias.update_history(innovation, 
+                                     self.current_time,  update_last_state=True)
 
     @property
     def rejected_analysis(self):

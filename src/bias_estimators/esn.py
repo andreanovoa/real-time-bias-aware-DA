@@ -32,12 +32,25 @@ class ESN_bias(Bias):
                         reference_data=reference_data,
                         **kwargs)
 
-
-         # ----------------- Initialize reservoir state and reset Bias history ---------------------- #
         assert isinstance(self.forecaster, ESN_model), "forecaster must be an instance of ESN_model"
 
-        state0 = self.forecaster.initialize_from_val_data(N_ens=self.N_ens) # this method belongd to ESN_model
-        self.forecaster.update_history(state0, reset=True)
+
+
+    def initialize_bias_state(self, N_ens):
+        """
+        Initializes the reservoir state of the ESN_model forecaster using the validation data. This method is called during the initialization of the bias model to set the initial state of the ESN_model forecaster based on the validation data, which can help improve the training and performance of the bias model.
+        Arguments:
+            N_ens: int - Number of ensemble members to initialize in the reservoir state.
+
+        Returns:
+            Initialized reservoir state for the ESN_model forecaster.
+        """
+        assert hasattr(self, 'forecaster'), "Forecaster must be initialized before calling initialize_from_val_data."
+        
+        return self.forecaster.initialize_from_val_data(N_ens=self.N_ens) # this method belongd to ESN_model
+        
+    
+
     
     @property
     def N_units(self):
@@ -90,7 +103,7 @@ class ESN_bias(Bias):
             self.L = rom.m
 
         # Load or create training dataset for bias model
-        self._forecaster = self.load_or_create_forecaster(**cfg) #type: ESN_model
+        self.forecaster = self.load_or_create_forecaster(**cfg) #type: ESN_model
 
 
     def load_or_create_forecaster(self, hash=None, reference_data=None, rom=None, **kwargs) -> ESN_model:

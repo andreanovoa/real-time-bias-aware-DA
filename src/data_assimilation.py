@@ -172,6 +172,7 @@ class rBA_EnKF(Filter):
             Cbb: bias covariance matrix
             M: matrix mapping from state to observation space
             b: bias of the forecast observables (Y = MAf + B)   
+            bd: bias of the observations (Dtrue = D + Bd)   
             J: derivative of the bias with respect to the input
             gamma: regularization factor for the bias term [default = 1.0]. 
                 Higher values of gamma correspond to stronger regularization (i.e., more weight on the bias term in the cost function).
@@ -183,7 +184,7 @@ class rBA_EnKF(Filter):
         self.gamma = gamma
         super().__init__(m, M)
 
-    def __call__(self, Af, d, Cdd, Cbb, b, J):
+    def __call__(self, Af, d, Cdd, Cbb, b, bd, J):
 
         Nq = len(d)
         M = self.observation_operator(Af)
@@ -198,17 +199,22 @@ class rBA_EnKF(Filter):
         D = rng.multivariate_normal(d, Cdd, self.m).transpose()
 
 
-        if b.ndim > 1 and b.shape[-1] == self.m:
+        if b.ndim == 2 and b.shape[-1] == self.m:
             B = b
-        else:
+            BD = bd
+        elif b.ndim == 1 or (b.ndim == 2 and b.shape[-1] == 1):
             if b.ndim == 1:
                 b = np.expand_dims(b, axis=1)
+                bd = np.expand_dims(bd, axis=1)
             # B = rng.multivariate_normal(b.squeeze(), Cbb, self.m).transpose()
             B = np.repeat(b, self.m, axis=1)
+            BD = np.repeat(bd, self.m, axis=1)
+        else:
+            raise ValueError('b must have shape (Nq,), (Nq, 1) or (Nq, m), got {}'.format(b.shape))
 
-        # B = rng.multivariate_normal(b, Cbb, self.m).transpose()
-
+        # Unbias the states
         Y = Q + B
+        D = D + BD
 
         Cqq = np.dot(S, S.T)  # covariance of observations M Psi_f Psi_f.T M.T
         if np.array_equiv(Cdd, Cbb):
