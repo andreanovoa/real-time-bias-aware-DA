@@ -3,6 +3,7 @@ import numpy as np
 from copy import deepcopy
 from history import HistoryTracker
 from integrator import Integrator
+from model import Model
 
     
 
@@ -35,7 +36,7 @@ class Bias:
     L = 1
     augment_data = False
 
-    
+    forecaster_type = None  # This should be set in child classes to specify the expected type of the forecaster model, e.g., ESN_model for ESN_bias.
     bayesian_update = False         # Default to not perform bayesian update to state
     biased_observations = False  # Whether observations are biased or not
 
@@ -71,10 +72,16 @@ class Bias:
         return self.__class__.__name__
     
     @property
-    def forecaster(self) -> object:
+    def forecaster(self):
         assert hasattr(self, '_forecaster'), 'Forecaster not initialized yet.'
         return self._forecaster # type: ignore #should be an instance of a forecaster model, e.g., ESN_model
     
+    @forecaster.setter
+    def forecaster(self, obj):
+        if self.forecaster_type is None:
+            raise ValueError('Child class must specify forecaster_type.')
+        assert isinstance(obj, self.forecaster_type), f'Forecaster must be an instance of {self.forecaster_type}, but got {type(obj)}.'
+        self._forecaster = obj
 
     @property
     def history(self) -> HistoryTracker:
@@ -256,8 +263,8 @@ class Bias:
                     print('\t {} = {:.6}'.format(key, val))
                 else:
                     print('\t {} = {}'.format(key, val))
-        if hasattr(self.forecaster, 'print_parameters'):
-            self.forecaster.print_parameters(show_header=False)
+        if isinstance(self.forecaster, Model):
+            self.forecaster.print_parameters(show_header=False) 
 
 
     def copy(self):

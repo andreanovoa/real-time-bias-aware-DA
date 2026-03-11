@@ -143,20 +143,21 @@ def sample_model_states(rom: Model,
 
     if std_phi is None:
         std_phi = np.std(model.current_state[:model.Nphi, :], axis=-1)
+        
     if std_alpha is None:
         std_alpha = {}
         for i, key in enumerate(model.est_alpha):
             param = model.current_state[model.Nphi + i, :]
             std_alpha[key] = [min(param), max(param)]
 
-    # assert std_phi is not None, "std_phi must be specified or computed from the model state."
-    # assert std_alpha is not None, "std_alpha must be specified or computed from the model state."
+    assert std_phi is not None, "std_phi must be specified or computed from the model state."
+    assert std_alpha is not None, "std_alpha must be specified or computed from the model state."
 
     def sample_ensemble(psi0_mean, ensemble_size):
         new_phi = mean_vector_to_ensemble(
             rng=model.rng,
             mean_vec=psi0_mean[:model.Nphi],
-            std=std_phi,
+            std=std_phi, 
             m=ensemble_size,
             method='uniform',
         )
@@ -216,29 +217,28 @@ def load_bias_training_dataset(
     if filename is None:
         return None
 
-    try:
+    try: #Check if file exists... 
         loaded_train_data = load_from_pickle_file(filename)
-    except FileNotFoundError:
-        print(f'Run multi-parameter training data: file {filename} not found')
+        assert isinstance(loaded_train_data, dict), f'File {filename} does not contain a dictionary.'
+    except FileNotFoundError or AssertionError:
+        print(f'Run multi-parameter training data: file {filename} not  found or does not contain a dictionary')
         return None
 
-    try:
-        if not check_valid_file(loaded_train_data, necessary_properties):
-            return None
-
-        data = loaded_train_data['data']
-        if data.shape[1] < minimum_training_steps:
-            print('Re-run multi-parameter training data: Increase the length of the training data')
-            return None
-        if augment_data_length > 1 and data.shape[0] != L * augment_data_length:
-            print('Re-run multi-parameter training data: augment_data_length does not match the number of samples in the loaded training data')
-            return None
-
-        print('OK: Loaded training dataset for bias model.')
-        return loaded_train_data
-    except TypeError:
-        print(f'File {filename} type = {type(loaded_train_data)} is not dict')
+    #Check if loaded file is valid... 
+    if not check_valid_file(loaded_train_data, necessary_properties):
         return None
+    # Check if the data has enough time steps and matches the expected shape based on augment_data_length and L
+    data = loaded_train_data['data']
+    if data.shape[1] < minimum_training_steps:
+        print('Re-run multi-parameter training data: Increase the length of the training data')
+        return None
+    if augment_data_length > 1 and data.shape[0] != L * augment_data_length:
+        print('Re-run multi-parameter training data: augment_data_length does not match the number of samples in the loaded training data')
+        return None
+
+    print('OK: Loaded training dataset for bias model.')
+    return loaded_train_data
+
 
 
 def create_bias_training_dataset(config: dict,
@@ -253,26 +253,22 @@ def create_bias_training_dataset(config: dict,
                                 std_alpha: Optional[Union[float, Dict[str, Union[float, List[float]]]]] = None,
                             ) -> dict:
     
-    y_model_L = sample_model_states(
-        rom=rom,
-        L=L,
-        minimum_training_steps=minimum_training_steps,
-        std_phi=std_phi,
-        std_alpha=std_alpha,
-    )
+    y_model_L = sample_model_states(rom=rom,
+                                    L=L,
+                                    minimum_training_steps=minimum_training_steps,
+                                    std_phi=std_phi,
+                                    std_alpha=std_alpha)
 
     print('\n\n Preparing reference data for training...')
     print('y_model_L shape:', y_model_L.shape)
 
     y_raw, y_true = prepare_reference_data(reference_data, minimum_training_steps=minimum_training_steps)
-    Nq = y_model_L.shape[1]
-    Nt_min = minimum_training_steps
     augment = augment_data_length > 1
 
     if not correlation_based_training:
         innovations_all, model_bias_all = [], []
         for yr, yt in zip(y_raw, y_true):
-            innovations = (yr - y_model_L[-Nt_min:]).transpose((2, 0, 1))
+            innovations = (yr - y_model_L[-minimum_training_steps:]).transpose((2, 0, 1))
             innovations_all.append(innovations)
 
             if augment:
@@ -280,7 +276,7 @@ def create_bias_training_dataset(config: dict,
                 innovations_all.append(innovations * -1e-2)
 
             if biased_observations:
-                model_bias = (yt - y_model_L[-Nt_min:]).transpose((2, 0, 1))
+                model_bias = (yt - y_model_L[-minimum_training_steps:]).transpose((2, 0, 1))
                 model_bias_all.append(model_bias)
                 if augment:
                     model_bias_all.append(model_bias * 1e-1)

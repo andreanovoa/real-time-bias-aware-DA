@@ -13,6 +13,7 @@ from .aux import create_bias_training_dataset, load_bias_training_dataset
 
 class ESN_bias(Bias):
 
+    forecaster_type = ESN_model
     biased_observations = True
     correlation_based_training = True
     augment_data = True
@@ -33,6 +34,8 @@ class ESN_bias(Bias):
 
 
          # ----------------- Initialize reservoir state and reset Bias history ---------------------- #
+        assert isinstance(self.forecaster, ESN_model), "forecaster must be an instance of ESN_model"
+
         state0 = self.forecaster.initialize_from_val_data(N_ens=self.N_ens) # this method belongd to ESN_model
         self.forecaster.update_history(state0, reset=True)
     
@@ -50,7 +53,7 @@ class ESN_bias(Bias):
         return 1
 
     def state_derivative(self):
-        esn = self.forecaster # type: ESN_model
+        esn = self.forecaster 
         
         r_mean = np.mean(esn.reservoir_state, axis=-1, keepdims=True) 
         u_mean = esn.reservoir_to_physical(r_mean)
@@ -87,10 +90,10 @@ class ESN_bias(Bias):
             self.L = rom.m
 
         # Load or create training dataset for bias model
-        self._forecaster = self.load_or_create_forecaster(**cfg)
+        self._forecaster = self.load_or_create_forecaster(**cfg) #type: ESN_model
 
 
-    def load_or_create_forecaster(self, hash=None, reference_data=None, rom=None, **kwargs):
+    def load_or_create_forecaster(self, hash=None, reference_data=None, rom=None, **kwargs) -> ESN_model:
         """Load ESN_model forecaster from disk using hash or kwargs if hash is None.  
         Arguments:
             hash: Optional[str] - Hash corresponding to the ESN_model forecaster configuration to load
@@ -116,6 +119,7 @@ class ESN_bias(Bias):
     
 
         if loaded_case is not None:
+            assert isinstance(loaded_case, ESN_model), f'Loaded case must be an instance of ESN_model, but got {type(loaded_case)}.'
             assert loaded_case.trained is True, f'{loaded_case.name} model must be trained after initialization.'
             return loaded_case
 
@@ -135,12 +139,10 @@ class ESN_bias(Bias):
             # Create a new instance of the ESN_model to use as forecaster
             cfg.update(train_data_dict)
 
-            print('CONFIGURATION')
-            print('data ', cfg['data'].shape)
-            print('state ', cfg['state'].shape)
-            # for k in cfg.keys():
-            #     print(f'{k}: {cfg[k]}')
-            print('------------------')
+            # print('CONFIGURATION')
+            # print('data ', cfg['data'].shape)
+            # print('state ', cfg['state'].shape)
+            # print('------------------')
 
             new_esn_model = ESN_model(**cfg) # Note: ESN_model trains itself during initialization using the provided training data, so we don't need a separate training step here. If the ESN_model implementation changes in the future to require a separate training step, this code will need to be updated accordingly.
 
