@@ -49,17 +49,14 @@ class ESN_bias(Bias):
             return 2
         return 1
 
-
     def state_derivative(self):
-        esn = self.forecaster
+        esn = self.forecaster # type: ESN_model
         
         r_mean = np.mean(esn.reservoir_state, axis=-1, keepdims=True) 
         u_mean = esn.reservoir_to_physical(r_mean)
         esn_J = esn.Jacobian(open_loop_J=True, state=(u_mean, r_mean))  # Compute ESN Jacobian
 
-        db_din = esn_J[np.array(self.bias_idx), np.array([self.bias_idx]).T]
-        return -db_din
-
+        return -esn_J[np.array(self.bias_idx), np.array([self.bias_idx]).T]
 
     def init_forecaster(self,
                         training_data_filename: Optional[str] = None,
@@ -71,21 +68,23 @@ class ESN_bias(Bias):
         cfg['N_dim'] = self.N_dim
         cfg['training_data_filename'] = training_data_filename
         cfg['dt'] = self.dt
-        cfg['observed_idx'] = self.observed_idx
-        cfg['rom'] = kwargs.get('rom')
+        rom = kwargs.get('rom') 
 
-        # add traingin times id not provided in kwargs, with default values based on the ROM time scales
-        t_test_default = 5 * cfg['rom'].t_CR if kwargs.get('perform_test', True) else 0
-        for key, default_value in zip(['t_train', 't_val', 't_test'], [cfg['rom'].t_transient / 2, cfg['rom'].t_CR, t_test_default]):
+        assert rom is not None, "ROM object must be provided."
+
+        # add traingin times if not provided in kwargs, with default values based on the ROM time scales
+        t_test_default = 5 * rom.t_CR if kwargs.get('perform_test', True) else 0
+        for key, default_value in zip(['t_train', 't_val', 't_test'], [rom.t_transient / 2, rom.t_CR, t_test_default]):
             if key not in cfg.keys(): 
                 cfg[key] = kwargs.get(key, default_value)
         
+        cfg['rom'] = rom
 
         min_training_time = sum([cfg[key] for key in ['t_train', 't_val', 't_test']])
         self.minimum_training_steps = int(np.ceil(min_training_time / self.dt))
 
         if not hasattr(self, 'L'):
-            self.L = cfg['rom'].m
+            self.L = rom.m
 
         # Load or create training dataset for bias model
         self._forecaster = self.load_or_create_forecaster(**cfg)
@@ -112,10 +111,6 @@ class ESN_bias(Bias):
         else:            
             query_hash = hash
 
-        # display config in a human-readable format for debugging purposes
-        print(f'Querying for ESN_model with hash: {query_hash}')
-        print(f'Query configuration: {query_config}')
-
         # Try to load forecaster configuration from disk
         loaded_case = load_esn_model_from_config(q=query_hash)
     
@@ -139,11 +134,18 @@ class ESN_bias(Bias):
 
             # Create a new instance of the ESN_model to use as forecaster
             cfg.update(train_data_dict)
+
+            print('CONFIGURATION')
+            print('data ', cfg['data'].shape)
+            print('state ', cfg['state'].shape)
+            # for k in cfg.keys():
+            #     print(f'{k}: {cfg[k]}')
+            print('------------------')
+
             new_esn_model = ESN_model(**cfg) # Note: ESN_model trains itself during initialization using the provided training data, so we don't need a separate training step here. If the ESN_model implementation changes in the future to require a separate training step, this code will need to be updated accordingly.
 
             # Save model configuration to disk and return it
             _ = save_esn_model_to_config(new_esn_model)
-
 
             return new_esn_model
 
@@ -181,8 +183,8 @@ class ESN_bias(Bias):
 
 
         if train_data_dict is not None:
-            print(f'Loaded training data for bias model from file: {training_data_filename}')
-            return train_data_dict
+            assert isinstance(train_data_dict, dict), 'ERROR: Loaded training data for bias model must be a dictionary.'
+            return train_data_dict 
 
         print('Creating training data for bias model...')
         

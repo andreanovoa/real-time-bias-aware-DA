@@ -1,6 +1,8 @@
 
 import numpy as np
 from copy import deepcopy
+from history import HistoryTracker
+from integrator import Integrator
 
     
 
@@ -27,8 +29,6 @@ class Bias:
         forecaster: The forecasting model used for bias prediction
         history: History object storing past bias states
         integrator: Integrator used by the bias model
-        forecaster_class: Class of the forecaster model
-        forecaster_class_defaults: Default attributes of the forecaster class
     '''
 
     upsample = 1
@@ -39,7 +39,7 @@ class Bias:
     bayesian_update = False         # Default to not perform bayesian update to state
     biased_observations = False  # Whether observations are biased or not
 
-    keys_to_print = ['bayesian_update', 'upsample', 'biased_observations', 'observed_idx']
+    keys_to_print = ['bayesian_update', 'upsample', 'biased_observations']
     extra_keys_to_print = []
 
     def __init__(self, innovation, t, dt, **kwargs):
@@ -71,9 +71,28 @@ class Bias:
         return self.__class__.__name__
     
     @property
-    def N_dim(self):
-        return self.Nq if not self.biased_observations else 2*self.Nq
+    def forecaster(self) -> object:
+        assert hasattr(self, '_forecaster'), 'Forecaster not initialized yet.'
+        return self._forecaster # type: ignore #should be an instance of a forecaster model, e.g., ESN_model
     
+
+    @property
+    def history(self) -> HistoryTracker:
+        return self._forecaster.history  # type: ignore
+    
+    @property
+    def integrator(self) -> Integrator:
+        """
+        This is the integrator used by the model of the bias. E.g., DiscreteIntegrator if using ESN_model as forecaster.
+        """
+        return self._forecaster.integrator  # type: ignore
+    
+    @property
+    def N_dim(self):
+        if not self.biased_observations:
+            return self.Nq
+        else:
+            return 2 * self.Nq
 
     @property
     def bias_idx(self):
@@ -86,46 +105,12 @@ class Bias:
         else:
             return self.bias_idx
 
-    @property
-    def forecaster(self):
-        assert hasattr(self, '_forecaster'), 'Forecaster not initialized yet.'
-        return self._forecaster # type: ignore #should be an instance of a forecaster model, e.g., ESN_model
-    
-
-    @property
-    def history(self):
-        return self._forecaster.history  # type: ignore
-    
-    @property
-    def integrator(self):
-        """
-        This is the integrator used by the model of the bias. E.g., DiscreteIntegrator if using ESN_model as forecaster.
-        """
-        return self._forecaster.integrator  # type: ignore
-    
-    @property
-    def forecaster_class(self):
-        return type(self.forecaster)
-
-    @property
-    def forecaster_class_defaults(self):
-        all_keys = list(self.forecaster_class.__dict__.keys())
-        
-        # Filter out methods, properties, and special attributes
-        default_attrs = [key for key in all_keys 
-                         if not callable(getattr(self.forecaster_class, key)) and not key.startswith('_')]
-        
-        return default_attrs
-
-
     def init_forecaster(self, **kwargs):
         """
-        initial_capacity = kwargs.pop('initial_capacity', max(1000, state.shape[0]*10))
-        self._forecaster = forecaster_model(**kwargs)
+        .....
         """
         raise NotImplementedError('Bias child classes must implement _init_forecaster() method.')
 
-    @property
     def state_derivative(self):
         """
         Returns the derivative of the bias state, which is used for time integration.
@@ -133,7 +118,6 @@ class Bias:
         """
         raise NotImplementedError('Bias child classes must implement state_derivative property, typically computed by the forecaster model.')
     
-
     def _format_state(self, b):
         """
         Ensure b has shape (nt, nb, nens)
@@ -147,8 +131,7 @@ class Bias:
         
         raise AssertionError('b must have 1, 2 or 3 dimensions, got {}'.format(b.ndim))
 
-
-    def build_state(self, innovation, model_bias=None):
+    def build_state(self, innovation, model_bias=None) -> np.ndarray:
         """
         Build the full bias state from innovations and model bias (if applicable)
         """
@@ -214,13 +197,12 @@ class Bias:
     @property
     def current_bias(self):
         """Returns the current bias computed from the current state."""
-        return self.get_bias(state=self.current_state)
+        return self.get_bias(state=self.current_state)[0, :, :]
 
     @property
     def current_innovations(self):
         """Returns the current innovations computed from the current state."""
-        return self.get_innovations(state=self.current_state)
-
+        return self.get_innovations(state=self.current_state)[0, :, :]
 
 
     def get_bias(self, state, mean=False):

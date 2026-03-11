@@ -249,8 +249,8 @@ def create_bias_training_dataset(config: dict,
                                 augment_data_length: int,
                                 correlation_based_training: bool,
                                 biased_observations: bool,
-                                std_phi: float = None,
-                                std_alpha: Union[float, Dict[str, Union[float, List[float]]]] = None,
+                                std_phi: Optional[float] = None,
+                                std_alpha: Optional[Union[float, Dict[str, Union[float, List[float]]]]] = None,
                             ) -> dict:
     
     y_model_L = sample_model_states(
@@ -298,13 +298,11 @@ def create_bias_training_dataset(config: dict,
 
     if not biased_observations:
         train_data = np.concatenate(innovations_all, axis=0)
-        observed_idx = np.arange(Nq)
     else:
         innovations_all = np.concatenate(innovations_all, axis=0)
         model_bias_all = np.concatenate(model_bias_all, axis=0)
         train_data = np.concatenate([model_bias_all, innovations_all], axis=2)
-        observed_idx = Nq + np.arange(Nq)
 
     train_data_dict = {key: val for key, val in config.items()}
-    train_data_dict.update(data=train_data, observed_idx=observed_idx)
+    train_data_dict.update(data=train_data)
     return train_data_dict

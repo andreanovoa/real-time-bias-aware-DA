@@ -202,7 +202,7 @@ class Model(object):
         return psi
 
     def define_print_params(self):
-        return [*self.alpha_labels, *self.extra_print_params]
+        return [*self.params, *self.extra_print_params]
 
     @property
     def psi0(self):
