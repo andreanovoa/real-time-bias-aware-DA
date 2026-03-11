@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from matplotlib import cm as cm
 import warnings
 
-from model import *
+from model import Model
 from integrator import DiscreteIntegrator
 
 

@@ -198,7 +198,10 @@ class rBA_EnKF(Filter):
         # Create an ensemble of observations
         D = rng.multivariate_normal(d, Cdd, self.m).transpose()
 
-
+        if b.ndim == 1:
+            b = np.expand_dims(b, axis=1)
+            bd = np.expand_dims(bd, axis=1)
+            
         if b.ndim == 2 and b.shape[-1] == self.m:
             B = b
             BD = bd
@@ -225,17 +228,9 @@ class rBA_EnKF(Filter):
         Cinv = (self.m - 1) * Cdd + np.dot(np.dot(Iq + J.T, Iq + J), Cqq) + \
             self.gamma * np.dot(CdWb, np.dot(np.dot(J.T, J), Cqq))
         
-        print('shapes:')
-        print(f'  Af: {Af.shape}')
-        print(f'  D: {D.shape}')
-        print(f'  Y: {Y.shape}')
-        print(f'  B: {B.shape}')
-        print(f'  Cinv: {Cinv.shape}')
-        print(f'  S: {S.shape}')
-        print(f'  J: {J.shape}')
 
         K = np.dot(Psi_f, np.dot(S.T, linalg.inv(Cinv)))
-        Aa = Af + np.dot(K, np.dot(Iq + J.T, D - Y) - self.gamma * np.dot(CdWb, np.dot(J.T, B)))
+        Aa = Af + np.dot(K, np.dot(Iq + J.T, D - Y) - self.gamma * np.dot(CdWb, np.dot(J.T, b)))
 
         # Compute cost function terms (this could be commented out to increase speed)
         if np.isreal(Aa).all():

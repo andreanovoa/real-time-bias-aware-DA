@@ -161,17 +161,20 @@ def sample_model_states(rom: Model,
             m=ensemble_size,
             method='uniform',
         )
+        if psi0_mean.shape[0] > model.Nphi:
 
-        new_alpha = mean_vector_to_ensemble(
-            rng=model.rng,
-            mean_vec=psi0_mean[model.Nphi:model.Nphi + model.Na],
-            std=std_alpha,
-            m=ensemble_size,
-            method='uniform',
-        )
+            new_alpha = mean_vector_to_ensemble(
+                rng=model.rng,
+                mean_vec=psi0_mean[model.Nphi:model.Nphi + model.Na],
+                std=std_alpha,
+                m=ensemble_size,
+                method='uniform',
+            )
 
-        return np.concatenate([new_phi, new_alpha], axis=0)
-
+            return np.concatenate([new_phi, new_alpha], axis=0)
+        else:
+            return new_phi
+        
     if model.m != L:
         psi0 = np.mean(model.current_state.copy(), axis=-1)
         psi0_ens = sample_ensemble(psi0, L)

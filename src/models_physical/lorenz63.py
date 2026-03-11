@@ -50,6 +50,7 @@ class Lorenz63(Model):
         super().__init__(psi0=psi0, dt=dt, integrator_class=IVPIntegrator, **model_dict)
 
         self.alpha_labels = dict(rho='$\\rho$', sigma='$\\sigma$', beta='$\\beta$') 
+        
 
     # _______________ Lorenz63 specific properties and methods ________________ #
 

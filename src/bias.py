@@ -4,7 +4,7 @@ from copy import deepcopy
 from history import HistoryTracker
 from integrator import Integrator
 from model import Model
-
+from typing import Optional, Tuple
     
 
 
@@ -40,7 +40,7 @@ class Bias:
     bayesian_update = False         # Default to not perform bayesian update to state
     biased_observations = False  # Whether observations are biased or not
 
-    keys_to_print = ['bayesian_update', 'upsample', 'biased_observations']
+    keys_to_print = ['bayesian_update', 'upsample', 'biased_observations', 'force_retrain']
     extra_keys_to_print = []
 
     def __init__(self, innovation, t, dt, **kwargs):
@@ -75,10 +75,20 @@ class Bias:
     
     @property
     def N_ens(self):
-        return self.history.current_state.shape[-1]
+        if not hasattr(self, '_N_ens'):
+            return 1
+        return self._N_ens
     
+    @N_ens.setter
+    def N_ens(self, value):
+        if value <= 0:
+            raise ValueError("Number of ensemble members must be positive.")
+        if hasattr(self, 'history'):
+            Warning("Changing N_ens after initialization may lead to inconsistencies in the history.")
+        self._N_ens = value
+
     @property
-    def initialize_bias_state(self, N_ens):
+    def initialize_bias_state(self):
         """
         Only used at initialization. If the forecaster is a model, this shoiuld be hanfdled by the child class.
         """
@@ -141,6 +151,32 @@ class Bias:
         """
         raise NotImplementedError('Bias child classes must implement state_derivative property, typically computed by the forecaster model.')
     
+    def washout_phase(self, d_wash, t_wash, **kwargs) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+        """
+        Optional method to initialize the bias model if needed, e.g., by running a washout phase with given data.
+        By default, does nothing, but can be implemented in child classes if needed.
+        """
+        return None
+
+    @property
+    def washout_data(self):
+        """
+        Returns the washout data used for initializing the bias model, which is typically obtained from the washout phase using the validation data. This property can be used to access the washout data for further processing or analysis.
+
+        Returns:
+            Tuple of (washout_data, washout_time) where:
+                - washout_data: np.ndarray - Washout data used for initializing the bias model.
+                - washout_time: np.ndarray - Time points corresponding to the washout data.
+        """
+        return getattr(self, '_washout_data', (None, None))
+    
+
+    
+    @washout_data.setter
+    def washout_data(self, value):
+        assert isinstance(value, tuple) and len(value) == 2, "Washout data must be a tuple of (washout_data, washout_time)."
+        self._washout_data = value
+        
     def _format_state(self, b):
         """
         Ensure b has shape (nt, nb, nens)
@@ -248,12 +284,22 @@ class Bias:
     def get_bias_hist(self, mean=False):
         return self.get_bias(state=self.hist, mean=mean)
 
-    def time_integrate(self, Nt, y=None, wash_t=None, wash_obs=None):
+    def time_integrate(self, Nt):
         return self.integrator.advance(Nt=Nt)
     
 
+    def new_innovation_to_state(self, innovation):
+        """
+        Modifies the innovation component in the state of the model. 
+        By default, this is an identity mapping, but it can be implemented in child classes if needed.
+        """
+        state = self.current_state
+        state[self.observed_idx, :] = innovation
+        return state
+    
+
     def update_history(self, b, t=None, reset=False, update_last_state=False, **kwargs):
-        b = self._format_state(b)
+        b = self._format_state(b) # Ensure b has shape (nt, nb, nens)
 
         # Ensure time array matches nt
         if t is None:
@@ -262,6 +308,14 @@ class Bias:
             t = np.array([t])
         assert t.size == b.shape[0], f"Length of t ({t.size}) must match number of time steps in b ({b.shape[0]})."
         
+        if update_last_state:
+            current_state = self.current_state
+            assert b.shape[0] == 1, "When update_last_state is True, b must have only one time step (shape[0] == 1)."
+            if b.shape[1] != current_state.shape[0]:
+                b_observed = b.copy()
+                b = current_state.copy()[np.newaxis, :, :]  # (1, nb, nens)
+                b[:, self.observed_idx, :] = b_observed[:, self.bias_idx, :]
+
         self.history.update_history(b, t=t, reset=reset, update_last_state=update_last_state)
         self._update_history_aux(reset=reset, update_last_state=update_last_state, **kwargs)
     

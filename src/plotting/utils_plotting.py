@@ -60,13 +60,16 @@ class Palette:
 
     @property
     def true_noisy_props(self):
-        return dict(marker='none', linestyle='-', lw=1.2, color=self.get_color('TRUE', .3))
+        return dict(marker='none', linestyle='-', lw=1.2, color=self.get_color('TRUE', .7))
     @property
     def true_props(self):
-        return dict(marker='none', linestyle='-', lw=2, color=self.get_color('TRUE', .6))
+        return dict(marker='none', linestyle='-', lw=2, color=self.get_color('TRUE', .7))
     @property
     def obs_props(self):
-        return dict(marker='.', linestyle='none', markersize=5, markeredgecolor='none', color=self.get_color('OBS'))
+        return dict(marker='.', linestyle='none', markersize=7, markeredgecolor='none', color=self.get_color('OBS'))
+    @property
+    def washout_props(self):
+        return dict(marker='x', linestyle='none', markersize=3, markeredgecolor=self.get_color('OBS'))
     @property
     def bias_props(self):
         return dict(marker='none', linestyle='--', dashes=(10, 1), lw=.5, color=self.get_color('BIAS_STATE'))

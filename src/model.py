@@ -18,11 +18,11 @@ class Model(object):
     """ Parent Class with the general model properties and methods definitions.
     """
 
+    params = []  # List of parameter names that can be varied in the model
     fixed_params = []
     extra_print_params = []
     governing_eqns_params = dict()
 
-    params = [] 
     t = 0.
     t_transient = 0.
     t_CR = 10 * 0.01
@@ -111,7 +111,7 @@ class Model(object):
     @property
     def alpha_lims(self):
         if not hasattr(self, '_alpha_lims'):
-            self._alpha_lims = {key: (None, None) for key in self.params}
+            self._alpha_lims = {key: (None, None) for key in sorted(self.params)}
         
         return self._alpha_lims
     
@@ -130,18 +130,18 @@ class Model(object):
     @property
     def alpha_labels(self):
         if not hasattr(self, '_alpha_labels'):
-            self._alpha_labels = {f'$\\alpha_{ii}$': val for ii, val in enumerate(self.params)}
+            self._alpha_labels = {f'$\\alpha_{ii}$': val for ii, val in enumerate(sorted(self.params))}
         return self._alpha_labels
     
     @alpha_labels.setter
     def alpha_labels(self, value: dict):
-        assert set(value.keys()) - set(self.params) == set(), f"Keys of alpha_labels must be a subset of {self.params}, but got {value.keys()}"
+        assert set(list(value.keys())) - set(sorted(self.params)) == set(), f"Keys of alpha_labels must be a subset of {sorted(self.params)}, but got {value.keys()}"
         if hasattr(self, '_alpha_labels'):
             self._alpha_labels.update(value)
         else:
             self._alpha_labels = value
             if len(self._alpha_labels) < len(self.params):
-                missing_keys = set(self.params) - set(self._alpha_labels.keys())
+                missing_keys = set(sorted(self.params)) - set(self._alpha_labels.keys())
                 self._alpha_labels.update({f'$\\alpha_{ii}$': val for ii, val in enumerate(missing_keys)})
 
 
