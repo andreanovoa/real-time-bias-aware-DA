@@ -198,22 +198,22 @@ class rBA_EnKF(Filter):
         # Create an ensemble of observations
         D = rng.multivariate_normal(d, Cdd, self.m).transpose()
 
+        assert b.shape[0] == Nq, f"Bias vector b must have the same length as the observation vector d. Got b.shape[0] = {b.shape[0]} and d.shape[0] = {Nq}"
+        assert b.ndim in [1, 2], f"Bias vector b must be either 1D or 2D. Got b.ndim = {b.ndim}"
+        
         if b.ndim == 1:
-            b = np.expand_dims(b, axis=1)
-            bd = np.expand_dims(bd, axis=1)
-            
-        if b.ndim == 2 and b.shape[-1] == self.m:
-            B = b
-            BD = bd
-        elif b.ndim == 1 or (b.ndim == 2 and b.shape[-1] == 1):
-            if b.ndim == 1:
-                b = np.expand_dims(b, axis=1)
-                bd = np.expand_dims(bd, axis=1)
-            # B = rng.multivariate_normal(b.squeeze(), Cbb, self.m).transpose()
-            B = np.repeat(b, self.m, axis=1)
-            BD = np.repeat(bd, self.m, axis=1)
-        else:
-            raise ValueError('b must have shape (Nq,), (Nq, 1) or (Nq, m), got {}'.format(b.shape))
+            B = np.repeat(b[:, np.newaxis], self.m, axis=1)
+            BD = np.repeat(bd[:, np.newaxis], self.m, axis=1)
+        else: 
+            if b.shape[-1] == self.m:
+                B = b.copy()
+                BD = bd.copy()
+            elif b.shape[-1] == 1:
+                # B = rng.multivariate_normal(b.squeeze(), Cbb, self.m).transpose()
+                B = np.repeat(b, self.m, axis=1)
+                BD = np.repeat(bd, self.m, axis=1)
+            else:
+                raise ValueError('b must have shape (Nq,), (Nq, 1) or (Nq, m), got {}'.format(b.shape))
 
         # Unbias the states
         Y = Q + B

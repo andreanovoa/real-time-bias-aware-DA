@@ -360,35 +360,40 @@ class Ensemble(object):
 
         if parent_bias is None:
             self._bias = None
-        else:
-
-            if isinstance(parent_bias, Bias):
+            return
+        elif isinstance(parent_bias, Bias):
                 pb = parent_bias.copy()
-            else:
-                assert isinstance(parent_bias, type) and issubclass(parent_bias, Bias), "parent_bias must be a subclass of Bias"
-                pm = self.model
-                try:
-                    # Get observable for one member to determine dimension
-                    y0_all = pm.get_observables()
-                    y0 = np.mean(y0_all, axis=-1, keepdims=True)  # Shape (Nq, 1)
+        else:
+            assert isinstance(parent_bias, type) and issubclass(parent_bias, Bias), "parent_bias must be a subclass of Bias"
+            pm = self.model
+            try:
+                # Get observable for one member to determine dimension
+                y0_all = pm.get_observables()
+                y0 = np.mean(y0_all, axis=-1, keepdims=True)  # Shape (Nq, 1)
 
-                except (AttributeError, IndexError):
-                    # Fallback if the model cannot yet produce observables
-                    y0 = np.zeros((1, pm.Nq, 1)) 
-                
-                # remove dt, y, t from Bdict if they exist to avoid duplication
-                [Bdict.pop(key, None) for key in ['y', 't', 'dt']]            
+            except (AttributeError, IndexError):
+                # Fallback if the model cannot yet produce observables
+                y0 = np.zeros((1, pm.Nq, N_ens)) 
+            
+            # remove dt, y, t from Bdict if they exist to avoid duplication
+            [Bdict.pop(key, None) for key in ['y', 't', 'dt']]            
 
-                print(f"Initializing bias model {parent_bias.name} with initial state shape {y0.shape} at time {pm.current_time}")
-                
+            print(f"Initializing bias model {parent_bias.name} with initial state shape {y0.shape} at time {pm.current_time}")
+            
+            training_data_filename = Bdict.pop('training_data_filename', 'bias_training_data')
 
-                pb = parent_bias(innovation=y0, 
-                                        t=pm.current_time, 
-                                        dt=pm.dt, 
-                                        initial_capacity=pm.history._initial_capacity,
-                                        rom=pm,
-                                        **Bdict
-                                        )
+            
+            for key, val in Bdict.items():
+                if key in Bias.keys_to_print:
+                    training_data_filename += f"_{key[:4]}{val}"
+
+            pb = parent_bias(innovation=y0, 
+                                    t=pm.current_time, 
+                                    dt=pm.dt, 
+                                    initial_capacity=pm.history._initial_capacity,
+                                    rom=pm,
+                                    **Bdict
+                                    )
             # Initialize the bias state and history
             b0 = pb.initialize_bias_state  # Shape (Nq, N_ens) or (2*Nq, N_ens) depending on bias state definition
             pb.update_history(b=b0, t=self.current_time, reset=True)

@@ -105,14 +105,6 @@ class ESN_bias(Bias):
     def N_units(self):
         return self._forecaster.N_units
 
-    @property
-    def augment_data_length(self):
-        augment_data = self.augment_data
-        if augment_data:
-            if isinstance(augment_data, int) and augment_data > 1:
-                return augment_data
-            return 2
-        return 1
 
     def state_derivative(self):
         esn = self.forecaster 

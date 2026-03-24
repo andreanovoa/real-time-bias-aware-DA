@@ -39,8 +39,9 @@ class Bias:
     forecaster_type = None  # This should be set in child classes to specify the expected type of the forecaster model, e.g., ESN_model for ESN_bias.
     bayesian_update = False         # Default to not perform bayesian update to state
     biased_observations = False  # Whether observations are biased or not
-
-    keys_to_print = ['bayesian_update', 'upsample', 'biased_observations', 'force_retrain']
+    force_retrain = False
+    
+    keys_to_print = ['bayesian_update', 'upsample', 'biased_observations', 'L', 'augment_data_length']
     extra_keys_to_print = []
 
     def __init__(self, innovation, t, dt, **kwargs):
@@ -86,6 +87,15 @@ class Bias:
         if hasattr(self, 'history'):
             Warning("Changing N_ens after initialization may lead to inconsistencies in the history.")
         self._N_ens = value
+
+    @property
+    def augment_data_length(self):
+        augment_data = self.augment_data
+        if augment_data:
+            if isinstance(augment_data, int) and augment_data > 1:
+                return augment_data
+            return 2
+        return 1
 
     @property
     def initialize_bias_state(self):
