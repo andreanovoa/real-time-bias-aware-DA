@@ -230,7 +230,7 @@ class rBA_EnKF(Filter):
         
 
         K = np.dot(Psi_f, np.dot(S.T, linalg.inv(Cinv)))
-        Aa = Af + np.dot(K, np.dot(Iq + J.T, D - Y) - self.gamma * np.dot(CdWb, np.dot(J.T, b)))
+        Aa = Af + np.dot(K, np.dot(Iq + J.T, D - Y) - self.gamma * np.dot(CdWb, np.dot(J.T, B)))
 
         # Compute cost function terms (this could be commented out to increase speed)
         if np.isreal(Aa).all():
