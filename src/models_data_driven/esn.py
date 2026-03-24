@@ -320,7 +320,7 @@ class ESN_model(EchoStateNetwork, Model):
             dim_ids = [0] * N_ens
         else:
             # Choose a random dimension from the data
-            replace = N_ens <= data.shape[0]
+            replace = N_ens >= data.shape[0]
             dim_ids = rng0.choice(data.shape[0], size=N_ens, replace=replace)
 
         # Choose random time indices from the data
@@ -505,22 +505,13 @@ class ESN_model(EchoStateNetwork, Model):
         if psi is None:
             psi = self.current_state
         if psi.ndim == 2:
-            psi = psi[np.newaxis, :, :]
+            psi = np.expand_dims(psi, axis=0)
             squeeze = True
         else:
             squeeze = False
 
-        if self.update_state and self.update_reservoir:
-            u = psi[:, :self.N_dim]
-            r = psi[:, self.N_dim:self.N_dim+self.N_units]
-        elif  self.update_state:
-            u = psi[:, :self.N_dim]
-            r = None
-        elif self.update_reservoir:
-            r = psi[:, :self.N_units]
-            u = None
-        else:
-            raise ValueError('Both update_state and update_reservoir are False')
+        u = psi[:, :self.N_dim]
+        r = psi[:, self.N_dim:self.N_dim+self.N_units]
 
         if squeeze:
             if u is not None:

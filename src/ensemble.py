@@ -391,12 +391,13 @@ class Ensemble(object):
                                     t=pm.current_time, 
                                     dt=pm.dt, 
                                     initial_capacity=pm.history._initial_capacity,
+                                    training_data_filename=training_data_filename,
                                     rom=pm,
                                     **Bdict
                                     )
             # Initialize the bias state and history
-            b0 = pb.initialize_bias_state  # Shape (Nq, N_ens) or (2*Nq, N_ens) depending on bias state definition
-            pb.update_history(b=b0, t=self.current_time, reset=True)
+            pb.update_history(state=pb.initialize_bias_state,  # Shape (Nq, N_ens) or (2*Nq, N_ens) depending on bias state definition
+                              t=self.current_time, reset=True)
             # Store the parent bias instance in the ensemble
             self._bias = pb
                 
@@ -708,10 +709,19 @@ class Ensemble(object):
             assert self.bias is not None, "Bias-aware filter selected but no bias instance found."
 
             # ----------------- Retrieve bias and its Jacobian ----------------- #
-            b = self.bias.current_bias  
-            J = self.bias.state_derivative() 
             
-            bd = b - self.bias.current_innovations 
+            
+            if self.analysis_count > self.num_bias_blind:
+                b = self.bias.current_bias  
+                bd = b - self.bias.current_innovations 
+                J = self.bias.state_derivative() 
+            else:
+
+                b = self.bias.current_bias  * 0.0  # No bias during blind phase
+                bd = np.zeros_like(b)  # No bias during blind phase
+                J = np.zeros((len(d), b.shape[0]))  # No bias sensitivity during blind phase
+                J = np.zeros((len(d), b.shape[0]))  # No bias sensitivity during blind phase
+            
               
             # -------------- Define bias Covariance and the weight -------------- #
             Cbb = Cdd.copy()  # Bias covariance matrix same as obs cov matrix for now
@@ -748,12 +758,26 @@ class Ensemble(object):
             y = Aa[-self.model.Nq:, :]
             if not self.bias_bayesian_update:
                 innovation = d - np.mean(y, axis=1, keepdims=True)  # Innovation (observation - analysis)
-                bias_state = self.bias.new_innovation_to_state(innovation)  # Map innovation to state of the model
+                # bias_state = self.bias.new_innovation_to_state(innovation)  # Map innovation to state of the model
             else:
                 raise NotImplementedError('Bayesian bias update not implemented yet.')
             
-            self.bias.update_history(bias_state, 
-                                     self.current_time,  update_last_state=True)
+            self.bias.update_history(innovation, 
+                                     self.current_time, update_last_state=True)
+
+
+    @property
+    def analysis_count(self) -> int:
+        """
+        Property to track the number of analysis steps performed.
+        Returns
+        -------
+        int
+            The number of analysis steps performed.
+        """
+        if not hasattr(self, 'assimilated_data'):
+            return 0
+        return len(self.assimilated_data.times)
 
 
     @property
@@ -1172,7 +1196,12 @@ def plot_observable_history(ensemble : Ensemble,
         t_obs = np.array(ensemble.assimilated_data.times)
         if max_time is None:
             max_time = min(t_obs[-2] + t_margin, t[-1]) 
-        min_time = t_obs[0] - 0.25 * t_margin  #type: ignore
+        
+        if pb is not None and pb.washout_data is not None:
+            t_washout = np.asarray(pb.washout_data[1])
+            min_time = t_washout[0] - 0.25 * t_margin #type: ignore
+        else:
+            min_time = t_obs[0] - 0.25 * t_margin  #type: ignore
     else:         
         t_obs = None
         min_time, max_time = t[0], t[-1]
@@ -1221,8 +1250,7 @@ def plot_observable_history(ensemble : Ensemble,
         t_washout = normalized_time(reference_t, t_washout)[0][0]
         (u_washout,), _ = normalized_y(reference_y, pm.obs_labels, u_washout)
         t_washout, (u_washout,) = cut_signals(t_washout, u_washout, min_time=min_time, max_time=max_time)
-        #  get d_wash as u + y ar the t_washout time points. We may need to interpolate y_model to t_washout if they don't match
-        
+        #  get d_wash as u + y ar the t_washout time points. We may need to interpolate y_model to t_washout if they don't match        
         y_model_wash = interpolate(t, y_model, t_washout)
         y_washout = u_washout + np.mean(y_model_wash, axis=-1)
     else:

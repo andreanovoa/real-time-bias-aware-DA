@@ -50,8 +50,7 @@ class ESN_bias(Bias):
         
         return self.forecaster.initialize_from_val_data(N_ens=self.N_ens) # this method belongd to ESN_model
     
-
-
+        
     def washout_phase(self, d_wash, t_wash, **kwargs):
         """
         Arguments:
@@ -269,27 +268,27 @@ class ESN_bias(Bias):
 
 
 
-    def new_innovation_to_state(self, innovation):
-        """
-        Maps the innovation to the state of the model. This is used for the non-Bayesian bias update, where the bias state is directly updated based on the innovation.
-        By default, this is an identity mapping, but it can be implemented in child classes if needed.
-        """
-        state = self.current_state
-        state[self.observed_idx, :] = innovation
+    # def new_innovation_to_state(self, innovation):
+    #     """
+    #     Maps the innovation to the state of the model. This is used for the non-Bayesian bias update, where the bias state is directly updated based on the innovation.
+    #     By default, this is an identity mapping, but it can be implemented in child classes if needed.
+    #     """
+    #     state = self.current_state
+    #     state[self.observed_idx, :] = innovation
 
-        # Update the reservoir state of the ESN_model forecaster based on the new physical state after the innovation is applied. This ensures that the bias state is consistent with the updated physical state, which can help improve the performance of the bias model.
-        assert hasattr(self, 'forecaster'), "Forecaster must be initialized before calling new_innovation_to_state."
-        esn = self.forecaster #type: ESN_model
+    #     # Update the reservoir state of the ESN_model forecaster based on the new physical state after the innovation is applied. This ensures that the bias state is consistent with the updated physical state, which can help improve the performance of the bias model.
+    #     assert hasattr(self, 'forecaster'), "Forecaster must be initialized before calling new_innovation_to_state."
+    #     esn = self.forecaster #type: ESN_model
 
-        r_mean = np.mean(esn.reservoir_state, axis=-1, keepdims=True) 
+    #     r_mean = np.mean(esn.reservoir_state, axis=-1, keepdims=True) 
 
-        # perform one open-loop step of the ESN_model 
-        _, r_open = esn.step(innovation, r_mean)
-        self.forecaster.reservoir_state = r_open
+    #     # perform one open-loop step of the ESN_model 
+    #     _, r_open = esn.step(innovation, r_mean)
+    #     self.forecaster.reservoir_state = r_open
 
-        state[-esn.N_units:, :] = r_open
+    #     state[-esn.N_units:, :] = r_open
 
-        return state
+    #     return state
 
 
 

@@ -413,9 +413,13 @@ class Observations():
         """
         
         # 1. Data Extraction and Setup
-        y_raw, y_true, t_true, y_obs, t_obs, b, y_wash, t_wash = [
-            getattr(case, key).squeeze() for key in ['y_raw', 'y_true', 't_true', 'y_obs', 't_obs', 'b_true', 'y_wash', 't_wash']
-        ]
+        keys = ['y_raw', 'y_true', 't_true', 'y_obs', 't_obs', 'b_true', 'y_wash', 't_wash'] 
+        
+        y_raw, y_true, t_true, y_obs, t_obs, b, y_wash, t_wash = tuple((val.squeeze() if val is not None else None)
+                                                                        for key in keys
+                                                                        for val in [getattr(case, key)])
+                                                                        
+
 
         if y_true.ndim == 1:
             y_true = y_true[:, np.newaxis]

@@ -35,6 +35,7 @@ class Bias:
     upsample = 1
     L = 1
     augment_data = False
+    N_hidden = 0  # Number of hidden units in the bias model, e.g., for ESN bias model. This is added to the state dimension N_dim to get the total state dimension N.
 
     forecaster_type = None  # This should be set in child classes to specify the expected type of the forecaster model, e.g., ESN_model for ESN_bias.
     bayesian_update = False         # Default to not perform bayesian update to state
@@ -59,14 +60,14 @@ class Bias:
         self.dt = dt
         self.Nq = self._format_state(innovation).shape[1] 
         
-        bias_state = self.build_state(innovation)
-        assert bias_state.shape[1] == self.N_dim, f"Bias state shape {bias_state.shape} does not match expected N_dim = {self.N_dim}."
 
         # ================== Initialize Forecaster & HISTORY ================= ##
-
-        forcaster_dict = {'state':bias_state, **kwargs}
         
-        self.init_forecaster(**forcaster_dict)
+        self.init_forecaster(**kwargs)
+
+        bias_state = self.initialize_bias_state
+
+        assert bias_state.shape[1] == self.N, f"Bias state shape {bias_state.shape} does not match expected N_dim = {self.N}."
         self.update_history(bias_state, t=t, reset=True)
  
 
@@ -138,6 +139,10 @@ class Bias:
             return 2 * self.Nq
 
     @property
+    def N(self):
+        return self.N_dim + self.N_hidden
+
+    @property
     def bias_idx(self):
         return np.arange(self.Nq)
 
@@ -205,23 +210,23 @@ class Bias:
             raise AssertionError(f'b must have 1, 2 or 3 dimensions, got {b.ndim}=({b.shape})')
 
 
-    def build_state(self, innovation, model_bias=None) -> np.ndarray:
-        """
-        Build the full bias state from innovations and model bias (if applicable)
-        """
-        innovation = self._format_state(innovation)
+    # def build_state(self, innovation, model_bias=None) -> np.ndarray:
+    #     """
+    #     Build the full bias state from innovations and model bias (if applicable)
+    #     """
+    #     innovation = self._format_state(innovation)
 
-        if self.biased_observations:
-            if model_bias is None:
-                model_bias = innovation.copy()
-            else:
-                model_bias = self._format_state(model_bias)
+    #     if self.biased_observations:
+    #         if model_bias is None:
+    #             model_bias = innovation.copy()
+    #         else:
+    #             model_bias = self._format_state(model_bias)
             
-            state = np.concatenate([model_bias, innovation], axis=1)
-        else:
-            state = innovation
+    #         state = np.concatenate([model_bias, innovation], axis=1)
+    #     else:
+    #         state = innovation
 
-        return state
+    #     return state
 
     @property
     def dt(self):   
@@ -247,7 +252,7 @@ class Bias:
     @property
     def current_state(self):
         """Returns the current state (last entry in history)."""
-        return self.history.current_state
+        return self.history.current_state.copy()
 
     @property
     def current_time(self):
@@ -298,38 +303,31 @@ class Bias:
         return self.integrator.advance(Nt=Nt)
     
 
-    def new_innovation_to_state(self, innovation):
-        """
-        Modifies the innovation component in the state of the model. 
-        By default, this is an identity mapping, but it can be implemented in child classes if needed.
-        """
-        state = self.current_state
-        state[self.observed_idx, :] = innovation
-        return state
-    
-
-    def update_history(self, b, t=None, reset=False, update_last_state=False, **kwargs):
-        b = self._format_state(b) # Ensure b has shape (nt, nb, nens)
+    def update_history(self, state, t=None, reset=False, update_last_state=False, **kwargs):
+        state = self._format_state(state) # Ensure shape (nt, nstate, nens)
 
         # Ensure time array matches nt
         if t is None:
-            t = (np.arange(b.shape[0]) * self.dt).round(self.precision_t) + self.current_time
+            t = (np.arange(state.shape[0]) * self.dt).round(self.precision_t) + self.current_time
         if isinstance(t, float):
             t = np.array([t])
-        assert t.size == b.shape[0], f"Length of t ({t.size}) must match number of time steps in b ({b.shape[0]})."
+        assert t.size == state.shape[0], f"Length of t ({t.size}) must match number of time steps in state ({state.shape[0]})."
         
         if update_last_state:
-            current_state = self.current_state
-            assert b.shape[0] == 1, "When update_last_state is True, b must have only one time step (shape[0] == 1)."
-            if b.shape[1] != current_state.shape[0]:
-                b_observed = b.copy()
-                b = current_state.copy()[np.newaxis, :, :]  # (1, nb, nens)
-                b[:, self.observed_idx, :] = b_observed[:, self.bias_idx, :]
+            assert state.shape[0] == 1, "When update_last_state is True, state must have only one time step (shape[0] == 1)."
+            
+            current_state = self.current_state.copy()[np.newaxis, :, :]  # (1, nstate, nens)
+            if state.shape[1] != current_state.shape[1]:
+                innovation = state.copy()
+                current_state[:, self.observed_idx, :] = innovation
+                state = current_state
+            else:
+                state = state
 
-        self.history.update_history(b, t=t, reset=reset, update_last_state=update_last_state)
-        self._update_history_aux(reset=reset, update_last_state=update_last_state, **kwargs)
+        self.history.update_history(state, t=t, reset=reset, update_last_state=update_last_state)
+        self.update_history_aux(state=state, reset=reset, update_last_state=update_last_state, **kwargs)
     
-    def _update_history_aux(self, **kwargs):
+    def update_history_aux(self, **kwargs):
         """Auxiliary method to update any additional history attributes in child classes if needed."""
         pass
 
