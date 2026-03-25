@@ -725,7 +725,10 @@ class Ensemble(object):
             
            
             b = np.mean(self.bias.current_bias, axis=1, keepdims=True)
-            bd = b - np.mean(self.bias.current_innovations, axis=1, keepdims=True)
+            if self.bias.biased_observations:
+                bd = b - np.mean(self.bias.current_innovations, axis=1, keepdims=True)
+            else:
+                bd = np.zeros_like(b)
             J = self.bias.state_derivative() 
 
             if self.analysis_count < self.num_bias_blind:
@@ -767,7 +770,7 @@ class Ensemble(object):
 
         if self.bias is not None:
             y = Aa[-self.model.Nq:, :]
-            bias_state = self.bias.update_state_from_innovation(y - d, inn_uncertainty=inn_uncertainty)  # Update bias state based on innovation [either sequental DA step ir direct update]
+            bias_state = self.bias.update_state_from_innovation(d - y, inn_uncertainty=inn_uncertainty)  # Innovation is observation minus analysis
             self.bias.update_history(bias_state, # Innovation (observation - analysis)
                                      self.current_time, update_last_state=True)
 

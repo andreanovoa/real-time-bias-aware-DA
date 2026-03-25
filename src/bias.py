@@ -356,8 +356,8 @@ class Bias:
         if not self.bayesian_update:
             raise ValueError("Why is this being accessed when bayesian_update is False?")
         elif not hasattr(self, '_DA_method'):
-            observation_operator = np.zeros((len(self.observed_idx), self.N+len(self.observed_idx)))
-            observation_operator[:, :len(self.observed_idx)] = np.eye(len(self.observed_idx))
+            observation_operator = np.zeros((len(self.observed_idx), self.N))
+            observation_operator[:, self.observed_idx] = np.eye(len(self.observed_idx))
             self._DA_method = EnSRKF(M=observation_operator)
             print(f"Initialized DA method {self._DA_method.__class__.__name__} for Bayesian update in bias model. M shape: {observation_operator.shape}")
 
