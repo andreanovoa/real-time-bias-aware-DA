@@ -65,6 +65,7 @@ class DriftLinearBias(Bias):
             Additional arguments passed to parent Bias class
         """
         
+        raise NotImplementedError('This classneeds debugging.')
         # Store linear dynamics parameters before calling parent init
         innovation = np.atleast_1d(innovation).reshape(-1, 1) if np.ndim(innovation) == 1 else innovation
         n_bias = innovation.shape[0]
@@ -95,11 +96,6 @@ class DriftLinearBias(Bias):
     
     
     @property
-    def N_dim(self):
-        return self._N_dim
-    
-    
-    @property
     def dt_step(self):
         """Integrator time step (same as output dt for this model)."""
         return self.dt
@@ -124,7 +120,7 @@ class DriftLinearBias(Bias):
         return self.linear_matrix
     
     
-    def init_forecaster(self, state, **kwargs):
+    def init_forecaster(self, **kwargs):
         """
         Initialize the forecaster with simple discrete time stepping.
         
@@ -136,12 +132,6 @@ class DriftLinearBias(Bias):
             Additional arguments (e.g., initial_capacity for history)
         """
         self._forecaster = SimpleNamespace()
-        self._N_dim = state.shape[1]
-        
-        # if self.biased_observations:
-        #     self.observed_idx = np.arange(self._N_dim // 2)
-        # else:
-        #     self.observed_idx = np.arange(self._N_dim)
         
         if 'initial_capacity' in kwargs.keys():
             initial_capacity = kwargs.pop('initial_capacity')
@@ -153,8 +143,6 @@ class DriftLinearBias(Bias):
         # Use DiscreteIntegrator for time stepping
         self._forecaster.integrator = DiscreteIntegrator(self)
 
-        # TODO: return the forecaster instance instead of storing it as an attribute, for vcompatibility with Bias class design. 
-        # This may require refactoring the Bias class to not assume a single forecaster instance stored as an attribute.
     
     def time_step(self, Nt: int = 100):
         """

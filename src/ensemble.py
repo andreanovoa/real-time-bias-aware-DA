@@ -43,6 +43,7 @@ class Ensemble(object):
 
 
     bias_bayesian_update: bool = False          # Only used if est_bias == True
+    num_bias_blind: int = 0  # Number of initial analyses to perform without bias correction
     regularization_factor: float = 1.0          # Only used if filter == rEnKF
 
     num_DA_blind: int = 0
@@ -67,7 +68,9 @@ class Ensemble(object):
 
     keys_to_print = ['m', 'est_phi', 'est_alpha', 'est_bias', 'Na',
                      'regularization_factor', 'inflation_factor', 'inflation_factor_rejection',
+                     'num_bias_blind'
                      ]
+    
 
     @typechecked
     def __init__(self, 
@@ -645,14 +648,16 @@ class Ensemble(object):
             Bias-corrected observable history at each time in t.
         """
 
-        if b.shape[-1] == 1 and y.shape[-1] > 1:
-            b = np.repeat(b, y.shape[-1], axis=-1)
+        if b.ndim == 2:
+            b = b[:, :, np.newaxis]  # Add ensemble dimension if bias is 2D (T_b, obs_dim) -> (T_b, obs_dim, 1)
+        elif b.shape[-1] != y.shape[-1]:
+            b = np.mean(b, axis=-1, keepdims=True)  # Average bias across ensemble (T_b, obs_dim, Nens) -> (T_b, obs_dim, 1)
 
         if len(t_b) != len(t):
             print('Interpolating bias to match model time points. this may be slow if histories are long.')
             b = interpolate(t_b, b, t, fill_values=None) # Interpolate bias to model time points
 
-        return y + b
+        return np.mean(y, axis=-1, keepdims=True) + b
     
 # _______________________________________________________________________________________________________________
 # Data assimilation methods
@@ -678,9 +683,12 @@ class Ensemble(object):
             kwargs_alpha = allowed_kwargs_for_func(plot_alpha_history, kwargs)
             plot_alpha_history(ensemble=self, **kwargs_alpha)
 
+        if self.bias is not None and self.bias.hist is not None:
+            kwargs_bias = allowed_kwargs_for_func(self.bias.visualize_bias_and_innovations, kwargs)
+            self.bias.visualize_bias_and_innovations(**kwargs_bias)
 
 
-    def analysis_step(self, d: np.ndarray, Cdd: np.ndarray) -> None:
+    def analysis_step(self, d: np.ndarray, Cdd: np.ndarray, inn_uncertainty: float = 0.05) -> None:
         """
         Performs the analysis step of the data assimilation algorithm.
         This method updates the ensemble state based on observations and their error covariance.
@@ -688,6 +696,10 @@ class Ensemble(object):
         ----------
         d : np.ndarray
             Observation vector at the current time.
+        Cdd : np.ndarray
+            Observation error covariance matrix.
+        inn_uncertainty : float
+            Uncertainty in the innovation. [Used only if filter.bias.bayesian_update is True.]
 
         Side effects
         ------------
@@ -711,15 +723,14 @@ class Ensemble(object):
             # ----------------- Retrieve bias and its Jacobian ----------------- #
             
             
-            if self.analysis_count > self.num_bias_blind:
-                b = self.bias.current_bias  
-                bd = b - self.bias.current_innovations 
-                J = self.bias.state_derivative() 
-            else:
+           
+            b = np.mean(self.bias.current_bias, axis=1, keepdims=True)
+            bd = b - np.mean(self.bias.current_innovations, axis=1, keepdims=True)
+            J = self.bias.state_derivative() 
 
-                b = self.bias.current_bias  * 0.0  # No bias during blind phase
+            if self.analysis_count < self.num_bias_blind:
+                b *= 0.0  # No bias during blind phase
                 bd = np.zeros_like(b)  # No bias during blind phase
-                J = np.zeros((len(d), b.shape[0]))  # No bias sensitivity during blind phase
                 J = np.zeros((len(d), b.shape[0]))  # No bias sensitivity during blind phase
             
               
@@ -756,15 +767,9 @@ class Ensemble(object):
 
         if self.bias is not None:
             y = Aa[-self.model.Nq:, :]
-            if not self.bias_bayesian_update:
-                innovation = d - np.mean(y, axis=1, keepdims=True)  # Innovation (observation - analysis)
-                # bias_state = self.bias.new_innovation_to_state(innovation)  # Map innovation to state of the model
-            else:
-                raise NotImplementedError('Bayesian bias update not implemented yet.')
-            
-            self.bias.update_history(innovation, 
+            bias_state = self.bias.update_state_from_innovation(y - d, inn_uncertainty=inn_uncertainty)  # Update bias state based on innovation [either sequental DA step ir direct update]
+            self.bias.update_history(bias_state, # Innovation (observation - analysis)
                                      self.current_time, update_last_state=True)
-
 
     @property
     def analysis_count(self) -> int:
@@ -876,9 +881,11 @@ class Ensemble(object):
             if np.all(alpha_lims == None):
                 self._alpha_lims = None
             
-            else:
+            elif np.any(alpha_lims == None):
                 alpha_lims[0][alpha_lims[0] == None] = -np.inf
                 alpha_lims[1][alpha_lims[1] == None] = np.inf
+                self._alpha_lims = alpha_lims[:,:,np.newaxis]  # Shape: (2, Na, 1)
+            else:
                 self._alpha_lims = alpha_lims[:,:,np.newaxis]  # Shape: (2, Na, 1)
 
         return self._alpha_lims
@@ -1197,7 +1204,7 @@ def plot_observable_history(ensemble : Ensemble,
         if max_time is None:
             max_time = min(t_obs[-2] + t_margin, t[-1]) 
         
-        if pb is not None and pb.washout_data is not None:
+        if pb is not None and pb.washout_data[0] is not None:
             t_washout = np.asarray(pb.washout_data[1])
             min_time = t_washout[0] - 0.25 * t_margin #type: ignore
         else:
@@ -1244,7 +1251,7 @@ def plot_observable_history(ensemble : Ensemble,
 
         y_obs = normalized_y(reference_y, pm.obs_labels, y_obs)[0][0] 
 
-    if pb is not None and pb.washout_data is not None and y_model is not None:
+    if pb is not None and pb.washout_data[0] is not None and y_model is not None:
         u_washout = np.asarray(pb.washout_data[0])
         t_washout = np.asarray(pb.washout_data[1])
         t_washout = normalized_time(reference_t, t_washout)[0][0]

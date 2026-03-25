@@ -15,36 +15,29 @@ from types import SimpleNamespace
 # of the bias correction.
 
 class ConstantBias(Bias):
+
     upsample = 20 # High upsample in time as constant forecast steps do not affect computation
 
     def __init__(self, innovation, t, dt, k=None, **kwargs):
         
+        raise NotImplementedError('This classneeds debugging.')
         if k is not None:
             innovation = np.ones(innovation.shape) * k  # Constant innovation
 
         super().__init__(innovation=innovation, t=t, dt=dt, **kwargs)
     
 
-    @property
-    def N_dim(self):
-        return self._N_dim
-
     def state_derivative(self):
         n_bias = self.N_dim // 2 if self.biased_observations else self.N_dim
         return np.zeros([n_bias, n_bias])
 
 
-    def init_forecaster(self, state, **kwargs):
+    def init_forecaster(self, **kwargs):
         """
         Default constant forecaster, with no model.
         
         """
         self._forecaster = SimpleNamespace()  # Create empty forecaster object
-        self._N_dim = state.shape[1]
-        if self.biased_observations:
-            self.observed_idx = np.arange(self._N_dim // 2)
-        else:
-            self.observed_idx = np.arange(self._N_dim)
 
         if 'initial_capacity' in kwargs.keys():
             initial_capacity = kwargs.pop('initial_capacity')

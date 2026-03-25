@@ -1,4 +1,5 @@
 
+from data_assimilation import EnSRKF
 import numpy as np
 from copy import deepcopy
 from history import HistoryTracker
@@ -6,7 +7,8 @@ from integrator import Integrator
 from model import Model
 from typing import Optional, Tuple
     
-
+from plotting import categorical_cmap
+import matplotlib.pyplot as plt
 
 class Bias:
     '''
@@ -35,7 +37,6 @@ class Bias:
     upsample = 1
     L = 1
     augment_data = False
-    N_hidden = 0  # Number of hidden units in the bias model, e.g., for ESN bias model. This is added to the state dimension N_dim to get the total state dimension N.
 
     forecaster_type = None  # This should be set in child classes to specify the expected type of the forecaster model, e.g., ESN_model for ESN_bias.
     bayesian_update = False         # Default to not perform bayesian update to state
@@ -67,7 +68,7 @@ class Bias:
 
         bias_state = self.initialize_bias_state
 
-        assert bias_state.shape[1] == self.N, f"Bias state shape {bias_state.shape} does not match expected N_dim = {self.N}."
+        assert bias_state.shape[-2] == self.N, f"Bias state shape {bias_state.shape} does not match expected (Nt, N = {self.N}, Nens)."
         self.update_history(bias_state, t=t, reset=True)
  
 
@@ -134,13 +135,19 @@ class Bias:
     @property
     def N_dim(self):
         if not self.biased_observations:
-            return self.Nq
+            return self.Nq 
         else:
-            return 2 * self.Nq
-
+            return 2 * self.Nq  
+        
     @property
     def N(self):
         return self.N_dim + self.N_hidden
+
+    @property
+    def N_hidden(self):
+        # Number of hidden units in the bias model, e.g., for ESN bias model. This is added to the state dimension N_dim to get the total state dimension N.
+        return 0
+    
 
     @property
     def bias_idx(self):
@@ -202,31 +209,13 @@ class Bias:
             b_repeated = np.repeat(b[:, np.newaxis], self.N_ens, axis=1)  # (nb,) -> (nb, nens)
             return b_repeated[np.newaxis, :, :]  # (nb, nens) -> (1, nb, nens) Add extra dimension for time
         
-        elif b.ndim == 2 and b.shape[-1] == self.N_ens:
+        elif b.ndim == 2 and (b.shape[-1] == self.N_ens or b.shape[0] == self.N_dim):
             return b[np.newaxis, :, :]  # (nb, nens) -> (1, nb, nens) # Add extra dimension for time
         elif b.ndim == 2 and b.shape[-1] != self.N_ens:
             return np.repeat(b[:, :, np.newaxis], self.N_ens, axis=2)  # (nt, nb) -> (nt, nb, nens)
         else:        
             raise AssertionError(f'b must have 1, 2 or 3 dimensions, got {b.ndim}=({b.shape})')
 
-
-    # def build_state(self, innovation, model_bias=None) -> np.ndarray:
-    #     """
-    #     Build the full bias state from innovations and model bias (if applicable)
-    #     """
-    #     innovation = self._format_state(innovation)
-
-    #     if self.biased_observations:
-    #         if model_bias is None:
-    #             model_bias = innovation.copy()
-    #         else:
-    #             model_bias = self._format_state(model_bias)
-            
-    #         state = np.concatenate([model_bias, innovation], axis=1)
-    #     else:
-    #         state = innovation
-
-    #     return state
 
     @property
     def dt(self):   
@@ -315,14 +304,6 @@ class Bias:
         
         if update_last_state:
             assert state.shape[0] == 1, "When update_last_state is True, state must have only one time step (shape[0] == 1)."
-            
-            current_state = self.current_state.copy()[np.newaxis, :, :]  # (1, nstate, nens)
-            if state.shape[1] != current_state.shape[1]:
-                innovation = state.copy()
-                current_state[:, self.observed_idx, :] = innovation
-                state = current_state
-            else:
-                state = state
 
         self.history.update_history(state, t=t, reset=reset, update_last_state=update_last_state)
         self.update_history_aux(state=state, reset=reset, update_last_state=update_last_state, **kwargs)
@@ -331,7 +312,57 @@ class Bias:
         """Auxiliary method to update any additional history attributes in child classes if needed."""
         pass
 
+    
+    def update_state_from_innovation(self, input_innovation, inn_uncertainty=0.2):
+        """
+        Optional method to perform a Bayesian update to the state using the bias model. This can be implemented in child classes if needed, e.g., for ESN bias model.
+        By default, does nothing, but can be implemented in child classes if needed.
 
+        Args:
+            input_data: The input data for the Bayesian update.
+            method: The method to use for the Bayesian update.
+            **kwargs: Additional keyword arguments that may be needed for the Bayesian update.
+        """
+        input_innovation = self._format_state(input_innovation) # Ensure shape (nt, nstate, nens)
+        assert input_innovation.shape[0] == 1, "Input innovation must have only one time step (shape[0] == 1) for state_from_innovation method."
+
+        forecast_state = self.current_state
+
+
+        if self.bayesian_update:
+            mean_innovation = np.mean(input_innovation[0], axis=-1)  # Average innovation across ensemble (obs_dim, Nens) -> (obs_dim,)
+            cov_innovation = (inn_uncertainty * np.max(np.abs(mean_innovation)))**2 * np.eye(mean_innovation.shape[0])  # Diagonal covariance of innovation (obs_dim, obs_dim)
+
+            updated_state = self.DA_method(Af=forecast_state, d=mean_innovation, Cdd=cov_innovation)
+        else:
+            updated_state = forecast_state.copy()
+            mean_innovation = np.mean(input_innovation[0], axis=-1, keepdims=True)  # Average innovation across ensemble (obs_dim, Nens) -> (obs_dim, 1)
+            if input_innovation.shape[-1] == 1:  # assign same mean innovation to all ensemble members
+                updated_state[self.observed_idx, :] = np.repeat(mean_innovation, self.N_ens, axis=-1)
+
+            else:# input_innovation.shape[1] != forecast_state.shape[0] => resample
+                cov_innovation = np.cov(input_innovation[0], rowvar=True)
+                mean_innovation = mean_innovation.flatten()
+                cov_innovation = np.atleast_2d(cov_innovation)
+                resampled_innovation = np.random.multivariate_normal(mean_innovation, cov_innovation, size=self.N_ens).T  # Resample innovations for each ensemble member (obs_dim, Nens)
+                updated_state[self.observed_idx, :] = resampled_innovation
+                
+
+        return updated_state
+
+
+    @property
+    def DA_method(self):
+        if not self.bayesian_update:
+            raise ValueError("Why is this being accessed when bayesian_update is False?")
+        elif not hasattr(self, '_DA_method'):
+            observation_operator = np.zeros((len(self.observed_idx), self.N+len(self.observed_idx)))
+            observation_operator[:, :len(self.observed_idx)] = np.eye(len(self.observed_idx))
+            self._DA_method = EnSRKF(M=observation_operator)
+            print(f"Initialized DA method {self._DA_method.__class__.__name__} for Bayesian update in bias model. M shape: {observation_operator.shape}")
+
+        return self._DA_method
+    
     def print_bias_parameters(self):
         print('\n ---------------- Bias model parameters --------------- ')
         print(f'\t Bias class name: {self.__class__.__name__}')
@@ -349,3 +380,61 @@ class Bias:
     def copy(self):
         return deepcopy(self)
 
+    def close(self):
+        """Close any resources used by the bias model, e.g., forecaster model."""
+        if hasattr(self, '_forecaster') and hasattr(self._forecaster, 'close'):
+            self._forecaster.close()
+
+
+
+
+
+
+    # ================= Visualization methods ================== #
+    def visualize_bias_and_innovations(self, state=None, t=None, plot_members=True, ylims=None):
+        if state is None:
+            state = self.hist
+
+        inn = self.get_innovations(state=state, mean=not plot_members)
+        b = self.get_bias(state=state, mean=not plot_members)
+
+        if t is None:
+            t = self.hist_t[-len(inn):]
+
+        lbls =( [f'inn_{ii}' for ii in range(inn.shape[1])], 
+              [f'b_{ii}' for ii in range(b.shape[1])])
+        ttls = ['Innovations', 'Bias']
+
+
+        t_mid = len(t) - len(t)//8
+        lims = [[0, t_mid ],  [t_mid, len(t)-1]  ]
+
+        Nq = inn.shape[1]
+        nens = inn.shape[-1]
+        cols = categorical_cmap(nc=2, nsc=nens, continuous=False)
+        cols = [cols[ii * nens:(ii + 1) * nens] for ii in range(2)]
+        ci = 0
+        # Plot the time evolution of the observables
+        for y, lbl, ttl, cs in zip([inn, b], lbls, ttls, cols):
+
+            fig = plt.figure(figsize=(8, Nq+1), layout="constrained")
+            plt.suptitle(f'{ttl} time evolution')
+
+            axs = fig.subplots(Nq, 2, sharey='row', sharex='col')
+            if self.Nq == 1:
+                axs = [axs]
+
+
+            for ii, ax in enumerate(axs):
+                for jj, lim in enumerate(lims):    
+                    lines = ax[jj].plot(t[lim[0]:lim[1]], y[lim[0]:lim[1], ii])
+                    for line, color in zip(lines, cs):
+                        line.set_color(color)
+                    if ii == self.Nq-1:
+                        ax[jj].set(xlabel='$t$', xlim=[t[lim[0]], t[lim[1]]])
+                
+                ax[0].set(ylabel=lbl[ii])
+                if ylims is not None:
+                    ax[0].set(ylim=ylims)
+    
+            ci += 1

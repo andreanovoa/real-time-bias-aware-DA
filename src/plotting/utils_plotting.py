@@ -82,9 +82,24 @@ class Palette:
 
 
 def categorical_cmap(nc, nsc, cmap="tab10", continuous=False):
-    # number of categories(nc) and the number of subcategories(nsc)
-    # and returns a colormap with nc * nsc different colors, where for
-    # each category there are nsc colors of same hue.
+    """
+    Create a categorical colormap with a specified number of categories and subcategories.
+
+    Parameters
+    ----------
+        nc : int
+            Number of categories.
+        nsc : int
+            Number of subcategories.
+        cmap : str, optional
+            Colormap to use. Default is "tab10".
+        continuous : bool, optional
+            Whether to use a continuous colormap. Default is False.
+    Returns
+    -------
+        np.ndarray with shape (nc * nsc, 3) 
+            Array of colors. Category 1 will be in rows 0 to nsc-1, category 2 in rows nsc to 2*nsc-1, and so on.
+    """
 
     if nc > plt.get_cmap(cmap).N:
         raise ValueError("Too many categories for colormap.")
