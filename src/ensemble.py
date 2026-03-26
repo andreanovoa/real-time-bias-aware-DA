@@ -719,17 +719,18 @@ class Ensemble(object):
         # ======================== APPLY SELECTED FILTER ======================== #
         if self.filter.is_bias_aware:
             assert self.bias is not None, "Bias-aware filter selected but no bias instance found."
+            pb = self.bias
 
-            # ----------------- Retrieve bias and its Jacobian ----------------- #
-            
-            
+            # ----------------- Retrieve bias and its Jacobian ----------------- #            
            
-            b = np.mean(self.bias.current_bias, axis=1, keepdims=True)
-            if self.bias.biased_observations:
-                bd = b - np.mean(self.bias.current_innovations, axis=1, keepdims=True)
+            b = np.mean(pb.current_bias, axis=-1, keepdims=True)
+            if pb.biased_observations:
+                bd = b - np.mean(pb.current_innovations, axis=-1, keepdims=True)
             else:
                 bd = np.zeros_like(b)
-            J = self.bias.state_derivative() 
+
+            # jacobian of bias with respect to the state (sensitivity of bias to changes in the state)
+            J = pb.state_derivative() 
 
             if self.analysis_count < self.num_bias_blind:
                 b *= 0.0  # No bias during blind phase
@@ -747,32 +748,32 @@ class Ensemble(object):
 
         # Compute the analysis and inflate
         Aa = self.filter(*filter_args)
-        if self.inflation_factor > 1.0:
-            Aa = self.inflate(Aa, self.inflation_factor, d=d, additive=True)
+        # if self.inflation_factor > 1.0:
+        #     Aa = self.inflate(Aa, self.inflation_factor, d=d, additive=True)
 
-        # =========== CHECK SPREAD AND PARAMETERS ARE VALID ========== #
-        if not self.has_valid_spread(Aa[:self.model.Nphi, :]):
-            self.rejected_analysis = (self.current_time,  'Invalid analysis spread')
+        # # =========== CHECK SPREAD AND PARAMETERS ARE VALID ========== #
+        # if not self.has_valid_spread(Aa[:self.model.Nphi, :]):
+        #     self.rejected_analysis = (self.current_time,  'Invalid analysis spread')
 
-        if self.Na > 0 and self.alpha_limits_matrix is not None:
-            Aa_alpha = Aa[self.Nphi:self.Nphi+self.Na, :]
-            is_physical, idx_alpha, _ = self.has_valid_params(Aa_alpha, self.alpha_limits_matrix, get_deltas=False)
-            if not is_physical:
-                # reject analysis and inflate forecast with (higher) factor
-                self.rejected_analysis = (self.current_time, f'Non-physical parameters {idx_alpha}')
-                Aa = self.inflate(Af, self.inflation_factor_rejection, d=d, additive=True)
+        # if self.Na > 0 and self.alpha_limits_matrix is not None:
+        #     Aa_alpha = Aa[self.Nphi:self.Nphi+self.Na, :]
+        #     is_physical, idx_alpha, _ = self.has_valid_params(Aa_alpha, self.alpha_limits_matrix, get_deltas=False)
+        #     if not is_physical:
+        #         # reject analysis and inflate forecast with (higher) factor
+        #         self.rejected_analysis = (self.current_time, f'Non-physical parameters {idx_alpha}')
+        #         Aa = self.inflate(Af, self.inflation_factor_rejection, d=d, additive=True)
 
         # =========== UPDATE MODEL & BIAS HISTORY ========== #
-        # store assimilated_data
-        self.assimilated_data = (d, self.current_time)
-
         self.model.update_history(Aa[:-self.model.Nq, :], update_last_state=True)
 
-        if self.bias is not None:
+        if self.bias is not None and self.analysis_count >= self.num_bias_blind:
             y = Aa[-self.model.Nq:, :]
             bias_state = self.bias.update_state_from_innovation(d - y, inn_uncertainty=inn_uncertainty)  # Innovation is observation minus analysis
             self.bias.update_history(bias_state, # Innovation (observation - analysis)
                                      self.current_time, update_last_state=True)
+        # store assimilated_data
+        self.assimilated_data = (d.copy(), self.current_time)
+
 
     @property
     def analysis_count(self) -> int:
@@ -1236,13 +1237,28 @@ def plot_observable_history(ensemble : Ensemble,
         if len(t) != len(t_true):
             y_raw = interpolate(t_true, y_raw, t)
             y_true = interpolate(t_true, y_true, t) 
+
+        assert y_raw is not None and y_true is not None, "True history is required for plotting observable history when truth is provided."
+
+        y_margin = 0.2 * np.mean(abs(y_model), axis=(0, 2))
+        
+        max_y = np.maximum(
+            np.max(y_model[:len(t)//2], axis=(0, 2), keepdims=False),
+            np.max(y_raw, axis=(0, 2), keepdims=False),
+        )
+        min_y = np.minimum(
+            np.min(y_model[:len(t)//2], axis=(0, 2), keepdims=False),
+            np.min(y_raw, axis=(0, 2), keepdims=False),
+        )
+
     else:
         assert y_model is not None, "Model history is required for plotting observable history when truth is not provided."
         y_true, y_raw = None, None
-    
-    y_margin = 0.2 * np.mean(abs(y_model), axis=(0, 2))
-    max_y = np.max(y_model, axis=(0, 2), keepdims=False)
-    min_y = np.min(y_model, axis=(0, 2), keepdims=False)
+
+        y_margin = 0.2 * np.mean(abs(y_model), axis=(0, 2))
+        max_y = np.max(y_model, axis=(0, 2), keepdims=False)
+        min_y = np.min(y_model, axis=(0, 2), keepdims=False)
+
 
     # Get observations if available ----
     if  t_obs is not None:

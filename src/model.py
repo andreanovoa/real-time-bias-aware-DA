@@ -89,10 +89,10 @@ class Model(object):
             t = np.array([t])
         assert t.size == psi.shape[0], f"Length of t ({t.size}) must match number of time steps in psi ({psi.shape[0]})."
         self.history.update_history(psi, t=t, reset=reset, update_last_state=update_last_state)
-        self.update_history_aux(psi, reset=reset, update_last_state=update_last_state)
+    #     self.update_history_aux(psi, reset=reset, update_last_state=update_last_state)
     
-    def update_history_aux(self, psi, reset=False, update_last_state=False):
-        pass
+    # def update_history_aux(self, psi, reset=False, update_last_state=False):
+    #     pass
 
 
     @property

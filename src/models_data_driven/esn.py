@@ -111,7 +111,6 @@ class ESN_model(EchoStateNetwork, Model):
             self.Nq = len(self.observed_idx)  # Number of observed dimensions (for the physical state)
 
         psi0 = self.initialize_from_val_data()  # shape (Ndim + N_units + Na, m)
-        self.reservoir_state = psi0[self.N_dim:self.N_dim+self.N_units, :]
 
         # Initialise SVD Wout terms if required
         if self.Wout_svd:
@@ -296,7 +295,7 @@ class ESN_model(EchoStateNetwork, Model):
         if isinstance(self.ensemble, dict):
             return self.ensemble.get('m')
         else: 
-            return self.reservoir_state.shape[-1]
+            return self.current_state.shape[-1]
         
 
 
@@ -381,11 +380,10 @@ class ESN_model(EchoStateNetwork, Model):
         return [f'$u_{{{j+1}}}$' for j in self.observed_idx]
         
 
-    def update_history_aux(self, psi, reset=False, update_last_state=False, **kwargs): 
-        if reset or update_last_state:
-            _, r = self.unbuild_psi(psi)
-            assert r is not None, 'Reservoir state is None, cannot update history'
-            self.reservoir_state = r[-1] if r.ndim == 3 else r
+    @property
+    def reservoir_state(self):
+        return self.current_state[self.N_dim:self.N_dim+self.N_units, :]
+
 
     def reservoir_to_physical(self, r):
 
@@ -405,8 +403,6 @@ class ESN_model(EchoStateNetwork, Model):
                 Wout_Sigma_avg = np.mean(self.Wout_Sigma, axis=0)
                 Wout = np.dot(self.Wout_U, np.dot(Wout_Sigma_avg, self.Wout_Vh))
                 return np.dot(r_aug.T, Wout).T
-        
-
     
     
     def time_step(self, Nt=10, averaged=False):
@@ -510,14 +506,13 @@ class ESN_model(EchoStateNetwork, Model):
         else:
             squeeze = False
 
-        u = psi[:, :self.N_dim]
-        r = psi[:, self.N_dim:self.N_dim+self.N_units]
+        assert psi.shape[1] > self.N_units, f"Expected psi shape (N x m) with N > {self.N_units}, got {psi.shape}"
+        u = psi[:, :-self.N_units]
+        r = psi[:, -self.N_units:]
 
         if squeeze:
-            if u is not None:
-                u = u[0]
-            if r is not None:
-                r = r[0]
+            u = u.squeeze(axis=0)
+            r = r.squeeze(axis=0)
         
         return u, r
 

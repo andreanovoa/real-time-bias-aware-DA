@@ -7,6 +7,7 @@ from utils import add_pdf_page
 from copy import deepcopy
 import matplotlib.pyplot as plt
 from typing import Any, Optional, Union
+from functools import cached_property
 
 # Validation methods
 from functools import partial
@@ -17,7 +18,7 @@ from skopt.learning.gaussian_process.kernels import ConstantKernel, Matern
 from skopt.space import Real
 from skopt.plots import plot_convergence
 
-from scipy.sparse import csr_matrix, lil_matrix
+from scipy.sparse import csr_matrix, lil_matrix, issparse
 from scipy.sparse.linalg import eigs as sparse_eigs
 
 # XDG_RUNTIME_DIR = 'tmp/'
@@ -36,7 +37,6 @@ class EchoStateNetwork:
         - Input and output weight matrices (Win, Wout) and reservoir state matrix (W)
     """
 
-    bayesian_update = False
     bias_in = np.array([0.1])  #
     bias_out = np.array([1.0])  # For symmetry breaking
     connect = 3  # Connectivity between neurons
@@ -98,7 +98,6 @@ class EchoStateNetwork:
         #   Initialise state dimensions and reservoir state to zeros ------------ #
         self.N_dim = y.shape[0] # Dimension of the physical system i.e., the output dimension 
         self.observed_idx = kwargs.pop('observed_idx', np.arange(self.N_dim)) # Default to full observability
-        self.reservoir_state = np.zeros((self.N_units, y.shape[1]))            
 
         # Set provided input parameters ------------------------- #
         keys = list(kwargs.keys())
@@ -108,7 +107,6 @@ class EchoStateNetwork:
         self.dt_ESN = dt * self.upsample
 
         #  Initialize ESN matrices -------------------------- #
-        # self.trained = all([getattr(self, key) is not None for key in ['Wout', 'Win', 'W']])
         self.val_k = kwargs.get('val_k', 0)  # Validation counter
         self.initialised = False  # Flag for washout
 
@@ -122,8 +120,6 @@ class EchoStateNetwork:
         """
         Returns the reservoir state matrix (W) in CSR format.
         """
-        # if not hasattr(self, '_W'):
-        #     return None
         return self._W
 
     
@@ -159,13 +155,6 @@ class EchoStateNetwork:
         
         # Set the reservoir state matrix
         self._W = value
-    
-    @property
-    def N_ens(self):
-        """
-        Returns the ensemble size based on the input data shape.
-        """
-        return self.reservoir_state.shape[-1]
 
     @property
     def Win(self) -> Union[np.ndarray, csr_matrix]:
@@ -195,6 +184,11 @@ class EchoStateNetwork:
         
         # Set the input matrix
         self._Win = value
+        self._invalidate_jacobian_cache()
+
+
+    def _invalidate_jacobian_cache(self):
+        self.__dict__.pop('dr_di', None)
 
 
     @property
@@ -202,8 +196,6 @@ class EchoStateNetwork:
         """
         Returns the output matrix (Wout).
         """
-        # if not hasattr(self, '_Wout'):
-        #     return None
         return self._Wout
 
     @Wout.setter
@@ -306,40 +298,6 @@ class EchoStateNetwork:
             return len(self.observed_idx) + self.input_parameters.shape[0]
         
 
-
-    @property
-    def physical_state(self):
-        """
-        Returns the current physical state (u).
-        """
-        return self.reservoir_to_physical(self.reservoir_state)
-
-    @property
-    def reservoir_state(self):
-        """
-        Returns the current reservoir state (r).
-        """
-        return self._r
-
-    @reservoir_state.setter
-    def reservoir_state(self, r):
-        """
-        Resets the physical (u) and reservoir (r) states.
-
-        Args:
-            r (np.ndarray, optional): New reservoir state
-        Raises:
-            AssertionError: If dimensions of u and r are incompatible.
-
-        """
-
-        if r is not None:
-            if r.ndim == 1:
-                r = np.expand_dims(r, axis=-1)
-            elif hasattr(self, '_r'):
-                assert r.shape[-1] == self.N_ens, f'reservoir state r has shape {r.shape}, expected last dim to be {self.N_ens}'
-            self._r = r
-
     @property
     def norm(self):
         """
@@ -358,6 +316,20 @@ class EchoStateNetwork:
             assert value.size == self.N_dim_in, \
                 f'Normalization factor must be dimension Ndim={self.N_dim_in}, got {value.shape}'
         self._norm = value.flatten()
+
+
+    @cached_property
+    def dr_di(self) -> Union[csr_matrix, np.ndarray]:
+        """Open-loop reservoir Jacobian term d(r)/d(i), shape (N_units, N_dim_in)."""
+        norm = self.norm.copy()
+
+        Win_1 = self.Win[:, :self.N_dim_in]  # type: Union[csr_matrix, np.ndarray]
+        g = self.sigma_in * 1.0 / norm
+        
+        if isinstance(Win_1, csr_matrix):
+            return Win_1.multiply(g[np.newaxis, :])
+        else:
+            return Win_1 * g[np.newaxis, :]
 
 
     @property
@@ -431,8 +403,6 @@ class EchoStateNetwork:
             r_aug (np.ndarray): Augmented reservoir state including output bias.
         """
         
-        # print(f'Wout shape: {self.Wout.shape}, r_aug shape: {r_aug.shape}')
-
         # output bias added
         bias_out = self.bias_out * np.ones((1, r.shape[-1]))
         r_aug = np.concatenate((r, bias_out))
@@ -474,36 +444,30 @@ class EchoStateNetwork:
             return np.concatenate([observed_state, self.input_parameters], axis=0)
     
 
-    def Jacobian(self, open_loop_J=True, state=None):
+    def Jacobian(self, u_in, r_in, open_loop_J=True):
         """
         Computes the Jacobian matrix for the reservoir, either in open-loop or closed-loop mode.
 
         Args:
             open_loop_J (bool): If True (default), compute the open-loop Jacobian.
-            state (tuple, optional): Optional input state (u_in, r_in) to compute Jacobian.
+            u_in (np.ndarray): Input state. shape = (N_dim_in x N_ens)
+            r_in (np.ndarray): Reservoir state. shape = (N_units x N_ens)
 
         Returns:
-            np.ndarray: Jacobian matrix of the reservoir dynamics.
+            np.ndarray: Jacobian matrix d(u_out)/d(u_in).
+                - If N_ens == 1: shape (N_dim, N_dim_in)
+                - If N_ens > 1: shape (N_dim, N_dim_in, N_ens)
         """
         assert self.trained, 'ESN must be trained before computing the Jacobian. Call ESN.train() first.'
 
 
-        if state is None:
-            r_in = self.reservoir_state
-            u_in = self.physical_state
-        else:
-            u_in, r_in = state
-
-        Win_1 = self.Win[:, :self.N_dim_in]
         Wout_1 = self.Wout[:self.N_units, :].T
 
         # # Option(i) rin function of bin:
-        rout = self.step(u_in, r_in)[1].squeeze()
+        rout = self.step(u_in, r_in)[1]
 
         tt = 1. - rout ** 2
-        g = 1. / self.norm
-
-        dr_di = self.sigma_in * Win_1.multiply(g)
+        dr_di = self.dr_di
 
         if not open_loop_J:
             # u_aug = np.concatenate((u_in / self.norm, self.bias_in))
@@ -512,10 +476,23 @@ class EchoStateNetwork:
             #  Win_G += dr_di ......
             raise NotImplementedError('Numerical test of closed-loop Jacobian did not pass')
 
-        RHS = dr_di.T.multiply(tt)
+        N_ens = tt.shape[-1]
+        if N_ens == 1:
+            if isinstance(dr_di, csr_matrix):
+                RHS = dr_di.T.multiply(tt[:, 0][np.newaxis, :])
+            else:
+                RHS = dr_di.T * tt[:, 0][np.newaxis, :]
+            return RHS.dot(Wout_1.T).T
 
-        # Compute Jacobian
-        return RHS.dot(Wout_1.T).T
+        J = np.zeros((self.N_dim, self.N_dim_in, N_ens))
+        for ens_i in range(N_ens):
+            if isinstance(dr_di, csr_matrix):
+                RHS = dr_di.T.multiply(tt[:, ens_i][np.newaxis, :])
+            else:
+                RHS = dr_di.T * tt[:, ens_i][np.newaxis, :]
+            J[:, :, ens_i] = RHS.dot(Wout_1.T).T
+
+        return J
 
 
     
@@ -553,8 +530,7 @@ class EchoStateNetwork:
 
         # ========================== STEP 1: DATA FORMATTING ==========================
         # Format data into washout, train/validation, and test sets
-        U_wtv, Y_wtv, U_test, Y_test = self._split_and_format_data(train_data, 
-                                                                 add_noise=add_noise)
+        U_wtv, Y_wtv, U_test, Y_test = self._split_and_format_data(train_data, add_noise=add_noise)
 
         # print([xx.shape for xx in [U_wtv, Y_wtv, U_test, Y_test]])
 
@@ -578,15 +554,10 @@ class EchoStateNetwork:
         self.Wout = self._solve_ridge_regression(U_wtv, Y_wtv)
 
 
-        # ====================== STEP 4: INITIALIZE RESERVOIR =====================
-        self.reservoir_state = np.zeros((self.N_units, 1))
-
-        # ========================== STEP 5: RESULTS AND PLOTTING ======================
+        # ========================== STEP 4: TEST AND PLOTTING ======================
         if plot_training:
             self._plot_training_results(U_test, Y_test, bo_results, save_ESN_training, folder)
 
-        # # Mark the model as trained
-        # self.trained = True
 
     def copy(self):
         return deepcopy(self)
@@ -674,7 +645,8 @@ class EchoStateNetwork:
                 f'Not enough data for training at segment {ll}: {Uin_l.shape}'
             
             # Washout phase to initialize reservoir state
-            r = np.zeros((self.N_units, self.N_ens))
+            N_ens = U_wash_l.shape[-1] if U_wash_l.ndim == 3 else 1
+            r = np.zeros((self.N_units, N_ens))
             for u_in in U_wash_l:
                 _, r = self.step(u_in, r)
 
@@ -689,8 +661,8 @@ class EchoStateNetwork:
 
                 # Open-loop train phase
                 r_out = r.copy()
-                r_open = np.zeros((U_t.shape[0], self.N_units, self.N_ens))
-                y_open = np.zeros((U_t.shape[0], self.N_dim, self.N_ens))
+                r_open = np.zeros((U_t.shape[0], self.N_units, N_ens))
+                y_open = np.zeros((U_t.shape[0], self.N_dim, N_ens))
                 for ii, u_in in enumerate(U_t):
                     u_out, r_out = self.step(u_in, r_out)
                     y_open[ii], r_open[ii] = u_out, r_out
@@ -735,7 +707,7 @@ class EchoStateNetwork:
             data (np.ndarray): Raw time series data with dimensions [(L) x Nt x N_dim].
 
         Returns:
-            tuple: (U, Y) where U is the input matrix and Y is the output
+            tuple: (U, Y) where U is the input matrix and Y is the output. Shapes: L x Nt x N_dim
         """
 
         #   APPLY UPSAMPLE AND OBSERVED INDICES ________________________
@@ -744,13 +716,8 @@ class EchoStateNetwork:
 
         # Set labels always as the full state
         Y = data[:, ::self.upsample].copy()
-
-        # Case I: Full observability .OR. Case II: Partial observability
-        if not self.bayesian_update:
-            U = Y[:, :, self.observed_idx].copy()
-        # Case III: Full observability with a DA-reconstructed state.
-        else:
-            U = Y.copy()
+        # Inputs are the observed components of the state, which can be a subset of the full state
+        U = Y[:, :, self.observed_idx].copy()
 
         assert Y.shape[-1] >= U.shape[-1]
         assert U.shape[-1] == self.N_dim_in
@@ -789,7 +756,7 @@ class EchoStateNetwork:
         if data.ndim == 2:
             data = np.expand_dims(data, axis=0)
 
-        U, Y = self._UY_from_raw_data(data, add_noise=add_noise)
+        U, Y = self._UY_from_raw_data(data, add_noise=add_noise) # dimensions: L x Nt x N_dim_in/N_dim
 
         #   SEPARATE INTO WASH/TRAIN/VAL/TEST SETS ______________________
         N_wtv = self.N_train + self.N_val
@@ -808,12 +775,8 @@ class EchoStateNetwork:
         assert U_test.shape[1] == Y_test.shape[1], \
             f'Inconsistent shapes for test data: {U_test.shape} vs {Y_test.shape}'
 
-        if Y_wtv.shape[-1] != self.N_ens: 
-            if self.N_ens == 1:
-                U_wtv, Y_wtv, U_test, Y_test= [yy[..., np.newaxis] for yy in [U_wtv, Y_wtv, U_test, Y_test]]
-
-            else:
-                raise ValueError(f'Inconsistent ensemble size for train/validation data: {Y_wtv.shape} vs {self.N_ens}')
+        if Y_wtv.ndim not in [2, 3]:
+            raise ValueError(f'Inconsistent ensemble size for train/validation data: {Y_wtv.shape}')
 
         # compute norm (normalize inputs by component range)
         self.norm, self.shift = EchoStateNetwork._set_norm(U_wtv, method=self.norm_method)
@@ -1054,7 +1017,6 @@ class EchoStateNetwork:
 
             for fold in range(case.N_folds):
                 n_looop += 1
-                # case.reset_reservoir_state(u=case.u * 0, r=case.r * 0)
                 p = case.N_wash + fold * N_fw
 
                 # Select washout and validation data

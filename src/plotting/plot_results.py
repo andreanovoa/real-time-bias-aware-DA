@@ -317,5 +317,53 @@ def plot_obs_timeseries(*plot_cases, zoom_window=None, add_pdf=False, t_factor=1
                              bbox_to_anchor=(1.0, .75), ncol=1, frameon=False)
 
 
+
+def visualize_update(Aa, Af, num_state_variables=-1):
+    # Visualize correction with means (top row) and covariances (bottom row)
+    mean_Af = np.mean(Af[:num_state_variables], axis=-1, keepdims=True)
+    mean_Aa = np.mean(Aa[:num_state_variables], axis=-1, keepdims=True)
+    cov_Af = np.cov(Af[:num_state_variables], bias=True, rowvar=True)
+    cov_Aa = np.cov(Aa[:num_state_variables], bias=True, rowvar=True)
+
+    fig, ax = plt.subplots(2, 3, figsize=(12, 7))
+
+    # Top row: ensemble means
+    mean_vmin = min(mean_Af.min(), mean_Aa.min())
+    mean_vmax = max(mean_Af.max(), mean_Aa.max())
+    im = ax[0, 0].imshow(mean_Af, aspect='auto', cmap='viridis', vmin=mean_vmin, vmax=mean_vmax)
+    ax[0, 0].set_title('Mean(Af)')
+    plt.colorbar(im, ax=ax[0, 0])
+
+    im = ax[0, 1].imshow(mean_Aa, aspect='auto', cmap='viridis', vmin=mean_vmin, vmax=mean_vmax)
+    ax[0, 1].set_title('Mean(Aa)')
+    plt.colorbar(im, ax=ax[0, 1])
+
+    im = ax[0, 2].imshow(np.abs(mean_Aa - mean_Af), aspect='auto', cmap='Reds')
+    ax[0, 2].set_title('|Mean(Aa) - Mean(Af)|')
+    plt.colorbar(im, ax=ax[0, 2])
+
+    # Bottom row: covariances
+    # cov_vmin = min(cov_Af.min(), cov_Aa.min())
+    # cov_vmax = max(cov_Af.max(), cov_Aa.max())
+    im = ax[1, 0].imshow(cov_Af, aspect='auto', cmap='viridis')#, vmin=cov_vmin, vmax=cov_vmax)
+    ax[1, 0].set_title('Cov(Af)')
+    plt.colorbar(im, ax=ax[1, 0])
+
+    im = ax[1, 1].imshow(cov_Aa, aspect='auto', cmap='viridis')#, vmin=cov_vmin, vmax=cov_vmax)
+    ax[1, 1].set_title('Cov(Aa)')
+    plt.colorbar(im, ax=ax[1, 1])
+
+    im = ax[1, 2].imshow(np.abs(cov_Aa - cov_Af), aspect='auto', cmap='Reds')
+    ax[1, 2].set_title('|Cov(Aa) - Cov(Af)|')
+    plt.colorbar(im, ax=ax[1, 2])
+
+    for ii in range(2):
+        for jj in range(3):
+            ax[ii, jj].set_xlabel('Column index')
+            ax[ii, jj].set_ylabel('Row index')
+
+    plt.tight_layout()
+
+
 if __name__ == '__main__':
     pass
