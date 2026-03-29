@@ -530,11 +530,11 @@ class ESN_model(EchoStateNetwork, Model):
         if dt is None:
             dt = case.dt
         t_data = np.arange(0, Nt) * dt
-        nrows = min(Ndim, 20)
+        nrows = min(Ndim*L, 10)
 
 
-        fig, axs = plt.subplots(nrows=nrows*L, ncols=1,
-                                figsize=(8, nrows*L), sharex=True,
+        _, axs = plt.subplots(nrows=nrows, ncols=1,
+                                figsize=(8, nrows), sharex=True,
                                 layout='constrained')
         if nrows * L > 1 and isinstance(axs, np.ndarray):
             axs = axs.T.flatten()
@@ -543,9 +543,10 @@ class ESN_model(EchoStateNetwork, Model):
 
 
         for l, data_l in enumerate(train_data):
-            axs_dim = axs[l*nrows:(l+1)*nrows]
+            axs_dim = axs[l*Ndim:(l+1)*Ndim]
 
             for kk, ax in enumerate(axs_dim):
+                
                 ax.plot(t_data, data_l[:, kk], lw=1., color='k')
                 ax.axvspan(0, case.t_train, facecolor='orange',
                            alpha=0.3, zorder=-100, label='Train')

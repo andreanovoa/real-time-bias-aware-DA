@@ -409,10 +409,15 @@ class Model(object):
 
 
     def get_alpha(self, psi=None):
-        if not isinstance(self.ensemble, dict):
-            return [self.alpha0.copy()]
+        # if not isinstance(self.ensemble, dict):
+        #     return [self.alpha0.copy()]
+            
         if psi is None:
             psi = self.current_state
+
+        if psi.shape[0] == self.Nphi:
+            print('using the same get_alpha')
+            return [self.alpha0.copy()] * psi.shape[-1]
 
         # ensure psi has members on last axis
         if psi.ndim == 1:

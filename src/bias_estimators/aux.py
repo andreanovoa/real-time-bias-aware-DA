@@ -4,8 +4,9 @@ from typing import Dict, List, Optional, Tuple, Union
 
 from observations import Observations
 from model import Model
-from utils import mean_vector_to_ensemble, correlation, check_valid_file, load_from_pickle_file
-
+from utils import mean_vector_to_ensemble, correlation, check_valid_file, load_from_pickle_file, CR
+from matplotlib.colors import Normalize
+import matplotlib.pyplot as plt
 
 from typeguard import typechecked
 
@@ -113,7 +114,7 @@ def sample_model_states(rom: Model,
                         L: int,
                         minimum_training_steps: int,
                         std_phi: Optional[Union[float, np.ndarray]] = None,
-                        std_alpha: Optional[Union[float, Dict[str, Union[float, List[float]]]]] = None,
+                        std_alpha: Optional[Union[float, Dict[str, Union[float, List[float], Tuple[float, float]]]]] = None,
                     ) -> np.ndarray:
     """
     
@@ -161,7 +162,7 @@ def sample_model_states(rom: Model,
             m=ensemble_size,
             method='uniform',
         )
-        if psi0_mean.shape[0] > model.Nphi:
+        if std_alpha is not None:
 
             new_alpha = mean_vector_to_ensemble(
                 rng=model.rng,
@@ -175,12 +176,24 @@ def sample_model_states(rom: Model,
         else:
             return new_phi
         
-    if model.m != L:
-        psi0 = np.mean(model.current_state.copy(), axis=-1)
+
+    psi0 = np.mean(model.current_state.copy(), axis=-1)
+    Nt = int(np.round(model.t_transient / model.dt, model.precision_t)) - 1
+
+    # Add parameters to the state vector if parameter uncertanty is givemn
+    if std_alpha is not None and psi0.shape[0] == model.Nphi:
+        assert isinstance(std_alpha, dict), "std_alpha must be a dict if parameter uncertainty is specified."
+        model.ensemble = dict(Na=len(std_alpha), est_alpha=list(std_alpha.keys()), m=L)
+        psi0 = np.hstack([psi0, np.zeros((len(std_alpha),))])
+        for ii, key in enumerate(std_alpha.keys()):
+            psi0[model.Nphi + ii] = getattr(model, key)
+        psi0_ens = sample_ensemble(psi0, L)
+        model.update_history(psi=psi0_ens[np.newaxis, :, :], t=0.0, reset=True)
+        
+    elif model.m != L:
         psi0_ens = sample_ensemble(psi0, L)
         model.update_history(psi=psi0_ens[np.newaxis, :, :], t=0.0, reset=True)
 
-    Nt = int(np.round(model.t_transient / model.dt, model.precision_t)) - 1
     psi, t = model.time_integrate(Nt=Nt)
     model.update_history(psi=psi, t=t, reset=True)
 
@@ -252,13 +265,37 @@ def create_bias_training_dataset(config: dict,
                                 reference_data,
                                 minimum_training_steps: int,
                                 L: int,
-                                augment_data_length: int,
                                 correlation_based_training: bool,
+                                augment_data_length: int,
                                 biased_observations: bool,
                                 std_phi: Optional[float] = None,
                                 std_alpha: Optional[Union[float, Dict[str, Union[float, List[float]]]]] = None,
                             ) -> dict:
     
+    """
+    Parameters:
+        config: dict containing the configuration for creating the training dataset. 
+        rom: Model object representing the reduced-order model to sample states from.
+        reference_data: Observations object or list of Observations objects containing the reference data to prepare for training.
+        minimum_training_steps: int specifying the minimum number of time steps required for training the bias model.
+        L: int specifying the number of samples to generate from the ROM for training.
+        correlation_based_training: bool indicating whether to use correlation-based training (i.e., correlating the model-generated data with the raw observations to create the training dataset).
+        augment_data_length: int specifying the number of augmented samples to create for each observed variable.
+            - If augment_data_length=1, only the best lag is used. 
+            - If augment_data_length=2 both the best lag and a mid-point lag are used. If augment_data_length=3, the worst lag is also included.
+        biased_observations: bool indicating whether to include the model bias (i.e., the difference between the true values and the model-generated data) in the training dataset.
+        std_phi: float specifying the standard deviation to use when sampling the initial conditions for the ensemble. 
+            - If None, the standard deviation of the current state of the ROM will be used.
+        std_alpha: float or dict specifying the standard deviation to use when sampling the parameters for the ensemble. 
+            - If float, it will be used for all parameters. 
+            - If dict, it should have keys corresponding to the parameter names and values specifying the standard deviation for each parameter.
+    Returns:
+        train_data_dict: dict containing the training data for the bias model, along with the configuration used to create it. 
+            - 'data': np.ndarray containing the training data for the bias model. shape (L * augment_data_length, Ndim) where Ndim = Nq if not biased_observations else 2 * Nq.
+            - 'y_model': np.ndarray containing the model-generated data used for training. shape (L, minimum_training_steps, Nq).
+            - Additional keys corresponding to the entries in the input config dictionary
+    """
+
     y_model_L = sample_model_states(rom=rom,
                                     L=L,
                                     minimum_training_steps=minimum_training_steps,
@@ -289,14 +326,19 @@ def create_bias_training_dataset(config: dict,
                     model_bias_all.append(model_bias * -1e-2)
     else:
         innovations_all, model_bias_all = [], []
+        y_model = []
         for yr, yt in zip(y_raw, y_true):
             ym_L = correlate_data(y_model_L, yr, augment_data_length, minimum_training_steps)
-            innovations = (yr - ym_L).transpose((2, 0, 1))
+            y_model.append(ym_L.copy())
+            
+            innovations = (yr - ym_L).transpose((2, 0, 1)) #shape (L, minimum_training_steps, Nq)
             innovations_all.append(innovations)
+
 
             if biased_observations:
                 model_bias = (yt - ym_L).transpose((2, 0, 1))
                 model_bias_all.append(model_bias)
+        y_model_L = np.concatenate(y_model, axis=0)
 
     if not biased_observations:
         train_data = np.concatenate(innovations_all, axis=0)
@@ -304,7 +346,90 @@ def create_bias_training_dataset(config: dict,
         innovations_all = np.concatenate(innovations_all, axis=0)
         model_bias_all = np.concatenate(model_bias_all, axis=0)
         train_data = np.concatenate([model_bias_all, innovations_all], axis=2)
-
+    # Save to dictionary
     train_data_dict = {key: val for key, val in config.items()}
-    train_data_dict.update(data=train_data)
+    train_data_dict.update(data=train_data,
+                           y_model=y_model_L)
     return train_data_dict
+
+
+
+
+def plot_train_data(truth, bias_data, t_CR):
+
+    L, _, _ = bias_data['data'].shape
+
+    Nt = int(t_CR / truth.dt)
+    i0_t = np.argmin(np.abs(truth.t_true - truth.t_obs[0]))
+
+    # Build a common valid time window and select the segment before first observation.
+    n_common = min(
+        len(truth.t_true),
+        truth.y_true.shape[0],
+        truth.b_true.shape[0],
+        bias_data['y_model'].shape[0],
+        bias_data['data'].shape[1],
+    )
+    i_end = min(max(i0_t, 1), n_common)
+    i_start = max(i_end - Nt, 0)
+    if i_end - i_start < 2:
+        i_end = n_common
+        i_start = max(i_end - Nt, 0)
+
+    yt = truth.y_true[i_start:i_end]
+    bt = truth.b_true[i_start:i_end]
+    yr = bias_data['y_model'][i_start:i_end].transpose(2, 0, 1)
+    Nq = yt.shape[1]
+    br = bias_data['data'][:, i_start:i_end, :Nq]
+    tt = truth.t_true[i_start:i_end]
+
+    if len(tt) == 0:
+        raise ValueError('Selected plotting window is empty. Check t_CR and training_data dimensions.')
+
+
+    RS = []
+    for ii in range(L):
+        RS.append(np.linalg.norm(br[ii][:, 0]) / np.sqrt(len(yt)))
+
+    RS = np.asarray(RS, dtype=float)
+    true_RMS = np.linalg.norm(bt[:, 0]) / np.sqrt(len(yt))
+
+    # Plot training data (single row) --------------------------
+    fig = plt.figure(figsize    =[12, 2.7], layout='constrained')
+    axs = fig.subplots(1, 2)
+    
+    # Robust color mapping: clip outliers; if RMS are nearly equal, force distinct member colors.
+    if np.ptp(RS) < 1e-12:
+        color_values = np.linspace(0.0, 1.0, L)
+        norm = Normalize(vmin=0.0, vmax=1.0)
+        cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.get_cmap('viridis'))
+        cbar_extend = 'neither'
+        cbar_title = 'Member'
+    else:
+        lo, hi = np.percentile(RS, [5, 95])
+        if np.isclose(lo, hi):
+            lo = float(np.min(RS))
+            hi = float(np.max(RS))
+        color_values = np.clip(RS, lo, hi)
+        norm = Normalize(vmin=float(lo), vmax=float(hi))
+        cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.get_cmap('viridis'))
+        cbar_extend = 'both'
+        cbar_title = '$\\mathrm{RMS}$'
+
+    xlim = [tt[0], tt[-1]]
+
+    axs[0].plot(tt, yt[:, 0], color='silver', linewidth=6, alpha=.8)
+    axs[1].plot(tt, bt[:, 0], color='silver', linewidth=4, alpha=.8)
+
+    for ii in range(L):
+        clr = cmap.to_rgba(color_values[ii])
+        axs[0].plot(tt, yr[ii][:, 0], color=clr)
+        axs[1].plot(tt, br[ii][:, 0], color=clr)
+
+    axs[0].legend(['Truth'], bbox_to_anchor=(0., 0.25), loc='upper left')
+    axs[1].legend(['True RMS $={0:.3f}$'.format(true_RMS)], bbox_to_anchor=(0., 0.25), loc='upper left')
+    axs[0].set(xlabel='$t$', ylabel='$\\eta$', xlim=xlim)
+    axs[1].set(xlabel='$t$', ylabel='$b$', xlim=xlim)
+
+    clb = fig.colorbar(cmap, ax=axs, orientation='vertical', extend=cbar_extend)
+    clb.ax.set_title(cbar_title)

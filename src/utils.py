@@ -88,7 +88,7 @@ def mean_vector_to_ensemble(rng: np.random.Generator,
                             std: Union[float,
                                        NDArray[np.floating], 
                                        List[float], 
-                                       Dict[str, Union[float, List[float]]]],
+                                       Dict[str, Union[float, List[float], Tuple[float, float]]]],
                             m: int,
                             method: str = 'uniform',
                             ensure_mean_at_init: bool = False) -> np.ndarray:

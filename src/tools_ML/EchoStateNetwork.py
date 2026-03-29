@@ -1024,8 +1024,8 @@ class EchoStateNetwork:
                 Y_val = Y_l[p + case.N_wash:p + case.N_wash + case.N_val]
 
                 # Perform washout (open-loop without extra forecast step)
-                r_out = np.zeros((case.N_units, case.N_ens))
-                u_out = np.zeros((case.N_dim, case.N_ens))
+                r_out = np.zeros((case.N_units, 1))
+                u_out = np.zeros((case.N_dim, 1))
 
                 for u_in in U_wash:
                     u_out, r_out = case.step(u_in, r_out)

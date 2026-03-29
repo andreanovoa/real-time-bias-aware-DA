@@ -318,7 +318,12 @@ class Ensemble(object):
                 ensemble_psi0 = np.concatenate((ensemble_psi0, ensemble_alpha0), axis=0)
 
             # Forecast to remove transient
-            pm.update_history(psi=ensemble_psi0[np.newaxis, :, :], t=pm.hist_t[[0]], reset=True)
+
+            pm.update_history(psi=ensemble_psi0[np.newaxis, :, :], 
+                              t=pm.hist_t[[0]], reset=True)
+            
+            print('DEBUG:', pm.current_state.shape, pm.hist.shape, len(pm.get_alpha()), pm.Nphi)
+            
             Nt = int(pm.t_transient *.5 // pm.dt)
             new_psi0 = pm.time_integrate(Nt=Nt)[0][-1, :, : ] # shape (Npsi, m)
             pm.close()

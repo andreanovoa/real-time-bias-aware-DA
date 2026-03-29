@@ -259,12 +259,45 @@ class ESN_bias(Bias):
                                 biased_observations=self.biased_observations,
                             )
 
+
         if training_data_filename is not None:
             save_to_pickle_file(training_data_filename, train_data_dict)
 
         return train_data_dict
 
 
+def plot_bias_training_dataset(case: ESN_bias, plot_data):
+        _L, _Nt, _Ndim = plot_data.shape
+
+        if case.biased_observations:
+            _nc = 2
+        else:
+            _nc = 1
+        _Ndim = int(round(_Ndim // _nc))
+        _nr = int(min(_Ndim, 10))
+
+        fig, axs = plt.subplots(nrows=_nr, ncols=_nc, figsize=(8*_nc, 2*_nr), sharex=True, layout='constrained')
+        if not isinstance(axs, np.ndarray):
+            axs = [axs]
+        if _nc > 1:
+            axs = axs.T.flatten()
+            [axs[_ii].set(title=_ttl) for _ii, _ttl in zip([0, _nr], ['Model bias', 'Innovations'])]
+
+        _t_data = np.arange(0, _Nt) * case.dt
+        _Ls = np.random.randint(low=0, high=_L, size=len(axs))
+
+        for kk, ax, Li in zip(range(len(axs)), axs, _Ls):
+            if kk < _nr:
+                ax.plot(_t_data, plot_data[Li, :, kk], lw=1., color='k')
+            else:
+                ax.plot(_t_data, plot_data[Li, :, kk - _nr + _Ndim], lw=1., color='k')
+
+            times = [0, case.t_train, case.t_train + case.t_val, _t_data[-1]]
+            [ax.axvspan(times[_ii], times[_ii+1], facecolor=_c, alpha=0.3, zorder=-100,
+                        label=_lbl) for _ii, _c, _lbl in zip(range(3), ['orange', 'red', 'navy'],
+                                                             [f'Train, Li{Li}', 'Validate', 'Test'])]
+        axs[0].legend(ncols=3, loc='upper center', bbox_to_anchor=(0.5, 1.5))
+        plt.show()
 
 
 
