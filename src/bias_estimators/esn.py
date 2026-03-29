@@ -108,13 +108,16 @@ class ESN_bias(Bias):
 
 
     def state_derivative(self):
-        esn = self.forecaster 
-        
-        r_mean = np.mean(esn.reservoir_state, axis=-1, keepdims=True) 
-        u_mean = esn.reservoir_to_physical(r_mean)
-        esn_J = esn.Jacobian(open_loop_J=True, state=(u_mean, r_mean))  # Compute ESN Jacobian
+        esn = self.forecaster #type: ESN_model
+        state = self.current_state
+        u, r = state[:-self.N_hidden], state[-self.N_hidden:]
+        r_mean = np.mean(r, axis=-1, keepdims=True) 
+        u_mean = np.mean(u, axis=-1, keepdims=True)
+
+        esn_J = esn.Jacobian(open_loop_J=True, u_in=u_mean, r_in=r_mean)  # Compute ESN Jacobian
 
         return -esn_J[np.array(self.bias_idx), np.array([self.bias_idx]).T]
+
 
     def init_forecaster(self,
                         training_data_filename: Optional[str] = None,
