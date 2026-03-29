@@ -413,10 +413,17 @@ class Observations():
         """
         
         # 1. Data Extraction and Setup
-        y_raw, y_true, t_true, y_obs, t_obs, b, y_wash, t_wash = [
-            getattr(case, key).squeeze() for key in ['y_raw', 'y_true', 't_true', 'y_obs', 't_obs', 'b_true', 'y_wash', 't_wash']
-        ]
-
+        keys = ['y_raw', 'y_true', 't_true', 'y_obs', 't_obs', 'b_true', 'y_wash', 't_wash'] 
+        
+        y_raw, y_true, t_true, y_obs, t_obs, b, y_wash, t_wash = tuple((val.squeeze() if val is not None else None)
+                                                                        for key in keys
+                                                                        for val in [getattr(case, key)])
+                                                                        
+        assert isinstance(y_true, np.ndarray), "y_true is required for plotting but is not available in the case data."
+        assert isinstance(y_raw, np.ndarray), "y_raw is required for plotting but is not available in the case data."
+        assert isinstance(t_true, np.ndarray), "t_true is required for plotting but is not available in the case data."
+        assert isinstance(b, np.ndarray), "b_true is required for plotting but is not available in the case data."
+        
         if y_true.ndim == 1:
             y_true = y_true[:, np.newaxis]
             y_raw = y_raw[:, np.newaxis]

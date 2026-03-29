@@ -1,6 +1,5 @@
 
 import numpy as np
-
 from typing import Optional
 
 from bias import Bias
@@ -8,6 +7,7 @@ from model import Model
 from observations import Observations
 from models_data_driven import ESN_model
 from config.esn_config import ESNConfig, load_esn_model_from_config, save_esn_model_to_config
+
 from utils import save_to_pickle_file
 from .aux import create_bias_training_dataset, load_bias_training_dataset
 
@@ -50,8 +50,7 @@ class ESN_bias(Bias):
         
         return self.forecaster.initialize_from_val_data(N_ens=self.N_ens) # this method belongd to ESN_model
     
-
-
+        
     def washout_phase(self, d_wash, t_wash, **kwargs):
         """
         Arguments:
@@ -102,7 +101,9 @@ class ESN_bias(Bias):
 
     
     @property
-    def N_units(self):
+    def N_hidden(self):
+        if not hasattr(self, '_forecaster'):
+            return 0
         return self._forecaster.N_units
 
 
@@ -267,29 +268,6 @@ class ESN_bias(Bias):
         return train_data_dict
 
 
-
-
-    def new_innovation_to_state(self, innovation):
-        """
-        Maps the innovation to the state of the model. This is used for the non-Bayesian bias update, where the bias state is directly updated based on the innovation.
-        By default, this is an identity mapping, but it can be implemented in child classes if needed.
-        """
-        state = self.current_state
-        state[self.observed_idx, :] = innovation
-
-        # Update the reservoir state of the ESN_model forecaster based on the new physical state after the innovation is applied. This ensures that the bias state is consistent with the updated physical state, which can help improve the performance of the bias model.
-        assert hasattr(self, 'forecaster'), "Forecaster must be initialized before calling new_innovation_to_state."
-        esn = self.forecaster #type: ESN_model
-
-        r_mean = np.mean(esn.reservoir_state, axis=-1, keepdims=True) 
-
-        # perform one open-loop step of the ESN_model 
-        _, r_open = esn.step(innovation, r_mean)
-        self.forecaster.reservoir_state = r_open
-
-        state[-esn.N_units:, :] = r_open
-
-        return state
 
 
 
