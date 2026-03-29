@@ -108,13 +108,11 @@ class ESN_bias(Bias):
 
 
     def state_derivative(self):
-        esn = self.forecaster #type: ESN_model
-        state = self.current_state
-        u, r = state[:-self.N_hidden], state[-self.N_hidden:]
-        r_mean = np.mean(r, axis=-1, keepdims=True) 
-        u_mean = np.mean(u, axis=-1, keepdims=True)
-
-        esn_J = esn.Jacobian(open_loop_J=True, u_in=u_mean, r_in=r_mean)  # Compute ESN Jacobian
+        esn = self.forecaster 
+        
+        r_mean = np.mean(esn.reservoir_state, axis=-1, keepdims=True) 
+        u_mean = esn.reservoir_to_physical(r_mean)
+        esn_J = esn.Jacobian(open_loop_J=True, state=(u_mean, r_mean))  # Compute ESN Jacobian
 
         return -esn_J[np.array(self.bias_idx), np.array([self.bias_idx]).T]
 
@@ -196,6 +194,11 @@ class ESN_bias(Bias):
             # Create a new instance of the ESN_model to use as forecaster
             cfg.update(train_data_dict)
 
+            # print('CONFIGURATION')
+            # print('data ', cfg['data'].shape)
+            # print('state ', cfg['state'].shape)
+            # print('------------------')
+
             new_esn_model = ESN_model(**cfg) # Note: ESN_model trains itself during initialization using the provided training data, so we don't need a separate training step here. If the ESN_model implementation changes in the future to require a separate training step, this code will need to be updated accordingly.
 
             # Save model configuration to disk and return it
@@ -259,45 +262,12 @@ class ESN_bias(Bias):
                                 biased_observations=self.biased_observations,
                             )
 
-
         if training_data_filename is not None:
             save_to_pickle_file(training_data_filename, train_data_dict)
 
         return train_data_dict
 
 
-def plot_bias_training_dataset(case: ESN_bias, plot_data):
-        _L, _Nt, _Ndim = plot_data.shape
-
-        if case.biased_observations:
-            _nc = 2
-        else:
-            _nc = 1
-        _Ndim = int(round(_Ndim // _nc))
-        _nr = int(min(_Ndim, 10))
-
-        fig, axs = plt.subplots(nrows=_nr, ncols=_nc, figsize=(8*_nc, 2*_nr), sharex=True, layout='constrained')
-        if not isinstance(axs, np.ndarray):
-            axs = [axs]
-        if _nc > 1:
-            axs = axs.T.flatten()
-            [axs[_ii].set(title=_ttl) for _ii, _ttl in zip([0, _nr], ['Model bias', 'Innovations'])]
-
-        _t_data = np.arange(0, _Nt) * case.dt
-        _Ls = np.random.randint(low=0, high=_L, size=len(axs))
-
-        for kk, ax, Li in zip(range(len(axs)), axs, _Ls):
-            if kk < _nr:
-                ax.plot(_t_data, plot_data[Li, :, kk], lw=1., color='k')
-            else:
-                ax.plot(_t_data, plot_data[Li, :, kk - _nr + _Ndim], lw=1., color='k')
-
-            times = [0, case.t_train, case.t_train + case.t_val, _t_data[-1]]
-            [ax.axvspan(times[_ii], times[_ii+1], facecolor=_c, alpha=0.3, zorder=-100,
-                        label=_lbl) for _ii, _c, _lbl in zip(range(3), ['orange', 'red', 'navy'],
-                                                             [f'Train, Li{Li}', 'Validate', 'Test'])]
-        axs[0].legend(ncols=3, loc='upper center', bbox_to_anchor=(0.5, 1.5))
-        plt.show()
 
 
 

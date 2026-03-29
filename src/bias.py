@@ -72,8 +72,6 @@ class Bias:
         self.update_history(bias_state, t=t, reset=True)
  
 
-
-
     @property
     def name(self):
         return self.__class__.__name__
@@ -333,10 +331,8 @@ class Bias:
 
         if self.bayesian_update:
             mean_innovation = np.mean(input_innovation[0], axis=-1)  # Average innovation across ensemble (obs_dim, Nens) -> (obs_dim,)
-            # cov_innovation = (inn_uncertainty * np.max(np.abs(mean_innovation)))**2 * np.eye(mean_innovation.shape[0])  # Diagonal covariance of innovation (obs_dim, obs_dim)
-            cov_innovation = np.cov(input_innovation[0], rowvar=True)  # Full covariance of innovation (obs_dim, obs_dim)
-            cov_innovation = np.atleast_2d(cov_innovation)
-            
+            cov_innovation = (inn_uncertainty * np.max(np.abs(mean_innovation)))**2 * np.eye(mean_innovation.shape[0])  # Diagonal covariance of innovation (obs_dim, obs_dim)
+
             updated_state = self.DA_method(Af=forecast_state, d=mean_innovation, Cdd=cov_innovation)
         else:
             updated_state = forecast_state.copy()
