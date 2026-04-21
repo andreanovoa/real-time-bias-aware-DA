@@ -696,7 +696,7 @@ class Ensemble(object):
             self.bias.visualize_bias_and_innovations(**kwargs_bias)
 
 
-    def analysis_step(self, d: np.ndarray, Cdd: np.ndarray) -> None:
+    def analysis_step(self, d: np.ndarray, Cdd: np.ndarray, inn_uncertainty: float = 0.05) -> None:
         """
         Performs the analysis step of the data assimilation algorithm.
         This method updates the ensemble state based on observations and their error covariance.
