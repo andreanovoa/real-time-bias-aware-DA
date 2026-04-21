@@ -1099,86 +1099,123 @@ def visualize_flow_data(X_true, X_noisy, simulation_dir=''):
 
 
 
-
-def animate_flowfields(datsets, n_frames=40, cmaps=None, titles=None, rms_cmap='Reds', std_cmap='Blues', step=1, rows=False, figsize=None, assimilated_data=None):
+def animate_flowfields(datsets, 
+                       time=None,
+                       n_frames=40, cmaps=None, rms_cmap='Reds', std_cmap='Blues', step=1,
+                       rows=False, figsize=None, assimilated_data=None):
     """
     Create an animation of flow fields from multiple datasets.
     Inputs:
-    - datsets: List of datasets, each containing flow field data. Each of shape: Nt x Ny x Nx
-    - n_frames: Number of frames in the animation.
+    - datsets: Dict of datasets, containing flow field data (Each of shape: Ny x Nx x Nt). 
+        The keys are used as titles for each subplot.
+    - time: 1-D array of time values corresponding to the last axis of each dataset.
+    - n_frames: Number of frames in the animation (used only when assimilated_data is None).
     - cmaps: List of colormaps for each dataset.
-    - titles: List of titles for each dataset.
     - rms_cmap: Colormap for RMS datasets.
     - std_cmap: Colormap for standard deviation datasets.
     - assimilated_data: dict with keys:
-        - 't_obs': array-like of integer frame indices at which observations are assimilated.
-        - 'xy': array of shape (N_sensors, 2) with sensor coordinates [x_col, y_row] in grid units.
+        - 't_obs': array-like of observation *time values* at which data are assimilated.
+          When provided, these drive the animation frames (n_frames / step are ignored).
+        - 'xy': array of shape (N_sensors, 2) with sensor coordinates [x_col, y_row].
     """
-
 
     if cmaps is None:
         cmaps = ['viridis'] * len(datsets)
-    if titles is None:
-        titles = [f'Dataset {i+1}' for i in range(len(datsets))]
 
     if rows:
         if figsize is None:
-            figsize = (1.5*len(datsets), 4)
-        fig, axs = plt.subplots(len(datsets), 1,  sharex=True, sharey=True, figsize=figsize, layout='constrained')
+            figsize = (1.5 * len(datsets), 4)
+        fig, axs = plt.subplots(len(datsets), 1, sharex=True, sharey=True,
+                                figsize=figsize, layout='constrained')
         cbar_orientation = 'vertical'
     else:
         if figsize is None:
-            figsize = (4, 1.5*len(datsets))
-        fig, axs = plt.subplots(1, len(datsets), sharex=True, sharey=True, figsize=figsize, layout='constrained')
+            figsize = (4, 1.5 * len(datsets))
+        fig, axs = plt.subplots(1, len(datsets), sharex=True, sharey=True,
+                                figsize=figsize, layout='constrained')
         cbar_orientation = 'horizontal'
 
     if len(datsets) == 1:
         axs = [axs]
 
+    # Transpose datasets if needed so vertical dim > horizontal dim
+    for key, D in datsets.items():
+        if D.shape[0] < D.shape[1]:
+            datsets[key] = D.transpose(1, 0, 2)
+
+    for key, D in datsets.items():
+        ref = list(datsets.values())[0]
+        if D.shape[0] != ref.shape[0] or D.shape[1] != ref.shape[1]:
+            raise ValueError("All datasets must have the same spatial dimensions.")
+
+    # ------------------------------------------------------------------ #
+    #  Build frame_indices: driven by observations when available         #
+    # ------------------------------------------------------------------ #
+    dots, t_obs_set = [], set()
+
+    if assimilated_data is not None and time is not None:
+        show_obs  = True
+        t_obs     = np.asarray(assimilated_data.get('t_obs', []))
+        sensor_xy = np.asarray(assimilated_data.get('xy', []))
+
+        # Map observation times to nearest indices in `time`
+        obs_indices = np.searchsorted(time, t_obs)
+
+        # Uniform stride across entire time range; always include observation indices
+        regular_indices = np.arange(0, len(time), step)
+        frame_indices = np.unique(np.concatenate((regular_indices, obs_indices)))
+        frame_indices.sort()
+        frame_indices = frame_indices.clip(0, len(time) - 1).tolist()
+        frame_indices = frame_indices[:n_frames]  # Limit to n_frames if too many
+
+        # Keep observation time values for dot-visibility test
+        t_obs_set = set(t_obs.tolist())
+
+        for ax in axs:
+            sc = ax.scatter(
+                *((sensor_xy[:, 0], sensor_xy[:, 1]) if len(sensor_xy) else ([], [])),
+                c='red', s=40, marker='o', zorder=5, visible=False)
+            dots.append(sc)
+    else:
+        show_obs      = False
+        time          = np.arange(list(datsets.values())[0].shape[-1])
+        frame_indices = list(range(0, min(n_frames, len(time)), step))
+
+    # ------------------------------------------------------------------ #
+    #  Build initial pcolormesh artists                                   #
+    # ------------------------------------------------------------------ #
     ims = []
-
-    for ax, D, ttl, cmap in zip(axs, datsets, titles, cmaps):
-
+    for ax, (ttl, D), cmap in zip(axs, datsets.items(), cmaps):
         if 'RMS' in ttl:
-            ims.append(ax.pcolormesh(D[0], rasterized=True, cmap=plt.get_cmap(rms_cmap), vmin=0, vmax=1))
+            ims.append(ax.pcolormesh(D[..., 0], rasterized=True,
+                                     cmap=plt.get_cmap(rms_cmap), vmin=0, vmax=1))
         elif 'std' in ttl.lower():
             norm = colors.Normalize(vmin=np.nanmin(D), vmax=np.nanmax(D))
-            ims.append(ax.pcolormesh(D[0], rasterized=True, cmap=plt.get_cmap(std_cmap), norm=norm))
+            ims.append(ax.pcolormesh(D[..., 0], rasterized=True,
+                                     cmap=plt.get_cmap(std_cmap), norm=norm))
         else:
             norm = colors.Normalize(vmin=np.nanmin(D), vmax=np.nanmax(D))
-            ims.append(ax.pcolormesh(D[0], rasterized=True, cmap=plt.get_cmap(cmap), norm=norm))
-        
-        ax.set(xticks=[], yticks=[])
+            ims.append(ax.pcolormesh(D[..., 0], rasterized=True,
+                                     cmap=plt.get_cmap(cmap), norm=norm))
 
+        ax.set(xticks=[], yticks=[])
         fig.colorbar(ims[-1], ax=ax, orientation=cbar_orientation, label=ttl)
 
-    # Create hidden scatter artists for sensor dots (one per axes)
-    dots, t_obs_set = [], set()
-    if assimilated_data is not None:
-        t_obs_set = set(assimilated_data.get('t_obs', []))
-        sensor_xy = np.asarray(assimilated_data.get('xy', []))  # shape (N_sensors, 2): [x_col, y_row]
-        for ax in axs:
-            if len(sensor_xy):
-                sc = ax.scatter(sensor_xy[:, 0], sensor_xy[:, 1],
-                                c='red', s=40, marker='o', zorder=5, visible=False)
-            else:
-                sc = ax.scatter([], [], c='red', s=40, marker='o', zorder=5, visible=False)
-            dots.append(sc)
-
+    # ------------------------------------------------------------------ #
+    #  Animation update function                                          #
+    # ------------------------------------------------------------------ #
     def animate(ti):
-            frame = frame_indices[ti]  # <-- use actual frame index
-            [im.set_array(D[frame]) for im, D in zip(ims, datsets)]
-            if assimilated_data is not None:
-                is_obs = frame in t_obs_set
-                for sc in dots:
-                    sc.set_visible(is_obs)
-            print(f'Frame {ti + 1}/{len(frame_indices)}', flush=True, end='\r')
-            return ims + dots
-
-    frame_indices = list(range(0, n_frames, step))
+        frame = frame_indices[ti]
+        for im, D in zip(ims, datsets.values()):
+            im.set_array(D[..., frame])
+        if show_obs:
+            is_obs = time[frame] in t_obs_set
+            for sc in dots:
+                sc.set_visible(is_obs)
+        print(f'Frame {ti + 1}/{len(frame_indices)}', flush=True, end='\r')
+        return ims + dots
 
     plt.close(fig)
-
     return FuncAnimation(fig, animate, frames=len(frame_indices), cache_frame_data=False)
 
 

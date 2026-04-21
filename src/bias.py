@@ -1,6 +1,5 @@
 
 from data_assimilation import EnSRKF
-from models_data_driven.esn import ESN_model
 import numpy as np
 from copy import deepcopy
 from history import HistoryTracker
@@ -10,6 +9,7 @@ from typing import Optional, Tuple
     
 from plotting import categorical_cmap
 import matplotlib.pyplot as plt
+
 
 class Bias:
     """
