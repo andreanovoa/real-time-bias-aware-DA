@@ -25,7 +25,7 @@ pip install -e . --use-pep517 # use .[dev] if running tests
 
 4. (Optional) Run the tests and save the output onto a text file
 ```
-SUBFOLDERS='["0","1"]' pytest -s --log-cli-level=INFO test_tutorials.py >> test_output.txt 2>&1
+SUBFOLDERS='["0","1"]' pytest -s --log-cli-level=INFO test_tutorials.py # >> test_output.txt 2>&1 
 ```
 
 Checkout the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/scripts/tutorials), which includes several jupyter notebooks aiming to ease the understanding of the repository.
@@ -52,9 +52,9 @@ Checkout the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aw
    * ESN_model -- Echo state network as a frorecasting tool
    * POD-ESN -- Combines Proper Orthogonal Decomposition (POD) and ESN_model
     
-   Bias estimators[`bias`](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/src/bias.py)
+   Bias estimators[`bias`](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/src/bias_data_driven)
    * Echo State Network
-   * NoBias
+   * ConstantBias
 
 
 ---
@@ -76,7 +76,7 @@ Checkout the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aw
 │   │   └── constantbias.py
 │   ├── config         
 │   │   └── esn_config.py
-│   ├── data_assimilation.py
+│   ├── data_assimilation.py 
 │   ├── integrator.py
 │   ├── model.py
 │   ├── models_data_driven/ 
@@ -117,7 +117,7 @@ Checkout the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aw
 - [x] Nóvoa & Magri (2024). Real-time digital twins of multiphysics and turbulent flows. [Paper](https://web.stanford.edu/group/ctr/ctrsp24/ii11_NOVOA.pdf).
 - [x] Nóvoa & Magri (2022). Bias-aware thermoacoustic data assimilation. In_ 51st International Congress and Exposition on Noise Control Engineering. [Paper](https://az659834.vo.msecnd.net/eventsairwesteuprod/production-inconference-public/808b4f8c38f944d188db8a326a98c65c). | [_Legacy_ repository](https://github.com/MagriLab/IN22-Bias-aware-TADA).
 
-##### PhD theses
+##### PhD thesis
 - [x] Nóvoa (2024). Real-time data assimilation in nonlinear dynamcal systems. University of Cambridge. [Thesis](https://doi.org/10.17863/CAM.113001). 
 
 <!-- ##### Conference presentations _(incomplete list)_

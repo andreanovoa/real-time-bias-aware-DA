@@ -69,9 +69,9 @@ class Observations():
                 assert val.ndim == 3
                 setattr(self, key, val)
 
-            self.t_true = kwargs['t_true']
-            self.t_start = kwargs.get('t_start', self.t_true[0])
-            self.t_stop = kwargs.get('t_stop', self.t_true[-1])
+            self.t_true = kwargs['t_true'] 
+            self.t_start = kwargs.get('t_start', self.t_true[0]) # type: float
+            self.t_stop = kwargs.get('t_stop', self.t_true[-1]) # type: float
             self.name_truth =  kwargs.get('name_truth', 'Truth_Provided')
             
         else:    
@@ -95,6 +95,12 @@ class Observations():
         
         self.update_obs_idx(self.t_start, self.t_stop, self.Nt_obs)
 
+        # Include washout period if requested 
+        if kwargs.get('include_washout', False):
+            t_wash_0 = self.t_start - 20 * self.dt_obs
+            t_wash_end = self.t_start - self.dt_obs
+
+            self.wash_idx = np.arange(np.searchsorted(self.t_true, t_wash_0), np.searchsorted(self.t_true, t_wash_end))
 
         # Calculate indices
         self._frozen = True  # Freeze attributes to prevent further modification
@@ -124,7 +130,7 @@ class Observations():
             else:
                 setattr(self, key, val)
 
-
+        assert self.t_start is not None and self.t_stop is not None and self.Nt_obs is not None, "t_start, t_stop, and Nt_obs must be defined to update obs_idx."
         start_idx = np.searchsorted(self.t_true, self.t_start)
         stop_idx = np.searchsorted(self.t_true, self.t_stop, side='right') - 1
 
@@ -136,6 +142,18 @@ class Observations():
     def dt_obs(self):
         return self.Nt_obs * self.dt
     
+    
+    @property
+    def y_wash(self):
+        if not hasattr(self, 'wash_idx'):
+            return None
+        return self.y_raw[self.wash_idx,...,0]
+    @property
+    def t_wash(self):
+        if not hasattr(self, 'wash_idx'):
+            return None
+        return self.t_true[self.wash_idx]
+
     @property
     def y_obs(self):
         return self.y_raw[self.obs_idx,...,0]
@@ -234,7 +252,8 @@ class Observations():
         else:
             print('...Applying user-defined manual bias')
             # The manual bias is a function of state and/or time
-            b_true, name_bias = manual_bias(y_true, t_true)
+            assert callable(manual_bias), "manual_bias must be a callable function if not a predefined string."
+            b_true, name_bias = manual_bias(y_true, t_true)  # type: ignore
 
         # Update true data to include bias
         self.y_true += b_true
@@ -333,7 +352,10 @@ class Observations():
                 else:
                     true_model = model.copy()
             else:
-                true_model = model.copy()
+                full_path = None
+                true_model = model.copy() 
+
+            assert isinstance(true_model, Model), "Loaded object is not a Model instance."
 
             # Forecast to t_max if necessary and save file
             if true_model.hist_t[-1] < self.t_max:
@@ -344,7 +366,7 @@ class Observations():
                 if psi.shape[-1] > 1: # close pools
                     true_model.close()
                 
-                if self.results_folder is not None:
+                if self.results_folder is not None and full_path is not None:
                     save_to_pickle_file(full_path, true_model)
 
             # ============================================================
@@ -391,15 +413,24 @@ class Observations():
         """
         
         # 1. Data Extraction and Setup
-        y_raw, y_true, t_true, y_obs, t_obs, b = [
-            getattr(case, key).squeeze() for key in ['y_raw', 'y_true', 't_true', 'y_obs', 't_obs', 'b_true']
-        ]
-
+        keys = ['y_raw', 'y_true', 't_true', 'y_obs', 't_obs', 'b_true', 'y_wash', 't_wash'] 
+        
+        y_raw, y_true, t_true, y_obs, t_obs, b, y_wash, t_wash = tuple((val.squeeze() if val is not None else None)
+                                                                        for key in keys
+                                                                        for val in [getattr(case, key)])
+                                                                        
+        assert isinstance(y_true, np.ndarray), "y_true is required for plotting but is not available in the case data."
+        assert isinstance(y_raw, np.ndarray), "y_raw is required for plotting but is not available in the case data."
+        assert isinstance(t_true, np.ndarray), "t_true is required for plotting but is not available in the case data."
+        assert isinstance(b, np.ndarray), "b_true is required for plotting but is not available in the case data."
+        
         if y_true.ndim == 1:
             y_true = y_true[:, np.newaxis]
             y_raw = y_raw[:, np.newaxis]
             if y_obs is not None:
                 y_obs = y_obs[:, np.newaxis]
+            if y_wash is not None:
+                y_wash = y_wash[:, np.newaxis]
 
 
         dt = t_true[1] - t_true[0]
@@ -412,7 +443,12 @@ class Observations():
 
         # Compute PSDs
         # find first index for t_obs
-        t0_idx = np.argmin(np.abs(case.t_true - case.t_obs[0]))
+        if hasattr(case, 'wash_idx'):
+            t0 = case.t_wash[0] - case.dt_obs * 2  
+        else:
+            t0 = case.t_obs[0] - case.dt_obs * 10
+
+        t0_idx = np.argmin(np.abs(case.t_true -  t0))  # Start a bit before the first observation to capture initial conditions in PSD
 
         nt_PSD = int((len(t_true) - t0_idx) // 2)
         f_raw, PSD_raw = fun_PSD(dt, y_raw[t0_idx:nt_PSD + t0_idx])
@@ -444,11 +480,10 @@ class Observations():
 
         # X-limits for time plots
         xlim_time = [t_plot[0], t_plot[-1]]
-        max_y = np.max(np.abs(y_raw))
 
         
         # 2. Figure Setup
-        fig, axes = plt.subplots(
+        _, axes = plt.subplots(
             Nq, 5, 
             figsize=(fig_width, 2. * Nq), 
             layout='constrained',
@@ -479,6 +514,9 @@ class Observations():
             ax.plot(t_plot, y_raw_plot[:, q_i], color=c_raw, label=f'$y_{q_i}$')
             if y_obs is not None:
                 ax.plot(t_obs, y_obs[:, q_i], 'ro', ms=3, mec='k', lw=.1)
+            if y_wash is not None:
+                ax.plot(t_wash, y_wash[:, q_i], 'rx', ms=3)
+
             ax.legend(fontsize='x-small', )
             ax.set(xlim=xlim_time)
             y_lim_base = ax.get_ylim()
@@ -511,6 +549,8 @@ class Observations():
 
             if y_obs is not None:
                 ax.hist(y_obs[:, q_i], bins=20, color='r', lw=1, histtype='step', density=True, orientation='horizontal')
+
+            
             ax.set(ylim=y_lim_base)
             
             # Column 3: PSD (uses full data)
@@ -518,12 +558,12 @@ class Observations():
             for ds, c, a in zip([PSD_true, PSD_raw], [c_true, c_raw], [1., .8]):
                 ax.semilogy(f_raw, ds[q_i], color=c, alpha=a)
             if bias_plot is not None:
-                ax.semilogy(f_raw, PSD_bias[q_i], color=c_unbiased, alpha=.8)
+                ax.semilogy(f_raw, PSD_bias[q_i], color=c_unbiased, alpha=.8) #type: ignore
             
             if q_i == 0:
                 ylims_PSD = [np.min(PSD_raw) * 0.1, np.max(PSD_raw) * 10]
             ax.set_xlim([0, f_max])
-            ax.set_ylim(ylims_PSD)
+            ax.set_ylim(ylims_PSD)#type: ignore
             
             # Column 4: Difference Time Series (Noise)
             ax = axes[q_i, 4]

@@ -31,9 +31,9 @@ class Lorenz96(Model):
     est_a: List[str] = []
 
     # --- Parameter and State Labels ---
-    params = ['F']
     extra_print_params = ['observed_idx', 'Nq', 't_lyap', 'Nx']
     fixed_params = ['Nx']
+    params = ['F']
 
     # __________________________ Init method ___________________________ #
     def __init__(self, **model_dict):
@@ -46,7 +46,9 @@ class Lorenz96(Model):
         self.Nq = len(self.observed_idx)
         
         super().__init__(psi0=psi0, dt=dt, integrator_class=IVPIntegrator, **model_dict)
+        
         self.alpha_labels = dict(F='$F$')
+        
 
     # _______________ Lorenz63 specific properties and methods ________________ #
 

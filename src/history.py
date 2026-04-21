@@ -73,11 +73,8 @@ class HistoryTracker:
         if new_state.shape[0]> 1:
             raise ValueError("new_state must contain only one time step to reset the last state.")
         else:
-            # print(f"changing last state in history: {self._hist[self.current_ti - 1]} to new value: ", new_state.flatten())
-
             self._hist[self.current_ti - 1] = new_state[0]
         if t is not None:
-            # print(f"changing last time in history: {self._hist_t[self.current_ti - 1]} to new value: ", t[0])
             self._hist_t[self.current_ti - 1] = t[0]
 
 
@@ -89,6 +86,9 @@ class HistoryTracker:
         elif update_last_state: # Update only the last state in history
             self._reset_last_state(new_state=state, t=t)
         else:
+            assert state.ndim == 3, f"State must have shape (Nt, N, m), but got {state.shape}."
+            assert state.shape[1] == self._hist.shape[1], f"State N dimension ({state.shape[1]}) must match history N dimension ({self._hist.shape[1]})."
+            
             t0 = self.current_ti
             t1 = t0 + state.shape[0]
 

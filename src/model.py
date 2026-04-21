@@ -18,11 +18,11 @@ class Model(object):
     """ Parent Class with the general model properties and methods definitions.
     """
 
+    params = []  # List of parameter names that can be varied in the model
     fixed_params = []
     extra_print_params = []
     governing_eqns_params = dict()
 
-    params = [] 
     t = 0.
     t_transient = 0.
     t_CR = 10 * 0.01
@@ -89,10 +89,10 @@ class Model(object):
             t = np.array([t])
         assert t.size == psi.shape[0], f"Length of t ({t.size}) must match number of time steps in psi ({psi.shape[0]})."
         self.history.update_history(psi, t=t, reset=reset, update_last_state=update_last_state)
-        self.update_history_aux(psi, reset=reset, update_last_state=update_last_state)
+    #     self.update_history_aux(psi, reset=reset, update_last_state=update_last_state)
     
-    def update_history_aux(self, psi, reset=False, update_last_state=False):
-        pass
+    # def update_history_aux(self, psi, reset=False, update_last_state=False):
+    #     pass
 
 
     @property
@@ -111,7 +111,7 @@ class Model(object):
     @property
     def alpha_lims(self):
         if not hasattr(self, '_alpha_lims'):
-            self._alpha_lims = {key: (None, None) for key in self.params}
+            self._alpha_lims = {key: (None, None) for key in sorted(self.params)}
         
         return self._alpha_lims
     
@@ -130,18 +130,18 @@ class Model(object):
     @property
     def alpha_labels(self):
         if not hasattr(self, '_alpha_labels'):
-            self._alpha_labels = {f'$\\alpha_{ii}$': val for ii, val in enumerate(self.params)}
+            self._alpha_labels = {f'$\\alpha_{ii}$': val for ii, val in enumerate(sorted(self.params))}
         return self._alpha_labels
     
     @alpha_labels.setter
     def alpha_labels(self, value: dict):
-        assert set(value.keys()) - set(self.params) == set(), f"Keys of alpha_labels must be a subset of {self.params}, but got {value.keys()}"
+        assert set(list(value.keys())) - set(sorted(self.params)) == set(), f"Keys of alpha_labels must be a subset of {sorted(self.params)}, but got {value.keys()}"
         if hasattr(self, '_alpha_labels'):
             self._alpha_labels.update(value)
         else:
             self._alpha_labels = value
             if len(self._alpha_labels) < len(self.params):
-                missing_keys = set(self.params) - set(self._alpha_labels.keys())
+                missing_keys = set(sorted(self.params)) - set(self._alpha_labels.keys())
                 self._alpha_labels.update({f'$\\alpha_{ii}$': val for ii, val in enumerate(missing_keys)})
 
 
@@ -409,10 +409,15 @@ class Model(object):
 
 
     def get_alpha(self, psi=None):
-        if not isinstance(self.ensemble, dict):
-            return [self.alpha0.copy()]
+        # if not isinstance(self.ensemble, dict):
+        #     return [self.alpha0.copy()]
+            
         if psi is None:
             psi = self.current_state
+
+        if psi.shape[0] == self.Nphi:
+            # print('using the same get_alpha')
+            return [self.alpha0.copy()] * psi.shape[-1]
 
         # ensure psi has members on last axis
         if psi.ndim == 1:
@@ -450,12 +455,12 @@ class Model(object):
     # ============================== Visualization methods ============================== #
     def visualize_history(self):
         self.visualize_state_hist()
-        self.visualize_observables_hist()
+        self.visualize_observable_hist()
         self.visualize_spatiotemporal_hist()
 
 
 
-    def visualize_state_hist(self, psi=None, t=None, max_modes=10):
+    def visualize_state_hist(self, psi=None, t=None, max_modes=10, t_zoom=None):
         if psi is None:
             psi = self.hist[:, :self.Nphi]
         if t is None:
@@ -464,7 +469,8 @@ class Model(object):
         lbl = self.state_labels
 
         # Plot the time evolution of the observables
-        t_zoom = int(self.t_CR / self.dt)
+        if t_zoom is None:
+            t_zoom = int(self.t_CR / self.dt)
         nrows = min(self.Nphi, max_modes)
 
         fig = plt.figure(figsize=(8, nrows+1), layout="constrained")
@@ -487,7 +493,7 @@ class Model(object):
                 ax[1].set(xlabel='$t$', xlim=[t[-t_zoom], t[-1]])
     
 
-    def visualize_observables_hist(self, y=None, t=None):
+    def visualize_observable_hist(self, y=None, t=None, t_zoom=None):
         if y is None:
             y = self.get_observable_hist()
         if t is None:
@@ -496,7 +502,8 @@ class Model(object):
         lbl = self.obs_labels
 
         # Plot the time evolution of the observables
-        t_zoom = int(self.t_CR / self.dt)
+        if t_zoom is None:
+            t_zoom = int(self.t_CR / self.dt)
 
         fig = plt.figure(figsize=(8, self.Nq+1), layout="constrained")
         plt.suptitle('Observables time evolution')

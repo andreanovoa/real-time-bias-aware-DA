@@ -47,7 +47,7 @@ INIT_KEYS = [# fixed hyperparameter settings
 
 TRAINED_KEYS = ['norm', 'shift', 
                 'rho', 'sigma_in', 'tikh', 
-                'Win', 'W', 'Wout', 'validation_data', 'reservoir_state']
+                'Win', 'W', 'Wout', 'validation_data']
 
 
 @dataclass
@@ -109,8 +109,6 @@ class ESNConfig:
     W: Optional[np.ndarray] = None
     Wout: Optional[np.ndarray] = None
     validation_data: Optional[np.ndarray] = None
-    reservoir_state: Optional[np.ndarray] = None
-    
     
     @staticmethod
     def _init_config_dict(case):
@@ -225,11 +223,11 @@ class ESNConfig:
         
         if not retrain:
             # Load pre-trained model
-            if self.N_dim is None or self.reservoir_state is None:
-                raise ValueError("N_dim and reservoir_state must be set to load a pre-trained model")
+            if self.N_dim is None:
+                raise ValueError("N_dim must be set to load a pre-trained model")
             
             config = asdict(self)
-            config['y0'] = np.zeros((self.N_dim, self.reservoir_state.shape[-1]))  # Dummy initial state
+            config['y0'] = np.zeros((self.N_dim, 1))  # Dummy initial state
             # print("Loading pre-trained ESN_model...")
             return ESN_model(**config)
         else:

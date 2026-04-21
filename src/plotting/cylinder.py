@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib.pyplot as plt
 from models_data_driven import POD_ESN
-from  plot_results import *
+from  plotting import *
 
 
 path = os.path.dirname(__file__)
@@ -150,13 +150,13 @@ def set_sensors(case, n_sensors=0):
     model = case.copy()
 
     if N_sensors > 0:
-        model.reset_sensors(N_sensors=n_sensors,
+        model.select_sensors(N_sensors=n_sensors,
                             domain_of_measurement=[-1, 1,4,7], 
                             down_sample_measurement=(10, 40),
                             qr_selection=True
                             )
     else:
-        model.reset_sensors(measure_modes=True)
+        model.select_sensors(measure_modes=True)
 
     return model
 
@@ -611,13 +611,13 @@ def set_sensors(case, n_sensors=0):
     model = case.copy()
 
     if n_sensors > 0:
-        model.reset_sensors(N_sensors=n_sensors,
+        model.select_sensors(N_sensors=n_sensors,
                             domain_of_measurement=[-1, 1,4,7], 
                             down_sample_measurement=(10, 40),
                             qr_selection=True
                             )
     else:
-        model.reset_sensors(measure_modes=True)
+        model.select_sensors(measure_modes=True)
 
     return model
 

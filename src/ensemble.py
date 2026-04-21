@@ -43,6 +43,7 @@ class Ensemble(object):
 
 
     bias_bayesian_update: bool = False          # Only used if est_bias == True
+    num_bias_blind: int = 0  # Number of initial analyses to perform without bias correction
     regularization_factor: float = 1.0          # Only used if filter == rEnKF
 
     num_DA_blind: int = 0
@@ -62,13 +63,14 @@ class Ensemble(object):
     distribution_phi: str = 'normal'    # Distribution for state (psi) uncertainty
     ensure_mean_at_init: bool = False    # Force one ensemble member to be the mean
     
-    activate_parameter_estimation: bool = True  # Whether to include parameter estimation in the analysis step
-
+    
     results_folder: Optional[str] = None
 
     keys_to_print = ['m', 'est_phi', 'est_alpha', 'est_bias', 'Na',
                      'regularization_factor', 'inflation_factor', 'inflation_factor_rejection',
+                     'num_bias_blind'
                      ]
+    
 
     @typechecked
     def __init__(self, 
@@ -95,6 +97,8 @@ class Ensemble(object):
         # Ensure est_alpha is a list of parameter names if not provided
         if 'est_alpha' not in kwargs.keys():
             if isinstance(self.std_alpha, dict):
+                # make sure they are sorted in the same order as the model parameters
+                self.std_alpha = {k: self.std_alpha[k] for k in parent_model.params if k in self.std_alpha.keys()}
                 self.est_alpha = list(self.std_alpha.keys())
             else:
                 self.est_alpha = []
@@ -108,7 +112,9 @@ class Ensemble(object):
         # 5. Set up data assimilation filter if provided
         if da_method is not None:
             self._init_filter(da_method)
-    
+
+
+    #  =============================== PROPERTIES ========================= ##
     @property
     def model(self) -> Model:
         """
@@ -230,7 +236,7 @@ class Ensemble(object):
 
         self._assimilated_data.append(y_obs)
         self._assimilated_times.append(t_obs)
-    
+
 
     @typechecked
     def _init_ensemble_model(self, parent_model: Union[Model, Type[Model]], **kwargs):
@@ -278,10 +284,16 @@ class Ensemble(object):
         
         pm = self.model
         
-
+        # If ensemble_psi0 is not provided, generate the ensemble of model states ans parameters using the specified configuration
         if self.ensemble_psi0 is None:
             # 1. Generate initial state (phi) ensemble
-            mean_phi0 = np.mean(pm.current_state, axis=-1)
+            mean_phi0 = np.mean(pm.current_state, axis=-1, keepdims=True)  # Shape (Nphi, 1)
+
+            # Forecast to remove transient
+            pm.update_history(psi=mean_phi0, reset=True)
+            Nt = int(pm.t_transient *.5 // pm.dt)
+            mean_phi0 = pm.time_integrate(Nt=Nt)[0][-1, :, 0] # shape (Nphi,)
+
 
             ensemble_psi0 = mean_vector_to_ensemble(pm.rng, 
                                                  mean_vec=mean_phi0, 
@@ -293,8 +305,9 @@ class Ensemble(object):
             # 2. Augment ensemble with estimated parameters (alpha)
             if self.est_alpha:  
                 assert self.Na == len(self.est_alpha), f"Number of parameters to estimate (Na={self.Na}) must match length of est_alpha list ({len(self.est_alpha)})."
-                mean_a = np.array([getattr(pm, a) for a in self.est_alpha])
 
+                mean_a = np.array([getattr(pm, a) for a in self.est_alpha])
+                
                 ensemble_alpha0 = mean_vector_to_ensemble(pm.rng, 
                                                           mean_vec=mean_a, 
                                                           std=self.std_alpha, 
@@ -304,8 +317,18 @@ class Ensemble(object):
                 
                 ensemble_psi0 = np.concatenate((ensemble_psi0, ensemble_alpha0), axis=0)
 
-            # Store the generated ensemble
-            self.ensemble_psi0 = ensemble_psi0[np.newaxis, :, :]  # Shape (1, Nphi+Na, m)
+            # Forecast to remove transient
+
+            pm.update_history(psi=ensemble_psi0[np.newaxis, :, :], 
+                              t=0., reset=True)
+            
+            # print('DEBUG:', pm.current_state.shape, pm.hist.shape, len(pm.get_alpha()), pm.Nphi)
+            
+            Nt = int(pm.t_transient *.5 // pm.dt)
+            new_psi0 = pm.time_integrate(Nt=Nt)[0][-1, :, : ] # shape (Npsi, m)
+            pm.close()
+
+            self.ensemble_psi0 = new_psi0[np.newaxis, :, :]  # Shape (1, Npsi, m)
 
         else:
             if self.ensemble_psi0.ndim == 2:
@@ -317,18 +340,22 @@ class Ensemble(object):
                 f'Provided ensemble_psi0 has state size {self.ensemble_psi0.shape[1]}, expected {pm.Nphi + self.Na}.'
 
         # 3. Update the parent model's history (resets initial condition)
+        assert isinstance(self.ensemble_psi0, np.ndarray), "ensemble_psi0 must be a numpy array if provided."
+
         pm.update_history(psi=self.ensemble_psi0, 
                           t=pm.hist_t[[0]], 
                           reset=True)
         
+        
+
         # 4. Update parent model settings/filename
         pm.filename += '_ensemble_m{}'.format(self.m)
 
-        print(f'OK: Initialized {pm.filename} history with shape: {pm.hist.shape} and {pm.hist_t}')
+        print(f'OK: Initialized {pm.name} history with shape: {pm.hist.shape} and {pm.hist_t}')
 
 
     @typechecked
-    def _init_bias(self, parent_bias: Optional[Union[Bias, Type[Bias]]] = None, **Bdict):
+    def _init_bias(self, parent_bias: Optional[Union[Bias, Type[Bias]]] = None, N_ens=1, **Bdict):
         """Initializes the bias instance for the ensemble. If the bias is provided as a class, 
         it instantiates it using the model's current state as the mean observation.
         Parameters
@@ -339,10 +366,11 @@ class Ensemble(object):
             Additional keyword arguments to pass to the bias constructor.
         """
 
-        if isinstance(parent_bias, Bias):
-            self._bias = parent_bias.copy()
-        elif parent_bias is None:
+        if parent_bias is None:
             self._bias = None
+            return
+        elif isinstance(parent_bias, Bias):
+                pb = parent_bias.copy()
         else:
             assert isinstance(parent_bias, type) and issubclass(parent_bias, Bias), "parent_bias must be a subclass of Bias"
             pm = self.model
@@ -353,21 +381,36 @@ class Ensemble(object):
 
             except (AttributeError, IndexError):
                 # Fallback if the model cannot yet produce observables
-                y0 = np.zeros((1, pm.Nq, 1)) 
+                y0 = np.zeros((1, pm.Nq, N_ens)) 
             
             # remove dt, y, t from Bdict if they exist to avoid duplication
             [Bdict.pop(key, None) for key in ['y', 't', 'dt']]            
 
             print(f"Initializing bias model {parent_bias.name} with initial state shape {y0.shape} at time {pm.current_time}")
             
+            training_data_filename = Bdict.pop('training_data_filename', 'bias_training_data')
 
-            self._bias = parent_bias(innovation=y0, 
+            
+            for key, val in Bdict.items():
+                if key in Bias.keys_to_print:
+                    training_data_filename += f"_{key[:4]}{val}"
+
+            pb = parent_bias(innovation=y0, 
                                     t=pm.current_time, 
                                     dt=pm.dt, 
                                     initial_capacity=pm.history._initial_capacity,
+                                    training_data_filename=training_data_filename,
                                     rom=pm,
                                     **Bdict
                                     )
+            # Initialize the bias state and history
+            pb.update_history(state=pb.initialize_bias_state,  # Shape (Nq, N_ens) or (2*Nq, N_ens) depending on bias state definition
+                              t=self.current_time, reset=True)
+            # Store the parent bias instance in the ensemble
+            self._bias = pb
+                
+            print(f'OK: Initialized {pb.name} history with shape: {pb.hist.shape} and {pb.hist_t}')
+
         
 
     @typechecked
@@ -382,7 +425,10 @@ class Ensemble(object):
         if isinstance(filter_instance, Filter):
             self._filter = filter_instance
         else:
-            filter_params = dict(m=self.m, M=self.model.M, gamma=self.regularization_factor)                
+            self.model.M = None
+            filter_params = dict(m=self.m, 
+                                 M=self.model.M, 
+                                 gamma=self.regularization_factor)                
             self._filter = filter_instance(**filter_params)
 
 
@@ -422,7 +468,7 @@ class Ensemble(object):
         
     
     
-    def forecast_step(self, t_end=None, reset=False, close=False, **kwargs) -> None: 
+    def forecast_step(self, t_end=None, reset=False, close=False, advance_bias=True, **kwargs) -> None: 
         """
         Advances the ensemble in time for Nt steps using the model's integrator.
         Both, the ensemble model and bias are forecasted:
@@ -434,7 +480,7 @@ class Ensemble(object):
         
         if t_end is not None:
             t_end = round(t_end, pm.precision_t)
-            Nt = int((t_end - pm.current_time).round(pm.precision_t) / pm.dt)
+            Nt = int(((t_end - pm.current_time).round(pm.precision_t) / pm.dt).round(pm.precision_t))
             kwargs_local = kwargs.copy()
             kwargs_local['Nt'] = Nt
         else:
@@ -444,29 +490,63 @@ class Ensemble(object):
         if t_end is not None:
             assert abs(t[-1] - t_end) < pm.dt, f"Final time {t[-1]} does not match requested t_end {t_end}."
 
-
-        # print('Forecasted ensemble shape:', psi.shape)
-        # print('Forecasted time shape:', t.shape, 't0 =', t[0], 't_end =', t[-1], 'current_time =', pm.current_time)
-
         try:
             pm.update_history(psi, t, reset=reset) # add the forecast to the model history
         except ValueError as e:
             print(f"Solver didn't return a homogeneous psi. Check initial conditions and input_parameters")
             raise e
+        
+        if advance_bias:
+            # Advance bias model
+            if self.bias is not None:
+                # y = pm.get_observable_hist(Nt=psi.shape[0])  # Get observables for the forecasted states
+                pb = self.bias
+                b, t_b = pb.time_integrate(**kwargs_local)
 
-
-        # Advance bias model
-        if self.bias is not None:
-            y = pm.get_observable_hist(Nt=psi.shape[0])  # Get observables for the forecasted states
-            pb = self.bias
-            b, t_b = pb.time_integrate(**kwargs_local)
-
-            pb.update_history(b, t_b, reset=reset)
-            if pm.current_time != pb.current_time:
-                raise AssertionError('t assertion', pm.current_time, pb.current_time)   
+                pb.update_history(b, t_b, reset=reset)
+                if pm.current_time != pb.current_time:
+                    raise AssertionError('t assertion', pm.current_time, pb.current_time)   
 
         if close:
             pm.close()
+
+    
+
+    def washout_phase(self, d_wash, t_wash, **kwargs) -> None:
+        """
+        Initializes the bias model if needed. Must be defined by bias class.
+        """
+        pb = self.bias
+        if pb is not None:
+            # Advance the model to the end of the washout period to get the model's predictions at those time points
+
+            t_wash = t_wash.round(pb.precision_t)
+            t_end = t_wash[-1]
+
+            self.forecast_step(t_end=t_end, advance_bias=False, **kwargs)
+            y_model = self.model.get_observable_hist()
+            
+            #  interpolate model observables to washout time points if needed
+            if y_model.shape[0] != len(t_wash):
+                y_model = interpolate(self.model.hist_t, y_model, t_wash)  
+            wash_innovations = d_wash - np.mean(y_model, axis=-1)
+
+            out = pb.washout_phase(wash_innovations, t_wash, **kwargs)
+
+            if out is not None:
+                psi, t = out #type: ignore
+                pb.update_history(psi, t.round(pb.precision_t))
+
+                if pb.current_time < t_end:
+                    print('continuing forecast to synchronize bias and model time after washout phase.' \
+                    't_b=', pb.current_time, 't_model=', self.model.current_time, 't_end=', t_end)
+                    
+                    Nt = int(((t_end - pb.current_time).round(pb.precision_t) / self.model.dt).round(pb.precision_t))
+
+                    b, t_b = pb.time_integrate(Nt=Nt)
+                    pb.update_history(b, t_b)   
+
+
     
 
     @property
@@ -484,43 +564,6 @@ class Ensemble(object):
         return self.model.current_time
 
     
-
-    def get_observables(self, Nt=1, **kwargs):
-        """
-        Returns the ensemble observables from the model.
-        Parameters
-        ----------
-        Nt : int, optional
-            Time index to retrieve the ensemble observables for. Default is 1 (i.e., current time).
-        Returns
-        -------
-        np.ndarray
-            Ensemble observables at the specified time index.
-        """
-        y_model = self.model.get_observables(Nt=Nt, **kwargs)  # Shape: (T, obs_dim, m) or (obs_dim, m) if Nt=0
-
-        if self.bias.__class__.__name__ == 'NoBias':
-            return y_model  # No bias correction needed
-        else:
-            raise NotImplementedError("Bias correction for get_observables with Nt > 1 is not implemented yet.")
-            if Nt == 1:
-                b = self.bias.current_bias  # Shape: (obs_dim,) or (obs_dim, 1)
-
-                # Ensure shape is (obs_dim,1 or m)
-                if b.ndim == 1:
-                    b = b[:, np.newaxis]
-
-                return y_model + b  # Shape: (obs_dim, m)
-            else:
-                t_model = self.model.hist_t[-Nt:]
-
-                Nt_bias = self.bias.integrator.relation_integrator_output * Nt
-                bias = self.bias.hist[-Nt_bias:]
-                bias_t = self.bias.hist_t[-Nt_bias:]
-
-                y_unbiased = self._recover_unbiased_solution(bias_t, bias, t_model, y_model)
-                return y_unbiased
-
 
 
     def update_history(self, 
@@ -585,7 +628,8 @@ class Ensemble(object):
             return None, y_model  # No bias correction needed
         else:
             t_model = self.model.hist_t[-Nt:]
-            y_unbiased = self._recover_unbiased_solution(pb.hist_t, pb.hist, t_model, y_model)
+            bias = pb.get_bias_hist()  # Shape: (T, obs_dim) 
+            y_unbiased = self._recover_unbiased_solution(pb.hist_t, bias, t_model, y_model)
             return y_unbiased, y_model
 
 
@@ -612,18 +656,17 @@ class Ensemble(object):
             Bias-corrected observable history at each time in t.
         """
 
-        if b.shape[-1] == 1 and y.shape[-1] > 1:
-            b = np.repeat(b, y.shape[-1], axis=-1)
+        if b.ndim == 2:
+            b = b[:, :, np.newaxis]  # Add ensemble dimension if bias is 2D (T_b, obs_dim) -> (T_b, obs_dim, 1)
+        elif b.shape[-1] != y.shape[-1]:
+            b = np.mean(b, axis=-1, keepdims=True)  # Average bias across ensemble (T_b, obs_dim, Nens) -> (T_b, obs_dim, 1)
 
         if len(t_b) != len(t):
             print('Interpolating bias to match model time points. this may be slow if histories are long.')
             b = interpolate(t_b, b, t, fill_values=None) # Interpolate bias to model time points
 
-        return y + b
+        return np.mean(y, axis=-1, keepdims=True) + b
     
-
-
-
 # _______________________________________________________________________________________________________________
 # Data assimilation methods
 # _______________________________________________________________________________________________________________
@@ -648,6 +691,9 @@ class Ensemble(object):
             kwargs_alpha = allowed_kwargs_for_func(plot_alpha_history, kwargs)
             plot_alpha_history(ensemble=self, **kwargs_alpha)
 
+        if self.bias is not None and self.bias.hist is not None:
+            kwargs_bias = allowed_kwargs_for_func(self.bias.visualize_bias_and_innovations, kwargs)
+            self.bias.visualize_bias_and_innovations(**kwargs_bias)
 
 
     def analysis_step(self, d: np.ndarray, Cdd: np.ndarray) -> None:
@@ -658,6 +704,8 @@ class Ensemble(object):
         ----------
         d : np.ndarray
             Observation vector at the current time.
+        Cdd : np.ndarray
+            Observation error covariance matrix.
 
         Side effects
         ------------
@@ -665,66 +713,86 @@ class Ensemble(object):
         """
         assert self.filter is not None, "Data assimilation filter is not initialized. Please set self.filter before calling analysis_step."
 
-        Af = self.current_state     # state matrix [Nphi + Na] x m
-        M = self.model.M.copy()     # Observation operator matrix [Nd] x [Nphi + Na]
-
-
-        if self.Na > 0 and not self.activate_parameter_estimation:
-            Af = Af[:-self.Na, :]
-            M = M[:, :-self.Na]
+        Af = self.current_state.copy()     # state matrix [Nphi + Na] x m
 
 
         # ================== DEFINE AUGMENTED STATE VECTOR =================== #
         y = self.model.get_observables()
-        Af = np.vstack((Af, y))
+        Af = np.vstack((Af, y)) 
+        
     
-
         # ======================== APPLY SELECTED FILTER ======================== #
         if self.filter.is_bias_aware:
-            assert self.bias is not None, "Bias-aware filter selected but no bias instance found. Please initialize self.bias with a Bias instance before calling analysis_step."
+            assert self.bias is not None, "Bias-aware filter selected but no bias instance found."
+            pb = self.bias
 
-            # ----------------- Retrieve bias and its Jacobian ----------------- #
-            b = self.bias.current_bias  
-            J = self.bias.state_derivative()
+            # ----------------- Retrieve bias and its Jacobian ----------------- #            
+           
+            b = np.mean(pb.current_bias, axis=-1, keepdims=True)
+            if pb.biased_observations:
+                bd = b - np.mean(pb.current_innovations, axis=-1, keepdims=True)
+            else:
+                bd = np.zeros_like(b)
 
-            if self.bias.biased_observations:
-                # Adjust observations if they are biased
-                obs_bias = np.mean(b - self.bias.current_innovations, axis=-1)
-                d = d + obs_bias
-                
+            # jacobian of bias with respect to the state (sensitivity of bias to changes in the state)
+            J = pb.state_derivative() 
+
+            if self.analysis_count < self.num_bias_blind:
+                b *= 0.0  # No bias during blind phase
+                bd = np.zeros_like(b)  # No bias during blind phase
+                J = np.zeros((len(d), b.shape[0]))  # No bias sensitivity during blind phase
             
+              
             # -------------- Define bias Covariance and the weight -------------- #
             Cbb = Cdd.copy()  # Bias covariance matrix same as obs cov matrix for now
 
-            filter_args = (Af, d, Cdd, Cbb, b, J)
+            filter_args = (Af, d, Cdd, Cbb, b, bd, J)
         
         else:
             filter_args = (Af, d, Cdd)
 
-        # Apply the selected filter and inflate
-
+        # Compute the analysis and inflate
         Aa = self.filter(*filter_args)
-        if self.inflation_factor > 1.0:
-            Aa = self.inflate(Aa, self.inflation_factor, d=d, additive=True)
+        # if self.inflation_factor > 1.0:
+        #     Aa = self.inflate(Aa, self.inflation_factor, d=d, additive=True)
 
-        # =========== CHECK SPREAD AND PARAMETERS  ========== #
-        if not self.has_valid_spread(Aa[:self.model.Nphi, :]):
-            self.rejected_analysis = (self.current_time,  'Invalid analysis spread')
+        # # =========== CHECK SPREAD AND PARAMETERS ARE VALID ========== #
+        # if not self.has_valid_spread(Aa[:self.model.Nphi, :]):
+        #     self.rejected_analysis = (self.current_time,  'Invalid analysis spread')
 
-        if self.Na > 0 and self.alpha_limits_matrix is not None:
-            Aa_alpha = Aa[self.Nphi:self.Nphi+self.Na, :]
-            is_physical, idx_alpha, _ = self.has_valid_params(Aa_alpha, self.alpha_limits_matrix, get_deltas=False)
-            if not is_physical:
-                # reject analysis and inflate forecast with (higher) factor
-                self.rejected_analysis = (self.current_time, f'Non-physical parameters {idx_alpha}')
-                Aa = self.inflate(Af, self.inflation_factor_rejection, d=d, additive=True)
+        # if self.Na > 0 and self.alpha_limits_matrix is not None:
+        #     Aa_alpha = Aa[self.Nphi:self.Nphi+self.Na, :]
+        #     is_physical, idx_alpha, _ = self.has_valid_params(Aa_alpha, self.alpha_limits_matrix, get_deltas=False)
+        #     if not is_physical:
+        #         # reject analysis and inflate forecast with (higher) factor
+        #         self.rejected_analysis = (self.current_time, f'Non-physical parameters {idx_alpha}')
+        #         Aa = self.inflate(Af, self.inflation_factor_rejection, d=d, additive=True)
 
-        # =========== UPDATE MODEL HISTORY ========== #
-        self.update_history(Aa[:self.model.Nphi + self.Na, :], 
-                            self.current_time, update_last_state=True)
-        self.assimilated_data = (d, self.current_time)
+        # =========== UPDATE MODEL & BIAS HISTORY ========== #
+        self.model.update_history(Aa[:-self.model.Nq, :], update_last_state=True)
 
-    
+        if self.bias is not None and self.analysis_count >= self.num_bias_blind:
+            y = Aa[-self.model.Nq:, :]
+            bias_state = self.bias.update_state_from_innovation(d - y)  # Innovation is observation minus analysis
+            self.bias.update_history(bias_state, # Innovation (observation - analysis)
+                                     self.current_time, update_last_state=True)
+        # store assimilated_data
+        self.assimilated_data = (d.copy(), self.current_time)
+
+
+    @property
+    def analysis_count(self) -> int:
+        """
+        Property to track the number of analysis steps performed.
+        Returns
+        -------
+        int
+            The number of analysis steps performed.
+        """
+        if not hasattr(self, 'assimilated_data'):
+            return 0
+        return len(self.assimilated_data.times)
+
 
     @property
     def rejected_analysis(self):
@@ -736,6 +804,9 @@ class Ensemble(object):
         namedtuple
             Contains lists of times and reasons for each rejected analysis.
         """
+        if not hasattr(self, '_rejected_analysis'):
+            print('No rejected analyses yet.')
+            return
         return self._rejected_analysis
     
     @rejected_analysis.setter
@@ -788,9 +859,6 @@ class Ensemble(object):
         return A_m + rho * (A - A_m)
 
 
-
-
-
     @staticmethod
     def has_valid_spread(A: np.ndarray, tol=1e-6) -> bool:
         """
@@ -807,25 +875,26 @@ class Ensemble(object):
         return True  # Temporarily disable spread check
         # val = np.var(A) / (np.mean(A, axis=-1)**2 + tol)
         # condition = val < 1.0
-
         # print('Spread check condition per state variable:', condition, val, np.mean(A, axis=-1), np.std(A, axis=-1))
-
         # return np.all(condition)
-
 
 
     @property
     def alpha_limits_matrix(self) -> Optional[np.ndarray]:
         if not hasattr(self, '_alpha_lims'):
-            alpha_lims = np.array([[lo, hi] for (lo, hi) in self.model.alpha_lims.values()]).T  # Shape: (2, Na)
+            alpha_lims = np.array([[self.model.alpha_lims.get(p, (None, None))[0], 
+                                    self.model.alpha_lims.get(p, (None, None))[1]] for p in self.est_alpha]).T  # Shape: (2, Na)
+            # alpha_lims = np.array([[lo, hi] for (lo, hi) in self.model.alpha_lims.values()]).T  # Shape: (2, Na)
 
             # mask out None limits. If all limits are None, skip check
             if np.all(alpha_lims == None):
                 self._alpha_lims = None
             
-            else:
+            elif np.any(alpha_lims == None):
                 alpha_lims[0][alpha_lims[0] == None] = -np.inf
                 alpha_lims[1][alpha_lims[1] == None] = np.inf
+                self._alpha_lims = alpha_lims[:,:,np.newaxis]  # Shape: (2, Na, 1)
+            else:
                 self._alpha_lims = alpha_lims[:,:,np.newaxis]  # Shape: (2, Na, 1)
 
         return self._alpha_lims
@@ -1104,6 +1173,7 @@ def plot_alpha_history(ensemble : Ensemble,
 def plot_observable_history(ensemble : Ensemble,
                             truth : Optional[Observations] = None, 
                             plot_members : bool = False,
+                            show_bias : bool = True,
                             reference_y=1., 
                             reference_t: float = 1., 
                             max_time=None, 
@@ -1142,14 +1212,22 @@ def plot_observable_history(ensemble : Ensemble,
         t_obs = np.array(ensemble.assimilated_data.times)
         if max_time is None:
             max_time = min(t_obs[-2] + t_margin, t[-1]) 
-        min_time = t_obs[0] - 0.25 * t_margin  #type: ignore
+        
+        if pb is not None and pb.washout_data[0] is not None:
+            t_washout = np.asarray(pb.washout_data[1])
+            min_time = t_washout[0] - 0.25 * t_margin #type: ignore
+        else:
+            min_time = t_obs[0] - 0.25 * t_margin  #type: ignore
     else:         
         t_obs = None
         min_time, max_time = t[0], t[-1]
 
     t, (y_model, y_unbiased) = cut_signals(t, y_model, y_unbiased, min_time=min_time, max_time=max_time)
     assert y_model is not None, "Model history is required for plotting observable history."
-    
+
+    if not show_bias:
+        y_unbiased = None
+
     # Get truth if available ----
     if truth is not None:
         y_raw  =  np.asarray(truth.y_raw.copy()) 
@@ -1164,21 +1242,31 @@ def plot_observable_history(ensemble : Ensemble,
         if len(t) != len(t_true):
             y_raw = interpolate(t_true, y_raw, t)
             y_true = interpolate(t_true, y_true, t) 
+
+        assert y_raw is not None and y_true is not None, "True history is required for plotting observable history when truth is provided."
+
+        y_margin = 0.2 * np.mean(abs(y_model), axis=(0, 2))
         
-        assert y_true is not None, "True history is required for plotting observable history when truth is provided."
-        y_margin = 0.15 * np.mean(abs(y_true), axis=(0, 2)) 
-        max_y = np.max(y_true, axis=(0, 2), keepdims=False) 
-        min_y = np.min(y_true, axis=(0, 2), keepdims=False)
+        max_y = np.maximum(
+            np.max(y_model[:len(t)//2], axis=(0, 2), keepdims=False),
+            np.max(y_raw, axis=(0, 2), keepdims=False),
+        )
+        min_y = np.minimum(
+            np.min(y_model[:len(t)//2], axis=(0, 2), keepdims=False),
+            np.min(y_raw, axis=(0, 2), keepdims=False),
+        )
+
     else:
         assert y_model is not None, "Model history is required for plotting observable history when truth is not provided."
-        y_margin = 0.15 * np.mean(abs(y_model), axis=(0, 2))
+        y_true, y_raw = None, None
+
+        y_margin = 0.2 * np.mean(abs(y_model), axis=(0, 2))
         max_y = np.max(y_model, axis=(0, 2), keepdims=False)
         min_y = np.min(y_model, axis=(0, 2), keepdims=False)
-        y_true, y_raw = None, None
+
 
     # Get observations if available ----
     if  t_obs is not None:
-        t_obs = np.array(ensemble.assimilated_data.times)
         y_obs = np.array(ensemble.assimilated_data.data)[..., np.newaxis]
         t_obs = normalized_time(reference_t, t_obs)[0][0]  # Normalize observation time using the same reference time as the model history
         
@@ -1187,7 +1275,18 @@ def plot_observable_history(ensemble : Ensemble,
 
         y_obs = normalized_y(reference_y, pm.obs_labels, y_obs)[0][0] 
 
-
+    if pb is not None and pb.washout_data[0] is not None and y_model is not None:
+        u_washout = np.asarray(pb.washout_data[0])
+        t_washout = np.asarray(pb.washout_data[1])
+        t_washout = normalized_time(reference_t, t_washout)[0][0]
+        (u_washout,), _ = normalized_y(reference_y, pm.obs_labels, u_washout)
+        t_washout, (u_washout,) = cut_signals(t_washout, u_washout, min_time=min_time, max_time=max_time)
+        #  get d_wash as u + y ar the t_washout time points. We may need to interpolate y_model to t_washout if they don't match        
+        y_model_wash = interpolate(t, y_model, t_washout)
+        y_washout = u_washout + np.mean(y_model_wash, axis=-1)
+    else:
+        y_washout = None
+        t_washout = None
     # % PLOT time series ------------------------------------------------------------------------------------------
     
     Nq = pm.Nq
@@ -1208,7 +1307,7 @@ def plot_observable_history(ensemble : Ensemble,
 
     for row_i, qi in enumerate(dims):
         
-        yl = [min_y[qi] - y_margin[qi], max_y[qi] + y_margin[qi]]
+        yl = [min_y[qi] - abs(y_margin[qi]), max_y[qi] + abs(y_margin[qi])]
 
         for col_i, (ax, xl) in enumerate(zip(ax_all[row_i], x_lims)):
             if y_true is not None:
@@ -1249,6 +1348,9 @@ def plot_observable_history(ensemble : Ensemble,
 
             if t_obs is not None:
                 ax.plot(t_obs, y_obs[:, qi], label='data', **C.obs_props) # type: ignore 
+
+            if t_washout is not None and y_washout is not None:
+                ax.plot(t_washout, y_washout[:, qi], label='washout', **C.washout_props) # type: ignore
 
             if col_i == 0:
                 ax.set(ylabel=y_labels[row_i])
