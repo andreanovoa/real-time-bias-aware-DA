@@ -80,7 +80,6 @@ class POD_ESN(ESN_model, POD):
         # Initialize ESN to forecast the POD coefficients
         if train_ESN:
             ESN_model.__init__(self,
-                               psi0=self.Phi[0],
                                data=self.Phi,
                                dt = dt,
                                plot_training=plot_case,
@@ -186,8 +185,10 @@ class POD_ESN(ESN_model, POD):
             self.reset_ESN(psi0=Phi0, **kwargs)
 
 
-    def reset_sensors(self, measure_modes=False, 
-                      domain_of_measurement=None, down_sample_measurement=None, N_sensors=None, qr_selection=False):
+    def select_sensors(self, measure_modes=False, 
+                      domain_of_measurement=None, 
+                      down_sample_measurement=None, 
+                      N_sensors=None, qr_selection=False):
         
         self.measure_modes = measure_modes
         if measure_modes:
@@ -236,7 +237,7 @@ class POD_ESN(ESN_model, POD):
 
         Nx, Ny = self.grid_shape[1:]
 
-        if self.domain == self.domain_of_measurement:
+        if self.domain == self.domain_of_measurement or self.domain_of_measurement is None:
             x_idx = np.arange(Nx)
             y_idx = np.arange(Ny)
         else:

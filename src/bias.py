@@ -1,5 +1,6 @@
 
 from data_assimilation import EnSRKF
+from models_data_driven.esn import ESN_model
 import numpy as np
 from copy import deepcopy
 from history import HistoryTracker
@@ -11,7 +12,7 @@ from plotting import categorical_cmap
 import matplotlib.pyplot as plt
 
 class Bias:
-    '''
+    """
     Docstring for Bias
     Base class for bias models used in data assimilation.
     Attributes:
@@ -32,7 +33,7 @@ class Bias:
         forecaster: The forecasting model used for bias prediction
         history: History object storing past bias states
         integrator: Integrator used by the bias model
-    '''
+    """
 
     upsample = 1
     L = 1
@@ -313,7 +314,7 @@ class Bias:
         pass
 
     
-    def update_state_from_innovation(self, input_innovation, inn_uncertainty=0.2):
+    def update_state_from_innovation(self, input_innovation):
         """
         Optional method to perform a Bayesian update to the state using the bias model. This can be implemented in child classes if needed, e.g., for ESN bias model.
         By default, does nothing, but can be implemented in child classes if needed.
@@ -331,7 +332,11 @@ class Bias:
 
         if self.bayesian_update:
             mean_innovation = np.mean(input_innovation[0], axis=-1)  # Average innovation across ensemble (obs_dim, Nens) -> (obs_dim,)
-            cov_innovation = (inn_uncertainty * np.max(np.abs(mean_innovation)))**2 * np.eye(mean_innovation.shape[0])  # Diagonal covariance of innovation (obs_dim, obs_dim)
+            # cov_innovation = (inn_uncertainty * np.max(np.abs(mean_innovation)))**2 * np.eye(mean_innovation.shape[0])  # Diagonal covariance of innovation (obs_dim, obs_dim)
+            # cov_innovation = np.cov(input_innovation[0], rowvar=True)  # Full covariance of innovation (obs_dim, obs_dim)
+            # cov_innovation = np.atleast_2d(cov_innovation)
+            conv_inn = input_innovation[0] - mean_innovation[:, np.newaxis]  # Centered innovations (obs_dim, Nens)
+            cov_innovation = np.cov(conv_inn, rowvar=True)  # Full covariance of centered innovations (obs_dim, obs_dim)
 
             updated_state = self.DA_method(Af=forecast_state, d=mean_innovation, Cdd=cov_innovation)
         else:
@@ -347,6 +352,11 @@ class Bias:
                 resampled_innovation = np.random.multivariate_normal(mean_innovation, cov_innovation, size=self.N_ens).T  # Resample innovations for each ensemble member (obs_dim, Nens)
                 updated_state[self.observed_idx, :] = resampled_innovation
                 
+            # Run 1 open loop step to propagate the updated observed components to the bias components if needed, e.g., for ESN bias model.
+            if hasattr(self, 'forecaster') and self.forecaster is not None:
+                raise(NotImplementedError("Time integration after state update is not implemented yet."))
+                esn = self.forecaster # type: ESN_model
+                updated_state = esn.step(updated_state)  
 
         return updated_state
 
@@ -438,3 +448,83 @@ class Bias:
                     ax[0].set(ylim=ylims)
     
             ci += 1
+
+
+def plot_train_data(truth, bias_data, t_CR):
+
+    L, _, _ = bias_data['data'].shape
+
+    Nt = int(t_CR / truth.dt)
+    Nq = truth.y_true.shape[1]
+
+    # Build a common valid time window and select the segment before first observation.
+    n_common = min(
+        len(truth.t_true),
+        truth.y_true.shape[0],
+        truth.b_true.shape[0],
+        bias_data['y_model'].shape[0],
+        bias_data['data'].shape[1],
+    )
+
+
+    t0 = bias_data['y_model'].shape[0]
+
+    yt = truth.y_raw[-t0:-t0+Nt]
+    bt = truth.b_true[-t0:-t0+Nt]
+    tt = truth.t_true[-t0:-t0+Nt]
+
+
+    yr = bias_data['y_model'][:Nt].transpose(2, 0, 1)
+    br = bias_data['data'][:, :Nt, :Nq]
+
+    if len(tt) == 0:
+        raise ValueError('Selected plotting window is empty. Check t_CR and training_data dimensions.')
+
+
+    RS = []
+    for ii in range(L):
+        RS.append(np.linalg.norm(br[ii][:, 0]) / np.sqrt(len(yt)))
+
+    RS = np.asarray(RS, dtype=float)
+    true_RMS = np.linalg.norm(bt[:, 0]) / np.sqrt(len(yt))
+
+    # Plot training data (single row) --------------------------
+    fig = plt.figure(figsize    =[12, 2.7], layout='constrained')
+    axs = fig.subplots(1, 2)
+    
+    # Robust color mapping: clip outliers; if RMS are nearly equal, force distinct member colors.
+    if np.ptp(RS) < 1e-12:
+        color_values = np.linspace(0.0, 1.0, L)
+        norm = Normalize(vmin=0.0, vmax=1.0)
+        cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.get_cmap('viridis'))
+        cbar_extend = 'neither'
+        cbar_title = 'Member'
+    else:
+        lo, hi = np.percentile(RS, [5, 95])
+        if np.isclose(lo, hi):
+            lo = float(np.min(RS))
+            hi = float(np.max(RS))
+        color_values = np.clip(RS, lo, hi)
+        norm = Normalize(vmin=float(lo), vmax=float(hi))
+        cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.get_cmap('viridis'))
+        cbar_extend = 'both'
+        cbar_title = '$\\mathrm{RMS}$'
+
+    xlim = [tt[0], tt[-1]]
+
+    axs[0].plot(tt, yt[:, 0], color='silver', linewidth=6, alpha=.8)
+    axs[1].plot(tt, bt[:, 0], color='silver', linewidth=4, alpha=.8)
+
+    for ii in range(L):
+        clr = cmap.to_rgba(color_values[ii])
+        axs[0].plot(tt, yr[ii][:, 0], color=clr, alpha=0.7)
+        axs[1].plot(tt, br[ii][:, 0], color=clr, alpha=0.7)
+
+    axs[0].legend(['Truth'], bbox_to_anchor=(0., 0.25), loc='upper left')
+    axs[1].legend(['True RMS $={0:.3f}$'.format(true_RMS)], bbox_to_anchor=(0., 0.25), loc='upper left')
+    axs[0].set(xlabel='$t$', ylabel='$\\eta$', xlim=xlim)
+    axs[1].set(xlabel='$t$', ylabel='$b$', xlim=xlim)
+
+    clb = fig.colorbar(cmap, ax=axs, orientation='vertical', extend=cbar_extend)
+    clb.ax.set_title(cbar_title)
+

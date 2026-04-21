@@ -1090,7 +1090,8 @@ def visualize_flow_data(X_true, X_noisy, simulation_dir=''):
     # Visualize the flow fields
     if not os.path.exists(gif_name):
         anim = animate_flowfields([X_true[...,0],X_true[...,1], X_noisy[...,0], X_noisy[...,1]], 
-                                titles=['$u_x$', '$u_y$', '$\\tilde{u}_x$', '$\\tilde{u}_y$'], n_frames=20)
+                                titles=['$u_x$', '$u_y$', '$\\tilde{u}_x$', '$\\tilde{u}_y$'], 
+                                n_frames=200, step=2, figsize=(6, 4))
         anim.save(gif_name)
 
     # Display in notebook
@@ -1099,7 +1100,7 @@ def visualize_flow_data(X_true, X_noisy, simulation_dir=''):
 
 
 
-def animate_flowfields(datsets, n_frames=40, cmaps=None, titles=None, rms_cmap='Reds', step=1, rows=False, figsize=None):
+def animate_flowfields(datsets, n_frames=40, cmaps=None, titles=None, rms_cmap='Reds', std_cmap='Blues', step=1, rows=False, figsize=None, assimilated_data=None):
     """
     Create an animation of flow fields from multiple datasets.
     Inputs:
@@ -1108,6 +1109,10 @@ def animate_flowfields(datsets, n_frames=40, cmaps=None, titles=None, rms_cmap='
     - cmaps: List of colormaps for each dataset.
     - titles: List of titles for each dataset.
     - rms_cmap: Colormap for RMS datasets.
+    - std_cmap: Colormap for standard deviation datasets.
+    - assimilated_data: dict with keys:
+        - 't_obs': array-like of integer frame indices at which observations are assimilated.
+        - 'xy': array of shape (N_sensors, 2) with sensor coordinates [x_col, y_row] in grid units.
     """
 
 
@@ -1133,24 +1138,44 @@ def animate_flowfields(datsets, n_frames=40, cmaps=None, titles=None, rms_cmap='
     ims = []
 
     for ax, D, ttl, cmap in zip(axs, datsets, titles, cmaps):
+
         if 'RMS' in ttl:
             ims.append(ax.pcolormesh(D[0], rasterized=True, cmap=plt.get_cmap(rms_cmap), vmin=0, vmax=1))
+        elif 'std' in ttl.lower():
+            norm = colors.Normalize(vmin=np.nanmin(D), vmax=np.nanmax(D))
+            ims.append(ax.pcolormesh(D[0], rasterized=True, cmap=plt.get_cmap(std_cmap), norm=norm))
         else:
-            norm = colors.Normalize(vmin=np.min(D), vmax=np.max(D))
+            norm = colors.Normalize(vmin=np.nanmin(D), vmax=np.nanmax(D))
             ims.append(ax.pcolormesh(D[0], rasterized=True, cmap=plt.get_cmap(cmap), norm=norm))
         
         ax.set(xticks=[], yticks=[])
 
         fig.colorbar(ims[-1], ax=ax, orientation=cbar_orientation, label=ttl)
 
+    # Create hidden scatter artists for sensor dots (one per axes)
+    dots, t_obs_set = [], set()
+    if assimilated_data is not None:
+        t_obs_set = set(assimilated_data.get('t_obs', []))
+        sensor_xy = np.asarray(assimilated_data.get('xy', []))  # shape (N_sensors, 2): [x_col, y_row]
+        for ax in axs:
+            if len(sensor_xy):
+                sc = ax.scatter(sensor_xy[:, 0], sensor_xy[:, 1],
+                                c='red', s=40, marker='o', zorder=5, visible=False)
+            else:
+                sc = ax.scatter([], [], c='red', s=40, marker='o', zorder=5, visible=False)
+            dots.append(sc)
 
     def animate(ti):
-        [im.set_array(D[ti]) for im, D in zip(ims, datsets)]
-        print(f'Frame {ti + 1}/{n_frames}', flush=True, end='\r')
-        return ims
+            frame = frame_indices[ti]  # <-- use actual frame index
+            [im.set_array(D[frame]) for im, D in zip(ims, datsets)]
+            if assimilated_data is not None:
+                is_obs = frame in t_obs_set
+                for sc in dots:
+                    sc.set_visible(is_obs)
+            print(f'Frame {ti + 1}/{len(frame_indices)}', flush=True, end='\r')
+            return ims + dots
 
-    frame_indices = list(range(0, n_frames, step))  # Only these time indices will be plotted
-
+    frame_indices = list(range(0, n_frames, step))
 
     plt.close(fig)
 

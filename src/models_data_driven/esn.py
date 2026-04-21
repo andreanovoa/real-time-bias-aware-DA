@@ -121,7 +121,8 @@ class ESN_model(EchoStateNetwork, Model):
         Model.__init__(self, 
                        dt=dt,
                        psi0=psi0, 
-                       integrator_class=DiscreteIntegrator, **kwargs)
+                       integrator_class=DiscreteIntegrator, 
+                       **kwargs)
 
 
     def _process_initialization_data(self, data, dt, kwargs) -> np.ndarray:
@@ -181,9 +182,7 @@ class ESN_model(EchoStateNetwork, Model):
                 self.alpha_labels = {key: f'$\\sigma_{{{key.split("_")[1]}}}$' for key in new_keys}  # update the alpha labels with the new ones (e.g., svd_0, svd_1, etc.)
 
                 self.alpha_lims = {key: (None, None) for key in new_keys}  # update the alpha lims with the new ones (e.g., svd_0, svd_1, etc.)
-                
-
-        # Set the M matrix to None to force re-computation
+                self.M = None  # Set the M matrix to None to force re-computation
         self.M = None 
 
     @property
@@ -261,7 +260,10 @@ class ESN_model(EchoStateNetwork, Model):
         for eig_i, val in enumerate(eigs):
             setattr(self, f'svd_{eig_i}', val)
             params.append(f'svd_{eig_i}')
-            
+            # Keep alpha0 in sync if the model is already initialized
+            if hasattr(self, '_alpha0'):
+                self._alpha0[f'svd_{eig_i}'] = val
+
         self.params = params
 
     @Wout_Sigma.setter
@@ -507,7 +509,7 @@ class ESN_model(EchoStateNetwork, Model):
             squeeze = False
 
         assert psi.shape[1] > self.N_units, f"Expected psi shape (N x m) with N > {self.N_units}, got {psi.shape}"
-        u = psi[:, :-self.N_units]
+        u = psi[:, :self.N_dim]
         r = psi[:, -self.N_units:]
 
         if squeeze:

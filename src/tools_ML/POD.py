@@ -233,7 +233,7 @@ class POD:
             else:
                 # Shft the order of dimensions to ensure the modes are in the second to last dimension
                 i_mode = i_mode[0]
-                print(f'Changing the order of dimensions to ensure modes are in the second to last dimension: {i_mode}, {shape_array}--{Phi.shape}')
+                # print(f'Changing the order of dimensions to ensure modes are in the second to last dimension: {i_mode}, {shape_array}--{Phi.shape}')
 
                 new_order = np.arange(Phi.ndim)
                 new_order[-2] = i_mode
@@ -458,6 +458,7 @@ class POD:
 
         # n_col, n_row = calculate_subplot_grid(case.domain_of_interest, total_subplots=num_modes)
         figsize, n_col, n_row = get_figsize_based_on_domain(case.domain, total_subplots=num_modes)
+        figsize = (n_col * 2, n_row * figsize[1] / figsize[0] * 4) # Adjust the height based on the number of rows and a scaling factor
 
         for jj, data in enumerate(POD_modes):
             fig1 = plt.figure(figsize=figsize, layout='constrained')
@@ -480,7 +481,7 @@ class POD:
 
                 ax.set_aspect('equal')
 
-            fig1.colorbar(mappable=im0, ax=axs, shrink=0.5, aspect=20) # type: ignore
+            fig1.colorbar(mappable=im0, ax=axs, shrink=0.25, aspect=20) # type: ignore
 
 
             if num_modes < len(axs):
@@ -608,11 +609,12 @@ class POD:
                         label='$\\dfrac{\\sum_{j}{\\lambda_j}}{ \\sum_{k=0}^{' + f'{case.N_modes}' + '}\\lambda_k}$')
 
         if case._TKE is not None:
+            plot_energy = True
             energy = Lambda / 2 / case.Phi.shape[0]
             axs[1].plot(np.arange(case.N_modes)+1, np.cumsum(energy) / case._TKE,
                             dashes=[10, 5], color='k', label='$\\dfrac{\\sum_{j}{\\lambda_j}}{\\mathrm{TKE}}$')
         else:
-            energy= False
+            plot_energy= False
 
         axs[1].grid(visible=True, linestyle='--', alpha=0.5)
         axs[1].set(xlabel='Mode number $j$', title='Cumulative energy')
@@ -631,7 +633,7 @@ class POD:
             ax_zoom1 = fig.add_axes((0.72, 0.2, 0.15, 0.35))
             ax_zoom1.grid(visible=True, linestyle='--', alpha=0.5)
             ax_zoom1.plot(np.arange(max_mode)+1, np.cumsum(Lambda[:max_mode]) / np.sum(Lambda), color='C4')
-            if energy:
+            if plot_energy:
                 ax_zoom1.plot(np.arange(max_mode)+1, np.cumsum(energy[:max_mode]) / case._TKE, dashes=[5, 2], color='k')
             ax_zoom1.set_xlim((0, max_mode+1))
 
@@ -718,6 +720,7 @@ class POD:
         if display_sensors and hasattr(case, 'sensor_locations'):
             idx = case.sensor_locations[case.sensor_locations < len(X1.ravel())]
             display_dom = case.domain != case.domain_of_measurement
+            
         else:
             idx = []
             display_sensors, display_dom = False, False
@@ -742,15 +745,16 @@ class POD:
 
         ncols = len(_datasets)
 
-        figsize = get_figsize_based_on_domain(case.domain, total_subplots=ncols*nrows)[0]
-        # figsize = (ncols, nrows * )
+        figsize = get_figsize_based_on_domain(case.domain, 
+                                              total_subplots=ncols*nrows)[0]
+        figsize = (ncols * 2, nrows * figsize[1] / figsize[0] * 4) # Adjust the height based on the number of rows and a scaling factor
 
 
         sub_figs = plt.figure(figsize=figsize,
                               layout='constrained').subfigures(nrows=nrows, ncols=1)
 
         for jj, (fig, norm_f) in enumerate(zip(sub_figs if nrows > 1 else [sub_figs], norm_flow)):
-            assert isinstance(fig, Figure)
+            # assert isinstance(fig, Figure), f'Expected fig to be a Figure, but got {type(fig)}'
             axs = fig.subplots(nrows=1, ncols=ncols, sharex=True, sharey=True)
             im_rms, im_flow = None, None
 
@@ -766,7 +770,7 @@ class POD:
                     X1_r, X2_r = X1.ravel(), X2.ravel()
                     ax.scatter(X1_r[idx], X2_r[idx], c=np.arange(len(idx)), 
                                cmap='YlOrRd', edgecolors='k', s=12.25, lw=.5)
-                    if display_dom:
+                    if display_dom and hasattr(case, 'domain_of_measurement') and case.domain_of_measurement is not None:
                         dom = case.domain_of_measurement
                         ax.add_patch(patches.Rectangle((dom[0], dom[2]), dom[1] - dom[0], dom[3] - dom[2],
                                                         edgecolor='orange', facecolor='none', lw=3, ls='--'))

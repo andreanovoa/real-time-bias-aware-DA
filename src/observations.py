@@ -589,7 +589,7 @@ class Observations():
                         ax.set_yticklabels([]) # No y-axis labels
                 
         
-        # Set titles and xlabesl
+        # Set titles and xlabels
         for i, (title, xlbl) in enumerate(zip(titles, xlabels)):
             axes[0, i].set_title(title)
             axes[-1, i].set_xlabel(xlbl)
