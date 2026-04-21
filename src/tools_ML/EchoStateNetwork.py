@@ -1040,7 +1040,7 @@ class EchoStateNetwork:
                     for i in range(Y_closed.shape[0]):
                         u_input = case.outputs_to_inputs(full_state=u_out)
                         u_out, r_out = case.step(u_input, r_out)
-                        Y_closed[i] = u_out.copy()  
+                        Y_closed[i] = u_out[:, 0].copy() 
 
                     # Compute normalized MSE
                     nRMSE[tik_j] += np.log10(case.compute_nRMSE(Y_val, Y_closed, norm=norm_l))

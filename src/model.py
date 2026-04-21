@@ -416,7 +416,7 @@ class Model(object):
             psi = self.current_state
 
         if psi.shape[0] == self.Nphi:
-            print('using the same get_alpha')
+            # print('using the same get_alpha')
             return [self.alpha0.copy()] * psi.shape[-1]
 
         # ensure psi has members on last axis
@@ -455,12 +455,12 @@ class Model(object):
     # ============================== Visualization methods ============================== #
     def visualize_history(self):
         self.visualize_state_hist()
-        self.visualize_observables_hist()
+        self.visualize_observable_hist()
         self.visualize_spatiotemporal_hist()
 
 
 
-    def visualize_state_hist(self, psi=None, t=None, max_modes=10):
+    def visualize_state_hist(self, psi=None, t=None, max_modes=10, t_zoom=None):
         if psi is None:
             psi = self.hist[:, :self.Nphi]
         if t is None:
@@ -469,7 +469,8 @@ class Model(object):
         lbl = self.state_labels
 
         # Plot the time evolution of the observables
-        t_zoom = int(self.t_CR / self.dt)
+        if t_zoom is None:
+            t_zoom = int(self.t_CR / self.dt)
         nrows = min(self.Nphi, max_modes)
 
         fig = plt.figure(figsize=(8, nrows+1), layout="constrained")
@@ -492,7 +493,7 @@ class Model(object):
                 ax[1].set(xlabel='$t$', xlim=[t[-t_zoom], t[-1]])
     
 
-    def visualize_observables_hist(self, y=None, t=None):
+    def visualize_observable_hist(self, y=None, t=None, t_zoom=None):
         if y is None:
             y = self.get_observable_hist()
         if t is None:
@@ -501,7 +502,8 @@ class Model(object):
         lbl = self.obs_labels
 
         # Plot the time evolution of the observables
-        t_zoom = int(self.t_CR / self.dt)
+        if t_zoom is None:
+            t_zoom = int(self.t_CR / self.dt)
 
         fig = plt.figure(figsize=(8, self.Nq+1), layout="constrained")
         plt.suptitle('Observables time evolution')

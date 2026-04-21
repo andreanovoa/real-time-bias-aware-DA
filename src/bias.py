@@ -1,5 +1,6 @@
 
 from data_assimilation import EnSRKF
+from models_data_driven.esn import ESN_model
 import numpy as np
 from copy import deepcopy
 from history import HistoryTracker
@@ -313,7 +314,7 @@ class Bias:
         pass
 
     
-    def update_state_from_innovation(self, input_innovation, inn_uncertainty=0.2):
+    def update_state_from_innovation(self, input_innovation):
         """
         Optional method to perform a Bayesian update to the state using the bias model. This can be implemented in child classes if needed, e.g., for ESN bias model.
         By default, does nothing, but can be implemented in child classes if needed.
@@ -332,8 +333,10 @@ class Bias:
         if self.bayesian_update:
             mean_innovation = np.mean(input_innovation[0], axis=-1)  # Average innovation across ensemble (obs_dim, Nens) -> (obs_dim,)
             # cov_innovation = (inn_uncertainty * np.max(np.abs(mean_innovation)))**2 * np.eye(mean_innovation.shape[0])  # Diagonal covariance of innovation (obs_dim, obs_dim)
-            cov_innovation = np.cov(input_innovation[0], rowvar=True)  # Full covariance of innovation (obs_dim, obs_dim)
-            cov_innovation = np.atleast_2d(cov_innovation)
+            # cov_innovation = np.cov(input_innovation[0], rowvar=True)  # Full covariance of innovation (obs_dim, obs_dim)
+            # cov_innovation = np.atleast_2d(cov_innovation)
+            conv_inn = input_innovation[0] - mean_innovation[:, np.newaxis]  # Centered innovations (obs_dim, Nens)
+            cov_innovation = np.cov(conv_inn, rowvar=True)  # Full covariance of centered innovations (obs_dim, obs_dim)
 
             updated_state = self.DA_method(Af=forecast_state, d=mean_innovation, Cdd=cov_innovation)
         else:
@@ -348,7 +351,11 @@ class Bias:
                 cov_innovation = np.atleast_2d(cov_innovation)
                 resampled_innovation = np.random.multivariate_normal(mean_innovation, cov_innovation, size=self.N_ens).T  # Resample innovations for each ensemble member (obs_dim, Nens)
                 updated_state[self.observed_idx, :] = resampled_innovation
-                
+            # Run 1 open loop step to propagate the updated observed components to the bias components if needed, e.g., for ESN bias model.
+            if hasattr(self, 'forecaster') and self.forecaster is not None:
+                raise(NotImplementedError("Time integration after state update is not implemented yet."))
+                esn = self.forecaster # type: ESN_model
+                updated_state = esn.step(updated_state)  
 
         return updated_state
 
