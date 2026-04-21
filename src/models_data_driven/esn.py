@@ -1,8 +1,10 @@
+from ctypes import Array
 from pathlib import Path
 from typing import Optional, Union
 from model import Model
 from tools_ML.EchoStateNetwork import EchoStateNetwork
 import matplotlib.pyplot as plt
+from matplotlib.cm import get_cmap
 import numpy as np
 import scipy.linalg as sla
 from integrator import DiscreteIntegrator
@@ -51,29 +53,34 @@ class ESN_model(EchoStateNetwork, Model):
 
     def __init__(self,
                  dt,
-                 data: Optional[np.ndarray] = None,
-                 y0: Optional[np.ndarray] = None,
-                 plot_training=True, 
+                #  data_in: Optional[np.ndarray] = None,
+                #  y0: Optional[np.ndarray] = None,
+                #  plot_training=True, 
                  **kwargs):
         """
-        Arguments:
-        - data: data to train the ESN 
-            np.array to train with shape [L x Nt x Ndim], where 
-                L is the number of different sets of parameters (e.g., different experiments),
-                Nt is the number of time steps (train + validate + test), and 
-                Ndim is the number of dimensions of the system.
-        - y0: initial state to initialize the ESN (if None, use first data point)
-        - plot_training: whether to plot or not the training data and training convergence.
+        Arguments inside kwargs:
+            - data: data to train the ESN 
+                np.array to train with shape [L x Nt x Ndim], where 
+                    L is the number of different sets of parameters (e.g., different experiments),
+                    Nt is the number of time steps (train + validate + test), and 
+                    Ndim is the number of dimensions of the system.
+            - y0: initial state to initialize the ESN (if None, use first data point)
+            - plot_training: whether to plot or not the training data and training convergence.
+            - Other ESN and Model parameters can be provided as keyword arguments, 
+                e.g., N_units, N_wash, update_reservoir, update_state, etc.
         """
 
-
+        data = kwargs.pop('data', None)
+        y0 = kwargs.pop('y0', None)
+        plot_training = kwargs.pop('plot_training', True)
 
         # =================== STEP 1: EchoStateNetwork INITIALIZATION ======================
 
         [setattr(self, key, kwargs.pop(key)) for key in list(kwargs.keys()) if key in vars(ESN_model)]
-
-        if isinstance(data, np.ndarray):
-            data = self._process_initialization_data(data, dt, kwargs)
+        
+        if data is not None:
+            assert isinstance(data, np.ndarray), f"Expected data to be a numpy array, got {type(data)}"
+            data = self._process_initialization_data(data, dt, kwargs) # type: np.ndarray # with shape (L, Nt, Ndim)
             y0 = data[0, 0]
         elif y0 is None:
             raise ValueError('Either training data or initial state y0 must be provided to initialize the ESN_model.')
@@ -104,7 +111,6 @@ class ESN_model(EchoStateNetwork, Model):
             self.Nq = len(self.observed_idx)  # Number of observed dimensions (for the physical state)
 
         psi0 = self.initialize_from_val_data()  # shape (Ndim + N_units + Na, m)
-        self.reservoir_state = psi0[self.N_dim:self.N_dim+self.N_units, :]
 
         # Initialise SVD Wout terms if required
         if self.Wout_svd:
@@ -115,7 +121,8 @@ class ESN_model(EchoStateNetwork, Model):
         Model.__init__(self, 
                        dt=dt,
                        psi0=psi0, 
-                       integrator_class=DiscreteIntegrator, **kwargs)
+                       integrator_class=DiscreteIntegrator, 
+                       **kwargs)
 
 
     def _process_initialization_data(self, data, dt, kwargs) -> np.ndarray:
@@ -146,7 +153,7 @@ class ESN_model(EchoStateNetwork, Model):
             assert abs((ts := sum([self.t_train, self.t_val, self.t_test])) - t_total) <= dt / 2., \
                 f"t_train + t_val + t_test {ts} <= t_total {t_total}"
 
-        return data
+        return data 
 
 
     # ______________________ New class attributes ______________________ #
@@ -171,11 +178,11 @@ class ESN_model(EchoStateNetwork, Model):
                 # Update the est_alpha list with the new SVD component keys
                 new_keys = [f'svd_{qi}' for qi in range(self.N_dim)]
                 self.est_alpha = [a for a in est_alpha if a != 'Wout'] + new_keys
-                self.alpha_labels = {key: f'$\\sigma_{{{key.split('_')[1]}}}$' for key in new_keys}  # update the alpha labels with the new ones (e.g., svd_0, svd_1, etc.)
-                self.alpha_lims = {key: (None, None) for key in new_keys}  # update the alpha lims with the new ones (e.g., svd_0, svd_1, etc.)
-                
 
-        # Set the M matrix to None to force re-computation
+                self.alpha_labels = {key: f'$\\sigma_{{{key.split("_")[1]}}}$' for key in new_keys}  # update the alpha labels with the new ones (e.g., svd_0, svd_1, etc.)
+
+                self.alpha_lims = {key: (None, None) for key in new_keys}  # update the alpha lims with the new ones (e.g., svd_0, svd_1, etc.)
+                self.M = None  # Set the M matrix to None to force re-computation
         self.M = None 
 
     @property
@@ -184,9 +191,7 @@ class ESN_model(EchoStateNetwork, Model):
     
     @property
     def t_CR(self):
-        return self.t_val
-
-    
+        return self.t_val    
 
     @property
     def Wout_U(self):
@@ -250,12 +255,16 @@ class ESN_model(EchoStateNetwork, Model):
     @Wout_Sigma0.setter
     def Wout_Sigma0(self, eigs):
         self._Wout_Sigma0 = eigs
+        params = self.params.copy()
 
         for eig_i, val in enumerate(eigs):
             setattr(self, f'svd_{eig_i}', val)
-            self.params.append(f'svd_{eig_i}')
-            print(f'Setting svd_{eig_i} to {val}')
+            params.append(f'svd_{eig_i}')
+            # Keep alpha0 in sync if the model is already initialized
+            if hasattr(self, '_alpha0'):
+                self._alpha0[f'svd_{eig_i}'] = val
 
+        self.params = params
 
     @Wout_Sigma.setter
     def Wout_Sigma(self, eigs):
@@ -288,7 +297,7 @@ class ESN_model(EchoStateNetwork, Model):
         if isinstance(self.ensemble, dict):
             return self.ensemble.get('m')
         else: 
-            return self.reservoir_state.shape[-1]
+            return self.current_state.shape[-1]
         
 
 
@@ -312,7 +321,7 @@ class ESN_model(EchoStateNetwork, Model):
             dim_ids = [0] * N_ens
         else:
             # Choose a random dimension from the data
-            replace = N_ens <= data.shape[0]
+            replace = N_ens >= data.shape[0]
             dim_ids = rng0.choice(data.shape[0], size=N_ens, replace=replace)
 
         # Choose random time indices from the data
@@ -363,8 +372,6 @@ class ESN_model(EchoStateNetwork, Model):
 
     # ______________________ Changed Model class attributes ______________________ #
         
-
-
     @property
     def state_labels(self):
             
@@ -375,19 +382,9 @@ class ESN_model(EchoStateNetwork, Model):
         return [f'$u_{{{j+1}}}$' for j in self.observed_idx]
         
 
-    def update_history_aux(self, psi, reset=False, update_last_state=False, **kwargs): 
-        if reset or update_last_state:
-            _, r = self.unbuild_psi(psi)
-            assert r is not None, 'Reservoir state is None, cannot update history'
-            self.reservoir_state = r[-1] if r.ndim == 3 else r
-
     @property
-    def hist_r(self):
-        return self.history.hist[:, self.N_dim:self.N_dim+self.N_units, :]
-
-    @property
-    def hist_u(self):
-        return self.history.hist[:, :self.N_dim, :]
+    def reservoir_state(self):
+        return self.current_state[self.N_dim:self.N_dim+self.N_units, :]
 
 
     def reservoir_to_physical(self, r):
@@ -408,8 +405,6 @@ class ESN_model(EchoStateNetwork, Model):
                 Wout_Sigma_avg = np.mean(self.Wout_Sigma, axis=0)
                 Wout = np.dot(self.Wout_U, np.dot(Wout_Sigma_avg, self.Wout_Vh))
                 return np.dot(r_aug.T, Wout).T
-        
-
     
     
     def time_step(self, Nt=10, averaged=False):
@@ -508,28 +503,18 @@ class ESN_model(EchoStateNetwork, Model):
         if psi is None:
             psi = self.current_state
         if psi.ndim == 2:
-            psi = psi[np.newaxis, :, :]
+            psi = np.expand_dims(psi, axis=0)
             squeeze = True
         else:
             squeeze = False
 
-        if self.update_state and self.update_reservoir:
-            u = psi[:, :self.N_dim]
-            r = psi[:, self.N_dim:self.N_dim+self.N_units]
-        elif  self.update_state:
-            u = psi[:, :self.N_dim]
-            r = None
-        elif self.update_reservoir:
-            r = psi[:, :self.N_units]
-            u = None
-        else:
-            raise ValueError('Both update_state and update_reservoir are False')
+        assert psi.shape[1] > self.N_units, f"Expected psi shape (N x m) with N > {self.N_units}, got {psi.shape}"
+        u = psi[:, :self.N_dim]
+        r = psi[:, -self.N_units:]
 
         if squeeze:
-            if u is not None:
-                u = u[0]
-            if r is not None:
-                r = r[0]
+            u = u.squeeze(axis=0)
+            r = r.squeeze(axis=0)
         
         return u, r
 
@@ -547,11 +532,11 @@ class ESN_model(EchoStateNetwork, Model):
         if dt is None:
             dt = case.dt
         t_data = np.arange(0, Nt) * dt
-        nrows = min(Ndim, 20)
+        nrows = min(Ndim*L, 10)
 
 
-        fig, axs = plt.subplots(nrows=nrows*L, ncols=1,
-                                figsize=(8, nrows*L), sharex=True,
+        _, axs = plt.subplots(nrows=nrows, ncols=1,
+                                figsize=(8, nrows), sharex=True,
                                 layout='constrained')
         if nrows * L > 1 and isinstance(axs, np.ndarray):
             axs = axs.T.flatten()
@@ -560,9 +545,10 @@ class ESN_model(EchoStateNetwork, Model):
 
 
         for l, data_l in enumerate(train_data):
-            axs_dim = axs[l*nrows:(l+1)*nrows]
+            axs_dim = axs[l*Ndim:(l+1)*Ndim]
 
             for kk, ax in enumerate(axs_dim):
+                
                 ax.plot(t_data, data_l[:, kk], lw=1., color='k')
                 ax.axvspan(0, case.t_train, facecolor='orange',
                            alpha=0.3, zorder=-100, label='Train')
@@ -589,7 +575,11 @@ class ESN_model(EchoStateNetwork, Model):
 
             fig1 = plt.figure(figsize=(8, 4), layout="constrained")
             axs1 = fig1.subplots(pm.Nq, 1, sharey=True, sharex=True)
-            y = pm.get_observable_hist() # history of the model observables 
+            if pm.Nq == 1:
+                axs1 = np.array([axs1]) # type: ignore 
+                
+
+            y = pm.get_observable_hist() # history of the model observables (i.e., the physical state, not the reservoir state)
             lbl = pm.obs_labels
 
             norm_u = np.max(np.max(y[100:], axis=0, keepdims=True), axis=-1, keepdims=True).T - np.min(np.min(y[100:], axis=0, keepdims=True), axis=-1, keepdims=True).T
@@ -597,9 +587,9 @@ class ESN_model(EchoStateNetwork, Model):
 
 
             # Choose a colormap
-            cmap = plt.get_cmap('tab10', pm.m)  
-            if pm.Nq == 1:
-                axs1 = [axs1]
+            cmap = get_cmap('tab10', pm.m)
+            
+
             for ii, ax in enumerate(axs1):
                 [ax.plot(pm.hist_t, u[:, ii, mi], c=cmap(mi)) for mi in range(pm.m)]
                 ax.set(ylabel=lbl[ii])
@@ -612,7 +602,7 @@ class ESN_model(EchoStateNetwork, Model):
                     ax.axvline(pm.hist_t[ti], c='k', ls='--')
 
                 fig = plt.figure(figsize=(12, 8), layout="constrained")
-                axs = fig.subplots(1, 2, width_ratios=[pm.Nq, pm.N_units], sharey=True)
+                axs = fig.subplots(1, 2, width_ratios=(pm.Nq, pm.N_units), sharey=True)  # type: ignore 
                 
                 im1 = axs[0].imshow(u[ti].T, cmap='RdBu', vmin=-1, vmax=1)
                 axs[0].set(title=f'physical state', ylabel='m_i', xlabel='u_i norm.')
@@ -625,7 +615,7 @@ class ESN_model(EchoStateNetwork, Model):
 
 
 
-    def visualize_spatiotemporal_hist(self,  y_hist=None, t=None, nrows=None, averaged=False, **kwargs):
+    def visualize_spatiotemporal_hist(self,  y_hist=None, t=None, averaged=False, **kwargs):
         
         if y_hist is None:
             n_t = int(self.t_CR // self.dt)
@@ -646,31 +636,34 @@ class ESN_model(EchoStateNetwork, Model):
             cmaps = ['RdBu_r']
         
         if not averaged:
-            if nrows is None:
+            nrows_kw = kwargs.get('nrows', None)
+            if nrows_kw is None:
                 nrows = min(10, y_hist.shape[-1])
+            else:
+                nrows = int(nrows_kw)
             
             for y_hist, ttl, lbl, cmap in zip(y_hist_list, titles, labels, cmaps):
-                fig = plt.figure(figsize=(10, 1.5 * nrows))
-                axs = fig.subplots(nrows=nrows, sharey=True, sharex=True)
-                if nrows == 1:
-                    axs = [axs]
+                fig, axs = plt.subplots(nrows=nrows, figsize=(10, 1.5 * nrows), sharey=True, sharex=True)
+                axs_arr = np.atleast_1d(axs).ravel()
                 lim = np.max(abs(y_hist))
+                im = None
 
-                for mi, ax in enumerate(axs):
+                for mi, ax in zip(range(nrows), axs_arr):
                     im = ax.imshow(y_hist[:, :, mi].T, 
                                 aspect='auto', origin='lower', 
                                 cmap=cmap, vmin=-lim, vmax=lim,
                                 extent=[t[0], t[-1], 0, y_hist.shape[1]])  
                         
                     
-                axs[0].set(title=rf"ESN_model {ttl} spatiotemporal evolution. $N_\text{{units}}={self.N_units}$")
-                axs[-1].set(xlabel="$t$")
+                axs_arr[0].set(title=rf"ESN_model {ttl} spatiotemporal evolution. $N_\text{{units}}={self.N_units}$")
+                axs_arr[-1].set(xlabel="$t$")
                 ytx = np.arange(len(lbl))+.5
                 if len(lbl) > 6:
                     lbl, ytx = [zz[::len(lbl)//5] for zz in (lbl, ytx)]
                     
-                [ax.set(yticks=ytx, yticklabels=lbl) for ax in axs] 
-                fig.colorbar(im, ax=axs, orientation='vertical', shrink=1/nrows)  #type: ignore
+                [ax.set(yticks=ytx, yticklabels=lbl) for ax in axs_arr]
+                assert im is not None
+                fig.colorbar(im, ax=axs_arr.tolist(), orientation='vertical', shrink=1/nrows)
         else:
 
             for y_hist, ttl, lbl, cmap in zip(y_hist_list, titles, labels, cmaps):

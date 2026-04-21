@@ -82,7 +82,6 @@ class Annular(Model):
     nu = nu_1 * ER + nu_2
     c2beta = c2b_1 * ER + c2b_2
     kappa = 1.2E-4
-
     params = ['omega', 'nu', 'c2beta', 'kappa', 'epsilon', 'theta_b', 'theta_e'] 
 
     # __________________________ Init method ___________________________ #
@@ -107,7 +106,7 @@ class Annular(Model):
             psi0 = np.array(psi0)  # initialise \eta_a, \dot{\eta_a}, \eta_b, \dot{\eta_b}
             
         super().__init__(psi0=psi0, dt=dt, integrator_class=IVPIntegrator, **model_dict)
-
+        
         self.alpha_labels = dict(omega='$\\omega$', nu='$\\nu$', c2beta='$c_2\\beta $', kappa='$\\kappa$',
                                  epsilon='$\\epsilon$', theta_b='$\\Theta_\\beta$', theta_e='$\\Theta_\\epsilon$')
         

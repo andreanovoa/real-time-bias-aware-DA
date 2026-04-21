@@ -60,13 +60,16 @@ class Palette:
 
     @property
     def true_noisy_props(self):
-        return dict(marker='none', linestyle='-', lw=1.2, color=self.get_color('TRUE', .3))
+        return dict(marker='none', linestyle='-', lw=1.2, color=self.get_color('TRUE', .7))
     @property
     def true_props(self):
-        return dict(marker='none', linestyle='-', lw=2, color=self.get_color('TRUE', .6))
+        return dict(marker='none', linestyle='-', lw=2, color=self.get_color('TRUE', .7))
     @property
     def obs_props(self):
-        return dict(marker='.', linestyle='none', markersize=5, markeredgecolor='none', color=self.get_color('OBS'))
+        return dict(marker='.', linestyle='none', markersize=7, markeredgecolor='none', color=self.get_color('OBS'))
+    @property
+    def washout_props(self):
+        return dict(marker='x', linestyle='none', markersize=3, markeredgecolor=self.get_color('OBS'))
     @property
     def bias_props(self):
         return dict(marker='none', linestyle='--', dashes=(10, 1), lw=.5, color=self.get_color('BIAS_STATE'))
@@ -79,9 +82,24 @@ class Palette:
 
 
 def categorical_cmap(nc, nsc, cmap="tab10", continuous=False):
-    # number of categories(nc) and the number of subcategories(nsc)
-    # and returns a colormap with nc * nsc different colors, where for
-    # each category there are nsc colors of same hue.
+    """
+    Create a categorical colormap with a specified number of categories and subcategories.
+
+    Parameters
+    ----------
+        nc : int
+            Number of categories.
+        nsc : int
+            Number of subcategories.
+        cmap : str, optional
+            Colormap to use. Default is "tab10".
+        continuous : bool, optional
+            Whether to use a continuous colormap. Default is False.
+    Returns
+    -------
+        np.ndarray with shape (nc * nsc, 3) 
+            Array of colors. Category 1 will be in rows 0 to nsc-1, category 2 in rows nsc to 2*nsc-1, and so on.
+    """
 
     if nc > plt.get_cmap(cmap).N:
         raise ValueError("Too many categories for colormap.")

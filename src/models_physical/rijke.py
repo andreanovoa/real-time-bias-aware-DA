@@ -26,7 +26,6 @@ class Rijke(Model):
 
     # --- Parameter and fixed parameter lists ---
     params = ['beta', 'tau', 'C1', 'C2', 'kappa']
-
     fixed_params = ['cosomjxf', 'Dc', 'gc', 'jpiL', 'L',
                     'law', 'meanFlow', 'Nc', 'Nm', 'tau_adv', 'sinomjxf']
 
@@ -48,6 +47,7 @@ class Rijke(Model):
         dt = model_dict.pop('dt', 1E-4)
 
         self.tau_adv = self.tau
+
 
         self.alpha_labels = dict(beta='$\\beta$', tau='$\\tau$', C1='$C_1$', C2='$C_2$', kappa='$\\kappa$')
         self.alpha_lims =  dict(beta=(0.01, 5), tau=(1E-6, self.tau_adv), C1=(0., 1.), C2=(0., 1.), kappa=(1E3, 1E8))
