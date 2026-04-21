@@ -124,7 +124,10 @@ class ESN_model(EchoStateNetwork, Model):
                        integrator_class=DiscreteIntegrator, 
                        **kwargs)
 
-
+    @property
+    def t_transient(self):
+        return self.t_train + self.t_val + self.t_test
+    
     def _process_initialization_data(self, data, dt, kwargs) -> np.ndarray:
         """ Process the data input for initialization
         """
@@ -510,7 +513,7 @@ class ESN_model(EchoStateNetwork, Model):
 
         assert psi.shape[1] > self.N_units, f"Expected psi shape (N x m) with N > {self.N_units}, got {psi.shape}"
         u = psi[:, :self.N_dim]
-        r = psi[:, -self.N_units:]
+        r = psi[:, self.N_dim:self.N_dim+self.N_units]
 
         if squeeze:
             u = u.squeeze(axis=0)
@@ -565,51 +568,52 @@ class ESN_model(EchoStateNetwork, Model):
     def visualize_config(self):
         self.plot_Wout()
 
-        pm = self  # shorthand
+        # pm = self  # shorthand
 
-        if pm.hist.shape[0] > 1:
+        # if pm.hist.shape[0] > 1:
 
-            # Find global min and max for the color scale
-            vmin, vmax = np.min(pm.hist[:, pm.Nq:pm.Nq+pm.N_units, :]), np.max(pm.hist[:, pm.Nq:pm.Nq+pm.N_units, :])
+        #     # Find global min and max for the color scale
+        #     vmin, vmax = np.min(pm.hist[:, pm.Nq:pm.Nq+pm.N_units, :]), np.max(pm.hist[:, pm.Nq:pm.Nq+pm.N_units, :])
 
 
-            fig1 = plt.figure(figsize=(8, 4), layout="constrained")
-            axs1 = fig1.subplots(pm.Nq, 1, sharey=True, sharex=True)
-            if pm.Nq == 1:
-                axs1 = np.array([axs1]) # type: ignore 
+        #     fig1 = plt.figure(figsize=(8, 4), layout="constrained")
+        #     axs1 = fig1.subplots(pm.Nq, 1, sharey=True, sharex=True)
+        #     if pm.Nq == 1:
+        #         axs1 = np.array([axs1]) # type: ignore 
                 
 
-            y = pm.get_observable_hist() # history of the model observables (i.e., the physical state, not the reservoir state)
-            lbl = pm.obs_labels
+        #     y = pm.get_observable_hist() # history of the model observables (i.e., the physical state, not the reservoir state)
+        #     lbl = pm.obs_labels
 
-            norm_u = np.max(np.max(y[100:], axis=0, keepdims=True), axis=-1, keepdims=True).T - np.min(np.min(y[100:], axis=0, keepdims=True), axis=-1, keepdims=True).T
-            u = (y - np.mean(y, axis=0, keepdims=True)) / (0.5*norm_u)
+        #     norm_u = np.max(np.max(y[100:], axis=0, keepdims=True), axis=-1, keepdims=True).T - np.min(np.min(y[100:], axis=0, keepdims=True), axis=-1, keepdims=True).T
+        #     u = (y - np.mean(y, axis=0, keepdims=True)) / (0.5*norm_u)
 
 
-            # Choose a colormap
-            cmap = get_cmap('tab10', pm.m)
+        #     # Choose a colormap
+        #     cmap = get_cmap('tab10', pm.m)
             
 
-            for ii, ax in enumerate(axs1):
-                [ax.plot(pm.hist_t, u[:, ii, mi], c=cmap(mi)) for mi in range(pm.m)]
-                ax.set(ylabel=lbl[ii])
+        #     for ii, ax in enumerate(axs1):
+        #         [ax.plot(pm.hist_t, u[:, ii, mi], c=cmap(mi)) for mi in range(pm.m)]
+        #         ax.set(ylabel=lbl[ii])
             
-            fig1.legend([f'$mi={mi}$' for mi in range(pm.m)], loc='center left', bbox_to_anchor=(1.0, .5), ncol=1, frameon=False)
+        #     fig1.legend([f'$mi={mi}$' for mi in range(pm.m)], loc='center left', bbox_to_anchor=(1.0, .5), ncol=1, frameon=False)
 
-            for ti in [10, 50, 75, 100]:
-                for ax in axs1:
-                    ax.set(xlim=[-.01, pm.hist_t[ti]+.01], ylim=[-1, 1])
-                    ax.axvline(pm.hist_t[ti], c='k', ls='--')
+        #     for ti in [10, 50, 75, 100]:
+        #         for ax in axs1:
+        #             ax.set(xlim=[-.01, pm.hist_t[ti]+.01], ylim=[-1, 1])
+        #             ax.axvline(pm.hist_t[ti], c='k', ls='--')
 
-                fig = plt.figure(figsize=(12, 8), layout="constrained")
-                axs = fig.subplots(1, 2, width_ratios=(pm.Nq, pm.N_units), sharey=True)  # type: ignore 
+        #         fig = plt.figure(figsize=(12, 8), layout="constrained")
+        #         axs = fig.subplots(1, 2, width_ratios=(pm.Nq, pm.N_units), sharey=True)  # type: ignore 
                 
-                im1 = axs[0].imshow(u[ti].T, cmap='RdBu', vmin=-1, vmax=1)
-                axs[0].set(title=f'physical state', ylabel='m_i', xlabel='u_i norm.')
-                im2 = axs[1].imshow(pm.hist[ti, pm.Nq:pm.Nq+pm.N_units, :].T, cmap='PuOr', vmin=vmin, vmax=vmax)
-                axs[1].set(title=f'reservoir state', xlabel='r_i')
-                fig.colorbar(im2, ax=axs, orientation='vertical', shrink=0.2)
-                fig.colorbar(im1, ax=axs, orientation='vertical', shrink=0.2)
+        #         im1 = axs[0].imshow(u[ti].T, cmap='RdBu', vmin=-1, vmax=1)
+        #         axs[0].set(title=f'physical state', ylabel='m_i', xlabel='u_i norm.')
+
+        #         im2 = axs[1].imshow(pm.hist[ti, pm.Nq:pm.Nq+pm.N_units, :].T, cmap='PuOr', vmin=vmin, vmax=vmax)
+        #         axs[1].set(title=f'reservoir state', xlabel='r_i')
+        #         fig.colorbar(im2, ax=axs, orientation='vertical', shrink=0.2)
+                # fig.colorbar(im1, ax=axs, orientation='vertical', shrink=0.2)
 
 
 
@@ -733,4 +737,3 @@ class ESN_model(EchoStateNetwork, Model):
 
 
         return fig
-

@@ -18,11 +18,11 @@ rng = np.random.default_rng(6)
 
 
 class Filter(object):
-    gamma = None  # regularization factor for bias-aware filters, e.g., rBA-EnKF. Only used if is_bias_aware = True.
 
-    def __init__(self, M):
+    def __init__(self, M, gamma):
         self._M = M  # observation operator matrix
-        self.filter = None  # filter method
+        self.gamma = gamma # regularization factor for bias-aware filters (if None, not bias-aware)
+    
     
     def __call__(self, *args, **kwargs):
         raise NotImplementedError('Filter call method not implemented.')
@@ -68,8 +68,8 @@ class EnSRKF(Filter):
                 Aa: analysis ensemble (or Af is Aa is not real)
         """
     
-    def __init__(self, M, **kwargs):
-        super().__init__(M)
+    def __init__(self, M, gamma):
+        super().__init__(M, gamma=None)
 
     def __call__(self, Af, d, Cdd):
 
@@ -127,8 +127,9 @@ class EnKF(Filter):
         """
     
 
-    def __init__(self, M, **kwargs):
-        super().__init__(M)
+    def __init__(self, M, gamma):
+        super().__init__(M, gamma=None)
+
 
     def __call__(self, Af, d, Cdd):
         
@@ -182,9 +183,8 @@ class rBA_EnKF(Filter):
             Aa: analysis ensemble (or Af is Aa is not real)
     """
 
-    def __init__(self, M, gamma=1.0, **kwargs):
-        self.gamma = gamma
-        super().__init__(M)
+    def __init__(self, M, gamma):
+        super().__init__(M, gamma=gamma)
 
     def __call__(self, Af, d, Cdd, Cbb, b, bd, J):
 

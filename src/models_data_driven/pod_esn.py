@@ -1,6 +1,6 @@
 
 from tools_ML import POD
-from models_data_driven import ESN_model
+from .esn import ESN_model
 import scipy.linalg as sla
 import numpy as np
 import matplotlib as mpl

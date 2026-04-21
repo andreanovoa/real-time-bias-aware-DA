@@ -110,7 +110,7 @@ class ESN_bias(Bias):
     def state_derivative(self):
         esn = self.forecaster #type: ESN_model
         state = self.current_state
-        u, r = state[:-self.N_hidden], state[-self.N_hidden:]
+        u, r = state[:self.N_dim], state[-self.N_hidden:]
         r_mean = np.mean(r, axis=-1, keepdims=True) 
         u_mean = np.mean(u, axis=-1, keepdims=True)
 

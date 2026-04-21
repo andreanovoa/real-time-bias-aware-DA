@@ -1,6 +1,5 @@
 
 from data_assimilation import EnSRKF
-from models_data_driven.esn import ESN_model
 import numpy as np
 from copy import deepcopy
 from history import HistoryTracker
@@ -10,6 +9,7 @@ from typing import Optional, Tuple
     
 from plotting import categorical_cmap
 import matplotlib.pyplot as plt
+
 
 class Bias:
     """
@@ -351,6 +351,7 @@ class Bias:
                 cov_innovation = np.atleast_2d(cov_innovation)
                 resampled_innovation = np.random.multivariate_normal(mean_innovation, cov_innovation, size=self.N_ens).T  # Resample innovations for each ensemble member (obs_dim, Nens)
                 updated_state[self.observed_idx, :] = resampled_innovation
+                
             # Run 1 open loop step to propagate the updated observed components to the bias components if needed, e.g., for ESN bias model.
             if hasattr(self, 'forecaster') and self.forecaster is not None:
                 raise(NotImplementedError("Time integration after state update is not implemented yet."))
