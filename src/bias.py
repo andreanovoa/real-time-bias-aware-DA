@@ -9,7 +9,7 @@ from model import Model
 
 
 class Bias:
-    '''
+    """
     Docstring for Bias
     Base class for bias models used in data assimilation.
     Attributes:
@@ -30,7 +30,7 @@ class Bias:
         forecaster: The forecasting model used for bias prediction
         history: History object storing past bias states
         integrator: Integrator used by the bias model
-    '''
+    """
 
     upsample = 1
     L = 1
