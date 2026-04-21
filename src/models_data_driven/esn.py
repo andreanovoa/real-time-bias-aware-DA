@@ -121,8 +121,7 @@ class ESN_model(EchoStateNetwork, Model):
         Model.__init__(self, 
                        dt=dt,
                        psi0=psi0, 
-                       integrator_class=DiscreteIntegrator, 
-                       **kwargs)
+                       integrator_class=DiscreteIntegrator, **kwargs)
 
 
     def _process_initialization_data(self, data, dt, kwargs) -> np.ndarray:
@@ -182,7 +181,9 @@ class ESN_model(EchoStateNetwork, Model):
                 self.alpha_labels = {key: f'$\\sigma_{{{key.split("_")[1]}}}$' for key in new_keys}  # update the alpha labels with the new ones (e.g., svd_0, svd_1, etc.)
 
                 self.alpha_lims = {key: (None, None) for key in new_keys}  # update the alpha lims with the new ones (e.g., svd_0, svd_1, etc.)
-                self.M = None  # Set the M matrix to None to force re-computation
+                
+
+        # Set the M matrix to None to force re-computation
         self.M = None 
 
     @property
@@ -260,10 +261,7 @@ class ESN_model(EchoStateNetwork, Model):
         for eig_i, val in enumerate(eigs):
             setattr(self, f'svd_{eig_i}', val)
             params.append(f'svd_{eig_i}')
-            # Keep alpha0 in sync if the model is already initialized
-            if hasattr(self, '_alpha0'):
-                self._alpha0[f'svd_{eig_i}'] = val
-
+            
         self.params = params
 
     @Wout_Sigma.setter
@@ -509,7 +507,7 @@ class ESN_model(EchoStateNetwork, Model):
             squeeze = False
 
         assert psi.shape[1] > self.N_units, f"Expected psi shape (N x m) with N > {self.N_units}, got {psi.shape}"
-        u = psi[:, :self.N_dim]
+        u = psi[:, :-self.N_units]
         r = psi[:, -self.N_units:]
 
         if squeeze:
@@ -532,11 +530,11 @@ class ESN_model(EchoStateNetwork, Model):
         if dt is None:
             dt = case.dt
         t_data = np.arange(0, Nt) * dt
-        nrows = min(Ndim*L, 10)
+        nrows = min(Ndim, 20)
 
 
-        _, axs = plt.subplots(nrows=nrows, ncols=1,
-                                figsize=(8, nrows), sharex=True,
+        fig, axs = plt.subplots(nrows=nrows*L, ncols=1,
+                                figsize=(8, nrows*L), sharex=True,
                                 layout='constrained')
         if nrows * L > 1 and isinstance(axs, np.ndarray):
             axs = axs.T.flatten()
@@ -545,10 +543,9 @@ class ESN_model(EchoStateNetwork, Model):
 
 
         for l, data_l in enumerate(train_data):
-            axs_dim = axs[l*Ndim:(l+1)*Ndim]
+            axs_dim = axs[l*nrows:(l+1)*nrows]
 
             for kk, ax in enumerate(axs_dim):
-                
                 ax.plot(t_data, data_l[:, kk], lw=1., color='k')
                 ax.axvspan(0, case.t_train, facecolor='orange',
                            alpha=0.3, zorder=-100, label='Train')
@@ -733,4 +730,3 @@ class ESN_model(EchoStateNetwork, Model):
 
 
         return fig
-

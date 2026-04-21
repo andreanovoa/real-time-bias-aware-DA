@@ -1147,13 +1147,14 @@ class EchoStateNetwork:
                 L_indices = np.arange(L)
         else:
             L_indices = [0]
-
+        
+        N_ens = U_test.shape[-1] if U_test.ndim == 4 else 1
         # Prediction function
         def predict_Y(_input, _target):
 
             # Perform washout (open-loop without extra forecast step)
-            r_out = np.zeros((self.N_units, self.N_ens))
-            u_out = np.zeros((self.N_dim, self.N_ens))
+            r_out = np.zeros((self.N_units, N_ens))
+            u_out = np.zeros((self.N_dim, N_ens))
             u_open = np.zeros_like(_target[:self.N_wash]) 
 
 
