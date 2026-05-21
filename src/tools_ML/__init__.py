@@ -1,7 +1,11 @@
 from .EchoStateNetwork import EchoStateNetwork
-from .POD import POD
+from .linear_rom       import POD, SPOD
+from .rom_base         import ROM, AE, CAE
+from .pod_spod         import prepare_data, snapshot_pod, snapshot_pod_randomized
 
 __all__ = [
-    "EchoStateNetwork",  
-    "POD",
+    'EchoStateNetwork',
+    'ROM', 'AE', 'CAE',
+    'POD', 'SPOD',
+    'prepare_data', 'snapshot_pod', 'snapshot_pod_randomized',
 ]
