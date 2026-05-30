@@ -1,13 +1,13 @@
 from ctypes import Array
 from pathlib import Path
 from typing import Optional, Union
-from model import Model
-from tools_ML.EchoStateNetwork import EchoStateNetwork
+from ..model import Model
+from tools.esn_core import EchoStateNetwork
 import matplotlib.pyplot as plt
 from matplotlib.cm import get_cmap
 import numpy as np
 import scipy.linalg as sla
-from integrator import DiscreteIntegrator
+from ..integrator import DiscreteIntegrator
 
 import inspect
 

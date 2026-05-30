@@ -7,7 +7,7 @@ import hashlib
 import json
 from utils import get_project_root, convert_to_python_type
 
-from models_data_driven import ESN_model
+from models.data_driven import ESN_model
 
 ROOT = get_project_root()
 
@@ -561,7 +561,7 @@ def list_saved_configs(search_dir: Union[str, Path], verbose=True):
 
 if __name__ == "__main__":
     # Example usage
-    from models_data_driven import ESN_model
+    from models.data_driven import ESN_model
 
     # Generate dummy data
     t = np.linspace(0, 10, 1000)

@@ -3,7 +3,7 @@ import numpy as np
 from copy import deepcopy
 from typing import List, Optional, Tuple, Union, Dict, Type, Sequence
 from bias import Bias
-from model import Model
+from models import Model
 from plotting import Palette
 
 from observations import Observations

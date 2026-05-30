@@ -1,7 +1,7 @@
 # %%
 
-from model import Model
-from integrator import IVPIntegrator
+from ..model import Model
+from ..integrator import IVPIntegrator
 import matplotlib.pyplot as plt
 
 import numpy as np

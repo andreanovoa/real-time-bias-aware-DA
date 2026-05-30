@@ -1,7 +1,7 @@
 # %%
 
-from model import Model
-from integrator import IVPIntegrator
+from ..model import Model
+from ..integrator import IVPIntegrator
 
 from matplotlib import colormaps
 import matplotlib.pyplot as plt

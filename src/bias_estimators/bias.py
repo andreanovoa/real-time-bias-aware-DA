@@ -1,19 +1,17 @@
-
-from data_assimilation import EnSRKF
 import numpy as np
 from copy import deepcopy
-from history import HistoryTracker
-from integrator import Integrator
-from model import Model
 from typing import Optional, Tuple
-    
-from plotting import categorical_cmap
+
 import matplotlib.pyplot as plt
+from matplotlib.colors import Normalize
+
+from data_assimilation import EnSRKF
+from models import Integrator, HistoryTracker, Model, ConstantIntegrator
+from plotting import categorical_cmap
 
 
 class Bias:
     """
-    Docstring for Bias
     Base class for bias models used in data assimilation.
     Attributes:
         upsample (int): Factor to upsample bias model time step relative to data assimilation cycle
@@ -396,10 +394,6 @@ class Bias:
             self._forecaster.close()
 
 
-
-
-
-
     # ================= Visualization methods ================== #
     def visualize_bias_and_innovations(self, state=None, t=None, plot_members=True, ylims=None):
         if state is None:
@@ -527,4 +521,3 @@ def plot_train_data(truth, bias_data, t_CR):
 
     clb = fig.colorbar(cmap, ax=axs, orientation='vertical', extend=cbar_extend)
     clb.ax.set_title(cbar_title)
-

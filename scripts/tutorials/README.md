@@ -8,16 +8,16 @@ If the tutorial is not checked is because it is under development. _Keep tuned!_
 - [x] 00 - Class Model
 - [x] 01 - Class EchoStateNetwork
 - [x] 02 - Class ESN_model -- combining 00 and 01
-- [x] 03 - POD with Modulo
+- [x] 03 - Class POD
 - [x] 04 - Class Observations
-- [ ] 05 - Class Bias
+- [x] 05 - Class Bias
 
 ***
 
 ### Data Assimilation tutorials [1x]
 
 * [x] 10 - Introduction to real-time DA from a Bayesian perspective. State estimation only.
-* [x] 11 - Introduction to combined state and parameter estimation via augmented formulaiton.
+* [x] 11 - Introduction to combined state and parameter estimation via augmented formulation.
 * [x] 12 - Twin experiment on the Lorenz63
 * [x] 13 - Introduction to bias-aware DA with a twin experiment on Van der Pol model  
 
