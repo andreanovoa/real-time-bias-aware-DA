@@ -1,8 +1,7 @@
 import numpy as np
 
-from bias import Bias
-from integrator import ConstantIntegrator
-from history import HistoryTracker
+from .bias import Bias
+from models import HistoryTracker, ConstantIntegrator
 from types import SimpleNamespace
 
 
