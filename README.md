@@ -53,9 +53,8 @@ Checkout the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aw
    * `POD_ESN` — POD dimensionality reduction + ESN forecaster
 
    Dimensionality-reduction & algorithm tools [`tools`](src/tools/)
-   * `POD`, `SPOD` — Proper and Spectral Orthogonal Decomposition (Sieber 2016, Towne 2018)
+   * `POD`, `SPOD` — (Spectral) Proper Orthogonal Decomposition (Sieber 2016, Towne 2018)
    * `EchoStateNetwork` — reservoir computing building block
-   * `AE`, `CAE` — autoencoder stubs (fully-connected and convolutional)
 
    Bias estimators [`bias_estimators`](src/bias_estimators/)
    * Echo State Network
@@ -88,7 +87,7 @@ Checkout the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aw
 │   │   └── esn_config.py
 │   │
 │   ├── models/                  # Model layer
-│   │   ├── base.py              # Model base class
+│   │   ├── model.py             # Model base class
 │   │   ├── history.py           # HistoryTracker mixin
 │   │   ├── integrator.py        # IVPIntegrator, DiscreteIntegrator, ...
 │   │   ├── physical/            # Physical models
@@ -98,14 +97,13 @@ Checkout the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aw
 │   │   │   ├── lorenz96.py
 │   │   │   ├── rijke.py
 │   │   │   └── van_der_pol.py
-│   │   └── data_driven/         # Data-driven models (encoder + forecaster)
+│   │   └── data_driven/         # Data-driven models (autoencoder) + forecaster
 │   │       ├── esn.py           # ESN_model
 │   │       └── pod_esn.py       # POD_ESN
 │   │
 │   └── tools/                   # Building blocks (no forecaster)
-│       ├── base.py              # Projector ABC (fit / encode / decode)
-│       ├── pod_spod.py          # POD, SPOD classes + snapshot algorithms
-│       ├── autoencoders.py      # AE, CAE (stubs)
+│       ├── autoencoders.py      # AE, CAE, POD, SPOD classes
+│       ├── pod_spod.py          # POD, SPOD algorithms needed in autoencoders.py
 │       └── esn_core.py          # EchoStateNetwork reservoir
 │
 ├── tests_tutorials.py           # Tutorial unit tests
