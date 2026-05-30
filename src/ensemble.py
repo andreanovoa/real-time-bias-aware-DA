@@ -2,7 +2,7 @@ from collections import namedtuple
 import numpy as np
 from copy import deepcopy
 from typing import List, Optional, Tuple, Union, Dict, Type, Sequence
-from bias import Bias
+from bias_estimators import Bias
 from models import Model
 from plotting import Palette
 

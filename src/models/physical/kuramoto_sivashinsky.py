@@ -88,6 +88,9 @@ class KS(Model):
         # Define Fourier wavenumbers k on the nondimensional domain
         self.k = 2 * np.pi * np.fft.rfftfreq(self.Nx, d=self.L / self.Nx)
 
+        self.dt = model_dict.pop('dt', 0.25)
+
+
         self.ETDRK4_f_terms = None  # This simply trigers the setter method.
 
 

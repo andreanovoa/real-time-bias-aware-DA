@@ -818,7 +818,7 @@ def create_Lorenz63_dataset(noise_level=0.02, num_lyap_times=300, seed=0, **kwar
     seed : int, optional
         Seed for the numpy.random.default_rng used to generate observation noise. Default is 0.
     **kwargs
-        Additional keyword arguments forwarded to the Lorenz63 model initializer (models_physical.Lorenz63).
+        Additional keyword arguments forwarded to the Lorenz63 model initializer (models.physical.lorenz63).
 
     Returns
     -------
@@ -842,7 +842,7 @@ def create_Lorenz63_dataset(noise_level=0.02, num_lyap_times=300, seed=0, **kwar
         Propagated if any required file operations fail in an unexpected manner (the function
         itself catches the expected "dataset not present" case and proceeds to generate data).
     ImportError
-        If models_physical.Lorenz63 or helper functions (set_working_directories, load_from_mat_file,
+        If models.physical.lorenz63 or helper functions (set_working_directories, load_from_mat_file,
         save_to_mat_file) are not available, an ImportError or NameError may be raised.
 
     Example
@@ -852,7 +852,7 @@ def create_Lorenz63_dataset(noise_level=0.02, num_lyap_times=300, seed=0, **kwar
 
     """
 
-    from models_physical import Lorenz63
+    from models.physical import Lorenz63
 
     # Load or create training data from the Lorenz 63 model
     data_folder = set_working_directories('Lorenz/')[0]

@@ -1,7 +1,7 @@
 from create import *
-from models_physical import *
+from models.physical import *
 from utils import *
-from bias import *
+from bias_estimators import *
 from plot_results import *
 from run import *
 # ============================================================================================== #

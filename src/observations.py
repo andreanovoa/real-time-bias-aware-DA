@@ -601,7 +601,7 @@ class Observations():
 # %%
 if __name__ == "__main__":
 
-    from models_physical import Lorenz63
+    from models.physical import Lorenz63
     truth = Observations(model=Lorenz63, t_start=10.0, t_stop=40.0, Nt_obs=10, noise_level=0.5, noise_type='gauss, add', manual_bias=None)
 
 

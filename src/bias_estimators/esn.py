@@ -279,7 +279,7 @@ class ESN_bias(Bias):
 if __name__ == '__main__':
 
     from observations import Observations
-    from models_physical import VdP
+    from models.physical import VdP
     import numpy as np
     rng = np.random.default_rng(0)
 

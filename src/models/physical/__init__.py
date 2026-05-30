@@ -3,6 +3,7 @@ from .kuramoto_sivashinsky import KS
 from .lorenz63 import Lorenz63
 from .rijke import Rijke
 from .van_der_pol import VdP
+from .lorenz96 import Lorenz96
 
 __all__ = [
     "Annular",

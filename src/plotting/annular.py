@@ -1,5 +1,5 @@
 
-from models_physical import Annular
+from models.physical import Annular
 from matplotlib import colors
 
 import matplotlib.pyplot as plt
@@ -452,7 +452,7 @@ def categorical_cmap(nc, nsc, cmap="Set2", continuous=False):
 
 
 def plot_annular_model(forecast_params=None, animate=False, anim_name=None):
-    from models_physical import Annular
+    from models.physical import Annular
     import datetime
     import time
 

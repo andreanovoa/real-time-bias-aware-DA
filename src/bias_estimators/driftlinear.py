@@ -1,7 +1,7 @@
 import numpy as np
 
 from .bias import Bias
-from integrator import DiscreteIntegrator
+from models import DiscreteIntegrator
 from history import HistoryTracker
 from types import SimpleNamespace
 

@@ -1,5 +1,5 @@
-from models_physical import Lorenz63
-from bias import *
+from models.physical import Lorenz63
+from bias_estimators import *
 from run import main
 from create import create_truth, create_ensemble, create_bias_model
 from plot_results import *

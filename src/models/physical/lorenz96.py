@@ -19,7 +19,7 @@ class Lorenz96(Model):
 
     # --- Core Physics Parameters ---
     t_lyap = 1.67 ** (-1)
-    t_transient = 10 * t_lyap
+    t_transient = 40 * t_lyap
     t_CR = 4 * t_lyap
     Nq = 3
     
@@ -42,7 +42,7 @@ class Lorenz96(Model):
         psi0 = model_dict.pop('psi0', np.array([1.6] + [1.0] * (self.Nx - 1)))
         dt = model_dict.pop('dt', 0.01)
 
-        self.observed_idx = model_dict.pop('observed_idx', [0, self.Nx//2, self.Nx]) # Default to observing three dimensions if not specified 
+        self.observed_idx = model_dict.pop('observed_idx', [0, self.Nx//2, self.Nx-1]) # Default to observing three dimensions if not specified 
         self.Nq = len(self.observed_idx)
         
         super().__init__(psi0=psi0, dt=dt, integrator_class=IVPIntegrator, **model_dict)
@@ -78,7 +78,11 @@ class Lorenz96(Model):
 
         dx = (np.roll(x, -1) - np.roll(x, 2)) * np.roll(x, 1) - x + F 
     
+        if len(psi) > Nx:
+             dx = np.concatenate((dx, np.zeros(len(psi) - Nx)))
+
         return dx
+
 
 
     
