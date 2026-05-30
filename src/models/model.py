@@ -6,12 +6,16 @@ import numpy as np
 import warnings
 import matplotlib.pyplot as plt
 
-from integrator import IVPIntegrator, Integrator
-from history import HistoryTracker
+from .integrator import IVPIntegrator, Integrator
+from .history import HistoryTracker
 from typeguard import typechecked, value
 
 
 from typing import List, Optional, Type, Union
+
+__all__ = ['Model']
+
+
 
 # %% =================================== PARENT MODEL CLASS ============================================= %% #
 class Model(object):

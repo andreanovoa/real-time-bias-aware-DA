@@ -3,7 +3,7 @@ import numpy as np
 from typing import Optional
 
 from .bias import Bias
-from model import Model
+from models import Model
 from observations import Observations
 from models.data_driven import ESN_model
 from config.esn_config import ESNConfig, load_esn_model_from_config, save_esn_model_to_config

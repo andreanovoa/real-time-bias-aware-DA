@@ -35,71 +35,83 @@ Checkout the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aw
 
 
 ## 🌟 What is available?
-   Data assimilation methods [`data_assimilation`](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/src/data_assimilation.py)
-   * EnKF - ensemble Kalman filter
-   * EnSRKF - ensemble square-root Kalman filter
-   * rBA-EnKF - regularized bias-aware EnKF
-   
-   Physical models [`models_physical`](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/src/models_physical)
+   Data assimilation methods [`data_assimilation`](src/data_assimilation.py)
+   * EnKF — ensemble Kalman filter
+   * EnSRKF — ensemble square-root Kalman filter
+   * rBA-EnKF — regularized bias-aware EnKF
+
+   Physical models [`models/physical`](src/models/physical/)
    * Rijke tube model (dimensional with Galerkin projection)
-   * Van der Pols
-   * Lorenz63
-   * Lorenz96
-   * Azimuthal thermoaocustics model
-   * Kuramoto-Sivashinsky equation
-   
-   Data-driven models [`models_data_driven`](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/essentials/models_data_driven)
-   * ESN_model -- Echo state network as a frorecasting tool
-   * POD-ESN -- Combines Proper Orthogonal Decomposition (POD) and ESN_model
-    
-   Bias estimators[`bias`](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/src/bias_data_driven)
+   * Van der Pol oscillator
+   * Lorenz 63
+   * Lorenz 96
+   * Azimuthal thermoacoustics model
+   * Kuramoto–Sivashinsky equation
+
+   Data-driven models [`models/data_driven`](src/models/data_driven/)
+   * `ESN_model` — Echo State Network as a forecasting model
+   * `POD_ESN` — POD dimensionality reduction + ESN forecaster
+
+   Dimensionality-reduction & algorithm tools [`tools`](src/tools/)
+   * `POD`, `SPOD` — Proper and Spectral Orthogonal Decomposition (Sieber 2016, Towne 2018)
+   * `EchoStateNetwork` — reservoir computing building block
+   * `AE`, `CAE` — autoencoder stubs (fully-connected and convolutional)
+
+   Bias estimators [`bias_estimators`](src/bias_estimators/)
    * Echo State Network
-   * ConstantBias
+   * Constant bias
+   * Drift-linear bias
 
 
 ---
 ## 📂 Structure
 ```
-
 .
-├── data/              # (Generated) Data files
-├── docs/              # Documents and media used in the notebooks
-├── results/           # Any results generated will be stored here
-├── scripts/           # Includes the files which run by themselves (e.g., main files, tutorials)
-│   ├── mains/
-│   ├── post_process/ 
-│   └── tutorials/ 
-├── src/               # Source code including all the objects, classes and functions required in scripts
-│   ├── bias.py
-|   ├── bias_estimators/
-│   │   │── esn.py
-│   │   └── constantbias.py
-│   ├── config         
-│   │   └── esn_config.py
-│   ├── data_assimilation.py 
-│   ├── integrator.py
-│   ├── model.py
-│   ├── models_data_driven/ 
-│   │   │── esn.py
-│   │   └── pod_esn.py
-│   ├── models_physical/
-│   │   │── annular.py
-│   │   │── kuramoto_sivashinsky.py
-│   │   │── lorenz63.py
-│   │   │── lorenz96.py
-│   │   │── rijke.py
-│   │   └── van_der_pol.py
-│   ├── plotting/ 
-│   ├── tools_ML/
-│   │   │── EchoStateNetwork.py
-│   │   └── POD.py
-│   └── util.py
-├─ tests_tutorials.py    # Unit tests
-├─ pyproject.toml        # Python package setup
-└─ README.md             # This file
-
+├── data/                        # Dataset files
+├── docs/                        # Documents and media used in the notebooks
+├── results/                     # Generated results
+├── scripts/                     # Runnable files (mains, tutorials)
+│   ├── mains/
+│   ├── post_process/
+│   └── tutorials/
+├── src/                         # Source code
+│   ├── data_assimilation.py     # EnKF, EnSRKF, rBA-EnKF
+│   ├── ensemble.py
+│   ├── bias.py
+│   ├── bias_estimators/         # Bias model classes
+│   │   ├── esn.py
+│   │   ├── constantbias.py
+│   │   └── driftlinear.py
+│   ├── observations.py
+│   ├── utils.py
+│   ├── config/
+│   │   └── esn_config.py
+│   │
+│   ├── models/                  # Model layer
+│   │   ├── base.py              # Model base class
+│   │   ├── history.py           # HistoryTracker mixin
+│   │   ├── integrator.py        # IVPIntegrator, DiscreteIntegrator, ...
+│   │   ├── physical/            # Physical models
+│   │   │   ├── annular.py
+│   │   │   ├── kuramoto_sivashinsky.py
+│   │   │   ├── lorenz63.py
+│   │   │   ├── lorenz96.py
+│   │   │   ├── rijke.py
+│   │   │   └── van_der_pol.py
+│   │   └── data_driven/         # Data-driven models (encoder + forecaster)
+│   │       ├── esn.py           # ESN_model
+│   │       └── pod_esn.py       # POD_ESN
+│   │
+│   └── tools/                   # Building blocks (no forecaster)
+│       ├── base.py              # Projector ABC (fit / encode / decode)
+│       ├── pod_spod.py          # POD, SPOD classes + snapshot algorithms
+│       ├── autoencoders.py      # AE, CAE (stubs)
+│       └── esn_core.py          # EchoStateNetwork reservoir
+│
+├── tests_tutorials.py           # Tutorial unit tests
+├── pyproject.toml               # Package setup
+└── README.md                    # This file
 ```
-
 
 
 ---

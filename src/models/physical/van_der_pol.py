@@ -1,4 +1,6 @@
-from model import Model, np, IVPIntegrator
+from ..model import Model
+from ..integrator import IVPIntegrator
+import numpy as np
 
 
 

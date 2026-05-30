@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "real-time-da"
-version = "2.2.1"
+version = "2.3.0"
 description = "Real-time Bias-Aware Data Assimilation"
 readme = "README.md"
-requires-python = ">3.9"
+requires-python = ">=3.12"
 license = {text = "MIT"}  
 authors = [
     {name = "Andrea Nóvoa", email = "a.novoa@imperial.ac.uk"}
@@ -37,9 +37,9 @@ dependencies = [
     "seaborn>=0.13",
     "tabulate>=0.9",
     "tqdm>=4.67",
-    "torch==2.10.0", 
-    "torchvision==0.25.0",
-    "torchaudio==2.10.0",
+    "torch>=2.2,<2.3",
+    "torchvision>=0.17,<0.18",
+    "torchaudio>=2.2,<2.3",
     "typeguard",
     "ipython-genutils>=0.2",
     "modulo-vki>=2.1",

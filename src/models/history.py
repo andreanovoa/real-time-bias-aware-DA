@@ -1,6 +1,7 @@
 
-
 import numpy as np
+
+__all__ = ['HistoryTracker']
 
 
 class HistoryTracker:

@@ -1,4 +1,7 @@
-from model import Model, IVPIntegrator, np, plt
+from ..model import Model
+from ..integrator import IVPIntegrator
+import numpy as np
+import matplotlib.pyplot as plt
 
 from scipy.interpolate import splrep, splev
 from utils import Cheb

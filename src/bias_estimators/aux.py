@@ -3,7 +3,7 @@ import numpy as np
 from typing import Dict, List, Optional, Tuple, Union
 
 from observations import Observations
-from model import Model
+from models import Model
 from utils import mean_vector_to_ensemble, correlation, check_valid_file, load_from_pickle_file
 
 

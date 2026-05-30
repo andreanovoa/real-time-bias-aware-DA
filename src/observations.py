@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os  
 
-from model import Model
+from models import Model
 
 from utils import load_from_pickle_file, save_to_pickle_file, load_from_mat_file, colour_noise, fun_PSD
 from typeguard import typechecked
