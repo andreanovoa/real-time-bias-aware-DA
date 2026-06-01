@@ -26,14 +26,7 @@ Run from the tutorials directory::
 or open in VS Code / Spyder as a "percent-cell" script (cells separated by ``# %%``).
 """
 
-# %% ── 1. Setup ───────────────────────────────────────────────────────────────
-import sys, os
-
-# make src/ importable when running from tutorials/
-_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
-if os.path.join(_root, 'src') not in sys.path:
-    sys.path.insert(0, os.path.join(_root, 'src'))
-
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
@@ -42,9 +35,7 @@ from scipy.io import loadmat
 from utils import set_working_directories
 
 # ── POD / SPOD classes ────────────────────────────────────────────────────────
-from tools import POD, SPOD
-# ── utility functions ─────────────────────────────────────────────────────────
-from tools import prepare_data, energy_fraction, spod_towne, print_spod_towne_summary
+from tools import POD, SPOD 
 
 
 # %% ── 2. Load data ───────────────────────────────────────────────────────────

@@ -77,64 +77,6 @@ except ImportError:
 
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Pre-processing
-# ─────────────────────────────────────────────────────────────────────────────
-
-def prepare_data(fields, subtract_mean=True):
-    """
-    Build the zero-mean data matrix Q from raw snapshot fields,
-    automatically detecting and removing NaN-masked solid-body points.
-
-    Parameters
-    ----------
-    fields : ndarray (N_t, Nx, Ny)  or  list / tuple of such arrays
-        Raw snapshot data on a structured 2-D grid.
-        NaN values mark solid-body grid points.
-        Pass a list to stack multiple fields (e.g. [ux, uy]) into a single
-        Q with  N_fluid * n_fields  rows.
-    subtract_mean : bool
-        If True (default), subtract the temporal mean row-wise.
-
-    Returns
-    -------
-    Q          : ndarray (N_fluid * n_fields, N_t)
-    fluid_mask : ndarray (Nx, Ny)  bool — True at fluid points
-    to_grid    : callable  (N_fluid,) --> (Nx, Ny) with NaN at solid body
-
-    Examples
-    --------
-    ::
-
-        Q, mask, to_grid = prepare_data([ux_raw, uy_raw])
-        N_fluid = mask.sum()
-        ux_mode1 = to_grid(Psi[:N_fluid, 0])
-    """
-    if isinstance(fields, np.ndarray):
-        fields = [fields]
-    ref = fields[0]
-    if ref.ndim != 3:
-        raise ValueError(
-            f'Each field must be 3-D (N_t, Nx, Ny); got shape {ref.shape}.')
-    N_t, Nx, Ny = ref.shape
-    fluid_mask = ~np.isnan(ref[0])
-    flat_mask  = fluid_mask.ravel()
-    rows = []
-    for fld in fields:
-        flat = fld.reshape(N_t, -1)[:, flat_mask].T    # (N_fluid, N_t)
-        rows.append(flat)
-    Q = np.vstack(rows)                                 # (N_fluid*n_fields, N_t)
-    if subtract_mean:
-        Q -= Q.mean(axis=1, keepdims=True)
-
-    def to_grid(vec):
-        """(N_fluid,) --> (Nx, Ny) with NaN at solid-body points."""
-        g = np.full(Nx * Ny, np.nan)
-        g[flat_mask] = np.real(vec)
-        return g.reshape(Nx, Ny)
-
-    return Q, fluid_mask, to_grid
-
 
 def energy_fraction(Sigma):
     """

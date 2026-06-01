@@ -197,13 +197,14 @@ def set_cylinder_truth(case, X_filter, X_filter_true, Nt_obs = 25, visualize=Fal
 
 
 
-def add_noise_to_flow(U, V, noise_level=0.05, noise_type="gauss", spatial_smooth=0.):
+def add_noise_to_flow(U, noise_level=0.05, noise_type="gauss", spatial_smooth=0.):
     """
     Adds noise to a 3D velocity field (Nt x Nx x Ny).
 
     Args
-        U, V : numpy.ndarray
-            3D arrays representing the velocity components (Nt x Nx x Ny).
+        U : numpy.ndarray
+            3D array representing the velocity component (Nt x Nx x Ny).
+            or 4D array (2 x Nt x Nx x Ny) for both velocity components (U, V).
         
         noise_level : float, optional, default=0.05
             The standard deviation of the noise as a fraction of the maximum absolute velocity.
@@ -217,49 +218,43 @@ def add_noise_to_flow(U, V, noise_level=0.05, noise_type="gauss", spatial_smooth
             Standard deviation for Gaussian smoothing (0 means no smoothing).
 
     Returns
-        U_noisy, V_noisy : numpy.ndarray
-            Noisy velocity fields with the same shape as U and V.
+        U_noisy : numpy.ndarray
+            Noisy velocity field with the same shape as U.
     """
-    rng = np.random.default_rng()  # Random generator
+    # mask nan values (e.g., inside cylinder) to avoid affecting noise scaling
+    fluid_mask = ~np.isnan(U)
+    U = np.where(fluid_mask, U, 0.)
 
-    U = U.copy()
-    V = V.copy()
+    if U.ndim == 4:
+        assert U.shape[0] == 2, "Expected first dimension of size 2 for (U, V) components."
+    elif U.ndim == 3:
+        U = U[np.newaxis, ...]  # Add component dimension for uniform processing
+    else:
+        raise ValueError("Input U must be a 3D array (Nt x Nx x Ny) or a 4D array (2 x Nt x Nx x Ny).")
     
-    U[np.isnan(U) | np.isinf(U)] = 0  # Replace NaN/Inf values
-    V[np.isnan(V) | np.isinf(V)] = 0  # Replace NaN/Inf values
-
     # Compute noise amplitude
-    max_vel = max(np.max(np.abs(U)), np.max(np.abs(V)))
-    noise_amp = noise_level * max_vel
+    noise_amp = noise_level * np.max(np.abs(U[fluid_mask]))
+    rng_noise = np.random.default_rng() 
 
-    def generate_noise(shape, noise_type):
-        """Generates 3D noise (Nt x Nx x Ny)."""
-        # Nt, Nx, Ny = shape
-        if noise_type == "gauss":
-            return rng.normal(scale=noise_amp, size=shape)
-        else:
-            noise_white = np.fft.rfftn(rng.standard_normal(shape)) * noise_amp
-            S = colour_noise(shape, noise_colour=noise_type)
-            noise_colored = noise_white * S
-            return np.fft.irfftn(noise_colored, s=shape).real
+    if noise_type == "gauss":
+        noise_U = rng_noise.normal(scale=noise_amp, size=U.shape)
+    else:
+        noise_U = np.fft.irfftn(
+            np.fft.rfftn(rng_noise.standard_normal(U.shape)) * noise_amp
+            * colour_noise(U.shape, noise_colour=noise_type), s=U.shape).real
 
-
-    # Generate noise
-    noise_U = generate_noise(U.shape, noise_type)
-    noise_V = generate_noise(V.shape, noise_type)
 
     # Apply optional spatial smoothing
     if spatial_smooth > 0:
-        sigma = (0, spatial_smooth, spatial_smooth)
+        sigma = (0, 0, spatial_smooth, spatial_smooth)
         noise_U = ndimage.gaussian_filter(noise_U, sigma=sigma)
-        noise_V = ndimage.gaussian_filter(noise_V, sigma=sigma)
 
-    # Add noise to velocity field
     
     U_noisy = U + noise_U
-    V_noisy = V + noise_V
+    U_noisy[~fluid_mask] = np.nan
 
-    return U_noisy, V_noisy
+    return U_noisy
+
 
 
 
@@ -1072,7 +1067,6 @@ def load_cylinder_dataset(noise_type = 'gauss', noise_level = 0.1, smoothing = 0
 
 
 
-
 def visualize_flow_data(X_true, X_noisy, simulation_dir=''):
     """
     Visualize the true and noisy flow fields.
@@ -1089,9 +1083,13 @@ def visualize_flow_data(X_true, X_noisy, simulation_dir=''):
 
     # Visualize the flow fields
     if not os.path.exists(gif_name):
-        anim = animate_flowfields([X_true[...,0],X_true[...,1], X_noisy[...,0], X_noisy[...,1]], 
-                                titles=['$u_x$', '$u_y$', '$\\tilde{u}_x$', '$\\tilde{u}_y$'], 
-                                n_frames=200, step=2, figsize=(6, 4))
+        datasets = {
+            '$u_x$': X_true[...,0],
+            '$u_y$': X_true[...,1],
+            '$\\tilde{u}_x$': X_noisy[...,0],
+            '$\\tilde{u}_y$': X_noisy[...,1]
+        }
+        anim = animate_flowfields(datasets, n_frames=200, step=2, figsize=(6, 4))
         anim.save(gif_name)
 
     # Display in notebook

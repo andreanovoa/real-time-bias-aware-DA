@@ -2,15 +2,16 @@
 autoencoders.py
 ===============
 
-Dimensionality-reduction building blocks for data-driven ROMs.
+Dimensionality-reduction building blocks for data-driven ROMs. 
+Only 2D snapshot data is supported for now, but the API is designed to be extensible to 3D and multi-field data in the future.
 
 All projectors — linear or nonlinear — share the same sklearn-style API:
 
-    p.fit(Q)         -- learn the representation from data  Q (N_x, N_t)
-    p.encode(Q)      -- Q (N_x, N_t) --> Z (N_latent, N_t)
-    p.decode(Z)      -- Z (N_latent, N_t) --> Q_hat (N_x, N_t)
-    p.reconstruct(Q) -- full round-trip
-    p.score(Q)       -- mean squared reconstruction error
+    p.fit(X)         -- learn the representation from data  X (N_x, N_t)
+    p.encode(X)      -- X (N_x, N_t) --> Z (N_latent, N_t)
+    p.decode(Z)      -- Z (N_latent, N_t) --> X_hat (N_x, N_t)
+    p.reconstruct(X) -- full round-trip
+    p.score(X)       -- mean squared reconstruction error
     p.N_latent       -- size of the latent (bottleneck) space
 
 Class hierarchy
@@ -20,7 +21,7 @@ Class hierarchy
     ├── POD(Projector)            Proper Orthogonal Decomposition (linear)
     │     N_latent == N_modes retained
     │     Sigma, Psi, Phi         decomposition results
-    │     truncate / restore_shape / plot_spectrum / …
+    │     truncate / restore_shape / plot_spectrum / ...  utilities
     │
     ├── SPOD(POD)                 Spectral POD (Sieber et al. JFM 2016)
     │     inherits all POD helpers; only _decompose is overridden
@@ -53,12 +54,6 @@ from scipy.special import gammaincinv
 from .pod_spod import snapshot_pod, snapshot_pod_randomized, spod_sieber
 
 
-from utils import (save_figs_to_pdf,
-                    get_figsize_based_on_domain,
-                    crop_data_to_domain_of_interest) 
-
-from pyts.image import RecurrencePlot
-from mpl_toolkits.axes_grid1 import ImageGrid
 
 
 
@@ -72,40 +67,159 @@ class Projector(ABC):
 
     Every projector exposes:
 
-        N_latent  -- size of the latent / bottleneck space. In POD/SPOD, this is the number of modes retained. 
+        N_latent  -- size of the latent / bottleneck space. In POD/SPOD, this is the number of modes retained.
         fit       -- learn the representation from data
-        encode    -- map state space Q --> latent Z
-        decode    -- map latent Z --> reconstructed state Q_hat
+        encode    -- map state space X --> latent Z
+        decode    -- map latent Z --> reconstructed state X_hat
         reconstruct, score, copy -- provided as concrete methods
     """
 
-    N_latent: int = 20   
+    N_latent: int = 20
+    fitted:   bool = False
+    _Q_mean:  Optional[np.ndarray] = None
+
+    @property
+    def Q_mean(self) -> np.ndarray:
+        if self._Q_mean is None:
+            raise AttributeError("Not fitted — call fit() first.")
+        return self._Q_mean
+
+    @Q_mean.setter
+    def Q_mean(self, value: np.ndarray) -> None:
+        self._Q_mean = value
 
     @abstractmethod
-    def fit(self, Q: np.ndarray) -> 'Projector':
-        """Learn the projection from data Q (N_x, N_t). Returns self."""
+    def fit(self, X: np.ndarray) -> Projector:
+        """Learn the projection from data X (N_x, N_t). Returns self."""
 
     @abstractmethod
-    def encode(self, Q: np.ndarray) -> np.ndarray:
-        """Map Q (N_x, N_t) to latent representation Z (N_latent, N_t)."""
+    def encode(self, X: np.ndarray) -> np.ndarray:
+        """Map X (N_x, N_t) to latent representation Z (N_latent, N_t)."""
 
     @abstractmethod
     def decode(self, Z: np.ndarray) -> np.ndarray:
         """Map latent Z (N_latent, N_t) back to state space Q_hat (N_x, N_t)."""
 
-    def reconstruct(self, Q: np.ndarray) -> np.ndarray:
+    def reconstruct(self, X: np.ndarray) -> np.ndarray:
         """Full round-trip: encode then decode."""
-        return self.decode(self.encode(Q))
+        return self.decode(self.encode(X))
 
-    def score(self, Q: np.ndarray) -> float:
-        """Mean squared reconstruction error ||Q - reconstruct(Q)||^2 / N."""
-        return float(np.mean((Q - self.reconstruct(Q)) ** 2))
+    def score(self, X: np.ndarray) -> float:
+        """Mean squared reconstruction error ||X - reconstruct(X)||^2 / N."""
+        return float(np.mean((X - self.reconstruct(X)) ** 2))
 
-    def copy(self) -> 'Projector':
+    
+    def copy(self) -> Projector:
         """Return a deep copy."""
         return deepcopy(self)
+    
+    # -------
+    # utilities for grid handling
+    # -------
+    
+    def _to_physical_grid(self, X_hat: np.ndarray) -> np.ndarray:
+        """Map flat (N_fluid*Nu, N_t) back to (Nu, N_t, Nx, Ny) - exact inverse of _to_flat."""
+        Nu, Nx, Ny = self.grid_shape
+        if X_hat.ndim == 1:
+            X_hat = X_hat[:, np.newaxis]
+        Nt = X_hat.shape[1]
+        N_fluid = int(self.fluid_mask_flat.sum())
+
+        out = np.full((Nu, Nt, Nx, Ny), np.nan)
+
+        # Inverse the flatten: (N_fluid*Nu, Nt) → (N_fluid, Nu, Nt) → (Nu, Nt, N_fluid)
+        X_unflatten = X_hat.reshape(N_fluid, Nu, Nt).transpose(1, 2, 0)  # (Nu, Nt, N_fluid)
+
+        for u in range(Nu):
+            # X_unflatten[u] is (Nt, N_fluid) — all time steps for field u
+            grid_flat = np.full((Nt, Nx*Ny), np.nan)
+            grid_flat[:, self.fluid_mask_flat] = X_unflatten[u]  # Place fluid values back
+
+            # Reshape (Nt, Nx*Ny) → (Nt, Nx, Ny) and assign
+            out[u] = grid_flat.reshape(Nt, Nx, Ny)
+
+        return out[:, 0] if Nt == 1 else out
+    
+
+    def _to_flat(self, X: np.ndarray) -> np.ndarray:
+        """Map raw grid input (Nu, Nt, Nx, Ny) to flat (N_fluid * n_fields, N_t."""
+        X_masked = X.reshape(X.shape[0], X.shape[1], -1)[:, :, self.fluid_mask_flat] # (Nu, Nt, N_fluid)
+        
+        return X_masked.transpose(2, 0, 1).reshape(-1, X.shape[1]) # (N_fluid * n_fields, N_t)
 
 
+    # -----
+    # preprocessing for raw grid input. 
+    # Note: could implement different ones including normalization/standardization.
+    # -----
+
+    def preprocess_snapshot(self, X: np.ndarray, subtract_mean=True):
+        """
+        Build the zero-mean data matrix Q from raw snapshot fields,
+        automatically detecting and removing NaN-masked solid-body points.
+
+        Parameters
+        ----------
+        X : ndarray
+            Raw snapshot data, either as a single field (N_t, Nx, Ny) or a list of fields (Nu, N_t, Nx, Ny).
+
+        subtract_mean : bool
+            If True (default), subtract the temporal mean row-wise.
+
+        Returns
+        -------
+        Q          : ndarray (N_fluid * n_fields, N_t)   zero-mean data matrix for decomposition
+        """
+
+        if not self.fitted:
+            # if the input is raw grid data, we need to detect the fluid points and flatten the data
+            assert X.ndim == 4, f'Expected raw grid input with 4 dimensions, got {X.ndim}.'
+            Nu, Nt, Nx, Ny = X.shape
+            self.grid_shape = (Nu, Nx, Ny)
+
+            ref = X[0]
+            fluid_mask = ~np.isnan(ref[0])
+            self.fluid_mask_flat  = fluid_mask.ravel()
+
+            
+
+            X_masked_flat = self._to_flat(X)                    # (N_fluid * n_fields, N_t)
+
+            if subtract_mean:
+                self.Q_mean = X_masked_flat.mean(axis=1, keepdims=True)
+            else:
+                self.Q_mean = np.zeros_like(X_masked_flat[:, :1])
+
+
+            Q = X_masked_flat - self.Q_mean #shape (N_fluid * n_fields, N_t)
+            # store the total kinetic energy for later use in relative error metrics
+            self._TKE = 0.5 * float(np.sum(np.mean(Q**2, axis=1)))
+            return Q
+
+        elif X.shape[0] != self.Q_mean.shape[0]: 
+
+            # if the decomosition is already fitted, can expect 1 snapshot only
+            assert X.ndim in (3, 4), f'Expected flat input with 2, 3 or 4 dimensions, got {X.ndim}.'
+            if X.ndim == 3:
+                X = X[:, np.newaxis]    # (n_fields, 1, Nx, Ny)
+
+            #check grid
+            Nu, _, Nx, Ny = X.shape
+            grid_shape = (Nu, Nx, Ny)
+            assert grid_shape == self.grid_shape, f'Expected grid shape {self.grid_shape}, got {grid_shape}.'
+                
+            X_masked_flat = self._to_flat(X)                    # (N_fluid * n_fields, N_t)
+            return X_masked_flat - self.Q_mean #shape (N_fluid * n_fields, N_t)
+        else:
+            # already flat input, just check dimensions and remove mean
+            assert X.ndim == 2, f'Expected flat input with 2 dimensions, got {X.ndim}.'
+
+            return X - self.Q_mean #shape (N_fluid * n_fields, N_t)
+        
+
+# ────────────────────────────────────────────────────────────────────────────
+# Nonlinear Autoencoders -- UROP project
+# ────────────────────────────────────────────────────────────────────────────
 
 
 class AE(Projector):
@@ -113,14 +227,14 @@ class AE(Projector):
     Autoencoder  [stub — not yet implemented].
 
     Planned: PyTorch MLP encoder/decoder with MSE loss, bottleneck of size
-    ``latent_dim``, trained end-to-end.
+    ``latent_dim``, trained end-to-end. Following the book hands on ML from my office. 
     """
 
-    def fit(self, Q: np.ndarray) -> 'AE':
+    def fit(self, X: np.ndarray) -> AE:
         raise NotImplementedError(
             'AE is not yet implemented.')
 
-    def encode(self, Q: np.ndarray) -> np.ndarray:
+    def encode(self, X: np.ndarray) -> np.ndarray:
         raise NotImplementedError
 
     def decode(self, Z: np.ndarray) -> np.ndarray:
@@ -132,16 +246,16 @@ class CAE(Projector):
     """
     Convolutional Autoencoder  [stub — not yet implemented].
 
-    Planned: PyTorch Conv2d encoder/decoder operating on the 2-D spatial grid.
-    Requires structured (Nx, Ny) input — use ``grid_shape`` to restore the 2-D
-    layout before passing to the network.
+    Planned: PyTorch Conv2d encoder/decoder operating on the 2-D spatial grid. 
+    Following the papers from Racca et al. (2021) and Ozalp et al. (2024) on CAEs for fluid flows. 
+    (Maybe start from a single-CAE rather than Multi-CAE).
     """
 
-    def fit(self, Q: np.ndarray) -> 'CAE':
+    def fit(self, X: np.ndarray) -> CAE:
         raise NotImplementedError(
             'CAE is not yet implemented')
 
-    def encode(self, Q: np.ndarray) -> np.ndarray:
+    def encode(self, X: np.ndarray) -> np.ndarray:
         raise NotImplementedError
 
     def decode(self, Z: np.ndarray) -> np.ndarray:
@@ -150,12 +264,12 @@ class CAE(Projector):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# POD  — absorbs the former LinearROM base
+# Proper Orthogonal Decomposition (POD)
 # ─────────────────────────────────────────────────────────────────────────────
 
 class POD(Projector):
     """
-    Snapshot Proper Orthogonal Decomposition.
+    Snapshot POD.
 
     Inherits the shared interface from ``Projector`` (fit/encode/decode/
     reconstruct/score/copy/N_latent) and adds linear-specific attributes,
@@ -171,12 +285,16 @@ class POD(Projector):
         Randomized SVD (Halko, Martinsson & Tropp 2011).  Returns only the
         leading ``n_modes`` modes.  Fast and memory-efficient for large data.
 
-    After ``fit(Q)`` the following attributes are available:
+    After ``fit(X)`` the following attributes are available:
 
         Sigma  (N_latent,)      singular values, descending
         Psi    (N_x, N_latent)  spatial modes (orthonormal columns)
         Phi    (N_latent, N_t)  temporal coefficients from training data
         Q_mean (N_x, 1)         temporal mean
+
+        Note: 
+            X = Psi @ Phi + Q_mean  (N_x, N_t)  is the training data reconstruction.
+            Q = X - Q_mean is the zero-mean data used for the decomposition.
 
     Parameters
     ----------
@@ -196,16 +314,18 @@ class POD(Projector):
         Z   = pod.encode(Q)              # (20, N_t)
         Q_r = pod.reconstruct(Q)         # (N_x, N_t)
 
+        # if directly from data:
+        pod = POD(X=X, n_modes=20)
+
     Loading pre-computed results::
 
         pod = POD(Sigma=s, Psi=p, Phi=ph, Q_mean=m, grid_shape=gs)
     """
 
     # ── class-level defaults ─────────────────────────────────────────────────
-    Sigma:        Optional[np.ndarray] = None
-    Psi:          Optional[np.ndarray] = None
-    Phi:          Optional[np.ndarray] = None
-    Q_mean:       Optional[np.ndarray] = None
+    _Sigma:       Optional[np.ndarray] = None
+    _Psi:         Optional[np.ndarray] = None
+    _Phi:         Optional[np.ndarray] = None
     grid_shape:   Optional[tuple]      = None   # (Nu, Nx, Ny) for restore_shape
     domain:       Optional[list]       = None   # [x0, x1, y0, y1]
     field_labels: list                 = ['$u_x$', '$u_y$']
@@ -214,6 +334,37 @@ class POD(Projector):
     method:       str           = 'randomized'
     n_iter:       int           = 4
     random_state: Optional[int] = None
+
+    @property
+    def Sigma(self) -> np.ndarray:
+        if self._Sigma is None:
+            raise AttributeError("Not fitted — call fit() first.")
+        return self._Sigma
+
+    @Sigma.setter
+    def Sigma(self, v: np.ndarray) -> None: 
+        self._Sigma = v
+
+    @property
+    def Psi(self) -> np.ndarray:
+        if self._Psi is None:
+            raise AttributeError("Not fitted — call fit() first.")
+        return self._Psi
+
+    @Psi.setter
+    def Psi(self, v: np.ndarray) -> None: 
+        self._Psi = v
+
+    @property
+    def Phi(self) -> np.ndarray:
+        if self._Phi is None:
+            raise AttributeError("Not fitted — call fit() first.")
+        return self._Phi
+
+    @Phi.setter
+    def Phi(self, v: np.ndarray) -> None: 
+        self._Phi = v
+
 
     def __init__(self,
                  n_modes:      int            = 20,
@@ -235,8 +386,8 @@ class POD(Projector):
                                                     'indices_to_original_grid'):
                 setattr(self, key, val)
         # infer latent size from pre-loaded Phi if provided
-        if self.Phi is not None and self.N_latent == 20:
-            self.N_latent = self.Phi.shape[0]
+        if self._Phi is not None and self.N_latent == 20:
+            self.N_latent = self._Phi.shape[0]
         # backward compat: auto-fit if raw data provided as kwarg 'X'
         if 'X' in kwargs and kwargs['X'] is not None:
             self.fit(kwargs['X'])
@@ -278,31 +429,36 @@ class POD(Projector):
 
     # ── Projector interface ────────────────────────────────────────────────────
 
-    def fit(self, Q: np.ndarray) -> 'POD':
-        """
-        Fit the POD to data matrix Q (N_x, N_t).
 
-        A residual mean is stored so calling fit on non-centred data also works.
+    def fit(self, X: np.ndarray) -> POD:
         """
-        self.Q_mean = Q.mean(axis=1, keepdims=True)
-        Q_c = Q - self.Q_mean
-        self._TKE = 0.5 * float(np.sum(np.mean(Q**2, axis=1)))
-        result = self._decompose(Q_c)
+        Fit the POD to data X.
+
+        Accepts a flat matrix X (N_x, N_t) or a raw grid array
+        (Nu, N_t, Nx, Ny) / (N_t, Nx, Ny). For raw grid input the NaN
+        cylinder mask is detected and stored automatically.
+        """
+
+        Q = self.preprocess_snapshot(X)
+
+        result = self._decompose(Q)
         self.Sigma = result[0]
         self.Psi   = result[1]
         self.Phi   = result[2]
-        assert self.Sigma is not None and self.Psi is not None and self.Phi is not None, \
+        assert self._Sigma is not None and self._Psi is not None and self._Phi is not None, \
             "Decomposition must return Sigma, Psi, Phi."
         self.N_latent = self.Sigma.shape[0]
+        self.fitted = True
         return self
 
-    def encode(self, Q: np.ndarray) -> np.ndarray:
+    def encode(self, X: np.ndarray) -> np.ndarray:
         """
-        Project Q onto the spatial modes.
+        Project X onto the spatial modes.
 
-            Z = Psi^T (Q - Q_mean)    shape (N_latent, N_t)
+            Z = Psi^T (X - Q_mean)    shape (N_latent, N_t)
         """
-        return self.Psi.T @ (Q - self.Q_mean)
+        Q = self.preprocess_snapshot(X)
+        return self.Psi.T @ Q
 
     def decode(self, Z: np.ndarray) -> np.ndarray:
         """
@@ -311,24 +467,36 @@ class POD(Projector):
             Q_hat = Psi Z + Q_mean    shape (N_x, N_t)
         """
         return self.Psi @ Z + self.Q_mean
+    
 
-    def reconstruct(self, Q: np.ndarray = None,
-                    n_modes: int = None) -> np.ndarray:
+    def reconstruct(self, X: Optional[np.ndarray] = None,
+                    n_modes: Optional[int] = None,
+                    Phi: Optional[np.ndarray] = None) -> np.ndarray:
         """
-        Full round-trip with optional mode truncation.
+        Full round-trip: encode → decode → to_grid (when mask is available).
 
         Parameters
         ----------
-        Q       : ndarray (N_x, N_t).  If None, uses stored training Phi.
+        X       : raw input (grid or flat).  If None, uses stored Phi.
         n_modes : retain only the first n_modes modes.  Default: all.
+        Phi     : pre-computed latent coefficients (N_latent, N_t); skips encode.
         """
-        Z  = self.encode(Q) if Q is not None else self.Phi
-        nm = n_modes or self.N_latent
-        return self.Psi[:, :nm] @ Z[:nm] + self.Q_mean
+        if Phi is not None:
+            Z = Phi
+        elif X is not None:
+            Z = self.encode(X)
+        else:
+            Z = self.Phi
 
-    def score(self, Q: np.ndarray) -> float:
-        """Mean squared reconstruction error."""
-        return float(np.mean((Q - self.reconstruct(Q)) ** 2))
+        nm = n_modes if n_modes is not None else self.N_latent
+        if nm < self.N_latent:
+            X_hat = self.Psi[:, :nm] @ Z[:nm] + self.Q_mean
+        else:
+            X_hat = self.decode(Z)
+        if getattr(self, 'to_grid', None) is not None and self.grid_shape is not None:
+            return self._to_physical_grid(X_hat)
+        return X_hat
+
 
     # ── utilities ─────────────────────────────────────────────────────────────
 
@@ -345,7 +513,7 @@ class POD(Projector):
         rel = lam / lam.sum()
         return rel, np.cumsum(rel)
 
-    def truncate(self, n_modes: int) -> 'POD':
+    def truncate(self, n_modes: int) -> POD:
         """Truncate to the first n_modes modes in-place."""
         if n_modes >= self.N_latent:
             return self
@@ -355,17 +523,6 @@ class POD(Projector):
         self.N_latent = n_modes
         return self
 
-    def restore_shape(self, data: np.ndarray = None) -> np.ndarray:
-        """Reshape flat data (N_x, ...) back to the original grid shape."""
-        if data is None:
-            data = self.Psi
-        if self.grid_shape is None:
-            raise ValueError('grid_shape not set — pass grid_shape to the constructor.')
-        if data.ndim > 1:
-            if data.shape[:len(self.grid_shape)] == self.grid_shape:
-                return data
-            return np.reshape(data, (*self.grid_shape, data.shape[-1]))
-        return np.reshape(data, self.grid_shape)
 
     @property
     def domain_mesh(self):
@@ -398,6 +555,8 @@ class POD(Projector):
 
     # ── backward-compat aliases ───────────────────────────────────────────────
 
+
+
     def project_data_onto_Psi(self, data: np.ndarray,
                                remove_mean: bool = True) -> np.ndarray:
         """
@@ -405,8 +564,10 @@ class POD(Projector):
 
         Equivalent to the original MODULO-based ``project_data_onto_Psi``.
         Returns shape (N_t, N_latent) for backward compatibility.
-        For new code prefer ``encode(Q)`` which returns (N_latent, N_t).
+        For new code prefer ``encode(X)`` which returns (N_latent, N_t).
         """
+        assert self.fitted, "POD must be fitted before projecting data."
+        
         data = data.copy()
         if data.ndim > 2:
             data = data.reshape(-1, data.shape[-1])
@@ -417,17 +578,17 @@ class POD(Projector):
         Z = self.Psi.T @ data
         return (Z / self.Sigma[:, None]).T
 
-    def rerun_decomposition(self, Q: np.ndarray = None,
-                             n_modes: Optional[int] = None) -> 'POD':
+    def rerun_decomposition(self, X: Optional[np.ndarray] = None,
+                             n_modes: Optional[int] = None) -> POD:
         """Re-fit or truncate.  Drop-in for ``rerun_POD_decomposition``."""
-        if Q is None and n_modes is None:
-            raise ValueError("Provide Q (new data) or n_modes (truncation).")
-        if n_modes is not None and (Q is None or n_modes < self.N_latent):
+        if X is None and n_modes is None:
+            raise ValueError("Provide X (new data) or n_modes (truncation).")
+        if n_modes is not None and (X is None or n_modes < self.N_latent):
             return self.truncate(n_modes)
-        if Q is not None:
+        if X is not None:
             if n_modes is not None:
                 self.N_latent = n_modes
-            return self.fit(Q)
+            return self.fit(X)
         return self
 
     # ── metrics ───────────────────────────────────────────────────────────────
@@ -454,285 +615,7 @@ class POD(Projector):
         return [a.reshape(-1, a.shape[-1]) if a.ndim > 2 else a.copy()
                 for a in args]
 
-    # ── plots ─────────────────────────────────────────────────────────────────
-
-    @staticmethod
-    def plot_modes(case: 'POD', Psi: np.ndarray = None,
-                   num_modes: int = 2, save: bool = False,
-                   cmap: str = 'viridis', dim=None):
-        """
-        Plot the first ``num_modes`` spatial modes.
-
-        Parameters
-        ----------
-        case      : fitted POD instance.
-        Psi       : optional override for spatial modes.
-        num_modes : number of modes to display.
-        cmap      : matplotlib colormap name.
-        dim       : which field components to plot (default: all).
-        """
-        if get_figsize_based_on_domain is None:
-            raise ImportError('utils.get_figsize_based_on_domain not available.')
-        if Psi is None:
-            Psi = case.Psi.copy()
-        if Psi.ndim == 2:
-            Psi = case.restore_shape(Psi)
-        dim = np.arange(Psi.shape[0]) if dim is None else (
-              [dim] if isinstance(dim, int) else dim)
-        X1, X2 = case.domain_mesh
-        figsize, n_col, n_row = get_figsize_based_on_domain(
-            case.domain, total_subplots=num_modes)
-        figsize = (n_col * 2, n_row * figsize[1] / figsize[0] * 4)
-        for jj, d in enumerate(dim):
-            data = Psi[d]
-            fig  = plt.figure(figsize=figsize, layout='constrained')
-            axs  = fig.subplots(nrows=n_row, ncols=n_col,
-                                sharex=True, sharey=True)
-            axs  = [axs] if case.N_latent == 1 else axs.ravel()
-            norm = colors.Normalize(vmin=data[..., 0].min(),
-                                    vmax=data[..., 0].max())
-            for kk, ax in zip(range(num_modes), axs):
-                im = ax.pcolormesh(X1, X2, data[..., kk],
-                                   cmap=mpl.colormaps[cmap], norm=norm,
-                                   rasterized=True)
-                ax.set_title(f'mode {kk}', fontsize='xx-small')
-                ax.set_aspect('equal')
-                if kk >= num_modes - n_col:
-                    ax.set_xlabel('$y$')
-                if kk % n_col == 0:
-                    ax.set_ylabel('$x$')
-            fig.colorbar(im, ax=axs, shrink=0.25, aspect=20)
-            if save:
-                plt.savefig(f'modes_dim{jj}.png', dpi=300)
-
-    # keep old name as alias
-    plot_POD_modes = plot_modes
-
-    @staticmethod
-    def plot_time_coefficients(case: 'POD', Phi: np.ndarray = None,
-                                num_modes: int = None,
-                                plot_recurrence: bool = False):
-        """
-        Imshow of the temporal coefficient matrix Phi (N_latent, N_t).
-
-        Parameters
-        ----------
-        case            : fitted POD instance.
-        Phi             : optional override, shape (N_latent, N_t).
-        num_modes       : number of modes to include.
-        plot_recurrence : if True, also plot recurrence plots (requires pyts).
-        """
-        if Phi is None:
-            Phi = case.Phi.copy()
-        if num_modes is not None:
-            Phi = Phi[:num_modes, :]
-        else:
-            num_modes = Phi.shape[0]
-        N_t    = Phi.shape[1]
-        window = N_t if num_modes < 10 else (200 if num_modes < 50 else num_modes)
-        nrows  = max(int(N_t // window), 1)
-        slices = [Phi[:, i * window:(i + 1) * window] for i in range(nrows)]
-
-        fig, axs = plt.subplots(nrows=nrows, ncols=1, figsize=(10, 1.5 * nrows),
-                                 layout='tight')
-        if nrows == 1:
-            axs = [axs]
-        norm = colors.Normalize(vmin=Phi.min(), vmax=Phi.max())
-        im   = None
-        for i0, (ax, sl) in enumerate(zip(axs, slices)):
-            im = ax.imshow(sl, cmap=mpl.colormaps['viridis'], norm=norm,
-                           aspect='auto',
-                           extent=[i0 * window, (i0 + 1) * window,
-                                   0, num_modes],
-                           origin='lower')
-        if im is not None:
-            fig.colorbar(im, ax=axs[0], shrink=0.75, orientation='vertical')
-
-        if plot_recurrence:
-            if not _HAS_PYTS:
-                raise ImportError('pyts is required for recurrence plots.')
-            ncols1 = min(2, num_modes)
-            nrows1 = int(np.ceil(num_modes / max(ncols1, 1)))
-            rp     = RecurrencePlot(threshold='point', percentage=20)
-            X_rp   = rp.fit_transform(Phi)
-            fig2   = plt.figure(figsize=(4 * ncols1, 3 * nrows1))
-            grid   = ImageGrid(fig2, GridSpec(1, 1)[0, 0],
-                               nrows_ncols=(nrows1, ncols1),
-                               axes_pad=0.1, share_all=True)
-            for ii, xx in enumerate(X_rp):
-                grid[ii].imshow(xx, cmap='binary', origin='lower')
-            grid[0].get_yaxis().set_ticks([])
-            grid[0].get_xaxis().set_ticks([])
-
-    @staticmethod
-    def plot_spectrum(case: 'POD', max_mode: Optional[int] = None):
-        """
-        Bar chart of eigenvalue spectrum + cumulative energy.
-
-        Parameters
-        ----------
-        case     : fitted POD instance.
-        max_mode : if set, adds a zoom inset up to this mode number.
-        """
-        fig, axs = plt.subplots(1, 2, figsize=(10, 4))
-        Lambda            = case.Sigma ** 2
-        normalised_Lambda = Lambda / Lambda[0]
-
-        axs[0].bar(np.arange(case.N_latent) + 1, normalised_Lambda, color='C4')
-        axs[0].set(xlabel='Mode $j$', title='$\\lambda_j / \\lambda_0$',
-                   xlim=[0, max(case.N_latent, 10)])
-
-        cum_energy = np.cumsum(Lambda) / Lambda.sum()
-        axs[1].plot(np.arange(case.N_latent) + 1, cum_energy, 'o-', color='C4',
-                    label='$\\Sigma \\lambda_j / \\Sigma_k \\lambda_k$')
-
-        if case._TKE is not None:
-            energy_frac = Lambda / 2 / (case.Phi.shape[1] if case.Phi is not None else 1)
-            axs[1].plot(np.arange(case.N_latent) + 1,
-                        np.cumsum(energy_frac) / case._TKE,
-                        dashes=[10, 5], color='k', label='TKE fraction')
-
-        axs[1].grid(visible=True, linestyle='--', alpha=0.5)
-        axs[1].set(xlabel='# modes', title='Cumulative energy')
-        axs[1].legend(ncol=1, bbox_to_anchor=[1, 1], loc='upper left')
-        for ax in axs:
-            ax.set(ylim=[0, 1.05], xlim=[-1, None])
-
-        if max_mode is not None and max_mode < case.N_latent:
-            ax0 = fig.add_axes((0.30, 0.50, 0.15, 0.35))
-            ax0.bar(np.arange(max_mode) + 1, normalised_Lambda[:max_mode],
-                    color='C4')
-            ax0.set_xlim(0, max_mode + 1)
-            ax1 = fig.add_axes((0.72, 0.20, 0.15, 0.35))
-            ax1.grid(visible=True, linestyle='--', alpha=0.5)
-            ax1.plot(np.arange(max_mode) + 1,
-                     cum_energy[:max_mode], color='C4')
-            ax1.set_xlim(0, max_mode + 1)
-        return fig
-
-    @staticmethod
-    def plot_flows_rms(case: 'POD',
-                       datasets,
-                       reconstructed_data=None,
-                       display_dims=None,
-                       display_RMS: Union[str, int, list] = 'all',
-                       names=None,
-                       norm_flow=None,
-                       norm_rms=None,
-                       cmap_flow: str = 'viridis',
-                       cmap_rms:  str = 'Reds',
-                       save: bool = False,
-                       display_sensors: bool = False):
-        """
-        Side-by-side flow fields + RMS error panels.
-
-        Parameters
-        ----------
-        case               : fitted POD instance.
-        datasets           : list of raw data arrays to compare against.
-        reconstructed_data : precomputed reconstruction (default: case.reconstruct()).
-        display_dims       : which field components to show.
-        display_RMS        : 'all' or list of dataset indices to include RMS for.
-        names              : labels for each dataset.
-        norm_flow/norm_rms : matplotlib Normalize instances.
-        cmap_flow/cmap_rms : colormap names.
-        save               : if True, saves to PNG.
-        display_sensors    : overlay sensor locations if available.
-        """
-        if get_figsize_based_on_domain is None:
-            raise ImportError('utils.get_figsize_based_on_domain not available.')
-
-        def _prep(d, target):
-            d[np.isnan(d)] = 0.
-            if d.ndim > 3:
-                d = d[..., -1]
-            if d.shape != target:
-                raise ValueError(
-                    f'Data shape {d.shape} does not match target {target}.')
-            return d
-
-        def _global_norms(prepared, titles, nf, nr):
-            if nr is None:
-                rms_data = np.array([d for d, t in zip(prepared, titles)
-                                     if 'RMS' in t])
-                nr = colors.Normalize(vmin=0., vmax=rms_data.max())
-            if nf is None:
-                nf = [colors.Normalize(vmin=np.min([y[r] for y in prepared]),
-                                       vmax=np.max([y[r] for y in prepared]))
-                      for r in range(nrows)]
-            return nf, nr
-
-        datasets = datasets if isinstance(datasets, list) else [datasets]
-
-        if display_RMS == 'all':
-            rms_ids = list(range(len(datasets)))
-        else:
-            rms_ids = [display_RMS] if isinstance(display_RMS, int) else list(display_RMS)
-
-        if reconstructed_data is None:
-            reconstructed_data = case.reconstruct()
-        if reconstructed_data.ndim > 3:
-            reconstructed_data = reconstructed_data[..., -1].copy()
-
-        display_dims = display_dims if display_dims is not None else \
-                       np.arange(reconstructed_data.shape[0])
-        if isinstance(display_dims, float):
-            display_dims = [display_dims]
-        nrows = len(display_dims)
-        X1, X2 = case.domain_mesh
-
-        idx, display_sensors = [], display_sensors
-        if display_sensors and hasattr(case, 'sensor_locations'):
-            idx = case.sensor_locations[
-                case.sensor_locations < len(X1.ravel())]
-
-        _datasets = [reconstructed_data]
-        _titles   = [f'ROM {case.N_latent} modes']
-        _cmaps    = [cmap_flow]
-
-        for ii, (ds, name) in enumerate(
-                zip(datasets, names or [None] * len(datasets))):
-            ds = _prep(ds, reconstructed_data.shape)
-            _datasets.append(ds)
-            _cmaps.append(cmap_flow)
-            _titles.append(name or f'dataset {ii}')
-            if ii in rms_ids:
-                _datasets.append(POD.compute_RMS(reconstructed_data, ds))
-                _titles.append(f'RMS({name or f"dataset {ii}"})')
-                _cmaps.append(cmap_rms)
-
-        norm_flow, norm_rms = _global_norms(_datasets, _titles,
-                                            norm_flow, norm_rms)
-        ncols   = len(_datasets)
-        figsize = get_figsize_based_on_domain(case.domain,
-                                              total_subplots=ncols * nrows)[0]
-        figsize = (ncols * 2, nrows * figsize[1] / figsize[0] * 4)
-        sub_figs = plt.figure(figsize=figsize, layout='constrained') \
-                      .subfigures(nrows=nrows, ncols=1)
-
-        for jj, (fig, nf) in enumerate(
-                zip(sub_figs if nrows > 1 else [sub_figs], norm_flow)):
-            axs = fig.subplots(nrows=1, ncols=ncols, sharex=True, sharey=True)
-            im_rms = im_flow = None
-            for ax, ds, title, cm in zip(axs, _datasets, _titles, _cmaps):
-                if 'RMS' in title:
-                    im_rms = ax.pcolormesh(X1, X2, ds[jj], cmap=cm,
-                                           norm=norm_rms, rasterized=True)
-                else:
-                    im_flow = ax.pcolormesh(X1, X2, ds[jj], cmap=cm,
-                                            norm=nf, rasterized=True)
-                if display_sensors and len(idx):
-                    ax.scatter(X1.ravel()[idx], X2.ravel()[idx],
-                               c=np.arange(len(idx)),
-                               cmap='YlOrRd', edgecolors='k', s=12.25, lw=.5)
-                ax.set_aspect('equal')
-            for im in [im_rms, im_flow]:
-                if im is not None:
-                    plt.colorbar(im, ax=axs, shrink=0.5)
-        if save:
-            plt.savefig('rom_flows_rms.png', dpi=300)
-        return sub_figs
-
+    
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SPOD (Sieber)  — inherits from POD, only overrides _decompose
@@ -755,7 +638,7 @@ class SPOD(POD):
     Nf          : int   Filter half-width (0 = POD limit, N_t/2 = DFT limit).
     filter_kind : str   'gaussian' | 'box' | 'hann'.  Default: 'gaussian'.
     n_modes     : int   Modes to retain.  Default: all (N_t).
-    grid_shape  : tuple Optional (Nu, Nx, Ny) for restore_shape().
+    grid_shape  : tuple Optional (Nu, Nx, Ny) for 
     domain      : list  Optional [x0, x1, y0, y1] for domain_mesh.
 
     Attributes

@@ -16,6 +16,36 @@ rng = np.random.default_rng()
 
 
 class Observations():
+    """
+    
+    Properties:
+    - y_raw: (Nt, Nq, L) array of raw data (with bias and noise)
+    - y_true: (Nt, Nq, L) array of true data (without bias and noise)
+    - t_true: (Nt,) array of time points corresponding to y_true and y_raw
+    - y_obs: (N_obs, Nq, L) array of observed data at observation times (subset of y_raw)
+    - t_obs: (N_obs,) array of observation times (subset of t_true)
+        
+    where:
+        - L is the number of independent realizations (e.g., for ensemble runs or multiple experiments).
+        - Nq is the number of observed variables (e.g., state dimensions).
+        - Nt is the total number of time steps in the true data.
+        - b_true: (Nt, Nq, L) array of bias added to the true data (if any)  
+
+        
+    - To do - add: 
+        U: full flowfield snapshots (e.g., for fluid dynamics data) could be stored in a separate attribute
+        Utrue: noise-free full flowfield snapshots for the true data
+
+
+    Methods:
+    - __init__: Initializes the Observations object, loading or creating truth data,
+                applying bias, adding noise, and interpolating to observation times.
+    - update_obs_idx: Calculates and updates the observation index based on the provided times and sampling rate.
+    - _set_bias: Applies manual or default bias to zero.
+    - _apply_noise: Adds noise to the biased truth data.
+    - _create_observations: Creates or loads truth data from a model or file.
+
+    """
 
     # Class Attributes (Defaults)
     noise_type = 'gauss, add'
@@ -52,6 +82,10 @@ class Observations():
 
         # 2. Generate or Load Truth Data
         if model is None:
+            if not kwargs.get('y_raw') and not kwargs.get('y_true'):
+                #todo - add option to sammple observations from a flow field. Eg, model.get(U) will be N x Nt and we take Nq randomly sampled points
+                raise ValueError("If model is None, either y_raw or y_true must be provided as a kwarg.")
+            
             assert ('y_raw' in kwargs or 'y_true' in kwargs) and 't_true' in kwargs, "If model is None, y_raw, y_true, and t_true must be provided as kwargs."
             
             self.y_raw = kwargs.get('y_raw', None)
