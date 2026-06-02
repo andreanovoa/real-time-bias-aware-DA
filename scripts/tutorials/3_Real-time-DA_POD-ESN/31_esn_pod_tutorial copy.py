@@ -61,7 +61,7 @@ from utils import add_noise_to_flow
 
 
 # Stack the velocity components together and Split into training and test sets
-Nt_train = 100
+Nt_train = 300
 data_true = np.array([ux, uy])
 
 data_noisy = add_noise_to_flow(data_true, noise_level=0.1, noise_type="gauss", spatial_smooth=0.1)
@@ -89,89 +89,6 @@ datasets = {
 }
 # anim = animate_flowfields(datasets, n_frames=10, step=2, figsize=(8, 6))
 # HTML(anim.to_jshtml())
-
-# %% [markdown]
-# # Part I. Apply POD to the dataset with `tools.POD` <a name="part1"></a>
-# We apply POD to the velocity fielsd $u=[U_x; U_y]$ only because the flow is incompressible. This is because the velocity components carry most of the total kinetic energy (TKE) in a turbulent or unsteady flow.
-# The pressure field does not directly contribute to TKE but rather acts as a constraint on the velocity field via the Navier-Stokes equations, specifically $P$ is often computed indirectly from the incompressible constraint ($\nabla\cdot u$) and it exhibits different spatial structures compared to velocity
-# 
-# 
-
-
-# %% [markdown]
-# ## Initialize POD instance <a name="part1-1"></a>
-# 
-
-
-from tools import POD
-
-case_pod = POD(X = X_train, 
-               N_modes=20,
-              domain=[0, 12, -2.5, 2.5])
-
-# %%
-
-# %% [markdown]
-# ## POD eigenvalues and the POD basis <a name="part1-3"></a> 
-# The eigenvalues contain the kinetic energy of the flow. With only 400 snapshots the POD decomposition is not yet converged as the two lines do not match. 
-
-# %%
-from plotting.pod import plot_spectrum, plot_modes
-
-
-plot_spectrum(case=case_pod, max_mode=20)
-plot_modes(case=case_pod, num_modes=10, n_col=3)
-
-
-# %% [markdown]
-# ## Flow reconstuction <a name="part1-4"></a>
-# 
-# We can see that most of the energy is concentrated on the first two modes, reaching over 95% of the TKE of the system. Let's now visualize the reconstruction for different number of modes. 
-
-# %%
-
-
-N_modes = case_pod.N_latent
-X_ref =  X_test[:, -1].copy()  # reference flow field for reconstruction error calculation
-X_ref_true = X_test_true[:, -1].copy()
-
-err = np.sqrt((X_ref - X_ref_true)**2) / np.nanmax(np.sqrt(X_ref_true**2))
-
-datasets = {f'Original data': X_ref.copy(),
-            'Noise error': err}  # reference data for reconstruction error calculation
-
-
-    
-  
-
-for N_modes in [case_pod.N_latent, 6, 2]:
-    # POD case reconstruction
-    _case = case_pod.truncate(n_modes=N_modes)
-
-    print(_case.N_latent)
-
-    Q = _case.reconstruct(X_ref.copy())
-    X = _case._to_physical_grid(Q)
-    
-
-
-    
-    err = np.sqrt((X - X_ref_true)**2) / np.nanmax(np.sqrt(X_ref_true**2))
-
-
-    datasets[f'{_case.N_latent} modes'] = X.copy()
-
-    datasets[f'Error ({_case.N_latent} modes)'] = err.copy()
-
-
-    
-
-
-# %%
-from plotting.pod import plot_flows_rms
-plot_flows_rms(case_pod, 
-                   datasets=datasets);
-
 
 
 # %% [markdown]
@@ -203,23 +120,29 @@ dt = 0.01  # time step size
 case_ESN = POD_ESN(data=X_train, 
                    dt=dt,
                    n_modes=4, 
-                   domain  = [-2, 2, 0, 12],
+                   domain  = [0, 12, -2, 2],
                    # ====== ESN arguments ======== # 
                    train_ESN=True,
-                   t_train=.8* N_train*dt,
-                   t_val=.2*N_train*dt,
+                   t_train=.7* N_train*dt,
+                   t_val=.1*N_train*dt,
                    N_wash=10,
                    noise=0.1,
                    N_func_evals=26,
                    rho_range=[0.2, 0.9],
-                   upsample=2,
-                   run_test=False,
+                   upsample=1,
+                   perform_test=True,
+                   domain_of_measurement=[5, 10, -1, 1],
+                   down_sample_measurement=5,
                    # ====== Plotting flags ======== # 
-                   plot_case=True
+                   qr_selection=0,
+                   plot_case=True,
+                   Nq=2,
                   )
 case_ESN_og = case_ESN.copy()
 
 # %% [markdown]
+
+
 
 # %% [markdown]
 # ## 3. Verify implementation <a name="part2-3"></a>
@@ -243,13 +166,38 @@ plt.plot(time, phi[:, 0, 0], label='POD-ESN')
 plt.gca().set(xlabel='time', ylabel='POD coeff 1')
 plt.legend()    
 
+# %%
+# washout phase
+
+case_ESN = case_ESN_og.copy()
+
+phi_test = case_ESN.encode(X_test)
+Nwash = 100
+
+x_wash = phi_test[:, :Nwash]
+
+case_ESN = case_ESN_og.copy()
+r_open = np.zeros((case_ESN.N_units,))
+
+for u_in in x_wash.T:
+    u_open, r_open = case_ESN._single_step(u_in, r_open)
+
+psi = case_ESN.build_psi(u_open, r_open)
+case_ESN.update_history(psi, reset=True)
+
 
 # %%
 # POD coeffs of test data
-_case = deepcopy(case_pod)
 
-phi_test = case_ESN.encode(X_test)
-phi_test_true = case_ESN.encode(X_test_true)
+phi_test = phi_test[:, Nwash:]
+phi_test_true = case_ESN.encode(X_test_true)[:, Nwash:]
+
+
+# POD-ESN fiorecast of the POD coefficients
+state, time = case_ESN.time_integrate(Nt=Ntest-Nwash)
+case_ESN.update_history(state, time)
+phi = case_ESN.get_POD_coefficients(Nt=Ntest-Nwash)
+
 
 plt.figure(figsize=(5,3))
 plt.plot(time, phi[:, 0, 0], label='POD-ESN')
@@ -307,7 +255,7 @@ test_data_up_true = X_test_true.copy()
 
 # === Get ESN prediction on the same time ===
 # initialize the ESN state with the first test data point
-reduced_state = case_ESN.project_data_onto_Psi(data=test_data_up[..., 0] - case_ESN.Q_mean)
+reduced_state = case_ESN.encode(test_data_up[:, 0])
 case_ESN.state = reduced_state
 
 
@@ -323,41 +271,28 @@ case_ESN.update_history(state, time)
 
 # Get reconstruction
 Phi_ESN = case_ESN.get_POD_coefficients(Nt=-0).squeeze()
-prediction = case_ESN.reconstruct(Phi=Phi_ESN[1:])
+prediction = case_ESN.decode(Phi_ESN[1:].T)
+prediction = case_ESN._to_physical_grid(prediction)
 
 
-# Compute the mean square error 
-MSE_evolution = POD.compute_MSE(prediction, test_data_up, time_evolution=True)
-MSE_evolution_true = POD.compute_MSE(prediction, test_data_up_true, time_evolution=True)
-plt.figure(figsize=(5,3))
-plt.plot(time, np.log10(MSE_evolution))
-plt.plot(time, np.log10(MSE_evolution_true), '--')
-plt.gca().set(xlabel='time', ylabel='log$_{10}$(MSE)')
-plt.legend(['Noisy', 'True'])
+# # Compute the mean square error 
+# plt.figure(figsize=(5,3))
+# plt.plot(time, np.log10(MSE_evolution))
+# plt.plot(time, np.log10(MSE_evolution_true), '--')
+# plt.gca().set(xlabel='time', ylabel='log$_{10}$(MSE)')
+# plt.legend(['Noisy', 'True'])
 
-# %%
 
-# Visualize the flow field reconstruction
-RMS_noisy = np.array([POD.compute_RMS(test_data_up[...,ti], 
-                                          prediction[...,ti]) for ti in range(prediction.shape[-1])])
-RMS_true = np.array([POD.compute_RMS(test_data_up_true[...,ti], 
-                                      prediction[...,ti]) for ti in range(prediction.shape[-1])])
+#%% plto
 
-U_datasets = [test_data_up_true[0].transpose(2,1,0),
-              test_data_up[0].transpose(2,1,0),
-              prediction[0].transpose(2,1,0), 
-              RMS_noisy[:,0].transpose(0,2,1),
-              RMS_true[:,0].transpose(0,2,1),]
+datasets = {
+    '$u_x$ true': test_data_up_true[:, -10],
+    '$u_x$ noisy': test_data_up[:, -10],
+    '$u_x$ POD-ESN': prediction[:, -10],
+}
 
-anim = animate_flowfields(U_datasets, 
-                          titles=['Truth', 'Noisy data', 'POD-ESN', 'RMS noisy', 'RMS true'], 
-                          n_frames=10, figsize=(10, 6)  )
-# anim
+from plotting.pod import plot_flows_rms
+
+plot_flows_rms(case_ESN, datasets)
 
 # %%
-HTML(anim.to_jshtml())
-
-# %% [markdown]
-# The POD-ESN recovers the true field from a noisy dataset, effectively acting as a de-noiser. Can we achieve this at higher noise levels? How about spatially smoothed or coloured noise? 
-
-

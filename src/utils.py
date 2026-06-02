@@ -1219,38 +1219,32 @@ def animate_flowfields(datsets,
 
 
 def get_figsize_based_on_domain(domain, total_subplots, max_cols=5, total_width=6):
-# def get_figsize_with_total_width(domain, total_width=12, min_height=4, ncols=2, nrows=1):
     """
-    Returns a (fig_width, fig_height) figsize in inches, 
-    where fig_width is set by total_width, and fig_height is scaled by domain aspect ratio.
-    
+    Returns ((fig_width, fig_height), ncols, nrows) where figsize respects the domain
+    aspect ratio and total_width constraint across the subplot grid.
+
     Parameters:
     - domain: [xmin, xmax, ymin, ymax]
-    - total_width: total width of the figure in inches
-    - min_height: minimum height in inches (for readability)
-    - ncols, nrows: subplot layout (for multi-panel figures)
-    
+    - total_subplots: number of subplots to arrange
+    - max_cols: maximum columns (prevents excessively wide layouts)
+    - total_width: desired figure width in inches
+
     Returns:
-    - Tuple: (fig_width, fig_height)
+    - Tuple: ((fig_width, fig_height), ncols, nrows)
     """
     x_span = abs(domain[1] - domain[0])
     y_span = abs(domain[3] - domain[2])
-
     aspect_ratio = y_span / x_span if x_span != 0 else 1
 
-    # Favor rows if aspect ratio is tall; favor cols if wide
-    if aspect_ratio >= 1:
-        ncols = min(max_cols, total_subplots)
-        nrows = int(np.ceil(total_subplots / ncols))
-        fig_width = total_width
-        fig_height =   (total_width / ncols) * aspect_ratio * nrows
+    ncols = min(max_cols, total_subplots)
+    nrows = int(np.ceil(total_subplots / ncols))
 
-    else:
-        nrows = min(max_cols, total_subplots)
-        ncols = int(np.ceil(total_subplots / nrows))
-        fig_height = total_width
-        fig_width =   (total_width / nrows) / aspect_ratio * ncols
-        
+    per_subplot_width = total_width / ncols
+    per_subplot_height = per_subplot_width * aspect_ratio
+
+    fig_width = total_width
+    fig_height = per_subplot_height * nrows
+
     return (fig_width, fig_height), ncols, nrows
 
 

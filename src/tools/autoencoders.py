@@ -109,10 +109,6 @@ class Projector(ABC):
         return float(np.mean((X - self.reconstruct(X)) ** 2))
 
     
-    def copy(self) -> Projector:
-        """Return a deep copy."""
-        return deepcopy(self)
-    
     # -------
     # utilities for grid handling
     # -------
@@ -503,19 +499,23 @@ class POD(Projector):
     def energy_fraction(self):
         """
         Relative and cumulative energy per mode.
+        - rel = lam / sum(lam) where lam = Sigma^2 are the eigenvalues of the correlation matrix C.
+        - cum = np.cumsum(rel) is the cumulative fraction of energy captured by the first j modes.
 
         Returns
         -------
         rel : ndarray (N_latent,)  fraction of total energy per mode
         cum : ndarray (N_latent,)  cumulative fraction
         """
-        lam = self.Sigma ** 2
-        rel = lam / lam.sum()
-        return rel, np.cumsum(rel)
+        lam = self.Sigma ** 2  # eigenvalues of C = Q^T Q / N_t
+
+        return lam / lam.sum(), np.cumsum(lam) / lam.sum()
+
 
     def truncate(self, n_modes: int) -> POD:
         """Truncate to the first n_modes modes in-place."""
         if n_modes >= self.N_latent:
+            print(f"Requested n_modes={n_modes} >= N_latent={self.N_latent}. No truncation applied.")
             return self
         self.Psi      = self.Psi[:, :n_modes]
         self.Phi      = self.Phi[:n_modes, :]
@@ -553,43 +553,6 @@ class POD(Projector):
             raise ValueError(
                 'Pass original_data in shape [(Nu) x Nx x Ny x (Nt)].')
 
-    # ── backward-compat aliases ───────────────────────────────────────────────
-
-
-
-    def project_data_onto_Psi(self, data: np.ndarray,
-                               remove_mean: bool = True) -> np.ndarray:
-        """
-        Project data onto the spatial basis and normalise by Sigma.
-
-        Equivalent to the original MODULO-based ``project_data_onto_Psi``.
-        Returns shape (N_t, N_latent) for backward compatibility.
-        For new code prefer ``encode(X)`` which returns (N_latent, N_t).
-        """
-        assert self.fitted, "POD must be fitted before projecting data."
-        
-        data = data.copy()
-        if data.ndim > 2:
-            data = data.reshape(-1, data.shape[-1])
-        elif data.shape[0] != self.Q_mean.shape[0]:
-            data = data.reshape(self.Q_mean.shape[0], -1)
-        if remove_mean:
-            data = data - self.Q_mean
-        Z = self.Psi.T @ data
-        return (Z / self.Sigma[:, None]).T
-
-    def rerun_decomposition(self, X: Optional[np.ndarray] = None,
-                             n_modes: Optional[int] = None) -> POD:
-        """Re-fit or truncate.  Drop-in for ``rerun_POD_decomposition``."""
-        if X is None and n_modes is None:
-            raise ValueError("Provide X (new data) or n_modes (truncation).")
-        if n_modes is not None and (X is None or n_modes < self.N_latent):
-            return self.truncate(n_modes)
-        if X is not None:
-            if n_modes is not None:
-                self.N_latent = n_modes
-            return self.fit(X)
-        return self
 
     # ── metrics ───────────────────────────────────────────────────────────────
 

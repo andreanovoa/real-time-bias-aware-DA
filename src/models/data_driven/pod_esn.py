@@ -1,4 +1,6 @@
 
+from typing import Optional
+
 from tools import POD
 from .esn import ESN_model
 import scipy.linalg as sla
@@ -40,7 +42,7 @@ class POD_ESN(ESN_model, POD):
     extra_print_params = [*ESN_model.extra_print_params, 'Nq', 'measure_modes', 'N_modes']
 
     def __init__(self,
-                 data,
+                 data, 
                  dt,
                  plot_case=False,
                  pdf_file=None, 
@@ -79,8 +81,13 @@ class POD_ESN(ESN_model, POD):
         # __________________________ Init ESN ___________________________ #
         # Initialize ESN to forecast the POD coefficients
         if train_ESN:
+            Phi = self.Phi.copy()
+            if Phi.ndim == 2:
+                Phi = Phi[np.newaxis, ...]
+
+            Phi = Phi.transpose(0, 2, 1)  # must be LxNtxNdim for ESN
             ESN_model.__init__(self,
-                               data=self.Phi,
+                               data=Phi, 
                                dt = dt,
                                plot_training=plot_case,
                                **kwargs)
@@ -97,16 +104,18 @@ class POD_ESN(ESN_model, POD):
             # If the sensors are already defined, use them
             self.Nq = len(self.sensor_locations)
 
-        print(f'Nq={self.Nq}')
 
         if plot_case:
-            POD.plot_POD_modes(case=self, num_modes=self.N_modes, cmap='viridis')
-            POD.plot_time_coefficients(case=self)
-            POD.plot_spectrum(case=self)
-            display_sensors = self.sensor_locations is not None
-            POD.plot_flows_rms(case=self, datasets=[data], names=['original'], 
-                               display_sensors=display_sensors)
+            rec = self.reconstruct(X=data[:, -1])
+            rec = self._to_physical_grid(rec)
+            err = np.sqrt((rec - data[:, -1])**2) / np.nanmax(data[:, -1]**2)
+            datasets={'Input': data[:, -1],
+                      f'POD {self.N_modes} modes': rec,
+                      'Error': err}
 
+            POD_ESN.plot_case(case=self, num_modes=self.N_modes, datasets=datasets)
+
+                                     
             if pdf_file is not None:
                 self.pdf_file = pdf_file
                 if isinstance(self.pdf_file, str):
@@ -224,9 +233,8 @@ class POD_ESN(ESN_model, POD):
         if dsm is not None:
             if isinstance(dsm, int):
                 dsm = [dsm, dsm]
-            # elif self.down_sample is not None:
-            #     dsm = [int(x / y) for x, y in zip(dsm, self.down_sample)]
-            else:
+            
+            elif not (isinstance(dsm, list) and len(dsm) == 2 and all(isinstance(x, int) for x in dsm)):
                 raise ValueError()
 
         self._down_sample_measurement = dsm
@@ -262,171 +270,103 @@ class POD_ESN(ESN_model, POD):
             x_idx = x_idx[::step_x]
             y_idx = y_idx[::step_y]
 
+        grid = np.ravel_multi_index(np.ix_(x_idx, y_idx), dims=(Nx, Ny))
+        # remove the idx not on fluid
+        grid_idx_fluid = np.where(self.fluid_mask_flat)[0]
+        grid_idx_fluid = np.intersect1d(grid_idx_fluid, grid)
 
-        return np.ix_(x_idx, y_idx)
+        # append the idx for the other variables (e.g., uy) if needed
+        if self.grid_shape[0] > 1:
+            grid_idx_fluid = np.concatenate([grid_idx_fluid + Nx*Ny*i for i in range(self.grid_shape[0])], axis=None)
+
+        return grid_idx_fluid
 
 
 
     def define_sensors(self, N_sensors=None):
 
         # Define the measurement grid
-        # grid_idx = POD.domain_mesh(domain=self.domain, 
-        #                            grid_shape=self.grid_shape,
-        #                            domain_of_interest=self.domain_of_measurement,
-        #                            down_sample=self.down_sample_measurement,
-        #                            ravel=True)[-1]
-        
-        Nx, Ny = self.grid_shape[1:]  # get spatial dims shape
-        grid_idx = np.ravel_multi_index(self.grid_of_measurement, dims=(Nx, Ny)).ravel()
 
-        # grid_idx = self.grid_of_measurement.ravel()
+
+        Nx, Ny = self.grid_shape[1:]  # get spatial dims shape
+        measure_grid_idx = self.grid_of_measurement
+
+        
 
         # Select a number N_sensors of the grid wither randomly or according to qr =selection scheme
         if N_sensors is None:
             N_sensors = self.N_sensors
 
         if self.qr_selection:
-            dom = self.Psi[grid_idx]
-            qr_idx = sla.qr(dom.T, pivoting=True)[-1]
-            idx = grid_idx[qr_idx[:N_sensors]]
+
+
+            dom = self._to_physical_grid(self.Psi).transpose(1,0,2,3)
+            dom[np.isnan(dom)] = 0.
+            dom = dom.reshape(dom.shape[0], -1)
+            
+            qr_idx = sla.qr(dom, pivoting=True)[-1]
+            allowed_qr_idx = qr_idx[np.isin(qr_idx, measure_grid_idx, assume_unique=True)]
+            
+            sensor_idx = []
+            for idx in allowed_qr_idx:
+                if idx > Nx*Ny:
+                    idx = idx-Nx*Ny
+                    
+                if idx not in sensor_idx:
+                    sensor_idx.append(idx)
+
+                if len(sensor_idx) >= N_sensors:
+                    break
+            sensor_idx = np.array(sensor_idx)
+                
         else:
-            if N_sensors < len(grid_idx):
-                idx = np.sort(self.rng.choice(grid_idx, size=N_sensors, replace=False), axis=None)
+            one_dom = measure_grid_idx[measure_grid_idx < Nx*Ny]  
+            if N_sensors < len(one_dom):
+                sensor_idx = np.sort(self.rng.choice(one_dom, size=N_sensors, replace=False), axis=None)
             else:
-                idx = grid_idx.copy()
+                sensor_idx = one_dom.copy()
 
-        if N_sensors > len(grid_idx):
-            print(f'Requested number of sensors {N_sensors} >= grid size in domain of measurement ({len(grid_idx)})')
+        if N_sensors > len(measure_grid_idx):
+            print(f'Requested number of sensors {N_sensors} >= grid size in domain of measurement ({len(measure_grid_idx)})')
 
-        n_grid = self.grid_shape[1] * self.grid_shape[2]
-        sensor_idx = [idx + (n_grid * ii) for ii in range(self.grid_shape[0])]
+
+        #plot the sensors against the og grid and measurement grid for debugging
+        plt.figure()
+        # original grid
+        x_idx, y_idx = np.unravel_index(np.arange(Nx*Ny), (Nx, Ny))
+        plt.scatter(x_idx, y_idx, label='Original grid', alpha=0.01
+                    )
+        #measurement grid
+        x_idx, y_idx = np.unravel_index(measure_grid_idx[:len(measure_grid_idx)//2], (Nx, Ny))
+        plt.scatter(x_idx, y_idx, label='Measurement grid')
+
+        #sensors
+        x_idx, y_idx = np.unravel_index(sensor_idx, (Nx, Ny))
+        plt.scatter(x_idx, y_idx, label='Sensors')
+        plt.legend()
+        plt.show()
+
+        # sensors fro all u
+        sensor_idx = [sensor_idx + Nx*Ny*i for i in range(self.grid_shape[0])]
 
         return np.array(sensor_idx).reshape((-1,))
 
     # ========================================== PLOTS =======================================================
-
+    
 
     @staticmethod
-    def plot_case(case, datasets=None, names=None, num_modes=None):
+    def plot_case(case, datasets: Optional[dict]=None, num_modes=None):
+
+        from plotting.pod import plot_modes, plot_time_coefficients, plot_spectrum, plot_flows_rms
 
         if num_modes is None:
             num_modes = case.N_modes
 
-        POD.plot_POD_modes(case=case, num_modes=num_modes, cmap='viridis')
-        POD.plot_time_coefficients(case=case,  num_modes=num_modes)
-        POD.plot_spectrum(case=case,  max_mode=num_modes)
+        plot_modes(case=case, num_modes=num_modes, cmap='viridis', n_col=2)
+        plot_time_coefficients(case=case, num_modes=num_modes)
+        plot_spectrum(case=case, max_mode=num_modes)
+
 
         if datasets is not None:
             display_sensors = case.sensor_locations is not None
-            POD.plot_flows_rms(case=case, datasets=datasets, names=names, display_sensors=display_sensors)
-
-        if case.trained:
-            if num_modes is None:
-                train_data=case.Phi
-            else:
-                train_data=case.Phi[:, :num_modes]
-            ESN_model.plot_training_data(case=case, train_data=train_data)
-
-
-
-    # @staticmethod
-    # def plot_sensors(case, background_data=None):
-    #     if background_data is None:
-    #         background_data = case.reconstruct(Phi=case.Phi[-1], reshape=True)
-
-    #     if background_data.ndim > 3:
-    #         background_data = background_data[..., -1].copy()
-
-    #     # Original domain of the data
-    #     Ux = background_data.copy()
-
-    #     # Domain of interest, i.e., cut version of the original
-    #     Ux_focus = case.original_to_domain_of_interest(original_data=Ux)
-
-    #     X1, X2, grid_idx = POD.domain_mesh(domain=case.domain_og,
-    #                                        grid_shape=case.grid_shape_og,
-    #                                        down_sample=case.down_sample,
-    #                                        domain_of_interest=case.domain_of_interest,
-    #                                        ravel=False)
-    #     # Domain of measurement
-    #     idx_s = case.sensor_locations[case.sensor_locations < len(X1.ravel())]
-
-    #     down_sampled = case.down_sample != case.down_sample_measurement
-    #     if down_sampled:
-    #         grid_idx_m = POD.domain_mesh(domain=case.domain,
-    #                                      grid_shape=case.grid_shape,
-    #                                      down_sample=case.down_sample_measurement,
-    #                                      domain_of_interest=case.domain_of_measurement,
-    #                                      ravel=True)[-1]
-
-
-    #     figsize, ncols, nrows = get_figsize_based_on_domain(domain=case.domain_of_interest, total_subplots=2)
-    
-
-    #     fig, axs = plt.subplots(ncols=ncols, nrows=nrows, figsize=figsize, sharey=True, sharex=True)
-
-    #     norms = [mpl.colors.Normalize(vmin=np.min(u), vmax=np.max(u)) for u in [Ux[0], Ux[1]]]
-
-    #     # windowed = case.domain_og != case.domain_of_measurement
-    #     windowed = not np.array_equal(case.domain_of_interest, case.domain_of_measurement)
-
-    #     for ii, ax in enumerate(axs):
-    #         # if subset:
-    #         #     ax.pcolormesh(X1_og, X2_og, Ux[ii],
-    #         #                   cmap=mpl.colormaps['Greys'], norm=norms[ii], rasterized=True)
-    #         ax.pcolormesh(X1, X2, Ux_focus[ii],
-    #                       cmap=mpl.colormaps['viridis'], norm=norms[ii], rasterized=True)
-    #         if windowed:
-    #             dom = case.domain_of_measurement.copy()
-    #             square = mpl.patches.Rectangle((dom[0], dom[2]), dom[1] - dom[0], dom[3] - dom[2],
-    #                                            edgecolor='k', facecolor='none', lw=2,
-    #                                            label="Domain of measurement", zorder=-10)
-
-    #             ax.add_patch(square)
-    #         ax.set_aspect('equal')
-
-    #         if down_sampled:
-    #             ax.plot(X1.ravel()[grid_idx_m], X2.ravel()[grid_idx_m], 'x', color='w', ms=5,
-    #                     label="Possible sensor locations")
-
-    #         ax.scatter(X1.ravel()[idx_s], X2.ravel()[idx_s],
-    #                    c=np.arange(len(X2.ravel()[idx_s])),
-    #                    cmap='YlOrRd', edgecolors='k', s=3.5 ** 2, lw=.5, label="Sensor locations")
-
-
-
-
-
-
-
-    # @staticmethod
-    # def plot_MSE_evolution(case,
-    #                        original_data,
-    #                        N_modes_cases=None,
-    #                        N_modes_cases_plot=None):
-    #     MSE = []
-    #     MSE_sensors = []
-    #
-    #     if N_modes_cases is None:
-    #         N_modes_cases = np.arange(case.N_modes, step=20)[1:]
-    #     if N_modes_cases_plot is None:
-    #         N_modes_cases_plot = [0, int(case.N_modes // 2), case.N_modes]
-    #
-    #     for _N_modes in N_modes_cases:
-    #         _case = case.copy()
-    #         _case.rerun_POD_decomposition(N_modes=_N_modes)
-    #
-    #         if _N_modes in N_modes_cases_plot:
-    #             _MSE = POD_ESN_v2.plot_reconstruct(case=_case, original_data=original_data)
-    #         else:
-    #             _reconstructed_data = _case.reconstruct(Phi=_case.Phi[-1], reshape=True)
-    #             if _reconstructed_data.ndim > 3:
-    #                 _reconstructed_data = _reconstructed_data[..., -1]
-    #             _MSE = POD_ESN_v2.compute_MSE(_reconstructed_data, original_data)
-    #             plt.savefig(case.figs_folder + f'reconstruct_POD{_N_modes}', dpi=300)
-    #
-    #         MSE.append(_MSE)
-    #
-    #     plt.figure()
-    #     plt.plot(N_modes_cases, MSE)
-    #     plt.gca().set(xlabel='Number of modes in the decomposition', ylabel='MSE')
+            plot_flows_rms(case=case, datasets=datasets, display_sensors=display_sensors)

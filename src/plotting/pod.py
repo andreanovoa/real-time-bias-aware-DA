@@ -53,22 +53,28 @@ def plot_modes(case: POD,
         axs  = fig.subplots(nrows=n_row, ncols=n_col,
                             sharex=True, sharey=True)
         axs  = [axs] if case.N_latent == 1 else axs.ravel()
-        norm = colors.Normalize(vmin=data[0].min(),
-                                vmax=data[0].max())
+        norm = colors.Normalize(vmin=np.nanmin(data)*.8,
+                                vmax=np.nanmax(data)*.8)
         
         for kk, ax in zip(range(num_modes), axs):
             im = ax.pcolormesh(X1, X2, data[kk],
                                 cmap=mpl.colormaps[cmap], norm=norm,
                                 rasterized=True)
-            ax.set_title(f'mode {kk}', fontsize='xx-small')
+            ax.set_title(f'mode {kk+1}', fontsize='xx-small')
             ax.set_aspect('equal')
             if kk >= num_modes - n_col:
                 ax.set_xlabel('$y$')
             if kk % n_col == 0:
                 ax.set_ylabel('$x$')
         fig.colorbar(im, ax=axs, shrink=0.25, aspect=20) #type: ignore
+
+        if num_modes < n_col * n_row:
+            for ax in axs[num_modes:]:
+                ax.set_visible(False)
+
         if save: 
             plt.savefig(f'modes_dim{jj}.png', dpi=300)
+
 
 
 def plot_time_coefficients(case: POD, 
@@ -125,7 +131,7 @@ def plot_time_coefficients(case: POD,
         grid[0].get_yaxis().set_ticks([])
         grid[0].get_xaxis().set_ticks([])
 
-@staticmethod
+
 def plot_spectrum(case: POD, max_mode: Optional[int] = None):
     """
     Bar chart of eigenvalue spectrum + cumulative energy.
@@ -138,20 +144,21 @@ def plot_spectrum(case: POD, max_mode: Optional[int] = None):
     fig, axs = plt.subplots(1, 2, figsize=(10, 4))
     Lambda            = case.Sigma ** 2
     normalised_Lambda = Lambda / Lambda[0]
+    # rel_energy, cum_energy = case.energy_fraction()
+    cum_energy = np.cumsum(Lambda) / sum(Lambda)
 
     axs[0].bar(np.arange(case.N_latent) + 1, normalised_Lambda, color='C4')
     axs[0].set(xlabel='Mode $j$', title='$\\lambda_j / \\lambda_0$',
                 xlim=[0, max(case.N_latent, 10)])
 
-    cum_energy = np.cumsum(Lambda) / Lambda.sum()
     axs[1].plot(np.arange(case.N_latent) + 1, cum_energy, 'o-', color='C4',
                 label='$\\Sigma \\lambda_j / \\Sigma_k \\lambda_k$')
 
     if case._TKE is not None:
-        energy_frac = Lambda / 2 / (case._Phi.shape[0] if case._Phi is not None else 1)
+        
         axs[1].plot(np.arange(case.N_latent) + 1,
-                    np.cumsum(energy_frac) / case._TKE,
-                    dashes=[10, 5], color='k', label='TKE fraction')
+                    np.cumsum(Lambda) / 2 / case._TKE,
+                    dashes=[10, 5], color='k', label='$\\Sigma \\lambda_j /$ 2TKE')
 
     axs[1].grid(visible=True, linestyle='--', alpha=0.5)
     axs[1].set(xlabel='# modes', title='Cumulative energy')
@@ -173,12 +180,10 @@ def plot_spectrum(case: POD, max_mode: Optional[int] = None):
 
 
 
+
 def plot_flows_rms(case: POD,
-                    datasets,
-                    reconstructed_data=None,
+                    datasets: dict,
                     display_dims=None,
-                    display_RMS: Union[str, int, list] = 'all',
-                    names=None,
                     norm_flow=None,
                     norm_rms=None,
                     cmap_flow: str = 'viridis',
@@ -201,88 +206,107 @@ def plot_flows_rms(case: POD,
     save               : if True, saves to PNG.
     display_sensors    : overlay sensor locations if available.
     """
-    if get_figsize_based_on_domain is None:
-        raise ImportError('utils.get_figsize_based_on_domain not available.')
 
     def _prep(d, target):
-        d[np.isnan(d)] = 0.
         if d.ndim > 3:
             d = d[..., -1]
         if d.shape != target:
             raise ValueError(
                 f'Data shape {d.shape} does not match target {target}.')
+        # Apply fluid mask if available
+        if hasattr(case, 'fluid_mask_flat'):
+            mask_2d = case.fluid_mask_flat.reshape(case.grid_shape[-2:])[np.newaxis, ...]
+            mask_2d = np.broadcast_to(mask_2d, d.shape)
+            return np.ma.masked_where(~mask_2d, d)
         return d
 
     def _global_norms(prepared, titles, nf, nr):
         if nr is None:
-            rms_data = np.array([d for d, t in zip(prepared, titles)
-                                    if 'RMS' in t])
-            nr = colors.Normalize(vmin=0., vmax=rms_data.max())
+            rms_data = np.array([d for d, t in zip(prepared, titles) if 'error' in t.lower() or 'rms' in t.lower()])
+            if len(rms_data) == 0:
+                nr = colors.Normalize(vmin=0., vmax=1.)
+            else:
+                nr = colors.Normalize(vmin=0., vmax=np.nanmax(rms_data))
         if nf is None:
-            nf = [colors.Normalize(vmin=np.min([y[r] for y in prepared]),
-                                    vmax=np.max([y[r] for y in prepared]))
-                    for r in range(nrows)]
+            flow_data = np.array([d for d, t in zip(prepared, titles)                                    
+                                  if 'error' not in t.lower() and 'rms' not in t.lower()])
+            nf = [colors.Normalize(vmin=np.nanmin([y[r] for y in flow_data]),
+                                    vmax=np.nanmax([y[r] for y in flow_data]))
+                    for r in range(flow_data[0].shape[0])]
         return nf, nr
 
-    datasets = datasets if isinstance(datasets, list) else [datasets]
-
-    if display_RMS == 'all':
-        rms_ids = list(range(len(datasets)))
-    else:
-        rms_ids = [display_RMS] if isinstance(display_RMS, int) else list(display_RMS)
-
-    if reconstructed_data is None:
-        reconstructed_data = case.reconstruct()
-    if reconstructed_data.ndim > 3:
-        reconstructed_data = reconstructed_data[..., -1].copy()
-
+    
+    ref_data = list(datasets.values())[0]
     display_dims = display_dims if display_dims is not None else \
-                    np.arange(reconstructed_data.shape[0])
+                    np.arange(ref_data.shape[0])
+    
+    print(f"Displaying dimensions: {display_dims}")
+    print(ref_data.shape)
     if isinstance(display_dims, float):
         display_dims = [display_dims]
-    nrows = len(display_dims)
+
     X1, X2 = case.domain_mesh
 
     idx, display_sensors = [], display_sensors
     if display_sensors and hasattr(case, 'sensor_locations'):
-        idx = case.sensor_locations[
-            case.sensor_locations < len(X1.ravel())]
+        sensor_locs = case.sensor_locations
+        idx = case.sensor_locations[sensor_locs < len(X1.ravel())]
 
-    _datasets = [reconstructed_data]
-    _titles   = [f'ROM {case.N_latent} modes']
-    _cmaps    = [cmap_flow]
+    _datasets = []
+    _titles   = []
+    _cmaps    = []
 
-    for ii, (ds, name) in enumerate(
-            zip(datasets, names or [None] * len(datasets))):
-        ds = _prep(ds, reconstructed_data.shape)
+    if isinstance(cmap_flow, str):
+        cmap_flow = plt.get_cmap(cmap_flow)
+        cmap_flow.set_bad(color='lightgray')
+    if isinstance(cmap_rms, str):
+        cmap_rms = plt.get_cmap(cmap_rms)
+        cmap_rms.set_bad(color='lightgray')
+
+
+    for name, ds in datasets.items():
+        print(f"Processing dataset '{name}' with shape {ds.shape}...")
+        ds = _prep(ds, ref_data.shape)
+
         _datasets.append(ds)
-        _cmaps.append(cmap_flow)
-        _titles.append(name or f'dataset {ii}')
-        if ii in rms_ids:
-            _datasets.append(POD.compute_RMS(reconstructed_data, ds))
-            _titles.append(f'RMS({name or f"dataset {ii}"})')
+        _titles.append(name)
+
+        if 'error' in name.lower() or 'rms' in name.lower():
             _cmaps.append(cmap_rms)
+        else:
+            _cmaps.append(cmap_flow)
+        
 
     norm_flow, norm_rms = _global_norms(_datasets, _titles,
                                         norm_flow, norm_rms)
-    ncols   = len(_datasets)
-    figsize = get_figsize_based_on_domain(case.domain,
-                                            total_subplots=ncols * nrows)[0]
-    figsize = (ncols * 2, nrows * figsize[1] / figsize[0] * 4)
-    sub_figs = plt.figure(figsize=figsize, layout='constrained') \
-                    .subfigures(nrows=nrows, ncols=1)
 
-    for jj, (fig, nf) in enumerate(
-            zip(sub_figs if nrows > 1 else [sub_figs], norm_flow)):
-        axs = fig.subplots(nrows=1, ncols=ncols, sharex=True, sharey=True)
+    nrows   = len(_datasets)
+    ncols = len(display_dims)
+    figsize = get_figsize_based_on_domain(case.domain, max_cols=ncols, 
+                                            total_subplots=ncols * nrows, total_width=ncols*3)[0]
+
+
+    fig, all_axs = plt.subplots(figsize=figsize, layout='constrained', nrows=nrows, ncols=ncols, sharex=True, sharey=True)
+    if nrows == 1:
+        all_axs = all_axs[np.newaxis, :]
+    if ncols == 1:
+        all_axs = all_axs[:, np.newaxis]
+
+    for jj in range(ncols):
+
+        axs = all_axs[:, jj]
+        nf = norm_flow[jj] if isinstance(norm_flow, list) else norm_flow
+
         im_rms = im_flow = None
         for ax, ds, title, cm in zip(axs, _datasets, _titles, _cmaps):
-            if 'RMS' in title:
-                im_rms = ax.pcolormesh(X1, X2, ds[jj], cmap=cm,
-                                        norm=norm_rms, rasterized=True)
+            if 'error' in title.lower() or 'rms' in title.lower():
+                im_rms = ax.pcolormesh(X1, X2, ds[jj], cmap=cm,  norm=norm_rms, rasterized=True)
             else:
-                im_flow = ax.pcolormesh(X1, X2, ds[jj], cmap=cm,
-                                        norm=nf, rasterized=True)
+                im_flow = ax.pcolormesh(X1, X2, ds[jj], cmap=cm,  norm=nf, rasterized=True)
+
+            if jj == 0:
+                ax.set_ylabel(title, fontsize='small');
+
             if display_sensors and len(idx):
                 ax.scatter(X1.ravel()[idx], X2.ravel()[idx],
                             c=np.arange(len(idx)),
@@ -290,7 +314,7 @@ def plot_flows_rms(case: POD,
             ax.set_aspect('equal')
         for im in [im_rms, im_flow]:
             if im is not None:
-                plt.colorbar(im, ax=axs, shrink=0.5)
+                plt.colorbar(im, ax=axs, shrink=0.5, orientation='horizontal')
     if save:
         plt.savefig('rom_flows_rms.png', dpi=300)
-    return sub_figs
+    return fig
