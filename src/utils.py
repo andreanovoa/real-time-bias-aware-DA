@@ -1035,8 +1035,6 @@ def load_cylinder_dataset(noise_type = 'gauss', noise_level = 0.1, smoothing = 0
         mat = load_from_mat_file(data_folder + 'circle_re_100.mat')
 
         U, V = [mat[key] for key in ['ux', 'uy']]  # Nu, Nt, Ny, Nx 
-        U[np.isnan(U)] = 0.
-        V[np.isnan(V)] = 0.
 
         U_noisy, V_noisy = add_noise_to_flow(U, V, 
                                             noise_level=noise_level, 

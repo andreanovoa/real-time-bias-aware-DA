@@ -5,9 +5,6 @@ Pre-processing, decomposition algorithms, and linear subspace ROM classes.
 
 Functions
 ---------
-prepare_data            : NaN-mask + zero-mean Q from raw (N_t, Nx, Ny) fields
-energy_fraction         : relative / cumulative energy from singular values
-
 snapshot_pod            : Snapshot POD — exact solver (Sirovich 1987)
 snapshot_pod_randomized : Randomized snapshot POD (Halko et al. 2011)
 spod_sieber             : SPOD via filtered correlation matrix (Sieber et al. 2016)
@@ -25,7 +22,8 @@ Usage
 -----
 ::
 
-    from tools_ML.linear_rom import prepare_data, POD, SPOD
+    from utils import prepare_data
+    from pod_spod import POD, SPOD
 
     Q, fluid_mask, to_grid = prepare_data([ux_raw, uy_raw])   # (N_fluid*2, N_t)
 
@@ -54,14 +52,6 @@ import numpy as np
 
 
 # ── optional project utilities ────────────────────────────────────────────────
-try:
-    from utils import (save_figs_to_pdf,
-                       get_figsize_based_on_domain,
-                       crop_data_to_domain_of_interest)
-except ImportError:
-    save_figs_to_pdf = None                   # type: ignore[assignment]
-    get_figsize_based_on_domain = None        # type: ignore[assignment]
-    crop_data_to_domain_of_interest = None    # type: ignore[assignment]
 
 try:
     from mpl_toolkits.axes_grid1 import ImageGrid

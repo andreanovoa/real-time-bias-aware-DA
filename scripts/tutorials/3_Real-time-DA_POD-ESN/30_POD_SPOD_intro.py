@@ -1,3 +1,4 @@
+# %% 
 """
 06_POD_SPOD_tutorial.py
 =======================
@@ -19,12 +20,8 @@ Contents
   8. POD vs SPOD comparison
   9. Towne SPOD (Welch / per-frequency eigenproblem)
 
-Run from the tutorials directory::
-
-    python 06_POD_SPOD_tutorial.py
-
-or open in VS Code / Spyder as a "percent-cell" script (cells separated by ``# %%``).
 """
+# %% 
 
 import os
 import numpy as np
@@ -35,7 +32,7 @@ from scipy.io import loadmat
 from utils import set_working_directories
 
 # ── POD / SPOD classes ────────────────────────────────────────────────────────
-from tools import POD, SPOD 
+from tools import POD, SPOD, spod_towne, print_spod_towne_summary
 
 
 # %% ── 2. Load data ───────────────────────────────────────────────────────────
@@ -48,14 +45,26 @@ N_t, Nx, Ny = ux_raw.shape
 print(f'Snapshots  : N_t = {N_t}')
 print(f'Grid       : {Nx} × {Ny}')
 
-# prepare_data:
+# POD.fit() calls preprocess_snapshot() internally, which:
 #   • detects the NaN mask (cylinder interior) from the first snapshot
-#   • flattens fluid points to (N_fluid, N_t) and subtracts the temporal mean
-#   • returns to_grid() for re-embedding flat vectors onto the 2-D mesh
+#   • flattens fluid points to (N_fluid*Nu, N_t) and subtracts temporal mean
+#   • stores fluid_mask_flat and grid_shape on the instance
 #
-# Stacking [ux, uy] gives modes that capture both velocity components at once.
-Q, fluid_mask, to_grid = prepare_data([ux_raw, uy_raw], subtract_mean=True)
-N_fluid = fluid_mask.sum()
+# Stacking [ux, uy] as axis-0 gives modes that capture both velocity components.
+N_modes = 20
+X_raw   = np.array([ux_raw, uy_raw])           # (2, N_t, Nx, Ny)
+pod     = POD(n_modes=N_modes, method='exact').fit(X_raw)
+
+N_fluid    = int(pod.fluid_mask_flat.sum())
+fluid_mask = pod.fluid_mask_flat.reshape(Nx, Ny)
+
+def to_grid(vec):
+    """(N_fluid,) --> (Nx, Ny) with NaN at solid-body points."""
+    g = np.full(Nx * Ny, np.nan)
+    g[pod.fluid_mask_flat] = np.real(vec)
+    return g.reshape(Nx, Ny)
+
+Q = pod.preprocess_snapshot(X_raw)             # (N_fluid*2, N_t) zero-mean flat matrix
 
 print(f'\nData matrix Q : {Q.shape}   (2 × {N_fluid} fluid pts, {N_t} snapshots)')
 print(f'Cylinder body : {(~fluid_mask).sum()} NaN pts excluded')
@@ -86,10 +95,6 @@ plt.tight_layout(); plt.show()
 #   pod.Sigma  (N_modes,)       singular values  Σ_k = √λ_k
 #   pod.Q_mean (N_x, 1)         temporal mean
 #
-N_modes = 20
-
-pod = POD(n_modes=N_modes, method='exact').fit(Q)
-
 print(f'Fitted POD : {pod.N_modes} modes')
 print(f'Psi   : {pod.Psi.shape}')
 print(f'Phi   : {pod.Phi.shape}')
@@ -100,8 +105,8 @@ print(f'Leading singular values: {pod.Sigma[:6].round(4)}')
 # %% ── 4. Energy spectrum ─────────────────────────────────────────────────────
 rel, cum = pod.energy_fraction()
 print(f'Mode 1     : {rel[0]*100:.2f}% energy')
-print(f'Modes 1–2  : {cum[1]*100:.2f}%')
-print(f'Modes 1–4  : {cum[3]*100:.2f}%')
+print(f'Modes 1-2  : {cum[1]*100:.2f}%')
+print(f'Modes 1-4  : {cum[3]*100:.2f}%')
 
 POD.plot_spectrum(pod, max_mode=N_modes)
 plt.suptitle('POD energy spectrum — cylinder wake Re = 100', fontsize=12, y=1.01)
@@ -174,20 +179,22 @@ plt.tight_layout(); plt.show()
 #   Q_hat = pod.reconstruct(Q, n_modes=r)  truncated reconstruction with r modes
 #   mse   = pod.score(Q)              mean squared reconstruction error
 #
-Z     = pod.encode(Q)
+Z     = pod.encode(X_raw)
 Q_hat = pod.decode(Z)
 
 print(f'Latent Z    : {Z.shape}')
 print(f'Q_hat       : {Q_hat.shape}')
-print(f'encode(Q) == Phi: {np.allclose(Z, pod.Phi, atol=1e-10)}')
-print(f'MSE ({N_modes} modes): {pod.score(Q):.2e}')
+print(f'encode(X_raw) == Phi: {np.allclose(Z, pod.Phi, atol=1e-10)}')
+mse_full = float(np.mean((Q - pod.Psi @ pod.Phi) ** 2))
+print(f'MSE ({N_modes} modes): {mse_full:.2e}')
 
 # Reconstruction error vs number of modes retained
 mode_range = [1, 2, 4, 6, 8, 10, 15, 20]
-mse_list   = [pod.score(pod.reconstruct(Q, n_modes=r)) for r in mode_range]
+mse_list   = [float(np.mean((Q - pod.Psi[:, :r] @ pod.Psi[:, :r].T @ Q) ** 2))
+              for r in mode_range]
 
 snap_idx = N_t // 2
-Q_r2     = pod.reconstruct(Q, n_modes=2)
+Q_r2     = pod.Psi[:, :2] @ pod.Psi[:, :2].T @ Q   # 2-mode zero-mean reconstruction
 vmax     = np.nanpercentile(np.abs(to_grid(Q[:N_fluid, snap_idx])), 98)
 
 fig = plt.figure(figsize=(16, 4))
@@ -244,11 +251,12 @@ print(f'Dominant frequency : f = {f_peak:.4f}  (normalised)')
 print(f'Shedding period    : ~{T_snaps} snapshots')
 print(f'Filter half-width  : Nf = {Nf}')
 
-spod = SPOD(Nf=Nf, filter_kind='gaussian', n_modes=N_modes).fit(Q)
+spod = SPOD(Nf=Nf, filter_kind='gaussian', n_modes=N_modes).fit(X_raw)
 print(f'\nSPOD fitted: {spod.N_modes} modes')
 
 # SPOD reconstruction API is identical to POD
-mse_spod = spod.score(Q)
+Q_spod   = spod.preprocess_snapshot(X_raw)
+mse_spod = float(np.mean((Q_spod - spod.Psi @ spod.Psi.T @ Q_spod) ** 2))
 print(f'SPOD MSE ({N_modes} modes): {mse_spod:.2e}')
 
 
@@ -356,17 +364,18 @@ plt.tight_layout(); plt.show()
 #
 # POD / SPOD API
 # ──────────────
-#   from tools import POD, SPOD, prepare_data
+#   from tools import POD, SPOD
 #
-#   Q, mask, to_grid = prepare_data([ux_raw, uy_raw])   # NaN mask + zero-mean
+#   X_raw = np.array([ux_raw, uy_raw])              # (2, N_t, Nx, Ny)
+#   pod   = POD(n_modes=20, method='exact').fit(X_raw)
+#   spod  = SPOD(Nf=Nf, filter_kind='gaussian').fit(X_raw)
 #
-#   pod  = POD(n_modes=20, method='exact').fit(Q)       # or method='randomized'
-#   spod = SPOD(Nf=Nf, filter_kind='gaussian').fit(Q)   # same API, one extra param
+#   Q         = pod.preprocess_snapshot(X_raw)      # (N_fluid*2, N_t) zero-mean
+#   N_fluid   = pod.fluid_mask_flat.sum()
 #
-#   Z     = pod.encode(Q)            # (N_modes, N_t)
-#   Q_hat = pod.decode(Z)            # (N_x, N_t)
-#   Q_hat = pod.reconstruct(Q, n_modes=r)
-#   mse   = pod.score(Q)
+#   Z     = pod.encode(X_raw)        # (N_modes, N_t) — same as pod.Phi
+#   Q_hat = pod.decode(Z)            # (N_fluid*2, N_t) with temporal mean added
+#   mse   = np.mean((Q - pod.Psi @ pod.Phi) ** 2)
 #
 #   POD.plot_spectrum(pod)
 #   POD.plot_time_coefficients(pod, num_modes=10)

@@ -82,9 +82,6 @@ class Observations():
 
         # 2. Generate or Load Truth Data
         if model is None:
-            if not kwargs.get('y_raw') and not kwargs.get('y_true'):
-                #todo - add option to sammple observations from a flow field. Eg, model.get(U) will be N x Nt and we take Nq randomly sampled points
-                raise ValueError("If model is None, either y_raw or y_true must be provided as a kwarg.")
             
             assert ('y_raw' in kwargs or 'y_true' in kwargs) and 't_true' in kwargs, "If model is None, y_raw, y_true, and t_true must be provided as kwargs."
             

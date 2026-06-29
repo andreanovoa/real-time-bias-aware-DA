@@ -46,7 +46,7 @@ Checkout the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aw
    * Lorenz 63
    * Lorenz 96
    * Azimuthal thermoacoustics model
-   * Kuramoto–Sivashinsky equation
+   * Kuramoto-Sivashinsky equation
 
    Data-driven models [`models/data_driven`](src/models/data_driven/)
    * `ESN_model` — Echo State Network as a forecasting model

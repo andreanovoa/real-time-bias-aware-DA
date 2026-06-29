@@ -456,14 +456,20 @@ class POD(Projector):
         Q = self.preprocess_snapshot(X)
         return self.Psi.T @ Q
 
-    def decode(self, Z: np.ndarray) -> np.ndarray:
+    def decode(self, Z: np.ndarray, idx: Optional[np.ndarray] = None) -> np.ndarray:
         """
         Reconstruct from latent coefficients.
-
-            Q_hat = Psi Z + Q_mean    shape (N_x, N_t)
+            - Z : latent coefficients (N_latent, N_t)
+            - idx : optional indices to select a subset of the spatial modes (Psi) and mean (Q_mean).
+        Returns the reconstructed state in the original space:
+            Q_hat = Psi Z + Q_mean    shape (len(idx), N_t) or (N_fluid * n_fields, N_t) if idx is provided.
         """
-        return self.Psi @ Z + self.Q_mean
-    
+
+        if idx is not None:
+            return self.Psi[idx, :] @ Z + self.Q_mean[idx, :]
+        else:
+            return self.Psi @ Z + self.Q_mean
+
 
     def reconstruct(self, X: Optional[np.ndarray] = None,
                     n_modes: Optional[int] = None,

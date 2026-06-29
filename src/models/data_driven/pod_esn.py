@@ -55,7 +55,7 @@ class POD_ESN(ESN_model, POD):
         Initialize the POD-ESN model.
         
         Args:
-            - data  (np.ndarray): Data to be used for the POD decomposition and ESN training  [Nu x ... x Nt]
+            - data  (np.ndarray): Data to be used for the POD decomposition and ESN training  [ (Nu, N_t, Nx, Ny) or (N_t, Ndim*Nx*Ny) ]
             - plot_case (bool, optional): Whether to plot the case. Defaults to True.
             - pdf_file (None or str, optional): Whether to save the plot case. If a string is provided, it is used as the filename. Defaults to None.
             - skip_sensor_placement (bool, optional): Whether to skip sensor placement. Defaults to False.
@@ -167,21 +167,23 @@ class POD_ESN(ESN_model, POD):
         if self.measure_modes:
             obs = self.get_POD_coefficients(Nt=Nt)
         else:
-            Psi = self.Psi[self.sensor_locations]
-            Q_mean = self.Q_mean[self.sensor_locations]
             if Phi is None:
-                Phi = self.get_POD_coefficients(Nt=Nt)
+                Phi = self.get_POD_coefficients(Nt=Nt) # Nt x N_modes x Ndim
 
-            obs = self.reconstruct(Phi=Phi, 
-                                   Psi=Psi, 
-                                   Q_mean=Q_mean, 
-                                   reshape=False)
-            if obs.ndim == 4:
-                obs = obs[0]
-            if obs.ndim == 3:
-                obs = obs.transpose(1, 0, 2)
-            
-        return obs
+            og_shape = Phi.shape
+            reshape = Phi.ndim == 3
+            if reshape:
+                Phi = Phi.transpose(1, 0, 2)  # N_modes x Nt x Ndim
+                Phi = Phi.reshape(self.N_modes, -1)  # N_modes x Nt*Ndim
+                
+            obs = self.decode(Z=Phi, idx=self.sensor_locations) #shape (N, Nt*Ndim)
+
+            if reshape:
+                obs = obs.reshape(self.Nq, og_shape[0], og_shape[2])  # Nq x Nt x Ndim
+                obs = obs.transpose(1, 0, 2)  # Nt x Nq x Ndim
+
+
+        return obs # Nt x Nq x m
 
     def reset_case(self, reset_POD=False, reset_ESN=False, Phi0=None, **kwargs):
         if reset_POD:
@@ -287,40 +289,46 @@ class POD_ESN(ESN_model, POD):
 
         # Define the measurement grid
 
+        Nu, Nx, Ny = self.grid_shape
+        measure_grid_idx = np.asarray(self.grid_of_measurement)
 
-        Nx, Ny = self.grid_shape[1:]  # get spatial dims shape
-        measure_grid_idx = self.grid_of_measurement
+        one_dom = measure_grid_idx[measure_grid_idx < Nx * Ny]  # only the first variable (e.g., ux) for sensor placement
 
-        
 
-        # Select a number N_sensors of the grid wither randomly or according to qr =selection scheme
+
         if N_sensors is None:
             N_sensors = self.N_sensors
 
+
         if self.qr_selection:
 
+            Psi = self._to_physical_grid(self.Psi).transpose(1, 0, 2, 3)  # (r, Nu, Nx, Ny)
 
-            dom = self._to_physical_grid(self.Psi).transpose(1,0,2,3)
-            dom[np.isnan(dom)] = 0.
-            dom = dom.reshape(dom.shape[0], -1)
-            
-            qr_idx = sla.qr(dom, pivoting=True)[-1]
-            allowed_qr_idx = qr_idx[np.isin(qr_idx, measure_grid_idx, assume_unique=True)]
-            
-            sensor_idx = []
-            for idx in allowed_qr_idx:
-                if idx > Nx*Ny:
-                    idx = idx-Nx*Ny
-                    
-                if idx not in sensor_idx:
-                    sensor_idx.append(idx)
+            Psi = np.nan_to_num(Psi, nan=0.0)
+            Psi = Psi.reshape(Psi.shape[0], Nu, Nx * Ny)
 
-                if len(sensor_idx) >= N_sensors:
-                    break
-            sensor_idx = np.array(sensor_idx)
-                
+            # choose one variable block for placement, e.g. variable 0
+            A = Psi.reshape(Psi.shape[0], -1)  # shape (n_candidates, r)
+            A = A[:, measure_grid_idx].T # shape (r, n_candidates)
+            
+
+            if N_sensors > A.shape[1]:
+                A = np.dot(A, A.T)  # shape (n_candidates, n_candidates)
+
+            qr_idx = sla.qr(A.T, pivoting=True)[-1]
+            
+            sensor_idx = measure_grid_idx[qr_idx[:N_sensors]]
+            sensor_idx = sensor_idx.ravel() % (Nx * Ny)  # only the first variable (e.g., ux) for sensor placement    
+
+            if np.unique(sensor_idx).size < N_sensors:
+                print(f'Warning: QR selection returned {np.unique(sensor_idx).size} unique sensors, less than requested {N_sensors}.')
+                sensor_idx = np.unique(sensor_idx)
+                extra_needed = N_sensors - sensor_idx.size
+                if extra_needed > 0:
+                    extra_sensor_idx = measure_grid_idx[qr_idx[N_sensors:N_sensors + extra_needed]]
+                    extra_sensor_idx = extra_sensor_idx.ravel() % (Nx * Ny) 
+                    sensor_idx = np.concatenate([sensor_idx, extra_sensor_idx])
         else:
-            one_dom = measure_grid_idx[measure_grid_idx < Nx*Ny]  
             if N_sensors < len(one_dom):
                 sensor_idx = np.sort(self.rng.choice(one_dom, size=N_sensors, replace=False), axis=None)
             else:
