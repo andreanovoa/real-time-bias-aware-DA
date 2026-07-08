@@ -40,13 +40,25 @@ class Filter(object):
 
     def observation_operator(self, Af):
         """
-        Adjust observation operator matrix in case of parameter estimation not active
+        Adjust observation operator matrix in case of parameter estimation not active.
+
+        self._M maps the full state to observables as [zeros(Nq, Nphi+Na) | eye(Nq)] --
+        i.e. the observed variables are always the trailing Nq rows of the state vector.
+        When Af has had its Na alpha rows trimmed (parameter estimation inactive), we must
+        keep the trailing Nq (identity) columns and only shrink the leading zero block --
+        NOT simply take the first Af.shape[0] columns, which would cut into the zero block
+        and miss the identity columns entirely.
+
         Inputs:
             Af: forecast ensemble at time t
         Returns:
-            Observation operator matrix adjust in case of parameter estimation not active
+            Observation operator matrix adjusted to Af's state size
         """
-        return self._M[:, :Af.shape[0]]  
+        Nq = self._M.shape[0]
+        n_state = Af.shape[0]
+        if n_state == self._M.shape[1]:
+            return self._M
+        return np.hstack((self._M[:, :n_state - Nq], self._M[:, -Nq:]))
 
     @property
     def filter_name(self):
@@ -68,8 +80,9 @@ class EnSRKF(Filter):
                 Aa: analysis ensemble (or Af is Aa is not real)
         """
     
-    def __init__(self, M, gamma):
-        super().__init__(M, gamma=None)
+    def __init__(self, M, gamma=None):
+        super().__init__(M, gamma=gamma)
+
 
     def __call__(self, Af, d, Cdd):
 
@@ -127,8 +140,8 @@ class EnKF(Filter):
         """
     
 
-    def __init__(self, M, gamma):
-        super().__init__(M, gamma=None)
+    def __init__(self, M, gamma=None):
+        super().__init__(M, gamma=gamma)
 
 
     def __call__(self, Af, d, Cdd):
@@ -186,7 +199,7 @@ class rBA_EnKF(Filter):
     def __init__(self, M, gamma):
         super().__init__(M, gamma=gamma)
 
-    def __call__(self, Af, d, Cdd, Cbb, b, bd, J):
+    def __call__(self, Af, d, Cdd, Cbb, b, J):
 
         m = Af.shape[1]
         Nq = len(d)
@@ -206,21 +219,17 @@ class rBA_EnKF(Filter):
         
         if b.ndim == 1:
             B = np.repeat(b[:, np.newaxis], m, axis=1)
-            BD = np.repeat(bd[:, np.newaxis], m, axis=1)
         else: 
             if b.shape[-1] == m:
                 B = b.copy()
-                BD = bd.copy()
             elif b.shape[-1] == 1:
                 # B = rng.multivariate_normal(b.squeeze(), Cbb, m).transpose()
                 B = np.repeat(b, m, axis=1)
-                BD = np.repeat(bd, m, axis=1)
             else:
                 raise ValueError('b must have shape (Nq,), (Nq, 1) or (Nq, m), got {}'.format(b.shape))
 
         # Unbias the states
         Y = Q + B
-        D = D + BD
 
         Cqq = np.dot(S, S.T)  # covariance of observations M Psi_f Psi_f.T M.T
         if np.array_equiv(Cdd, Cbb):

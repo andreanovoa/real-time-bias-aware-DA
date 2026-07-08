@@ -518,40 +518,6 @@ class Ensemble(object):
 
 
 
-    def update_history(self, 
-                       psi: np.ndarray, 
-                       t = None, 
-                       b = None,
-                       update_last_state: bool = False,
-                       reset: bool = False) -> None:
-        """
-        Updates the model's history with a new ensemble state at time t.
-        Parameters
-        ----------
-        psi : np.ndarray
-            New ensemble state to add to the history.
-        t : float or np.ndarray, optional
-            Time corresponding to the new ensemble state. Default is None.
-        update_last_state : bool, optional
-            If True, updates the last stored state instead of appending a new one.
-            Default is False.
-        reset : bool, optional
-            If True, resets the history before adding the new state.
-            Default is False.
-        Side effects
-        ------------
-        - Calls self.model.update_history to add the new state and time to the model's history.
-        """
-        self.model.update_history(psi, t, 
-                                  reset=reset,
-                                  update_last_state=update_last_state)
-        if self.bias is not None:
-            self.bias.update_history(b, t, 
-                                     reset=reset,
-                                     update_last_state=update_last_state)
-
-
-
     def get_observable_hist(self, Nt=0) -> Tuple[Optional[np.ndarray], np.ndarray]:
         """
         Returns the bias-corrected ensemble history.
@@ -580,12 +546,13 @@ class Ensemble(object):
             return None, y_model  # No bias correction needed
         else:
             t_model = self.model.hist_t[-Nt:]
-            y_unbiased = self._recover_unbiased_solution(pb.hist_t, pb.hist, t_model, y_model)
+            b_hist = pb.get_bias_hist(mean=True)
+            y_unbiased = self._recover_unbiased_solution(pb.hist_t, b_hist, t_model, y_model)
             return y_unbiased, y_model
 
 
     @staticmethod
-    def _recover_unbiased_solution(t_b, b, t, y):
+    def _recover_unbiased_solution(t_b, b, t, y_biased):
         """
         Returns the bias-corrected solution by interpolating bias to match y's time points.
         We may need to interpolate because the bias and model histories may have different time grids.
@@ -598,7 +565,7 @@ class Ensemble(object):
             Bias values at each time in t_b.
         t : array-like, shape (T,)
             Time points corresponding to the model history.
-        y : array-like, shape (T, ...) or (T,)
+        y_biased : array-like, shape (T, ...) or (T,)
             Model observable history at each time in t.
 
         Returns
@@ -607,15 +574,14 @@ class Ensemble(object):
             Bias-corrected observable history at each time in t.
         """
 
-        if b.shape[-1] == 1 and y.shape[-1] > 1:
-            b = np.repeat(b, y.shape[-1], axis=-1)
+        if b.shape[-1] == 1 and y_biased.shape[-1] > 1:
+            b = np.repeat(b, y_biased.shape[-1], axis=-1)
 
         if len(t_b) != len(t):
             print('Interpolating bias to match model time points. this may be slow if histories are long.')
             b = interpolate(t_b, b, t, fill_values=None) # Interpolate bias to model time points
 
-        return y + b
-    
+        return y_biased + b
 
 
 
@@ -679,7 +645,7 @@ class Ensemble(object):
             assert self.bias is not None, "Bias-aware filter selected but no bias instance found. Please initialize self.bias with a Bias instance before calling analysis_step."
 
             # ----------------- Retrieve bias and its Jacobian ----------------- #
-            b = self.bias.current_bias  
+            b = self.bias.current_bias  # Shape: (obs_dim, 1)  
             J = self.bias.state_derivative()
 
             if self.bias.biased_observations:
@@ -714,10 +680,14 @@ class Ensemble(object):
                 self.rejected_analysis = (self.current_time, f'Non-physical parameters {idx_alpha}')
                 Aa = self.inflate(Af, self.inflation_factor_rejection, d=d, additive=True)
 
-        # =========== UPDATE MODEL HISTORY ========== #
-        self.update_history(Aa[:self.model.Nphi + self.Na, :], 
-                            self.current_time, update_last_state=True)
+        # =========== UPDATE MODEL & BIAS HISTORY ========== #
         self.assimilated_data = (d, self.current_time)
+        self.model.update_history(Aa[:self.model.Nphi + self.Na, :],
+                                  self.current_time, update_last_state=True)
+        if self.bias is not None:
+            inn = d - self.model.get_observables()
+            updated_state = self.bias.update_state_from_innovation(inn)
+            self.bias.update_history(updated_state, self.current_time, update_last_state=True)
 
     
 
@@ -812,7 +782,7 @@ class Ensemble(object):
     @property
     def alpha_limits_matrix(self) -> Optional[np.ndarray]:
         if not hasattr(self, '_alpha_lims'):
-            alpha_lims = np.array([[lo, hi] for (lo, hi) in self.model.alpha_lims.values()]).T  # Shape: (2, Na)
+            alpha_lims = np.array([self.model.alpha_lims[a] for a in self.est_alpha], dtype=object).T  # Shape: (2, Na)
 
             # mask out None limits. If all limits are None, skip check
             if np.all(alpha_lims == None):

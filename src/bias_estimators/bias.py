@@ -260,27 +260,27 @@ class Bias:
     @property
     def current_bias(self):
         """Returns the current bias computed from the current state."""
-        return self.get_bias(state=self.current_state)[0, :, :]
-
+        return self.get_bias(state=self.current_state, mean=True)[0, :, :]
+    
     @property
     def current_innovations(self):
         """Returns the current innovations computed from the current state."""
-        return self.get_innovations(state=self.current_state)[0, :, :]
+        return self.get_innovations(state=self.current_state, mean=True)[0, :, :]
 
 
     def get_bias(self, state, mean=False):
+        state = self._format_state(state)
         if mean:
             state = np.mean(state, axis=-1, keepdims=True)
 
-        state = self._format_state(state)
         return state[:, self.bias_idx, :]
     
 
     def get_innovations(self, state, mean=False):
+        state = self._format_state(state)
         if mean:
             state = np.mean(state, axis=-1, keepdims=True)
 
-        state = self._format_state(state)
         return state[:, self.observed_idx, :]
 
     
@@ -350,11 +350,12 @@ class Bias:
                 resampled_innovation = np.random.multivariate_normal(mean_innovation, cov_innovation, size=self.N_ens).T  # Resample innovations for each ensemble member (obs_dim, Nens)
                 updated_state[self.observed_idx, :] = resampled_innovation
                 
-            # Run 1 open loop step to propagate the updated observed components to the bias components if needed, e.g., for ESN bias model.
-            if hasattr(self, 'forecaster') and self.forecaster is not None:
-                raise(NotImplementedError("Time integration after state update is not implemented yet."))
-                esn = self.forecaster # type: ESN_model
-                updated_state = esn.step(updated_state)  
+            # # Run 1 open loop step to propagate the updated observed components to the bias components if needed, e.g., for ESN bias model.
+            # if hasattr(self, 'forecaster') and self.forecaster is not None:
+            #     # raise(NotImplementedError("Time integration after state update is not implemented yet."))
+            #     esn = self.forecaster # type: ESN_model
+            #     b, r = 
+            #     updated_state = esn.step(updated_state)  
 
         return updated_state
 
