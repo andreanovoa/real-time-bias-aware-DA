@@ -326,8 +326,9 @@ class EchoStateNetwork:
         Win_1 = self.Win[:, :self.N_dim_in]  # type: Union[csr_matrix, np.ndarray]
         g = self.sigma_in * 1.0 / norm
         
-        if isinstance(Win_1, csr_matrix):
-            return Win_1.multiply(g[np.newaxis, :])
+        if issparse(Win_1):
+            # .multiply returns a COO matrix: convert back to CSR for efficient products
+            return csr_matrix(Win_1.multiply(g[np.newaxis, :]))
         else:
             return Win_1 * g[np.newaxis, :]
 
@@ -478,7 +479,7 @@ class EchoStateNetwork:
 
         N_ens = tt.shape[-1]
         if N_ens == 1:
-            if isinstance(dr_di, csr_matrix):
+            if issparse(dr_di):
                 RHS = dr_di.T.multiply(tt[:, 0][np.newaxis, :])
             else:
                 RHS = dr_di.T * tt[:, 0][np.newaxis, :]
@@ -486,7 +487,7 @@ class EchoStateNetwork:
 
         J = np.zeros((self.N_dim, self.N_dim_in, N_ens))
         for ens_i in range(N_ens):
-            if isinstance(dr_di, csr_matrix):
+            if issparse(dr_di):
                 RHS = dr_di.T.multiply(tt[:, ens_i][np.newaxis, :])
             else:
                 RHS = dr_di.T * tt[:, ens_i][np.newaxis, :]

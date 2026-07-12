@@ -607,7 +607,10 @@ class Ensemble(object):
             Bias-corrected observable history at each time in t.
         """
 
-        if b.shape[-1] == 1 and y.shape[-1] > 1:
+        if b.shape[-1] != y.shape[-1]:
+            # Bias-estimator ensemble size differs from the model ensemble size:
+            # correct all members with the mean bias
+            b = np.mean(b, axis=-1, keepdims=True)
             b = np.repeat(b, y.shape[-1], axis=-1)
 
         if len(t_b) != len(t):
