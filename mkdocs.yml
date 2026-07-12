@@ -88,5 +88,5 @@ nav:
       - Tools (POD / SPOD / ESN core): api/tools.md
   - Publications: publications.md
 
-exclude_docs: |
+not_in_nav: |
   2023_CMAME_Erratum.pdf

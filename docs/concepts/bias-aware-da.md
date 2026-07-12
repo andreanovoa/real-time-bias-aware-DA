@@ -40,6 +40,15 @@ minimizes a cost function with three norms — the ensemble spread, the distance
 the bias-corrected estimate and the data, and the bias norm weighted by a
 user-defined regularization factor $\gamma \ge 0$:
 
+!!! warning "Erratum to the published paper"
+    Equations (15)–(16) of the published CMAME paper contain small typos in the
+    transposes of the Jacobian terms. The equations below — and the
+    [`rBA_EnKF`][romda.data_assimilation.rBA_EnKF] implementation — follow the
+    **corrected** formulation of the
+    [2024 erratum](../2023_CMAME_Erratum.pdf). The published and corrected forms
+    coincide for a single observation ($N_q = 1$), where the Jacobian is a scalar;
+    no conclusion of the paper is affected.
+
 $$
 \mathcal{J}(\boldsymbol{\psi}_j) =
 \left\| \boldsymbol{\psi}_j - \boldsymbol{\psi}_j^\mathrm{f} \right\|^2_{\mathbf{C}^{\mathrm{f}^{-1}}_{\psi\psi}} +
@@ -71,6 +80,10 @@ the Jacobian of the bias estimator, supplied by
 [`Bias.state_derivative`][romda.bias_estimators.bias.Bias.state_derivative]. In the
 unbiased limit ($\mathbf{b}=\mathbf{0}$, $\mathbf{J}=\mathbf{0}$) the r-EnKF reduces to
 the stochastic EnKF.
+
+This simplified form assumes uncorrelated observations
+($\mathbf{C}_{dd} = \sigma_d \mathbb{I}$); the general form is derived in the
+[erratum](../2023_CMAME_Erratum.pdf).
 
 ## Bias estimators
 

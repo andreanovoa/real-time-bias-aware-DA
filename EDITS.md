@@ -265,3 +265,10 @@ Found while cross-reading the two branches:
     https://andreanovoa.github.io/real-time-bias-aware-DA/
   - To preview locally: `pip install -r docs/requirements-docs.txt && mkdocs serve`.
 - README updated for the new name, layout and quick-start example.
+- **CMAME erratum**: the r-EnKF equations as published in CMAME (2023) Eqs. (15)–(16)
+  contain typos in the Jacobian transposes (see `docs/2023_CMAME_Erratum.pdf`). The
+  `rBA_EnKF` implementation follows the corrected erratum equations (1a)–(1b) — now
+  stated explicitly in the docstring, the documentation theory page, tutorial 13, and
+  pinned by `tests/test_filters.py::test_matches_corrected_erratum_equations`, which
+  verifies the implementation matches the corrected form exactly and rejects the
+  as-published (un-transposed) form.

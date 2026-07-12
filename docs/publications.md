@@ -11,6 +11,8 @@ The methods implemented in `romda` were developed in the following publications.
 - Nóvoa, Racca & Magri (2023). **Inferring unknown unknowns: Regularized bias-aware
   ensemble Kalman filter.** *Computer Methods in Applied Mechanics and Engineering.*
   [Published paper](https://doi.org/10.1016/j.cma.2023.116502) |
+  [**Erratum (2024)**](2023_CMAME_Erratum.pdf) — corrects small typos in the transposes
+  of Eqs. (15)–(16); `romda` implements the corrected equations |
   [Legacy repository](https://github.com/MagriLab/rBA-EnKF)
 - Nóvoa & Magri (2022). **Real-time thermoacoustic data assimilation.** *Journal of
   Fluid Mechanics.* [Published paper](https://doi.org/10.1017/jfm.2022.653) |

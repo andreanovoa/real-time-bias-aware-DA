@@ -167,7 +167,20 @@ class EnKF(Filter):
 #  ================================================================================================================== #
 class rBA_EnKF(Filter):
 
-    """Regularized Bias-Aware Ensemble Kalman Filter (r-EnKF) based on the derivation in Nóvoa et al. (CMAME, 2024).
+    """Regularized Bias-Aware Ensemble Kalman Filter (r-EnKF) from Nóvoa, Racca & Magri
+    (CMAME, 2023), as corrected by the 2024 erratum (docs/2023_CMAME_Erratum.pdf).
+
+        Note: Equations (15)-(16) of the published paper contain small typos in the
+        transposes of the Jacobian terms; this implementation follows the corrected
+        equations (1a)-(1b) of the erratum:
+
+            psi_a = psi_f + K [ (I + J)^T (d - y_f) - gamma Cdd Cbb^-1 J^T b_f ]
+            K = C M^T [ Cdd + (I+J)^T (I+J) M C M^T + gamma Cdd Cbb^-1 J^T J M C M^T ]^-1
+
+        The published and corrected forms coincide for a single observation (Nq = 1).
+        This simplified form assumes uncorrelated observations (Cdd diagonal), as
+        derived in the erratum.
+
         Inputs:
             Af: forecast ensemble at time t (augmented with Y)
             d: observation at time t. If the observations are biased, the caller must

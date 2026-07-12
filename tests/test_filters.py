@@ -105,3 +105,52 @@ class TestRegularizedBiasAwareEnKF:
         q_a = np.mean(Aa[-Nq:], axis=-1)
         q_f = np.mean(Af[-Nq:], axis=-1)
         assert np.linalg.norm(q_a + b - d) < np.linalg.norm(q_f + b - d)
+
+    def test_matches_corrected_erratum_equations(self, monkeypatch):
+        """The implementation must follow the CORRECTED equations (1a)-(1b) of the
+        2024 CMAME erratum (docs/2023_CMAME_Erratum.pdf):
+
+            psi_a = psi_f + K [ (I+J)^T (D - Y) - gamma Cdd Cbb^-1 J^T b ]
+            K = C M^T [ Cdd + (I+J)^T (I+J) MCM^T + gamma Cdd Cbb^-1 J^T J MCM^T ]^-1
+
+        i.e., with the Jacobian TRANSPOSES of the erratum, not the as-published form
+        (I+J)(...)(I+J)^T. A non-symmetric J with Nq > 1 distinguishes the two forms.
+        """
+        import romda.data_assimilation as da
+
+        M, Af, d, Cdd = make_case()
+        Cbb = Cdd.copy()
+        gamma = 2.0
+        b = np.array([0.4, -0.2])
+        J = np.array([[0.3, 0.5],       # deliberately non-symmetric
+                      [0.0, -0.2]])
+
+        # Fix the stochastic observation ensemble so the comparison is exact
+        seed = 1234
+        monkeypatch.setattr(da, 'rng', np.random.default_rng(seed))
+        Aa = rBA_EnKF(M, gamma=gamma)(Af, d, Cdd, Cbb, b, J)
+
+        # --- Reference: erratum Eqs. (1a)-(1b) written in covariance form ---
+        D = np.random.default_rng(seed).multivariate_normal(d, Cdd, m).T
+        M_ = M[:, :Af.shape[0]]
+        Iq = np.eye(Nq)
+        Psi_f = Af - np.mean(Af, 1, keepdims=True)
+        C = Psi_f @ Psi_f.T / (m - 1)                       # forecast covariance
+        MCM = M_ @ C @ M_.T
+        B = np.tile(b[:, None], (1, m))
+        Y = M_ @ Af + B
+
+        IJ = Iq + J
+        K = C @ M_.T @ np.linalg.inv(
+            Cdd + IJ.T @ IJ @ MCM + gamma * Cdd @ np.linalg.inv(Cbb) @ J.T @ J @ MCM)
+        Aa_expected = Af + K @ (IJ.T @ (D - Y)
+                                - gamma * Cdd @ np.linalg.inv(Cbb) @ J.T @ B)
+
+        np.testing.assert_allclose(Aa, Aa_expected, rtol=1e-9, atol=1e-12)
+
+        # and it must NOT match the as-published (un-transposed) form
+        K_pub = C @ M_.T @ np.linalg.inv(
+            Cdd + IJ @ MCM @ IJ.T + gamma * Cdd @ np.linalg.inv(Cbb) @ J @ MCM @ J.T)
+        Aa_published = Af + K_pub @ (IJ @ (D - Y)
+                                     - gamma * Cdd @ np.linalg.inv(Cbb) @ J @ B)
+        assert not np.allclose(Aa, Aa_published, rtol=1e-6)
