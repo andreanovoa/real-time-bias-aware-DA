@@ -234,9 +234,7 @@ Found while cross-reading the two branches:
    `has_valid_spread` but is disabled (`return True`); left as-is (explicitly marked
    temporary in the code).
 8. `environment.yml` exists only on `main`; `editable` relies on `pyproject.toml`.
-   Note: `pyproject.toml` pins `numba==0.64.0`, which does not exist on PyPI (latest
-   0.6x line differs) — consider relaxing; also `pyts>=0.13` is required for
-   `plotting/pod.py` (0.12 pulls an ancient numba).
+   Note: keep `pyts>=0.13` (needed by `plotting/pod.py`; 0.12 pulls an ancient numba).
 
 ---
 
@@ -244,7 +242,7 @@ Found while cross-reading the two branches:
 
 - `.gitignore`: added `.venv/`.
 - Generated ESN configs are written to `src/config/esn_configs/` (already gitignored).
-- The tutorial notebooks were re-executed where possible in a fresh Python 3.12 venv
-  with numpy 2.4 / scipy 1.17 / matplotlib 3.10; all non-data-dependent tutorials pass:
-  00, 01, 02, 03*, 04, 05, 10, 11, 12, 13, 20, 21, 22, 23
-  (* 03 fixed but requires the wake dataset for full execution).
+- The tutorial notebooks were re-executed end-to-end where possible in a fresh
+  Python 3.12 venv with numpy 2.4 / scipy 1.17 / matplotlib 3.10; all non-data-dependent
+  tutorials pass: 00, 01, 02, 04, 05, 10, 11, 12, 13, 20, 21, 22, 23
+  (03, 24, 25, 30, 31, 32 need the Zenodo datasets, blocked in this environment).
