@@ -2,8 +2,8 @@
 import numpy as np
 import pytest
 
-from tools import POD, SPOD, spod_towne
-from tools.pod_spod import snapshot_pod, snapshot_pod_randomized, spod_sieber
+from romda.tools import POD, SPOD, spod_towne
+from romda.tools.pod_spod import snapshot_pod, snapshot_pod_randomized, spod_sieber
 
 
 def synthetic_flow(N_t=200, Nx=24, Ny=12, noise=0.0, seed=0):

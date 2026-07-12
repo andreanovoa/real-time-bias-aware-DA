@@ -246,3 +246,22 @@ Found while cross-reading the two branches:
   Python 3.12 venv with numpy 2.4 / scipy 1.17 / matplotlib 3.10; all non-data-dependent
   tutorials pass: 00, 01, 02, 04, 05, 10, 11, 12, 13, 20, 21, 22, 23
   (03, 24, 25, 30, 31, 32 need the Zenodo datasets, blocked in this environment).
+
+---
+
+## 7. Addendum (doc branch): package rename and documentation site
+
+- **Package renamed to `romda`** (real-time reduced-order modelling and bias-aware DA).
+  All modules moved under `src/romda/` and every import in the library, tests,
+  tutorials and scripts now uses the `romda.*` namespace
+  (e.g. `from romda.ensemble import Ensemble`). `pip install -e .` installs `romda`.
+  Verified: 88/88 tests pass and tutorial 12 executes end-to-end after the rename.
+- **Documentation site** (MkDocs Material + mkdocstrings) added:
+  - `mkdocs.yml` + pages under `docs/` (home, getting started, architecture,
+    bias-aware DA theory with MathJax, tutorials index, API reference, publications);
+  - `docs/requirements-docs.txt` — minimal environment to build the site;
+  - `.github/workflows/docs.yml` — deploys to the `gh-pages` branch on pushes to
+    `doc`/`main` (`mkdocs gh-deploy`). Site URL:
+    https://andreanovoa.github.io/real-time-bias-aware-DA/
+  - To preview locally: `pip install -r docs/requirements-docs.txt && mkdocs serve`.
+- README updated for the new name, layout and quick-start example.

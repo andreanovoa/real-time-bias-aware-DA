@@ -2,8 +2,8 @@
 import numpy as np
 import pytest
 
-from observations import Observations
-from models.physical import VdP
+from romda.observations import Observations
+from romda.models.physical import VdP
 
 
 def make_truth(**kwargs):

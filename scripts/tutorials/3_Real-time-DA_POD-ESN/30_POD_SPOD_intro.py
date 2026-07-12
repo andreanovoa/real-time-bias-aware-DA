@@ -29,11 +29,11 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from scipy.io import loadmat
 
-from utils import set_working_directories, get_wake_data
+from romda.utils import set_working_directories, get_wake_data
 
 # ── POD / SPOD classes ────────────────────────────────────────────────────────
-from tools import POD, SPOD, spod_towne, print_spod_towne_summary
-from plotting.pod import plot_spectrum, plot_time_coefficients
+from romda.tools import POD, SPOD, spod_towne, print_spod_towne_summary
+from romda.plotting.pod import plot_spectrum, plot_time_coefficients
 
 
 # %% ── 2. Load data ───────────────────────────────────────────────────────────

@@ -3,9 +3,9 @@ requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "real-time-da"
+name = "romda"
 version = "2.3.0"
-description = "Real-time Bias-Aware Data Assimilation"
+description = "Real-time reduced-order modelling and bias-aware data assimilation"
 readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "MIT"}  

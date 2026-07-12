@@ -1,9 +1,9 @@
-from bias_estimators import *
+from romda.bias_estimators import *
 from create import *
-from models.physical import *
+from romda.models.physical import *
 from plot_results import *
 from run import *
-from utils import *
+from romda.utils import *
 
 
 # %% ====================== SELECT TRUE AND FORECAST MODELS ========================== #

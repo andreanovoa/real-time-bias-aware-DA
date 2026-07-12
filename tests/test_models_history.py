@@ -2,8 +2,8 @@
 import numpy as np
 import pytest
 
-from models import HistoryTracker
-from models.physical import VdP, Lorenz63
+from romda.models import HistoryTracker
+from romda.models.physical import VdP, Lorenz63
 
 
 class TestHistoryTracker:

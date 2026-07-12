@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from bias_estimators import Bias, ConstantBias, NoBias, DriftLinearBias
+from romda.bias_estimators import Bias, ConstantBias, NoBias, DriftLinearBias
 
 Nq = 2
 

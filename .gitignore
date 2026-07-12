@@ -32,3 +32,4 @@ src/bias_estimators/updates.md
 deprecated/
 
 .venv/
+site/

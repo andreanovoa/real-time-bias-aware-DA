@@ -5,7 +5,7 @@ These use a small synthetic travelling-wave 'flow' so no external dataset is nee
 import numpy as np
 import pytest
 
-from models.data_driven import POD_ESN
+from romda.models.data_driven import POD_ESN
 
 
 def synthetic_flow(N_t=260, Nx=24, Ny=12):

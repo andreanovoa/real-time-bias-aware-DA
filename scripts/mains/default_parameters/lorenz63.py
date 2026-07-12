@@ -1,5 +1,5 @@
-from models.physical import Lorenz63
-from bias_estimators import ESN
+from romda.models.physical import Lorenz63
+from romda.bias_estimators import ESN
 import numpy as np
 
 rnd = np.random.RandomState(6)

@@ -8,11 +8,11 @@ observations sequentially.
 import numpy as np
 import pytest
 
-from observations import Observations
-from models.physical import VdP
-from ensemble import Ensemble
-from data_assimilation import EnKF, EnSRKF, rBA_EnKF
-from bias_estimators import ConstantBias, NoBias, DriftLinearBias
+from romda.observations import Observations
+from romda.models.physical import VdP
+from romda.ensemble import Ensemble
+from romda.data_assimilation import EnKF, EnSRKF, rBA_EnKF
+from romda.bias_estimators import ConstantBias, NoBias, DriftLinearBias
 
 
 # --------------------------------------------------------------------------- fixtures

@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from data_assimilation import Filter, EnKF, EnSRKF, rBA_EnKF
+from romda.data_assimilation import Filter, EnKF, EnSRKF, rBA_EnKF
 
 rng = np.random.default_rng(0)
 

@@ -1,7 +1,7 @@
 from create import *
-from models.physical import *
-from utils import *
-from bias_estimators import *
+from romda.models.physical import *
+from romda.utils import *
+from romda.bias_estimators import *
 from plot_results import *
 from run import *
 # ============================================================================================== #

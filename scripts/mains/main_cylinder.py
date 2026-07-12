@@ -1,12 +1,12 @@
 import sys
 import os as os
 
-from models.data_driven import POD_ESN
-from utils import set_working_directories, set_cylinder_truth, load_cylinder_dataset, save_to_pickle_file, load_from_pickle_file, save_figs_to_pdf
+from romda.models.data_driven import POD_ESN
+from romda.utils import set_working_directories, set_cylinder_truth, load_cylinder_dataset, save_to_pickle_file, load_from_pickle_file, save_figs_to_pdf
 from plot_results import plot_ensemble, plot_timeseries
 from post_processing.cylinder import animate_flowfields
 from create import create_ensemble
-from data_assimilation import dataAssimilation_bias_blind
+from romda.data_assimilation import dataAssimilation_bias_blind
 
 from matplotlib import pyplot as plt
 

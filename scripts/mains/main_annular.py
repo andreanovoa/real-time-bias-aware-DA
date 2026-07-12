@@ -1,8 +1,8 @@
 from default_parameters.lorenz63 import bias_params
-from data_assimilation import *
+from romda.data_assimilation import *
 from create import *
-from bias_estimators import ESN
-from models.physical import Annular
+from romda.bias_estimators import ESN
+from romda.models.physical import Annular
 from post_processing.annular import *
 
 # This code does not run without the Azimuthal data. The dataset can be downloaded from https://zenodo.org/records/15609832

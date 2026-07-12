@@ -1,0 +1,18 @@
+# Minimal environment to build the documentation site (mkdocs + importable romda)
+mkdocs-material>=9.5
+mkdocstrings[python]>=0.24
+
+# runtime imports needed by mkdocstrings to introspect romda
+numpy>=2.0
+scipy>=1.13
+matplotlib>=3.9
+typeguard
+h5py
+requests
+tqdm
+seaborn
+tabulate
+multiprocess
+scikit-optimize
+pyts>=0.13
+pyyaml
