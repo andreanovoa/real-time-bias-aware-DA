@@ -152,9 +152,22 @@ class POD_ESN(ESN_model, POD):
     @property
     def N_sensors(self):
         if self.measure_modes:
-            return 0 
+            return 0
         else:
             return int(self.Nq / 2)
+
+    @property
+    def sensor_rows(self):
+        """
+        Rows of Psi / Q_mean corresponding to the sensor locations.
+        The sensor_locations are raw-grid indices (var * Nx * Ny + g), whereas the POD
+        basis rows follow the masked flat ordering — this property maps between the two.
+        """
+        if self.sensor_locations is None:
+            return None
+        if not hasattr(self, '_sensor_rows') or self._sensor_rows is None:
+            self._sensor_rows = self.grid_index_to_flat_rows(self.sensor_locations)
+        return self._sensor_rows
 
     def get_POD_coefficients(self, Nt=1):
         if Nt == 1:
@@ -176,7 +189,7 @@ class POD_ESN(ESN_model, POD):
                 Phi = Phi.transpose(1, 0, 2)  # N_modes x Nt x Ndim
                 Phi = Phi.reshape(self.N_modes, -1)  # N_modes x Nt*Ndim
                 
-            obs = self.decode(Z=Phi, idx=self.sensor_locations) #shape (N, Nt*Ndim)
+            obs = self.decode(Z=Phi, idx=self.sensor_rows) #shape (N, Nt*Ndim)
 
             if reshape:
                 obs = obs.reshape(self.Nq, og_shape[0], og_shape[2])  # Nq x Nt x Ndim
@@ -202,6 +215,7 @@ class POD_ESN(ESN_model, POD):
                       N_sensors=None, qr_selection=False):
         
         self.measure_modes = measure_modes
+        self._sensor_rows = None  # invalidate the cached Psi-row mapping
         if measure_modes:
             self.Nq = self.N_modes
             self.sensor_locations = None

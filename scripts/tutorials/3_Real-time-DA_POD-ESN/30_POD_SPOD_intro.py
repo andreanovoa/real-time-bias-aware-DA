@@ -29,14 +29,16 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from scipy.io import loadmat
 
-from utils import set_working_directories
+from utils import set_working_directories, get_wake_data
 
 # ── POD / SPOD classes ────────────────────────────────────────────────────────
 from tools import POD, SPOD, spod_towne, print_spod_towne_summary
+from plotting.pod import plot_spectrum, plot_time_coefficients
 
 
 # %% ── 2. Load data ───────────────────────────────────────────────────────────
 data_folder = set_working_directories('wakes')[0]
+get_wake_data(data_folder)  # Download the data from Zenodo if not already present
 
 mat    = loadmat(os.path.join(data_folder, 'circle_re_100.mat'))
 ux_raw = mat['ux']   # (N_t, Nx, Ny) — NaN marks cylinder body interior
@@ -108,7 +110,7 @@ print(f'Mode 1     : {rel[0]*100:.2f}% energy')
 print(f'Modes 1-2  : {cum[1]*100:.2f}%')
 print(f'Modes 1-4  : {cum[3]*100:.2f}%')
 
-POD.plot_spectrum(pod, max_mode=N_modes)
+plot_spectrum(pod, max_mode=N_modes)
 plt.suptitle('POD energy spectrum — cylinder wake Re = 100', fontsize=12, y=1.01)
 plt.show()
 
@@ -141,7 +143,7 @@ plt.show()
 
 
 # %% ── 6. Temporal coefficients ───────────────────────────────────────────────
-POD.plot_time_coefficients(pod, num_modes=10)
+plot_time_coefficients(pod, num_modes=10)
 plt.suptitle('Temporal coefficient matrix Φ (first 10 modes)', fontsize=11, y=1.01)
 plt.show()
 

@@ -256,9 +256,6 @@ class Observations():
 
         if manual_bias is None:
             name_bias = 'No_bias'
-            if self.y_raw is None:
-                self.y_raw = y_true.copy()
-
 
         elif isinstance(manual_bias, str):
             print(f'...Applying manual bias: {manual_bias}')
@@ -289,6 +286,11 @@ class Observations():
         # Update true data to include bias
         self.y_true += b_true
         self.b_true, self.name_bias = b_true, name_bias
+
+        # If no raw (measured) data was provided, the raw data is the (biased) truth
+        # (noise is added on top of it in _apply_noise if requested)
+        if self.y_raw is None:
+            self.y_raw = self.y_true.copy()
 
 
     def _apply_noise(self):

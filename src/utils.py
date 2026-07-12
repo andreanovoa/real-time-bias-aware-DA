@@ -998,9 +998,9 @@ def get_wake_data(data_folder: Optional[str] = None, case='circle_re_100'):
     else:
         laod_dir = data_folder
 
-    zenodo_dir = "https://zenodo.org/records/15623774/files/"
-    
-    download_zenodo_file(f'{zenodo_dir}/{case}.mat?download=1"', 
+    zenodo_dir = "https://zenodo.org/records/15623774/files"
+
+    download_zenodo_file(f'{zenodo_dir}/{case}.mat?download=1',
                          laod_dir, filename=f'{case}.mat')
 
     download_zenodo_file(f'{zenodo_dir}/README.md?download=1', laod_dir)

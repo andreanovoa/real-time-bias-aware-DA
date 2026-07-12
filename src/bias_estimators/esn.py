@@ -176,7 +176,7 @@ class ESN_bias(Bias):
         loaded_case = load_esn_model_from_config(q=query_hash)
     
 
-        if loaded_case is not None and not kwargs.get('force_retrain', False):
+        if loaded_case is not None and not (self.force_retrain or kwargs.get('force_retrain', False)):
             assert isinstance(loaded_case, ESN_model), f'Loaded case must be an instance of ESN_model, but got {type(loaded_case)}.'
             assert loaded_case.trained is True, f'{loaded_case.name} model must be trained after initialization.'
             return loaded_case

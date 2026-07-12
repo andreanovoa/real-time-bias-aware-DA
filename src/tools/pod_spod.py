@@ -48,6 +48,8 @@ References
 """
 
 import numpy as np
+from scipy.signal import get_window
+from scipy.special import gammaincinv
 
 
 

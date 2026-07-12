@@ -105,8 +105,11 @@ class Projector(ABC):
         return self.decode(self.encode(X))
 
     def score(self, X: np.ndarray) -> float:
-        """Mean squared reconstruction error ||X - reconstruct(X)||^2 / N."""
-        return float(np.mean((X - self.reconstruct(X)) ** 2))
+        """Mean squared reconstruction error in the flat zero-mean space,
+        ||Q - Q_hat||^2 / N, where Q = preprocess(X) and Q_hat = Psi Psi^T Q."""
+        Q = self.preprocess_snapshot(X)
+        Q_hat = self.decode(self.encode(X)) - self.Q_mean
+        return float(np.mean((Q - Q_hat) ** 2))
 
     
     # -------
@@ -123,8 +126,8 @@ class Projector(ABC):
 
         out = np.full((Nu, Nt, Nx, Ny), np.nan)
 
-        # Inverse the flatten: (N_fluid*Nu, Nt) → (N_fluid, Nu, Nt) → (Nu, Nt, N_fluid)
-        X_unflatten = X_hat.reshape(N_fluid, Nu, Nt).transpose(1, 2, 0)  # (Nu, Nt, N_fluid)
+        # Invert the flatten: (Nu*N_fluid, Nt) → (Nu, N_fluid, Nt) → (Nu, Nt, N_fluid)
+        X_unflatten = X_hat.reshape(Nu, N_fluid, Nt).transpose(0, 2, 1)  # (Nu, Nt, N_fluid)
 
         for u in range(Nu):
             # X_unflatten[u] is (Nt, N_fluid) — all time steps for field u
@@ -135,13 +138,49 @@ class Projector(ABC):
             out[u] = grid_flat.reshape(Nt, Nx, Ny)
 
         return out[:, 0] if Nt == 1 else out
-    
+
 
     def _to_flat(self, X: np.ndarray) -> np.ndarray:
-        """Map raw grid input (Nu, Nt, Nx, Ny) to flat (N_fluid * n_fields, N_t."""
+        """Map raw grid input (Nu, Nt, Nx, Ny) to flat (N_fluid * n_fields, N_t) in
+        variable-block ordering: rows [0:N_fluid] are the first field, rows
+        [N_fluid:2*N_fluid] the second field, etc."""
         X_masked = X.reshape(X.shape[0], X.shape[1], -1)[:, :, self.fluid_mask_flat] # (Nu, Nt, N_fluid)
-        
-        return X_masked.transpose(2, 0, 1).reshape(-1, X.shape[1]) # (N_fluid * n_fields, N_t)
+
+        return X_masked.transpose(0, 2, 1).reshape(-1, X.shape[1]) # (n_fields * N_fluid, N_t)
+
+
+    def grid_index_to_flat_rows(self, grid_idx) -> np.ndarray:
+        """
+        Map raw-grid indices to rows of the masked flat representation (Psi / Q_mean rows).
+
+        Both the raw grid and the flat representation use variable-block ordering:
+        raw index = var * Nx * Ny + g (g = flattened (x, y) position),
+        flat row  = var * N_fluid + fluid_pos (position of g among the fluid points).
+
+        Parameters
+        ----------
+        grid_idx : array-like of int
+            Raw-grid indices (e.g., sensor locations). Must correspond to fluid points.
+
+        Returns
+        -------
+        np.ndarray of int
+            Row indices into Psi / Q_mean corresponding to the requested grid points.
+        """
+        assert self.grid_shape is not None, 'grid_shape must be set to map grid indices.'
+        Nu, Nx, Ny = self.grid_shape
+        grid_idx = np.asarray(grid_idx).ravel()
+
+        var = grid_idx // (Nx * Ny)
+        g = grid_idx % (Nx * Ny)
+
+        if not np.all(self.fluid_mask_flat[g]):
+            raise ValueError('Some requested grid points are not fluid points.')
+
+        fluid_idx = np.flatnonzero(self.fluid_mask_flat)
+        N_fluid = fluid_idx.size
+        fluid_pos = np.searchsorted(fluid_idx, g)
+        return var * N_fluid + fluid_pos
 
 
     # -----
@@ -168,6 +207,17 @@ class Projector(ABC):
         """
 
         if not self.fitted:
+            if X.ndim == 2:
+                # Already-flat data matrix (N_x, N_t): no grid/mask handling
+                self.fluid_mask_flat = np.ones(X.shape[0], dtype=bool)
+                if subtract_mean:
+                    self.Q_mean = X.mean(axis=1, keepdims=True)
+                else:
+                    self.Q_mean = np.zeros_like(X[:, :1])
+                Q = X - self.Q_mean
+                self._TKE = 0.5 * float(np.sum(np.mean(Q**2, axis=1)))
+                return Q
+
             # if the input is raw grid data, we need to detect the fluid points and flatten the data
             assert X.ndim == 4, f'Expected raw grid input with 4 dimensions, got {X.ndim}.'
             Nu, Nt, Nx, Ny = X.shape
@@ -177,7 +227,7 @@ class Projector(ABC):
             fluid_mask = ~np.isnan(ref[0])
             self.fluid_mask_flat  = fluid_mask.ravel()
 
-            
+
 
             X_masked_flat = self._to_flat(X)                    # (N_fluid * n_fields, N_t)
 

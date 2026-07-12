@@ -144,12 +144,23 @@ def sample_model_states(rom: Model,
 
     if std_phi is None:
         std_phi = np.std(model.current_state[:model.Nphi, :], axis=-1)
-        
+
     if std_alpha is None:
         std_alpha = {}
         for i, key in enumerate(model.est_alpha):
             param = model.current_state[model.Nphi + i, :]
             std_alpha[key] = [min(param), max(param)]
+    elif not isinstance(std_alpha, dict):
+        # A scalar std_alpha means a relative uncertainty around the nominal values.
+        # Convert it to a dict of [min, max] ranges for the estimated parameters
+        # (or all model parameters if none are being estimated).
+        rel = float(std_alpha)
+        params = model.est_alpha if len(model.est_alpha) > 0 else model.params
+        std_alpha = {}
+        for key in params:
+            val = getattr(model, key)
+            bounds = sorted([val * (1. - rel), val * (1. + rel)])
+            std_alpha[key] = bounds
 
     assert std_phi is not None, "std_phi must be specified or computed from the model state."
     assert std_alpha is not None, "std_alpha must be specified or computed from the model state."

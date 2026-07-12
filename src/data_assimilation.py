@@ -19,7 +19,7 @@ rng = np.random.default_rng(6)
 
 class Filter(object):
 
-    def __init__(self, M, gamma):
+    def __init__(self, M, gamma=None):
         self._M = M  # observation operator matrix
         self.gamma = gamma # regularization factor for bias-aware filters (if None, not bias-aware)
     
@@ -68,7 +68,7 @@ class EnSRKF(Filter):
                 Aa: analysis ensemble (or Af is Aa is not real)
         """
     
-    def __init__(self, M, gamma):
+    def __init__(self, M, gamma=None):
         super().__init__(M, gamma=None)
 
     def __call__(self, Af, d, Cdd):
@@ -92,7 +92,7 @@ class EnSRKF(Filter):
         X2 = np.dot(linalg.sqrtm(Linv), np.dot(Z.T, S))
         E, V = linalg.svd(X2)[1:]
         V = V.T
-        if len(E) is not m:  # case for only one eigenvalue (q=1). The rest zeros.
+        if len(E) != m:  # case for only one eigenvalue (q=1). The rest zeros.
             E = np.hstack((E, np.zeros(m - len(E))))
         E = np.diag(E.real)
 
@@ -125,14 +125,14 @@ class EnKF(Filter):
             Returns:
                 Aa: analysis ensemble (or Af is Aa is not real)
         """
-    
 
-    def __init__(self, M, gamma):
+
+    def __init__(self, M, gamma=None):
         super().__init__(M, gamma=None)
 
 
     def __call__(self, Af, d, Cdd):
-        
+
         m = Af.shape[1]
         M = self.observation_operator(Af)
         
@@ -167,26 +167,25 @@ class EnKF(Filter):
 #  ================================================================================================================== #
 class rBA_EnKF(Filter):
 
-    """Regularized Bias-Aware Ensemble Kalman Filter (r-EnKF) based on the derivation in Nóvoa et al. (CMAME, 2024).  
+    """Regularized Bias-Aware Ensemble Kalman Filter (r-EnKF) based on the derivation in Nóvoa et al. (CMAME, 2024).
         Inputs:
             Af: forecast ensemble at time t (augmented with Y)
-            d: observation at time t
+            d: observation at time t. If the observations are biased, the caller must
+                de-bias them before the call (see Ensemble.analysis_step).
             Cdd: observation error covariance matrix
             Cbb: bias covariance matrix
-            M: matrix mapping from state to observation space
-            b: bias of the forecast observables (Y = MAf + B)   
-            bd: bias of the observations (Dtrue = D + Bd)   
+            b: bias of the forecast observables (Y = MAf + B). Shape (Nq,), (Nq, 1) or (Nq, m).
             J: derivative of the bias with respect to the input
-            gamma: regularization factor for the bias term [default = 1.0]. 
+            gamma: regularization factor for the bias term [default = 1.0].
                 Higher values of gamma correspond to stronger regularization (i.e., more weight on the bias term in the cost function).
         Returns:
             Aa: analysis ensemble (or Af is Aa is not real)
     """
 
-    def __init__(self, M, gamma):
+    def __init__(self, M, gamma=1.0):
         super().__init__(M, gamma=gamma)
 
-    def __call__(self, Af, d, Cdd, Cbb, b, bd, J):
+    def __call__(self, Af, d, Cdd, Cbb, b, J):
 
         m = Af.shape[1]
         Nq = len(d)
@@ -203,24 +202,20 @@ class rBA_EnKF(Filter):
 
         assert b.shape[0] == Nq, f"Bias vector b must have the same length as the observation vector d. Got b.shape[0] = {b.shape[0]} and d.shape[0] = {Nq}"
         assert b.ndim in [1, 2], f"Bias vector b must be either 1D or 2D. Got b.ndim = {b.ndim}"
-        
+
         if b.ndim == 1:
             B = np.repeat(b[:, np.newaxis], m, axis=1)
-            BD = np.repeat(bd[:, np.newaxis], m, axis=1)
-        else: 
+        else:
             if b.shape[-1] == m:
                 B = b.copy()
-                BD = bd.copy()
             elif b.shape[-1] == 1:
                 # B = rng.multivariate_normal(b.squeeze(), Cbb, m).transpose()
                 B = np.repeat(b, m, axis=1)
-                BD = np.repeat(bd, m, axis=1)
             else:
                 raise ValueError('b must have shape (Nq,), (Nq, 1) or (Nq, m), got {}'.format(b.shape))
 
-        # Unbias the states
+        # Bias-corrected model observables
         Y = Q + B
-        D = D + BD
 
         Cqq = np.dot(S, S.T)  # covariance of observations M Psi_f Psi_f.T M.T
         if np.array_equiv(Cdd, Cbb):

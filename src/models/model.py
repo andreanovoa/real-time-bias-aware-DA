@@ -289,7 +289,9 @@ class Model(object):
     
     def set_fixed_params(self):
         fixed_params = dict((key, getattr(self, key)) for key in self.fixed_params)
-        self.governing_eqns_params.update(fixed_params)
+        # Create an instance-level dict: the class-level default must not be mutated,
+        # otherwise fixed parameters leak across different Model subclasses.
+        self.governing_eqns_params = {**self.governing_eqns_params, **fixed_params}
 
 
     def create_long_timeseries(self, Nt=None):
