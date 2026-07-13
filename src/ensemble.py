@@ -517,40 +517,6 @@ class Ensemble(object):
 
 
 
-    def update_history(self, 
-                       psi: np.ndarray, 
-                       t = None, 
-                       b = None,
-                       update_last_state: bool = False,
-                       reset: bool = False) -> None:
-        """
-        Updates the model's history with a new ensemble state at time t.
-        Parameters
-        ----------
-        psi : np.ndarray
-            New ensemble state to add to the history.
-        t : float or np.ndarray, optional
-            Time corresponding to the new ensemble state. Default is None.
-        update_last_state : bool, optional
-            If True, updates the last stored state instead of appending a new one.
-            Default is False.
-        reset : bool, optional
-            If True, resets the history before adding the new state.
-            Default is False.
-        Side effects
-        ------------
-        - Calls self.model.update_history to add the new state and time to the model's history.
-        """
-        self.model.update_history(psi, t, 
-                                  reset=reset,
-                                  update_last_state=update_last_state)
-        if self.bias is not None:
-            self.bias.update_history(b, t, 
-                                     reset=reset,
-                                     update_last_state=update_last_state)
-
-
-
     def get_observable_hist(self, Nt=0) -> Tuple[Optional[np.ndarray], np.ndarray]:
         """
         Returns the bias-corrected ensemble history.
@@ -579,7 +545,7 @@ class Ensemble(object):
             return None, y_model  # No bias correction needed
         else:
             t_model = self.model.hist_t[-Nt:]
-            b_hist = pb.get_bias(pb.hist)  # Only the bias components of the full bias-estimator state
+            b_hist = pb.get_bias_hist(mean=True)  # Ensemble-mean bias components only
             y_unbiased = self._recover_unbiased_solution(pb.hist_t, b_hist, t_model, y_model)
             return y_unbiased, y_model
 
