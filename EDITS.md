@@ -317,7 +317,8 @@ verified one.
 - **Docstring sweep for the documentation site**: all public-API docstrings converted
   to numpy-style sections (google-style `Args:` blocks and free-text `Inputs:` blobs
   removed), equations rewritten in LaTeX (r-EnKF corrected equations, Van der Pol,
-  Lorenz 63, Rijke, annular model, POD/SPOD relations, DriftLinearBias), stray code
+  Lorenz 63, Rijke, annular model, POD/SPOD relations; `DriftLinearBias` keeps its
+  original plain-text docstring), stray code
   snippets removed from descriptions, and the filter call signatures documented on
   `__call__` (now rendered via the mkdocstrings filters). The site builds with zero
   griffe/mkdocs warnings.
