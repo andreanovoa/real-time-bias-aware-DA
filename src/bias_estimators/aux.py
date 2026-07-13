@@ -162,7 +162,7 @@ def sample_model_states(rom: Model,
             m=ensemble_size,
             method='uniform',
         )
-        if std_alpha is not None:
+        if std_alpha:
 
             new_alpha = mean_vector_to_ensemble(
                 rng=model.rng,
@@ -181,7 +181,7 @@ def sample_model_states(rom: Model,
     Nt = int(np.round(model.t_transient / model.dt, model.precision_t)) - 1
 
     # Add parameters to the state vector if parameter uncertanty is givemn
-    if std_alpha is not None and psi0.shape[0] == model.Nphi:
+    if std_alpha and psi0.shape[0] == model.Nphi:
         assert isinstance(std_alpha, dict), "std_alpha must be a dict if parameter uncertainty is specified."
         model.ensemble = dict(Na=len(std_alpha), est_alpha=list(std_alpha.keys()), m=L)
         psi0 = np.hstack([psi0, np.zeros((len(std_alpha),))])
