@@ -64,11 +64,18 @@ Repository = "https://github.com/andreanovoa/real-time-da"
 Issues = "https://github.com/andreanovoa/real-time-da/issues"
 
 [tool.setuptools]
-package-dir = {"" = "src"}
-
-[tool.setuptools.packages.find]
-where = ["src"]
-namespaces = false
+# The src directory IS the romda package (src/__init__.py is romda/__init__.py)
+package-dir = {"romda" = "src"}
+packages = [
+    "romda",
+    "romda.bias_estimators",
+    "romda.config",
+    "romda.models",
+    "romda.models.physical",
+    "romda.models.data_driven",
+    "romda.plotting",
+    "romda.tools",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -11,7 +11,7 @@ from romda.models.data_driven import ESN_model
 
 ROOT = get_project_root()
 
-BASE_CONFIG_DIR = f'{ROOT}/src/romda/config' if ROOT is not None else 'config'
+BASE_CONFIG_DIR = f'{ROOT}/src/config' if ROOT is not None else 'config'
 
 INIT_KEYS = [# fixed hyperparameter settings
             'N_units',

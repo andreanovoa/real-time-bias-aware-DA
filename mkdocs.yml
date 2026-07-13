@@ -40,7 +40,6 @@ plugins:
   - mkdocstrings:
       handlers:
         python:
-          paths: [src]
           options:
             docstring_style: numpy
             docstring_section_style: table
