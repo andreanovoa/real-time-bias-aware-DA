@@ -272,3 +272,35 @@ Found while cross-reading the two branches:
   pinned by `tests/test_filters.py::test_matches_corrected_erratum_equations`, which
   verifies the implementation matches the corrected form exactly and rejects the
   as-published (un-transposed) form.
+
+---
+
+## 8. Addendum: reconciliation with the user's late `editable` commits
+
+Two commits (`d120367`, `254ba19` — the user's own "bug search") were pushed to
+`editable` after this work started, and were merged into `dev-f` and `doc`. Most of
+their fixes had been found independently here (identical resolutions: `bd` removal,
+bias update after analysis, `est_alpha` limits, bias-only un-biasing, `issparse`,
+`force_retrain`). Unique fixes adopted from them:
+
+- **`Filter.observation_operator` truncation fix** — with `M = [0 | I]`, trimming to
+  `M[:, :n]` cut off the identity block whenever parameters were frozen and `Na >= Nq`,
+  silently zeroing the observation operator. Now the trailing identity columns are kept
+  and only the zero block shrinks (regression-tested).
+- **Mean-bias semantics** — `Bias.current_bias` / `current_innovations` now return the
+  ensemble-mean (shape `(Nq, 1)`), consistent with the CMAME definition of the bias on
+  the ensemble mean; `get_bias`/`get_innovations` format the state before averaging.
+- `check_valid_file` (utils) now works for dict inputs — the training-data cache
+  validation was a silent no-op before.
+- `load_bias_training_dataset` validates the cached dataset dimension
+  (`expected_Ndim`) so a cache built with different `biased_observations` is rebuilt.
+- `sample_model_states` skips parameter sampling for an *empty* `std_alpha` dict.
+- Tutorial 05 gained an ESN-Jacobian verification section (analytic vs central finite
+  differences), merged and re-verified end-to-end.
+
+Kept from this session where the two diverged: `EnKF`/`EnSRKF` force `gamma=None`
+(their version passed gamma through, which would mark plain filters bias-aware when
+built via `Ensemble` and crash `analysis_step`), and the analysis innovation is
+computed as `d[:, None] - y_a` (their `d - get_observables()` does not broadcast for
+`Nq != m`). Their WIP version of tutorial 13 (dangling syntax) was superseded by the
+verified one.
