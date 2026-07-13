@@ -328,3 +328,56 @@ verified one.
   (POD/SPOD), and Racca & Magri 2021 (ESN validation). The erratum PDF is published
   with the site and linked from the theory page, the API pages, and the publications
   page.
+
+---
+
+## 10. References added — please check
+
+All bibliographic references introduced during the documentation work, with their
+location and provenance. **Provenance key:** *(repo)* = copied/reformatted from text
+already in the repository (README, module headers, erratum PDF) — low risk;
+*(added)* = written from general knowledge — **please verify the volume/page details**.
+
+### Your papers
+
+| Reference | Where added | Provenance |
+| --- | --- | --- |
+| Nóvoa, Racca & Magri (2023). Inferring unknown unknowns: Regularized bias-aware ensemble Kalman filter. *Comput. Methods Appl. Mech. Eng.*, 418, 116502. DOI: 10.1016/j.cma.2023.116502 | `rBA_EnKF` and `ESN_bias` docstrings; `docs/api/data_assimilation.md`; `docs/api/bias_estimators.md`; `docs/concepts/bias-aware-da.md`; `docs/index.md` | *(repo)* — README + erratum PDF |
+| Nóvoa, Racca & Magri (2024). Erratum to the above (corrected Eqs. 15–16) | `rBA_EnKF` docstring; theory page warning box; both API pages above; `docs/publications.md`; PDF published with the site | *(repo)* — `docs/2023_CMAME_Erratum.pdf` |
+| Nóvoa & Magri (2022). Real-time thermoacoustic data assimilation. *J. Fluid Mech.*, **948, A35**. DOI: 10.1017/jfm.2022.653 | `VdP` and `Rijke` docstrings; `docs/api/models.md` | DOI *(repo)* — README; **volume/article number (948, A35) *(added)* — please check** |
+| Nóvoa, Noiray, Dawson & Magri (2024). A real-time digital twin of azimuthal thermoacoustic instabilities. *J. Fluid Mech.*, 1001, A49. DOI: 10.1017/jfm.2024.1052 | `Annular` docstring (was already there, reformatted); `docs/api/models.md`; `docs/api/bias_estimators.md` | *(repo)* — old Annular docstring + README |
+
+### Data assimilation
+
+| Reference | Where added | Provenance |
+| --- | --- | --- |
+| Evensen (2009). *Data Assimilation: The Ensemble Kalman Filter.* Springer. | `EnKF` and `EnSRKF` docstrings (EnKF cites Eq. 9.27, as in the old docstring); `docs/api/data_assimilation.md` | *(repo)* — old docstrings mentioned "Evensen (2009)" |
+
+### Models
+
+| Reference | Where added | Provenance |
+| --- | --- | --- |
+| Lorenz (1963). Deterministic nonperiodic flow. *J. Atmos. Sci.*, **20, 130–141**. | `Lorenz63` docstring; `docs/api/models.md` | *(added)* — standard citation, please confirm page range |
+
+### POD / SPOD (copied from the reference list already in `pod_spod.py`'s module header)
+
+| Reference | Where added | Provenance |
+| --- | --- | --- |
+| Sirovich (1987). Turbulence and the dynamics of coherent structures. *Quart. Appl. Math.*, XLV(3), 561–590. | `snapshot_pod` docstring; `docs/api/tools.md` | *(repo)* |
+| Halko, Martinsson & Tropp (2011). Finding structure with randomness. *SIAM Review*, 53(2), 217–288. | `snapshot_pod_randomized` docstring; `docs/api/tools.md` | *(repo)* |
+| Sieber, Paschereit & Oberleithner (2016). Spectral proper orthogonal decomposition. *J. Fluid Mech.*, 792, 798–828. | `SPOD` class and `spod_sieber` docstrings; `docs/api/tools.md` | *(repo)* |
+| Towne, Schmidt & Colonius (2018). Spectral proper orthogonal decomposition and its relationship to dynamic mode decomposition and resolvent analysis. *J. Fluid Mech.*, 847, 821–867. | `spod_towne` docstring; `docs/api/tools.md` | *(repo)* |
+| Mendez et al. (2023). *Data-Driven Fluid Mechanics.* Cambridge University Press. | `docs/api/tools.md` (notation conventions) | *(repo)* — `[Mendez 2023]` in the module header |
+
+### Echo state networks
+
+| Reference | Where added | Provenance |
+| --- | --- | --- |
+| Lukoševičius (2012). A practical guide to applying echo state networks. In *Neural Networks: Tricks of the Trade*, Springer. | `EchoStateNetwork` docstring | *(added)* — standard ESN reference, please confirm you want it |
+| Racca & Magri (2021). Robust optimization and validation of echo state networks for learning chaotic dynamics. *Neural Networks*, **142, 252–268**. | `EchoStateNetwork` docstring; `docs/api/tools.md` | *(added)* — cited as the source of the recycled-validation strategy; **please verify volume/pages and that this is the intended reference** |
+
+### Not added anywhere (for completeness)
+
+The tutorials/publications page also links your JFM 2022/2024 legacy repositories, the
+arXiv 2025 preprint, the INTER-NOISE 2022 paper and the PhD thesis — those entries
+were carried over verbatim from the README, not newly written.
