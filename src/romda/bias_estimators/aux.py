@@ -173,7 +173,7 @@ def sample_model_states(rom: Model,
             m=ensemble_size,
             method='uniform',
         )
-        if std_alpha is not None:
+        if std_alpha:
 
             new_alpha = mean_vector_to_ensemble(
                 rng=model.rng,
@@ -192,7 +192,7 @@ def sample_model_states(rom: Model,
     Nt = int(np.round(model.t_transient / model.dt, model.precision_t)) - 1
 
     # Add parameters to the state vector if parameter uncertanty is givemn
-    if std_alpha is not None and psi0.shape[0] == model.Nphi:
+    if std_alpha and psi0.shape[0] == model.Nphi:
         assert isinstance(std_alpha, dict), "std_alpha must be a dict if parameter uncertainty is specified."
         model.ensemble = dict(Na=len(std_alpha), est_alpha=list(std_alpha.keys()), m=L)
         psi0 = np.hstack([psi0, np.zeros((len(std_alpha),))])
@@ -238,19 +238,20 @@ def load_bias_training_dataset(
     minimum_training_steps: int,
     augment_data_length: int,
     L: int,
+    expected_Ndim: Optional[int] = None,
 ):
-    
+
 
     if filename is None:
         return None
 
-    try: #Check if file exists... 
+    try: #Check if file exists...
         loaded_train_data = load_from_pickle_file(filename)
     except FileNotFoundError or AssertionError:
         print(f'Run multi-parameter training data: file {filename} not  found or does not contain a dictionary')
         return None
-    
-    #Check if loaded file is valid... 
+
+    #Check if loaded file is valid...
     if not isinstance(loaded_train_data, dict):
         print(f'Loaded file is invalid: {type(loaded_train_data)}: {loaded_train_data}')
         return None
@@ -264,6 +265,9 @@ def load_bias_training_dataset(
             return None
         if augment_data_length > 1 and data.shape[0] != L * augment_data_length:
             print('Re-run multi-parameter training data: augment_data_length does not match the number of samples in the loaded training data')
+            return None
+        if expected_Ndim is not None and data.shape[-1] != expected_Ndim:
+            print(f'Re-run multi-parameter training data: cached output dimension {data.shape[-1]} does not match expected {expected_Ndim}')
             return None
 
         print('OK: Loaded training dataset for bias model.')

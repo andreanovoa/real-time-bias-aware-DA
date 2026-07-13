@@ -34,6 +34,10 @@ class TestFilterBase:
         # if parameter estimation is deactivated, the state has fewer rows and M is cut
         M_cut = f.observation_operator(Af[:-1])
         assert M_cut.shape == (Nq, Af.shape[0] - 1)
+        # regression: the trailing identity block (the observed rows) must be preserved,
+        # i.e. only the leading zero block shrinks when parameters are trimmed
+        np.testing.assert_allclose(M_cut[:, -Nq:], np.eye(Nq))
+        np.testing.assert_allclose(M_cut[:, :-Nq], 0.)
 
 
 @pytest.mark.parametrize('filter_class', [EnKF, EnSRKF])

@@ -407,15 +407,23 @@ def colour_noise(dims, noise_colour='pink', beta=2, ff=None):
 def check_valid_file(load_case, params_dict):
     # check that true and forecast model input_parameters
     # print('Test if loaded file is valid', end='')
+    is_mapping = isinstance(load_case, dict)
+
+    def _has(key):
+        return (key in load_case) if is_mapping else hasattr(load_case, key)
+
+    def _get(key):
+        return load_case[key] if is_mapping else getattr(load_case, key)
+
     for key, val in params_dict.items():
-        if hasattr(load_case, key):
-            print('\n\t', key, val, getattr(load_case, key), end='')
+        if _has(key):
+            print('\n\t', key, val, _get(key), end='')
             if len(np.shape([val])) == 1:
-                if getattr(load_case, key) != val:
+                if _get(key) != val:
                     print('\t <--- Re-init model!')
                     return False
             else:
-                if any([x1 != x2 for x1, x2 in zip(getattr(load_case, key), val)]):
+                if any([x1 != x2 for x1, x2 in zip(_get(key), val)]):
                     print('\t <--- Re-init model!')
                     return False
     # print('... OK\n')

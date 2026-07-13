@@ -257,28 +257,30 @@ class Bias:
 
     @property
     def current_bias(self):
-        """Returns the current bias computed from the current state."""
-        return self.get_bias(state=self.current_state)[0, :, :]
+        """Returns the current (ensemble-mean) bias computed from the current state.
+        Shape: (Nq, 1) -- the bias is defined on the ensemble mean."""
+        return self.get_bias(state=self.current_state, mean=True)[0, :, :]
 
     @property
     def current_innovations(self):
-        """Returns the current innovations computed from the current state."""
-        return self.get_innovations(state=self.current_state)[0, :, :]
+        """Returns the current (ensemble-mean) innovations computed from the current state.
+        Shape: (Nq, 1)."""
+        return self.get_innovations(state=self.current_state, mean=True)[0, :, :]
 
 
     def get_bias(self, state, mean=False):
+        state = self._format_state(state)
         if mean:
             state = np.mean(state, axis=-1, keepdims=True)
 
-        state = self._format_state(state)
         return state[:, self.bias_idx, :]
     
 
     def get_innovations(self, state, mean=False):
+        state = self._format_state(state)
         if mean:
             state = np.mean(state, axis=-1, keepdims=True)
 
-        state = self._format_state(state)
         return state[:, self.observed_idx, :]
 
     

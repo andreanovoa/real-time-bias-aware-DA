@@ -24,7 +24,7 @@ class TestConstantBias:
         state, t = cb.time_integrate(Nt=10)
         cb.update_history(state, t)
         assert state.shape == (10, cb.N_dim, 3)
-        np.testing.assert_allclose(cb.current_bias, cb.get_bias(state)[0])
+        np.testing.assert_allclose(cb.current_bias, cb.get_bias(state, mean=True)[0])  # current_bias is the ensemble mean
         np.testing.assert_allclose(state, np.broadcast_to(state[0], state.shape))  # constant in time
         assert cb.current_time == pytest.approx(0.1)
 

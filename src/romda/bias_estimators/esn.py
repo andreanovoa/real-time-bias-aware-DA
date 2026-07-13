@@ -176,7 +176,7 @@ class ESN_bias(Bias):
         loaded_case = load_esn_model_from_config(q=query_hash)
     
 
-        if loaded_case is not None and not (self.force_retrain or kwargs.get('force_retrain', False)):
+        if loaded_case is not None and not self.force_retrain:
             assert isinstance(loaded_case, ESN_model), f'Loaded case must be an instance of ESN_model, but got {type(loaded_case)}.'
             assert loaded_case.trained is True, f'{loaded_case.name} model must be trained after initialization.'
             return loaded_case
@@ -235,11 +235,16 @@ class ESN_bias(Bias):
                 - std_alpha: Optional[float] - Standard deviation of alpha for creating the training dataset if it needs to be created.
         """
 
+        expected_Ndim = None
+        if rom is not None:
+            expected_Ndim = 2 * rom.Nq if self.biased_observations else rom.Nq
+
         train_data_dict = load_bias_training_dataset(filename=training_data_filename,
                                                     necessary_properties=self.config.copy(),
                                                     minimum_training_steps=self.minimum_training_steps,
                                                     augment_data_length=self.augment_data_length,
-                                                    L=self.L)
+                                                    L=self.L,
+                                                    expected_Ndim=expected_Ndim)
 
 
         if train_data_dict is not None:

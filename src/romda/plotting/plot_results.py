@@ -7,14 +7,14 @@ from .utils_plotting import *
 XDG_RUNTIME_DIR = 'tmp/'
 
 
-def recover_unbiased_solution(t_b, b, t, y, upsample=True):
-    if b.ndim < y.ndim:
+def recover_unbiased_solution(t_b, b, t, y_biased, upsample=True):
+    if b.ndim < y_biased.ndim:
         b = np.expand_dims(b, axis=-1)
     elif b.shape[-1] > 1:
         b = np.mean(b, axis=-1, keepdims=True)
     if upsample:
         b = interpolate(t_b, b, t)
-    return y + b
+    return y_biased + b
 
 
 
@@ -43,14 +43,14 @@ def plot_parameters(ensembles, t_obs = None, filename=None, reference_p=None, pl
 
     if len(filter_ens.est_a) < 4:
         rows = len(filter_ens.est_a)
-        fig1, axs = plt.subplots(rows, ncols=1, sharex='col', figsize=(6, 1.5 * rows), layout="constrained")
+        _, axs = plt.subplots(rows, ncols=1, sharex='col', figsize=(6, 1.5 * rows), layout="constrained")
         if len(filter_ens.est_a) == 1:
             axs = [axs]
     else:
         rows = len(filter_ens.est_a) // 2
         if len(filter_ens.est_a) % 2:
             rows += 1
-        fig1, axs = plt.subplots(rows, ncols=2, sharex='all', figsize=(12, 1.5 * rows), layout="constrained")
+        _, axs = plt.subplots(rows, ncols=2, sharex='all', figsize=(12, 1.5 * rows), layout="constrained")
         axs = axs.ravel()
 
     if reference_p is not None:
@@ -180,7 +180,7 @@ def plot_covariance(case, idx=-1, tixs=None, plot_correlation=False):
     N = sum([Nphi, Na, Nq])
 
     for matrix in all_matrices:
-        fig, axs = plt.subplots(nrows, 2, figsize=(N//2, N//2*nrows))
+        _, axs = plt.subplots(nrows, 2, figsize=(N//2, N//2*nrows))
         axs = axs.ravel()
 
 
@@ -201,7 +201,7 @@ def plot_covariance(case, idx=-1, tixs=None, plot_correlation=False):
             axs[3].set(xticks=np.arange(Nphi), xticklabels=tixs[:Nphi])
             axs[3].set(yticks=np.arange(Na), yticklabels=tixs[Nphi:Nphi + Na])
         
-        fig.colorbar(im, ax=axs, orientation='vertical', shrink=0.5)
+        plt.colorbar(im, ax=axs, orientation='vertical', shrink=0.5)
 
 # ==================================================================================================================
 def print_parameter_results(ensembles, true_values=None):
