@@ -11,3 +11,12 @@ applied as callables on the augmented forecast ensemble
 ::: romda.data_assimilation.EnSRKF
 
 ::: romda.data_assimilation.rBA_EnKF
+
+## References
+
+- Evensen (2009). *Data Assimilation: The Ensemble Kalman Filter.* Springer. — EnKF and EnSRKF.
+- Nóvoa, Racca & Magri (2023). Inferring unknown unknowns: Regularized bias-aware
+  ensemble Kalman filter. *Comput. Methods Appl. Mech. Eng.*, 418, 116502.
+  [DOI: 10.1016/j.cma.2023.116502](https://doi.org/10.1016/j.cma.2023.116502) — r-EnKF.
+- Nóvoa, Racca & Magri (2024). [**Erratum**](../2023_CMAME_Erratum.pdf) to the above —
+  the implementation follows the corrected Eqs. (1a)–(1b).

@@ -304,3 +304,27 @@ built via `Ensemble` and crash `analysis_step`), and the analysis innovation is
 computed as `d[:, None] - y_a` (their `d - get_observables()` does not broadcast for
 `Nq != m`). Their WIP version of tutorial 13 (dangling syntax) was superseded by the
 verified one.
+
+---
+
+## 9. Addendum (doc branch): flat layout, docstring sweep, reference audit
+
+- **Package layout flattened**: the modules moved back from `src/romda/` to `src/`,
+  with the import name kept as `romda` via the setuptools mapping
+  `package-dir = {"romda" = "src"}` (i.e., `src/__init__.py` is `romda/__init__.py`).
+  `tests/conftest.py` registers `src` as the `romda` package when the project is not
+  pip-installed.
+- **Docstring sweep for the documentation site**: all public-API docstrings converted
+  to numpy-style sections (google-style `Args:` blocks and free-text `Inputs:` blobs
+  removed), equations rewritten in LaTeX (r-EnKF corrected equations, Van der Pol,
+  Lorenz 63, Rijke, annular model, POD/SPOD relations, DriftLinearBias), stray code
+  snippets removed from descriptions, and the filter call signatures documented on
+  `__call__` (now rendered via the mkdocstrings filters). The site builds with zero
+  griffe/mkdocs warnings.
+- **References audit**: every API page and the relevant docstrings now cite the
+  corresponding publications — CMAME 2023 + the 2024 erratum (r-EnKF, ESN bias),
+  JFM 2022 (Rijke, Van der Pol), JFM 2024 (annular digital twin), Evensen 2009
+  (EnKF/EnSRKF), Lorenz 1963, Sirovich 1987 / Halko 2011 / Sieber 2016 / Towne 2018
+  (POD/SPOD), and Racca & Magri 2021 (ESN validation). The erratum PDF is published
+  with the site and linked from the theory page, the API pages, and the publications
+  page.
