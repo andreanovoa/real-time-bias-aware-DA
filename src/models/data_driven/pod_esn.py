@@ -54,19 +54,23 @@ class POD_ESN(ESN_model, POD):
         """
         Initialize the POD-ESN model.
         
-        Args:
-            - data  (np.ndarray): Data to be used for the POD decomposition and ESN training  [ (Nu, N_t, Nx, Ny) or (N_t, Ndim*Nx*Ny) ]
-            - plot_case (bool, optional): Whether to plot the case. Defaults to True.
-            - pdf_file (None or str, optional): Whether to save the plot case. If a string is provided, it is used as the filename. Defaults to None.
-            - skip_sensor_placement (bool, optional): Whether to skip sensor placement. Defaults to False.
-            - train_ESN (bool, optional): Whether to train the ESN. Defaults to True.
-            - **kwargs: Additional keyword arguments to configure the parent classes Model/ESN/POD.
-                e.g.,   domain (list): Domain of the data.
-                        grid_shape (tuple): Shape of the grid.
-                        t_CR (float): Time constant for the ESN.
-                        Nq (int): Number of measurements or sensors.
-                        sensor_locations (list): Locations of the sensors.
-                        etc.
+        Parameters
+        ----------
+        data : np.ndarray
+            Data to be used for the POD decomposition and ESN training  [ (Nu, N_t, Nx, Ny) or (N_t, Ndim*Nx*Ny) ]
+        plot_case : bool, optional
+            Whether to plot the case. Defaults to True.
+        pdf_file : None or str, optional
+            Whether to save the plot case. If a string is provided, it is used as the filename. Defaults to None.
+        skip_sensor_placement : bool, optional
+            Whether to skip sensor placement. Defaults to False.
+        train_ESN : bool, optional
+            Whether to train the ESN. Defaults to True.
+        **kwargs
+            Additional keyword arguments to configure the parent Model/ESN/POD
+            classes, e.g. ``domain`` (physical domain of the data), ``grid_shape``,
+            ``Nq`` (number of sensors), ``sensor_locations``, ``N_modes``,
+            ``t_train``, ``t_val``, ``N_units``, etc.
         """
 
         for key in list(kwargs.keys()):

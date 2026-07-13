@@ -6,9 +6,24 @@ import numpy as np
 
 # %% =================================== VAN DER POL MODEL ============================================== %% #
 class VdP(Model):
-    """ Van der Pol Oscillator Class
-        - cubic heat release law
-        - atan heat release law
+    r"""Van der Pol oscillator — low-order model of a longitudinal thermoacoustic mode.
+
+    The acoustic pressure mode $\eta$ evolves as
+
+    $$
+    \ddot{\eta} + \omega^2 \eta = \dot{\eta} \left( \beta - \zeta - \kappa
+    \, g(\eta) \right),
+    $$
+
+    with a cubic ($g = \eta^2$, ``law='cubic'``) or arctangent-saturated
+    ($g = \eta^2 / (1 + \kappa \eta^2 / \beta)$, ``law='tan'``) heat-release law.
+    The estimable parameters are the linear growth rate $\beta$, the damping
+    $\zeta$ and the nonlinear saturation $\kappa$.
+
+    References
+    ----------
+    Nóvoa & Magri (2022). Real-time thermoacoustic data assimilation.
+    *J. Fluid Mech.*, 948, A35. [DOI: 10.1017/jfm.2022.653](https://doi.org/10.1017/jfm.2022.653).
     """
 
     t_transient = 1.5

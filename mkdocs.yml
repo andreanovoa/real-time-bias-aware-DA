@@ -50,7 +50,7 @@ plugins:
             members_order: source
             merge_init_into_class: true
             inherited_members: false
-            filters: ["!^_"]
+            filters: ["!^_", "^__call__$"]
 
 markdown_extensions:
   - admonition

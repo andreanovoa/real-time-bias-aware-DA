@@ -93,20 +93,31 @@ def energy_fraction(Sigma):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def snapshot_pod(Q):
-    """
-    Snapshot POD (Sirovich 1987).  Exact solver via eigh on the temporal
-    correlation matrix  C = Q^T Q / N_t.
+    r"""Snapshot POD — exact solver.
+
+    Solves the eigenvalue problem of the temporal correlation matrix
+    $\mathbf{C} = \mathbf{Q}^\mathrm{T} \mathbf{Q} / N_t$.
 
     Parameters
     ----------
-    Q : (N_x, N_t)  Zero-mean data matrix.
+    Q : np.ndarray
+        Zero-mean data matrix, shape $(N_x, N_t)$.
 
     Returns
     -------
-    Sigma : (N_t,)       Singular values, descending.
-    Psi   : (N_x, N_t)  Spatial modes (orthonormal columns).
-    Phi   : (N_t, N_t)  Temporal coefficients  Phi[k, t] = Psi_k · q(t).
-    C     : (N_t, N_t)  Temporal correlation matrix.
+    Sigma : np.ndarray
+        Singular values (descending), shape $(N_t,)$.
+    Psi : np.ndarray
+        Spatial modes with orthonormal columns, shape $(N_x, N_t)$.
+    Phi : np.ndarray
+        Temporal coefficients, shape $(N_t, N_t)$.
+    C : np.ndarray
+        Temporal correlation matrix, shape $(N_t, N_t)$.
+
+    References
+    ----------
+    Sirovich (1987). Turbulence and the dynamics of coherent structures.
+    *Quart. Appl. Math.*, XLV(3), 561–590.
     """
     _, N_t = Q.shape
     C      = (Q.T @ Q) / N_t
@@ -122,21 +133,32 @@ def snapshot_pod(Q):
 
 
 def snapshot_pod_randomized(Q, n_modes=20, n_iter=4, random_state=None):
-    """
-    Randomized snapshot POD (Halko, Martinsson & Tropp 2011).
+    r"""Randomized snapshot POD.
 
     Parameters
     ----------
-    Q            : (N_x, N_t)  Zero-mean data matrix.
-    n_modes      : int          Leading modes to compute.  Default: 20.
-    n_iter       : int          Power-iteration steps.  Default: 4.
-    random_state : int | None   Seed for reproducibility.
+    Q : np.ndarray
+        Zero-mean data matrix, shape $(N_x, N_t)$.
+    n_modes : int
+        Leading modes to compute. Default 20.
+    n_iter : int
+        Power-iteration steps. Default 4.
+    random_state : int, optional
+        Seed for reproducibility.
 
     Returns
     -------
-    Sigma : (n_modes,)       Singular values, descending.
-    Psi   : (N_x, n_modes)  Spatial modes (approximately orthonormal).
-    Phi   : (n_modes, N_t)  Temporal coefficients.
+    Sigma : np.ndarray
+        Singular values (descending), shape $(N_\mathrm{modes},)$.
+    Psi : np.ndarray
+        Spatial modes (approximately orthonormal), shape $(N_x, N_\mathrm{modes})$.
+    Phi : np.ndarray
+        Temporal coefficients, shape $(N_\mathrm{modes}, N_t)$.
+
+    References
+    ----------
+    Halko, Martinsson & Tropp (2011). Finding structure with randomness.
+    *SIAM Review*, 53(2), 217–288.
     """
     N_x, N_t = Q.shape
     n_modes  = min(n_modes, N_x, N_t)
@@ -181,25 +203,37 @@ def _toeplitz_filter_matrix(N_t, Nf, kind='gaussian'):
 
 
 def spod_sieber(Q, Nf, kind='gaussian'):
-    """
-    Sieber spectral POD (Sieber, Paschereit & Oberleithner, JFM 2016).
+    r"""Sieber spectral POD.
 
-    Filters the temporal correlation matrix:  C_tilde = G^T C G
-    then solves the same eigenvalue problem as snapshot POD.
-    ``Nf=0`` recovers standard snapshot POD exactly.
+    Filters the temporal correlation matrix,
+    $\tilde{\mathbf{C}} = \mathbf{G}^\mathrm{T} \mathbf{C} \mathbf{G}$, then
+    solves the same eigenvalue problem as snapshot POD. ``Nf=0`` recovers standard
+    snapshot POD exactly.
 
     Parameters
     ----------
-    Q    : (N_x, N_t)  Zero-mean data matrix.
-    Nf   : int          Filter half-width (0 = POD, N_t/2 --> DFT).
-    kind : str          'gaussian' | 'box' | 'hann'.
+    Q : np.ndarray
+        Zero-mean data matrix, shape $(N_x, N_t)$.
+    Nf : int
+        Filter half-width (0 recovers POD; $N_t/2$ approaches the DFT).
+    kind : str
+        ``'gaussian'``, ``'box'`` or ``'hann'``.
 
     Returns
     -------
-    Sigma   : (N_t,)       Singular values, descending.
-    Psi     : (N_x, N_t)  Spatial modes (orthonormal columns).
-    Phi     : (N_t, N_t)  Temporal SPOD coefficients.
-    C_tilde : (N_t, N_t)  Filtered correlation matrix.
+    Sigma : np.ndarray
+        Singular values (descending), shape $(N_t,)$.
+    Psi : np.ndarray
+        Spatial modes with orthonormal columns, shape $(N_x, N_t)$.
+    Phi : np.ndarray
+        Temporal SPOD coefficients, shape $(N_t, N_t)$.
+    C_tilde : np.ndarray
+        Filtered correlation matrix, shape $(N_t, N_t)$.
+
+    References
+    ----------
+    Sieber, Paschereit & Oberleithner (2016). Spectral proper orthogonal
+    decomposition. *J. Fluid Mech.*, 792, 798–828.
     """
     N_x, N_t = Q.shape
     C        = (Q.T @ Q) / N_t
@@ -225,29 +259,46 @@ def spod_sieber(Q, Nf, kind='gaussian'):
 
 def spod_towne(Q, dt=1.0, n_fft=None, n_ovlp=None, window='hamming',
                weight=None, conf_level=0.95):
-    """
-    Spectral POD — Towne, Schmidt & Colonius (JFM 2018).
+    r"""Spectral POD via Welch-averaged cross-spectral density (Towne et al., 2018).
 
-    Estimates the CSD matrix at each frequency via Welch's method, then
-    solves a per-frequency eigenvalue problem.
+    Estimates the cross-spectral density matrix at each frequency via Welch's
+    method, then solves a per-frequency eigenvalue problem.
 
     Parameters
     ----------
-    Q          : ndarray (N_x, N_t)  Zero-mean data matrix.
-    dt         : float               Time step.
-    n_fft      : int | None          Block/FFT length.  Default: 2^floor(log2(N_t/10)).
-    n_ovlp     : int | None          Block overlap.  Default: n_fft // 2.
-    window     : str | ndarray       Window name or array of length n_fft.
-    weight     : ndarray (N_x,) | None  Spatial integration weights.
-    conf_level : float               Confidence level for chi-squared intervals.
+    Q : np.ndarray
+        Zero-mean data matrix, shape $(N_x, N_t)$.
+    dt : float
+        Time step.
+    n_fft : int, optional
+        Block/FFT length. Default $2^{\lfloor \log_2 (N_t / 10) \rfloor}$.
+    n_ovlp : int, optional
+        Block overlap. Default ``n_fft // 2``.
+    window : str or np.ndarray
+        Window name or array of length ``n_fft``.
+    weight : np.ndarray, optional
+        Spatial integration weights, shape $(N_x,)$.
+    conf_level : float
+        Confidence level for the chi-squared intervals.
 
     Returns
     -------
-    L    : ndarray (n_freq, n_blks)       Modal energy spectrum.
-    Psi  : ndarray (n_freq, N_x, n_blks)  Complex SPOD spatial modes.
-    f    : ndarray (n_freq,)              Frequency vector.
-    Lc   : ndarray (n_freq, n_blks, 2)   Confidence intervals [lower, upper].
-    info : dict                           n_fft, n_ovlp, n_blks, window used.
+    L : np.ndarray
+        Modal energy spectrum, shape ``(n_freq, n_blks)``.
+    Psi : np.ndarray
+        Complex SPOD spatial modes, shape ``(n_freq, N_x, n_blks)``.
+    f : np.ndarray
+        Frequency vector, shape ``(n_freq,)``.
+    Lc : np.ndarray
+        Confidence intervals ``[lower, upper]``, shape ``(n_freq, n_blks, 2)``.
+    info : dict
+        Effective ``n_fft``, ``n_ovlp``, ``n_blks`` and window used.
+
+    References
+    ----------
+    Towne, Schmidt & Colonius (2018). Spectral proper orthogonal decomposition and
+    its relationship to dynamic mode decomposition and resolvent analysis.
+    *J. Fluid Mech.*, 847, 821–867.
     """
     N_x, N_t = Q.shape
     is_real  = np.isrealobj(Q)

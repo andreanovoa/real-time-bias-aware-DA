@@ -18,6 +18,23 @@ rng = np.random.default_rng(6)
 
 
 class Filter(object):
+    r"""Base class for the ensemble filters.
+
+    A filter is constructed with the observation operator and applied as a callable
+    on the augmented forecast ensemble
+    $\mathbf{A}^\mathrm{f} = [\boldsymbol{\phi}; \boldsymbol{\alpha}; \mathbf{y}]$
+    (state, parameters, observables), returning the analysis ensemble.
+
+    Parameters
+    ----------
+    M : np.ndarray
+        Observation operator matrix of shape $(N_q, N_\phi + N_\alpha + N_q)$, i.e.,
+        $\mathbf{M} = [\mathbf{0} \,|\, \mathbb{I}_{N_q}]$: the observed variables
+        are the trailing $N_q$ rows of the augmented state.
+    gamma : float, optional
+        Bias-regularization factor. ``None`` (default) marks the filter as
+        bias-unaware; bias-aware filters set a non-negative value.
+    """
 
     def __init__(self, M, gamma=None):
         self._M = M  # observation operator matrix
@@ -39,20 +56,24 @@ class Filter(object):
 
 
     def observation_operator(self, Af):
-        """
-        Adjust observation operator matrix in case of parameter estimation not active.
+        r"""Adjust the observation operator to the size of the provided ensemble.
 
-        self._M maps the full state to observables as [zeros(Nq, Nphi+Na) | eye(Nq)] --
-        i.e. the observed variables are always the trailing Nq rows of the state vector.
-        When Af has had its Na alpha rows trimmed (parameter estimation inactive), we must
-        keep the trailing Nq (identity) columns and only shrink the leading zero block --
-        NOT simply take the first Af.shape[0] columns, which would cut into the zero block
-        and miss the identity columns entirely.
+        The stored operator maps the full augmented state to the observables as
+        $\mathbf{M} = [\mathbf{0}_{N_q \times (N_\phi + N_\alpha)} \,|\, \mathbb{I}_{N_q}]$,
+        so the observed variables are always the *trailing* $N_q$ rows of the state.
+        When the parameter rows have been trimmed from ``Af`` (parameter estimation
+        inactive), the trailing identity columns must be preserved and only the leading
+        zero block shrinks.
 
-        Inputs:
-            Af: forecast ensemble at time t
-        Returns:
-            Observation operator matrix adjusted to Af's state size
+        Parameters
+        ----------
+        Af : np.ndarray
+            (Augmented) forecast ensemble whose leading dimension sets the state size.
+
+        Returns
+        -------
+        np.ndarray
+            Observation operator matrix adjusted to the state size of ``Af``.
         """
         Nq = self._M.shape[0]
         n_state = Af.shape[0]
@@ -70,21 +91,38 @@ class Filter(object):
 
 #  ================================================================================================================== #
 class EnSRKF(Filter):
-    """Ensemble Square-Root Kalman Filter based on Evensen (2009)
-            Inputs:
-                Af: forecast ensemble at time t
-                d: observation at time t
-                Cdd: observation error covariance matrix
-                M: matrix mapping from state to observation space
-            Returns:
-                Aa: analysis ensemble (or Af is Aa is not real)
-        """
-    
+    r"""Ensemble square-root Kalman filter (deterministic EnKF).
+
+    Updates the ensemble mean with the Kalman gain and transforms the ensemble
+    deviations with the symmetric square-root of the analysis covariance, so no
+    stochastic observation perturbations are needed.
+
+    References
+    ----------
+    Evensen (2009). *Data Assimilation: The Ensemble Kalman Filter.* Springer.
+    """
+
     def __init__(self, M, gamma=None):
         super().__init__(M, gamma=None)
 
     def __call__(self, Af, d, Cdd):
+        r"""Apply the square-root analysis update.
 
+        Parameters
+        ----------
+        Af : np.ndarray
+            Forecast ensemble at the analysis time, shape $(N, m)$.
+        d : np.ndarray
+            Observation vector at the analysis time, shape $(N_q,)$.
+        Cdd : np.ndarray
+            Observation error covariance matrix, shape $(N_q, N_q)$.
+
+        Returns
+        -------
+        np.ndarray
+            Analysis ensemble (the forecast ensemble is returned unchanged if the
+            analysis is not real-valued).
+        """
         m = Af.shape[1]
         M = self.observation_operator(Af)
 
@@ -128,23 +166,40 @@ class EnSRKF(Filter):
 #  ================================================================================================================== #
 
 class EnKF(Filter):
-    """Ensemble Kalman Filter as derived in Evensen (2009) eq. 9.27.
-            Parameters:
-                Af: forecast ensemble at time t
-                d: observation at time t
-                Cdd: observation error covariance matrix
-                M: matrix mapping from state to observation space
-            Returns:
-                Aa: analysis ensemble (or Af is Aa is not real)
-        """
+    r"""Stochastic (perturbed-observations) ensemble Kalman filter.
 
+    Each ensemble member assimilates a randomly perturbed copy of the observation,
+    $\mathbf{d}_j \sim \mathcal{N}(\mathbf{d}, \mathbf{C}_{dd})$, following
+    Evensen (2009), Eq. (9.27).
+
+    References
+    ----------
+    Evensen (2009). *Data Assimilation: The Ensemble Kalman Filter.* Springer.
+    """
 
     def __init__(self, M, gamma=None):
         super().__init__(M, gamma=None)
 
 
     def __call__(self, Af, d, Cdd):
+        r"""Apply the stochastic (perturbed-observations) analysis update.
 
+        Parameters
+        ----------
+        Af : np.ndarray
+            Forecast ensemble at the analysis time, shape $(N, m)$.
+        d : np.ndarray
+            Observation vector at the analysis time, shape $(N_q,)$. A pre-perturbed
+            observation ensemble of shape $(N_q, m)$ is also accepted.
+        Cdd : np.ndarray
+            Observation error covariance matrix, shape $(N_q, N_q)$.
+
+        Returns
+        -------
+        np.ndarray
+            Analysis ensemble (the forecast ensemble is returned unchanged if the
+            analysis is not real-valued).
+        """
         m = Af.shape[1]
         M = self.observation_operator(Af)
         
@@ -179,39 +234,90 @@ class EnKF(Filter):
 #  ================================================================================================================== #
 class rBA_EnKF(Filter):
 
-    """Regularized Bias-Aware Ensemble Kalman Filter (r-EnKF) from Nóvoa, Racca & Magri
-    (CMAME, 2023), as corrected by the 2024 erratum (docs/2023_CMAME_Erratum.pdf).
+    r"""Regularized bias-aware ensemble Kalman filter (r-EnKF).
 
-        Note: Equations (15)-(16) of the published paper contain small typos in the
-        transposes of the Jacobian terms; this implementation follows the corrected
-        equations (1a)-(1b) of the erratum:
+    The filter minimizes a cost function with three norms — the ensemble spread, the
+    distance between the *bias-corrected* estimate and the data, and the bias norm
+    weighted by the regularization factor $\gamma \ge 0$. The implementation follows
+    the **corrected** equations (1a)–(1b) of the 2024 erratum:
 
-            psi_a = psi_f + K [ (I + J)^T (d - y_f) - gamma Cdd Cbb^-1 J^T b_f ]
-            K = C M^T [ Cdd + (I+J)^T (I+J) M C M^T + gamma Cdd Cbb^-1 J^T J M C M^T ]^-1
+    $$
+    \boldsymbol{\psi}^\mathrm{a}_j = \boldsymbol{\psi}^\mathrm{f}_j +
+    \mathbf{K} \left[ (\mathbb{I} + \mathbf{J})^\mathrm{T}
+    (\mathbf{d}_j - \mathbf{y}^\mathrm{f}_j)
+    - \gamma\, \mathbf{C}_{dd} \mathbf{C}_{bb}^{-1} \mathbf{J}^\mathrm{T}
+    \mathbf{b}^\mathrm{f} \right],
+    $$
 
-        The published and corrected forms coincide for a single observation (Nq = 1).
-        This simplified form assumes uncorrelated observations (Cdd diagonal), as
-        derived in the erratum.
+    $$
+    \mathbf{K} = \mathbf{C}^\mathrm{f}_{\psi\psi} \mathbf{M}^\mathrm{T}
+    \left[ \mathbf{C}_{dd}
+    + (\mathbb{I} + \mathbf{J})^\mathrm{T} (\mathbb{I} + \mathbf{J})\,
+    \mathbf{M} \mathbf{C}^\mathrm{f}_{\psi\psi} \mathbf{M}^\mathrm{T}
+    + \gamma\, \mathbf{C}_{dd} \mathbf{C}_{bb}^{-1} \mathbf{J}^\mathrm{T} \mathbf{J}\,
+    \mathbf{M} \mathbf{C}^\mathrm{f}_{\psi\psi} \mathbf{M}^\mathrm{T} \right]^{-1},
+    $$
 
-        Inputs:
-            Af: forecast ensemble at time t (augmented with Y)
-            d: observation at time t. If the observations are biased, the caller must
-                de-bias them before the call (see Ensemble.analysis_step).
-            Cdd: observation error covariance matrix
-            Cbb: bias covariance matrix
-            b: bias of the forecast observables (Y = MAf + B). Shape (Nq,), (Nq, 1) or (Nq, m).
-            J: derivative of the bias with respect to the input
-            gamma: regularization factor for the bias term [default = 1.0].
-                Higher values of gamma correspond to stronger regularization (i.e., more weight on the bias term in the cost function).
-        Returns:
-            Aa: analysis ensemble (or Af is Aa is not real)
+    where $\mathbf{J} = \mathrm{d}\mathbf{b} / \mathrm{d}(\mathbf{M}\boldsymbol{\psi})$
+    is the Jacobian of the bias estimator.
+
+    !!! warning "Erratum"
+        Equations (15)–(16) of the published paper contain small typos in the
+        transposes of the Jacobian terms. The published and corrected forms coincide
+        for a single observation ($N_q = 1$). This simplified form assumes
+        uncorrelated observations ($\mathbf{C}_{dd}$ diagonal), as derived in the
+        erratum (`docs/2023_CMAME_Erratum.pdf`).
+
+    Parameters
+    ----------
+    M : np.ndarray
+        Observation operator matrix.
+    gamma : float, optional
+        Bias-regularization factor (default 1.0). Larger values give more weight to
+        the bias norm in the cost function.
+
+    References
+    ----------
+    Nóvoa, Racca & Magri (2023). Inferring unknown unknowns: Regularized bias-aware
+    ensemble Kalman filter. *Comput. Methods Appl. Mech. Eng.*, 418, 116502.
+    [DOI: 10.1016/j.cma.2023.116502](https://doi.org/10.1016/j.cma.2023.116502).
+
+    Nóvoa, Racca & Magri (2024). *Erratum* — corrected Eqs. (15)–(16)
+    ([PDF](https://andreanovoa.github.io/real-time-bias-aware-DA/2023_CMAME_Erratum.pdf)).
     """
 
     def __init__(self, M, gamma=1.0):
         super().__init__(M, gamma=gamma)
 
     def __call__(self, Af, d, Cdd, Cbb, b, J):
+        r"""Apply the regularized bias-aware analysis update.
 
+        Parameters
+        ----------
+        Af : np.ndarray
+            Forecast ensemble at the analysis time, augmented with the observables,
+            shape $(N, m)$.
+        d : np.ndarray
+            Observation vector at the analysis time, shape $(N_q,)$. If the
+            observations are biased, the caller must de-bias them before the call
+            (see `Ensemble.analysis_step`).
+        Cdd : np.ndarray
+            Observation error covariance matrix, shape $(N_q, N_q)$.
+        Cbb : np.ndarray
+            Bias covariance matrix, shape $(N_q, N_q)$.
+        b : np.ndarray
+            Bias of the forecast observables,
+            $\mathbf{y} = \mathbf{M}\mathbf{A}^\mathrm{f} + \mathbf{b}$.
+            Shape $(N_q,)$, $(N_q, 1)$ or $(N_q, m)$.
+        J : np.ndarray
+            Jacobian of the bias with respect to the observables, shape $(N_q, N_q)$.
+
+        Returns
+        -------
+        np.ndarray
+            Analysis ensemble (the forecast ensemble is returned unchanged if the
+            analysis is not real-valued).
+        """
         m = Af.shape[1]
         Nq = len(d)
         M = self.observation_operator(Af)

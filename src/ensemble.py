@@ -17,17 +17,37 @@ from romda.data_assimilation import Filter, EnKF
 
 
 class Ensemble(object):
-    """
-    Manages ensemble-related properties and methods for a Model,
-    primarily for ensemble forecasting and data assimilation (e.g., EnKF).
+    r"""Ensemble wrapper for forecasting and sequential data assimilation.
 
-    This class handles configuration, initialization, and uncertainty generation.
+    An `Ensemble` wraps a forecast [`Model`][romda.models.model.Model] with $m$
+    perturbed copies of the state $\boldsymbol{\phi}$ and, optionally, of selected
+    model parameters $\boldsymbol{\alpha}$ (`est_alpha`, sampled from `std_alpha`).
+    It orchestrates the two halves of sequential data assimilation together with a
+    filter from `romda.data_assimilation` and, optionally, a bias estimator from
+    `romda.bias_estimators`:
 
-    Properties
+    - `forecast_step` advances the model ensemble *and* the bias estimator to the
+      next observation time;
+    - `analysis_step` applies the configured filter to the augmented state
+      $[\boldsymbol{\phi}; \boldsymbol{\alpha}; \mathbf{y}]$, enforces the
+      parameter bounds, stores the analysis, and updates the bias estimator with the
+      analysis innovation $\mathbf{i}^\mathrm{a} = \mathbf{d} - \langle \mathbf{y}^\mathrm{a} \rangle$.
+
+    Parameters
     ----------
-    assimilated_data : property
-        Getter returns a tuple of assimilated observations and their times.
-        Setter appends new observation data and time to the stored lists.
+    parent_model : Model or type[Model]
+        Forecast model instance (copied) or class (instantiated with the remaining
+        keyword arguments).
+    parent_bias : Bias or type[Bias], optional
+        Bias estimator instance (copied) or class (instantiated from the model's
+        current observables). ``None`` disables bias estimation.
+    da_method : Filter or type[Filter], optional
+        Data assimilation filter instance or class. Filter classes are instantiated
+        with the model's observation operator and ``gamma=regularization_factor``.
+    **kwargs
+        Ensemble configuration overrides (e.g. ``m``, ``std_phi``, ``std_alpha``,
+        ``est_alpha``, ``inflation_factor``, ``num_DA_blind``, ``num_SE_only``) and
+        any model/bias constructor arguments.
     """
 
 
@@ -249,35 +269,26 @@ class Ensemble(object):
 
     @typechecked
     def _init_ensemble_model(self, parent_model: Union[Model, Type[Model]], **kwargs):
-        """
-        Initializes ensemble members.
-        This method creates an ensemble of model states (phi) and, optionally,
-        augments that ensemble with uncertain model parameters (alpha). The
-        resulting augmented ensemble (psi) is stored in the parent model's
-        history and the parent model's settings/filename are updated.
+        r"""Initialize the ensemble members.
+
+        Creates an ensemble of model states $\boldsymbol{\phi}$ (perturbed with
+        ``std_phi``) and, if parameters are estimated, augments it with an ensemble of
+        parameters $\boldsymbol{\alpha}$ (sampled from ``std_alpha``). The augmented
+        ensemble is stored as the parent model's initial condition, and the model
+        settings and filename are updated accordingly.
+
         Parameters
         ----------
-        ensemble_psi0 : numpy.ndarray or None, optional
-                Precomputed ensemble of model states to use as the initial ensemble. 
-                Expected shape: (Nphi+Na, m) where Nphi is the state size, Na number of uncertain parameters,
-                and m is the ensemble size (self.m).
-        Side effects
-        ------------
-        - Calls self.add_uncertainty to generate ensembles for state and (optionally) parameters.
-        - If self.est_alpha is truthy, reads parameter names from self.est_alpha and
-            obtains their nominal values from pm (via getattr) to form mean_a, then
-            creates ensemble_alpha0 using self.add_uncertainty with self.std_alpha and
-            self.distribution_alpha.
-        - Forms the augmented ensemble ensemble_psi0 by vstacking state and parameter
-            ensembles when applicable.
-        - Calls pm.update_history(psi=ensemble_psi0, reset=True) which resets the
-            model's stored initial condition/history to the new ensemble.
-        - Appends "_{ModelName}_ensemble_m{m}" to pm.filename (uses getattr(pm, 'name', 'Model'))
-            and calls pm.modify_settings() to apply/update configuration derived from the
-            new filename or ensemble settings.
+        parent_model : Model or type[Model]
+            Forecast model instance (copied) or class (instantiated with ``kwargs``).
+        **kwargs
+            Forwarded to the model constructor when a class is provided.
+
         Raises
         ------
-        - AssertionError: If provided ensemble_psi0 does not match expected shape (Nphi+Na, m).
+        AssertionError
+            If a precomputed ``ensemble_psi0`` does not have shape
+            $(N_\phi + N_\alpha, m)$.
         """
 
 
@@ -518,21 +529,19 @@ class Ensemble(object):
 
 
     def get_observable_hist(self, Nt=0) -> Tuple[Optional[np.ndarray], np.ndarray]:
-        """
-        Returns the bias-corrected ensemble history.
-            y_unbiased = self._recover_unbiased_solution(pb.hist_t, pb.hist, pm.hist_t, y_model)
+        """Return the bias-corrected and raw observable histories of the ensemble.
+
         Parameters
         ----------
         Nt : int, optional
-            Time index to retrieve the bias-corrected ensemble history for. Default is 0 (i.e., All history).
+            Number of trailing time steps to retrieve. Default 0 (the full history).
+
         Returns
         -------
-        Tuple[Optional[np.ndarray], np.ndarray]
-            A tuple containing the bias-corrected ensemble history and the original ensemble history.
-        Raises
-        ------
-        ValueError
-            If Nt is 1, which is not a valid value for this parameter.
+        tuple
+            ``(y_unbiased, y_model)`` — the bias-corrected observable history (``None``
+            if no bias estimator is set) and the raw model observable history, each of
+            shape ``(Nt, Nq, m)``.
         """
         
         pb = self.bias
@@ -626,8 +635,8 @@ class Ensemble(object):
         Cdd : np.ndarray
             Observation error covariance matrix.
 
-        Side effects
-        ------------
+        Notes
+        -----
         - Updates the model's history with the analyzed ensemble state.
         - Updates the bias estimator's state with the analysis innovation (if a bias is set).
         """
@@ -787,8 +796,8 @@ class Ensemble(object):
             If False, perform multiplicative inflation (scales deviations from the mean).
             Default is True.
 
-        Side effects
-        ------------
+        Notes
+        -----
         - Updates the model's history with the inflated ensemble state.
 
         """
@@ -919,8 +928,8 @@ class Ensemble(object):
     def print_parameters(self) -> None:
         """
         Prints the ensemble configuration parameters in a readable format.
-        Side effects
-        ------------    
+        Notes
+        -----    
         - Outputs ensemble configuration and model/bias parameters to the console.
 
         """
@@ -943,8 +952,8 @@ class Ensemble(object):
         ----------
         **kwargs
             Forwarded to plot_state_distribution (e.g., time_indices, max_modes, nbins).
-        Side effects
-        ------------
+        Notes
+        -----
         - Calls plot_ensemble_model to generate and display plots of the ensemble
           distributions at the specified time indices.
         """
@@ -1135,8 +1144,8 @@ def plot_observable_history(ensemble : Ensemble,
     model : Model
         The model instance containing the history to plot.
 
-    Side effects
-    ------------
+    Notes
+    -----
     - Generates and displays time series plots of the ensemble mean and individual members
       for each state variable and estimated parameter in the model's history.
     """
@@ -1302,8 +1311,8 @@ def plot_state_distribution(model: Model,
     nbins : int, optional  (default 6)
         Number of bins to use in the histograms. 
 
-    Side effects
-    ------------
+    Notes
+    -----
     - Generates and displays histograms of the state variables and parameters
       at the specified time indices.
     """

@@ -34,20 +34,20 @@ else:
 
 # %% =================================== INTEGRATOR BASE CLASS ============================================= %% #
 class Integrator:
-    """
-    Abstract Base Class for all time integration strategies.
-    Defines the interface for advancing the model state.
-    Child classes must implement advance_single and advance_ensemble methods.
-    ------
-    Implemented Integrator Strategies:
-        IVPIntegrator - for continuous, variable-step integration using scipy's solve_ivp
-            Governing equations: d(psi)/dt = f(t, psi, alpha). 
-            * The time_derivative method must be defined by the model
-        DiscreteIntegrator - for fixed, discrete-step integration (e.g., ETDRK4, ESN)
-            Solving psi_{t+dt} = F(psi_{t}, alpha)
-            * The time_step method must be defined by the model
-        ConstantIntegrator - holds state constant (for testing or NoBias)
-            returns psi(t) = psi(0)
+    r"""Abstract base class for the time-integration strategies.
+
+    Defines the interface for advancing the model state; child classes implement
+    ``advance_single`` and ``advance_ensemble``. Three strategies are provided:
+
+    - `IVPIntegrator` — continuous, variable-step integration with SciPy's
+      ``solve_ivp`` of $\dot{\boldsymbol{\psi}} = f(t, \boldsymbol{\psi},
+      \boldsymbol{\alpha})$; the model must define ``time_derivative``.
+    - `DiscreteIntegrator` — fixed, discrete-step maps
+      $\boldsymbol{\psi}_{t+\Delta t} = F(\boldsymbol{\psi}_t,
+      \boldsymbol{\alpha})$ (e.g., ETDRK4, ESN); the model must define
+      ``time_step``.
+    - `ConstantIntegrator` — holds the state constant,
+      $\boldsymbol{\psi}(t) = \boldsymbol{\psi}(0)$.
     """
 
     @typechecked

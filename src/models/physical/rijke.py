@@ -9,8 +9,25 @@ from romda.utils import Cheb
 
 # %% ==================================== RIJKE TUBE MODEL ============================================== %% #
 class Rijke(Model):
-    """
-        Rijke tube model with Galerkin discretization and gain-delay sqrt heat release law.
+    r"""Rijke tube — longitudinal thermoacoustic low-order model.
+
+    The acoustic pressure and velocity are expanded on $N_m$ Galerkin modes, and the
+    heat release follows a gain–delay square-root law,
+
+    $$
+    \dot{q} \propto \beta \left[ \sqrt{|1 + u_f(t - \tau)|} - 1 \right],
+    $$
+
+    where $u_f$ is the acoustic velocity at the flame location and the advected
+    perturbation (time delay $\tau$) is discretized with $N_c$ Chebyshev modes.
+    The estimable parameters are $\beta$, $\tau$, the damping coefficients $C_1$,
+    $C_2$, and $\kappa$. The observables are the pressure at ``Nq`` microphone
+    locations.
+
+    References
+    ----------
+    Nóvoa & Magri (2022). Real-time thermoacoustic data assimilation.
+    *J. Fluid Mech.*, 948, A35. [DOI: 10.1017/jfm.2022.653](https://doi.org/10.1017/jfm.2022.653).
     """
 
     # name: str = 'Rijke'
@@ -142,12 +159,18 @@ class Rijke(Model):
                         cosomjxf, Dc, gc, jpiL, L, law, meanFlow, Nc, Nm, tau_adv, sinomjxf):
         """
             Governing equations of the model.
-            Args:
-                psi: current state vector
-                t: current time
-                C1, C2, beta, kappa, tau: Possibly-inferred input_parameters
-                cosomjxf, Dc, gc, jpiL, L, law, meanFlow, Nc, Nm, tau_adv, sinomjxf:  fixed input_parameters
-            Returns:
+            Parameters
+            ----------
+            psi
+                current state vector
+            t
+                current time
+            C1, C2, beta, kappa, tau
+                Possibly-inferred input_parameters
+            cosomjxf, Dc, gc, jpiL, L, law, meanFlow, Nc, Nm, tau_adv, sinomjxf
+                fixed input_parameters
+            Returns
+            -------
                 concatenation of the state vector time derivative
         """
         eta, mu, v = psi[:Nm], psi[Nm: 2 * Nm], psi[2 * Nm: 2 * Nm + Nc]

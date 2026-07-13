@@ -119,7 +119,7 @@ def sample_model_states(rom: Model,
     """
     
     Sample model states from the ROM to create a training dataset for the bias model. This function
-    1. initializes the ROM with an ensemble of states (with smapled ICs and parameters if specified), 
+    1. initializes the ROM with an ensemble of states (with sampled initial conditions and parameters if specified), 
     2. integrates the ROM forward in time to generate model data, and 
     3. processes this data to create a training dataset for the bias model. 
     
@@ -191,7 +191,7 @@ def sample_model_states(rom: Model,
     psi0 = np.mean(model.current_state.copy(), axis=-1)
     Nt = int(np.round(model.t_transient / model.dt, model.precision_t)) - 1
 
-    # Add parameters to the state vector if parameter uncertanty is givemn
+    # Add parameters to the state vector if parameter uncertainty is given
     if std_alpha and psi0.shape[0] == model.Nphi:
         assert isinstance(std_alpha, dict), "std_alpha must be a dict if parameter uncertainty is specified."
         model.ensemble = dict(Na=len(std_alpha), est_alpha=list(std_alpha.keys()), m=L)

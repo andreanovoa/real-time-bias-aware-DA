@@ -10,26 +10,51 @@ from romda.plotting import categorical_cmap
 
 
 class Bias:
-    """
-    Base class for bias models used in data assimilation.
-    Attributes:
-        upsample (int): Factor to upsample bias model time step relative to data assimilation cycle
-        L (int): Length of bias state vector
-        augment_data (bool): Whether to augment data with bias information
-        bayesian_update (bool): Whether to perform Bayesian update to state
-        biased_observations (bool): Whether observations are biased
-    Methods:
-        __init__: Initializes the Bias model with given parameters
-        get_bias: Extracts bias from the full state
-        get_innovations: Extracts innovations from the full state
-        time_integrate: Advances the bias state in time
-        update_history: Updates the history of the bias state
-    Properties:
-        name: Name of the bias model class
-        bias_idx: Indices of the bias components in the state vector
-        forecaster: The forecasting model used for bias prediction
-        history: History object storing past bias states
-        integrator: Integrator used by the bias model
+    r"""Base class for the model-bias estimators used in bias-aware data assimilation.
+
+    A bias estimator provides three things to the assimilation loop:
+
+    1. a **forecast** of the bias between analyses (`time_integrate`), driven by its
+       internal forecaster (an ESN, a constant map, a linear model, ...);
+    2. the **Jacobian** of the bias with respect to the observables
+       (`state_derivative`), $\mathbf{J} = \mathrm{d}\mathbf{b}/\mathrm{d}\mathbf{q}$,
+       required by the regularized bias-aware EnKF;
+    3. an **update rule** from the analysis innovation
+       (`update_state_from_innovation`), optionally Bayesian (an internal EnSRKF on
+       the bias state).
+
+    The estimator state has $N_\mathrm{dim}$ components: $[\mathbf{b}]$ if the
+    observations are unbiased, or $[\mathbf{b}; \mathbf{i}]$ (bias and innovations,
+    $N_\mathrm{dim} = 2 N_q$) if `biased_observations` is set. Child classes may add
+    hidden components (e.g., the ESN reservoir).
+
+    Parameters
+    ----------
+    innovation : np.ndarray
+        Initial innovation/bias estimate, used to set the observable dimension $N_q$.
+    t : float
+        Initial time.
+    dt : float
+        Time step of the output history.
+    **kwargs
+        Class-attribute overrides (see Attributes) and forecaster options.
+
+    Attributes
+    ----------
+    upsample : int
+        Upsampling factor of the internal forecaster time step relative to ``dt``.
+    L : int
+        Number of trajectories in the training dataset (data-driven estimators).
+    augment_data : bool or int
+        Whether (and how much) to augment the training data.
+    bayesian_update : bool
+        If True, the innovation update is a Bayesian (EnSRKF) update of the full
+        estimator state; otherwise the innovation is assigned directly.
+    biased_observations : bool
+        If True, the observations themselves are assumed biased and the estimator
+        tracks bias and innovations separately.
+    force_retrain : bool
+        If True, retrain the forecaster even if a cached configuration exists.
     """
 
     upsample = 1
@@ -182,7 +207,8 @@ class Bias:
         """
         Returns the washout data used for initializing the bias model, which is typically obtained from the washout phase using the validation data. This property can be used to access the washout data for further processing or analysis.
 
-        Returns:
+        Returns
+        -------
             Tuple of (washout_data, washout_time) where:
                 - washout_data: np.ndarray - Washout data used for initializing the bias model.
                 - washout_time: np.ndarray - Time points corresponding to the washout data.
@@ -317,10 +343,15 @@ class Bias:
         Optional method to perform a Bayesian update to the state using the bias model. This can be implemented in child classes if needed, e.g., for ESN bias model.
         By default, does nothing, but can be implemented in child classes if needed.
 
-        Args:
-            input_data: The input data for the Bayesian update.
-            method: The method to use for the Bayesian update.
-            **kwargs: Additional keyword arguments that may be needed for the Bayesian update.
+        Parameters
+        ----------
+        input_innovation : np.ndarray
+            Analysis innovation ensemble, shape ``(Nq, m)``, ``(Nq, 1)`` or ``(Nq,)``.
+
+        Returns
+        -------
+        np.ndarray
+            Updated estimator state, shape ``(N, N_ens)``.
         """
         input_innovation = self._format_state(input_innovation) # Ensure shape (nt, nstate, nens)
         assert input_innovation.shape[0] == 1, "Input innovation must have only one time step (shape[0] == 1) for state_from_innovation method."

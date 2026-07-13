@@ -19,7 +19,32 @@ __all__ = ['Model']
 
 # %% =================================== PARENT MODEL CLASS ============================================= %% #
 class Model(object):
-    """ Parent Class with the general model properties and methods definitions.
+    r"""Base class for all forecast models.
+
+    A `Model` couples three ingredients:
+
+    - a **state history** ([`HistoryTracker`][romda.models.history.HistoryTracker])
+      with pre-allocated storage of shape $(N_t, N, m)$ — time, state, ensemble
+      members;
+    - a **time-integration strategy**
+      ([`Integrator`][romda.models.integrator.Integrator]) selected at construction;
+    - the **observation operator** ``M`` mapping the (augmented) state to the
+      observables.
+
+    Physical models implement ``time_derivative(t, psi, **params)`` (continuous) or
+    ``time_step(Nt)`` (discrete maps) and declare their estimable parameters in
+    ``params`` with bounds in ``alpha_lims``.
+
+    Parameters
+    ----------
+    psi0 : np.ndarray or list
+        Initial state, shape $(N_\phi,)$ or $(N_\phi, m)$.
+    dt : float
+        Output time step.
+    integrator_class : type[Integrator]
+        Time-integration strategy (default `IVPIntegrator`).
+    **kwargs
+        Model-parameter overrides (any attribute defined by the child class).
     """
 
     params = []  # List of parameter names that can be varied in the model
@@ -190,9 +215,12 @@ class Model(object):
 
     def __format_state(self, psi: np.ndarray) -> np.ndarray:
         """Ensure psi has the correct shape (Nt, N, m) for history storage.
-        Args:
-            psi: State array to format.
-        Returns:
+        Parameters
+        ----------
+        psi
+            State array to format.
+        Returns
+        -------
             Formatted state array with shape (Nt, N, m).
         """ 
         if psi.ndim == 1:
@@ -445,11 +473,15 @@ class Model(object):
         Delegates the integration task to the currently configured Integrator strategy.
         The Model's time_integrate is now just a wrapper for the Strategy's advance method.
         Some Models may override this method if they need special handling.
-        Args:
-            Nt: number of forecast steps
-            averaged (bool): if true, each member in the ensemble is forecast individually. If false,
-                            the ensemble is forecast as a mean, i.e., every member is the mean forecast.
-        Returns:
+        Parameters
+        ----------
+        Nt
+            number of forecast steps
+        averaged : bool
+            if true, each member in the ensemble is forecast individually. If false,
+            the ensemble is forecast as a mean, i.e., every member is the mean forecast.
+        Returns
+        -------
             psi: forecasted state (Nt x N x m)
             t: time of the propagated psi
         """

@@ -11,12 +11,20 @@ from typing import List
 
 
 class Lorenz63(Model):
-    """ Lorenz 63 Model: Chaotic system with three state variables.
-        
-        Equations: 
-            dx/dt = sigma * (y - x)
-            dy/dt = x * (rho - z) - y
-            dz/dt = x * y - beta * z
+    r"""Lorenz (1963) system — chaotic benchmark with three state variables.
+
+    $$
+    \dot{x} = \sigma (y - x), \qquad
+    \dot{y} = x (\rho - z) - y, \qquad
+    \dot{z} = x y - \beta z.
+    $$
+
+    With the classical parameters ($\sigma = 10$, $\rho = 28$, $\beta = 8/3$) the
+    system is chaotic with leading Lyapunov exponent $\lambda_1 \approx 0.906$.
+
+    References
+    ----------
+    Lorenz (1963). Deterministic nonperiodic flow. *J. Atmos. Sci.*, 20, 130–141.
     """
 
     # --- Core Physics Parameters ---
@@ -90,11 +98,13 @@ class Lorenz63(Model):
     def visualize_attractor(self, psi_cases=None, **kwargs):
         """
         Visualizes the Lorenz attractor for given state trajectories.
-        Args:
-            psi_cases: List of state trajectories to plot. Each trajectory should be of shape (Nt, 3) or (Nt, 3, Ne).
-            color: List of colors for each trajectory. If None, a colormap is used.
-            figsize: Figure size for the plot.
-            ensemble_mean: If True and psi_cases contain ensembles, plot the mean trajectory.
+        Parameters
+        ----------
+        psi_cases : list, optional
+            State trajectories to plot, each of shape ``(Nt, 3)`` or ``(Nt, 3, Ne)``.
+            Defaults to the model's own history.
+        **kwargs
+            Plotting options forwarded to the helper (``color``, ``figsize``, ...).
         """
         if psi_cases is None:
             psi_cases = [self.hist[:, :3, :]]

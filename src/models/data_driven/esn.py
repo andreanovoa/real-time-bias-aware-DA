@@ -12,9 +12,24 @@ import inspect
 
 
 class ESN_model(EchoStateNetwork, Model):
-    """ ESN model Class
-        - Use a ESN as a data-driven forecast model
-        - Note: training data is a mandatory input to the initialization
+    r"""Echo state network as a data-driven forecast model.
+
+    Wraps the [`EchoStateNetwork`][romda.tools.esn_core.EchoStateNetwork] reservoir
+    with the [`Model`][romda.models.model.Model] interface (state history, discrete
+    integrator, observation operator), so a trained ESN can be used as the forecast
+    model of an `Ensemble` — or as the forecaster inside
+    [`ESN_bias`][romda.bias_estimators.esn.ESN_bias]. The model state is
+    $[\mathbf{u}; \mathbf{r}]$: the physical outputs and the reservoir state.
+    Training data is mandatory at construction (the network trains itself unless a
+    cached configuration is found).
+
+    Parameters
+    ----------
+    dt : float
+        Output time step (the internal ESN step is ``dt * upsample``).
+    **kwargs
+        ``data`` (training data, shape $(L, N_t, N_\mathrm{dim})$), ``y0`` (initial
+        state if no data), ESN hyperparameters and `Model` options.
     """
 
     update_reservoir = True
@@ -410,15 +425,21 @@ class ESN_model(EchoStateNetwork, Model):
     
     
     def time_step(self, Nt=10, averaged=False):
-        """
-            Args:
-                Nt: number of forecast steps (physical time, not dt_ESN)
-                averaged (bool): if true, each member in the ensemble is forecast individually. If false,
-                                the ensemble is forecast as a mean, i.e., every member is the mean forecast.
-                alpha: possibly-varying input_parameters
-            Returns:
-                psi: forecasted state (Nt x N x m)
-                t: time of the propagated psi
+        """Advance the ESN in closed loop.
+
+        Parameters
+        ----------
+        Nt : int
+            Number of forecast steps (in physical time steps, not ``dt_ESN``).
+        averaged : bool
+            If True, the ensemble is forecast as its mean plus frozen deviations;
+            otherwise each member is forecast individually.
+
+        Returns
+        -------
+        tuple
+            ``(psi, t)`` — forecasted state of shape ``(Nt+1, N, m)`` and the
+            corresponding times.
         """
 
         assert self.trained, 'ESN model not trained'
@@ -459,7 +480,8 @@ class ESN_model(EchoStateNetwork, Model):
 
     def build_psi(self, u=None, r=None):
         """ Build the full state vector psi from physical states u and reservoir states r
-         Returns:
+         Returns
+         -------
             psi: full state vector (Nt x (Nphi + Na) x m)
         """
         if r is None:
@@ -496,9 +518,12 @@ class ESN_model(EchoStateNetwork, Model):
 
     def unbuild_psi(self, psi=None):
         """ Extract physical states u and reservoir states r from the full state vector psi
-            Args:
-                psi: full state vector (N x m). If None, use the current_state
-            Returns:
+            Parameters
+            ----------
+            psi
+                full state vector (N x m). If None, use the current_state
+            Returns
+            -------
                 u: physical states (N_dim x m) (or None if not updated)
                 r: reservoir states (N_units x m) (or None if not updated)
         """

@@ -25,16 +25,32 @@ from scipy.sparse.linalg import eigs as sparse_eigs
 
 
 class EchoStateNetwork:
-    """
-    The EchoStateNetwork class implements a reservoir computing model for time series prediction. It is based on
-    the Echo State Network (ESN) approach, which uses a randomly connected reservoir of neurons to map inputs
-    into high-dimensional space. This allows the model to capture complex dynamics with efficient training.
+    r"""Reservoir-computing building block for time-series forecasting.
 
-    Attributes:
-        - Reservoir and network hyperparameters (e.g., N_units, rho, sigma_in, tikh, etc.)
-        - Training, validation, and test configuration (e.g., t_train, t_val, t_test, N_wash, etc.)
-        - Optimization settings for Bayesian hyperparameter search (e.g., hyperparameters_to_optimize, rho_range, etc.)
-        - Input and output weight matrices (Win, Wout) and reservoir state matrix (W)
+    An echo state network maps its inputs into a high-dimensional reservoir of
+    randomly connected neurons, and only the linear read-out
+    $\mathbf{W}_\mathrm{out}$ is trained (ridge regression), so training reduces to
+    a linear least-squares problem. The hyperparameters (spectral radius $\rho$,
+    input scaling $\sigma_\mathrm{in}$, Tikhonov factor) are selected by Bayesian
+    optimization with recycled-validation cross-folds.
+
+    The main attribute groups are:
+
+    - reservoir and network hyperparameters (``N_units``, ``rho``, ``sigma_in``,
+      ``tikh``, ``connect``, ...);
+    - training/validation/test configuration (``t_train``, ``t_val``, ``t_test``,
+      ``N_wash``, ...);
+    - Bayesian-optimization settings (``hyperparameters_to_optimize``,
+      ``rho_range``, ``sigma_in_range``, ``tikh_range``, ...);
+    - the trained matrices ``Win``, ``W`` and ``Wout``.
+
+    References
+    ----------
+    Lukoševičius (2012). A practical guide to applying echo state networks.
+    In *Neural Networks: Tricks of the Trade*, Springer.
+
+    Racca & Magri (2021). Robust optimization and validation of echo state networks
+    for learning chaotic dynamics. *Neural Networks*, 142, 252–268.
     """
 
     bias_in = np.array([0.1])  #
@@ -79,12 +95,16 @@ class EchoStateNetwork:
         Initializes the EchoStateNetwork class with input data, time step, and optional hyperparameters.
         Validates the input dimensions and initializes reservoir states, time steps, and flags.
 
-        Args:
-            y (np.ndarray): Initial state of the physical system (dimensions: N_dim x N_samples).
-            dt (float): time step of the input data, such that dt_ESN = dt * upsample.
+        Parameters
+        ----------
+        y : np.ndarray
+            Initial state of the physical system (dimensions: N_dim x N_samples).
+        dt : float
+            time step of the input data, such that dt_ESN = dt * upsample.
             **kwargs: Optional keyword arguments to override default class attributes.
 
-        Raises:
+        Raises
+        ------
             AssertionError: If y has more than two dimensions or invalid values in kwargs.
 
         """
@@ -359,11 +379,15 @@ class EchoStateNetwork:
         """
         Advances the reservoir by one time step and updates its internal state.
 
-        Args:
-            u (np.ndarray): Input physical state at the current time step. Shape = (N_dim x N_ens)
-            r (np.ndarray): Reservoir state at the current time step. Shape = (N_units x N_ens)
+        Parameters
+        ----------
+        u : np.ndarray
+            Input physical state at the current time step. Shape = (N_dim x N_ens)
+        r : np.ndarray
+            Reservoir state at the current time step. Shape = (N_units x N_ens)
 
-        Returns:
+        Returns
+        -------
             tuple: (u_out, r_out) where u_out is the output state and r_out is the updated reservoir state.
         """
         # Normalise input data and augment with input bias (ESN symmetry parameter)
@@ -398,10 +422,18 @@ class EchoStateNetwork:
 
 
     def reservoir_to_physical(self, r):
-        """ Converts the reservoir state to the physical state using the output weight matrix (Wout).
-        Note: I change this in ESN_model
-        Args:
-            r_aug (np.ndarray): Augmented reservoir state including output bias.
+        """Convert the reservoir state to the physical state via the output matrix.
+
+        Parameters
+        ----------
+        r : np.ndarray
+            Reservoir state, shape ``(N_units, N_ens)`` (the output bias row is
+            appended internally).
+
+        Returns
+        -------
+        np.ndarray
+            Physical state, shape ``(N_dim, N_ens)``.
         """
         
         # output bias added
@@ -414,10 +446,13 @@ class EchoStateNetwork:
         """
         Normalizes the input data based on the specified normalization method.
 
-        Args:
-            data (np.ndarray): Input data to be normalized.
+        Parameters
+        ----------
+        data : np.ndarray
+            Input data to be normalized.
 
-        Returns:
+        Returns
+        -------
             np.ndarray: Normalized input data.
         """
         return (data - self.shift[:, np.newaxis]) / self.norm[:, np.newaxis]
@@ -427,10 +462,13 @@ class EchoStateNetwork:
         """
         Maps the full state (predicted or reconstructed) to input states for the ESN.
 
-        Args:
-            full_state (np.ndarray): Full physical state vector.
+        Parameters
+        ----------
+        full_state : np.ndarray
+            Full physical state vector.
 
-        Returns:
+        Returns
+        -------
             np.ndarray: Input state vector mapped from the full state.
         """
         assert full_state.shape[0] == self.N_dim, f'full_state has shape {full_state.shape}, expected first dim to be {self.N_dim}'
@@ -449,12 +487,17 @@ class EchoStateNetwork:
         """
         Computes the Jacobian matrix for the reservoir, either in open-loop or closed-loop mode.
 
-        Args:
-            open_loop_J (bool): If True (default), compute the open-loop Jacobian.
-            u_in (np.ndarray): Input state. shape = (N_dim_in x N_ens)
-            r_in (np.ndarray): Reservoir state. shape = (N_units x N_ens)
+        Parameters
+        ----------
+        open_loop_J : bool
+            If True (default), compute the open-loop Jacobian.
+        u_in : np.ndarray
+            Input state. shape = (N_dim_in x N_ens)
+        r_in : np.ndarray
+            Reservoir state. shape = (N_units x N_ens)
 
-        Returns:
+        Returns
+        -------
             np.ndarray: Jacobian matrix d(u_out)/d(u_in).
                 - If N_ens == 1: shape (N_dim, N_dim_in)
                 - If N_ens > 1: shape (N_dim, N_dim_in, N_ens)
@@ -512,13 +555,20 @@ class EchoStateNetwork:
         """
         Trains the ESN using ridge regression and Bayesian hyperparameter optimization.
 
-        Args:
-            train_data (np.ndarray): Training data with dimensions [L x Nt x N_dim].
-            add_noise (bool): If True, adds noise to the input during training.
-            plot_training (bool): If True, visualizes the training process.
-            save_ESN_training (bool): If True, saves training plots to a file.
-            folder (str): Directory to save training plots (if save_ESN_training=True).
-            validation_strategy (function): Custom validation function for hyperparameter tuning.
+        Parameters
+        ----------
+        train_data : np.ndarray
+            Training data with dimensions [L x Nt x N_dim].
+        add_noise : bool
+            If True, adds noise to the input during training.
+        plot_training : bool
+            If True, visualizes the training process.
+        save_ESN_training : bool
+            If True, saves training plots to a file.
+        folder : str
+            Directory to save training plots (if save_ESN_training=True).
+        validation_strategy : function
+            Custom validation function for hyperparameter tuning.
         """
         if self.trained:
             print("ESN is already trained. Skipping training.")
@@ -571,10 +621,13 @@ class EchoStateNetwork:
         """
         Generates the input weight matrix (Win) and reservoir weight matrix (W) with sparsity constraints.
 
-        Args:
-            seed (int): Random seed for reproducibility.
+        Parameters
+        ----------
+        seed : int
+            Random seed for reproducibility.
 
-        Raises:
+        Raises
+        ------
             ValueError: If the specified self.Win_type is unsupported. Allowed values: 'sparse' or 'dense'.
 
         Outputs:
@@ -614,11 +667,15 @@ class EchoStateNetwork:
         Computes the Ridge Regression (RR) terms, including left-hand side (LHS) and right-hand side (RHS)
         matrices, for training the output weights.
 
-        Args:
-            U_wtv (np.ndarray): Wash-train-validation input data.
-            Y_wtv (np.ndarray): Corresponding output labels for input data.
+        Parameters
+        ----------
+        U_wtv : np.ndarray
+            Wash-train-validation input data.
+        Y_wtv : np.ndarray
+            Corresponding output labels for input data.
 
-        Returns:
+        Returns
+        -------
             tuple:
                 - LHS (np.ndarray): Left-hand side matrix for ridge regression.
                 - RHS (np.ndarray): Right-hand side matrix for ridge regression.
@@ -688,11 +745,15 @@ class EchoStateNetwork:
         """
         Solves the ridge regression problem to compute the output weight matrix (Wout).
 
-        Args:
-            U_wtv (np.ndarray): Input data for ridge regression (train/valiladion).
-            Y_wtv (np.ndarray): Target labels for ridge regression.
+        Parameters
+        ----------
+        U_wtv : np.ndarray
+            Input data for ridge regression (train/valiladion).
+        Y_wtv : np.ndarray
+            Target labels for ridge regression.
 
-        Returns:
+        Returns
+        -------
             np.ndarray: Computed output weight matrix (Wout).
         """
         LHS, RHS = self._compute_RR_terms(U_wtv, Y_wtv)[:2]
@@ -704,10 +765,13 @@ class EchoStateNetwork:
         """
         Extracts input (U) and output (Y) matrices from raw data.
 
-        Args:
-            data (np.ndarray): Raw time series data with dimensions [(L) x Nt x N_dim].
+        Parameters
+        ----------
+        data : np.ndarray
+            Raw time series data with dimensions [(L) x Nt x N_dim].
 
-        Returns:
+        Returns
+        -------
             tuple: (U, Y) where U is the input matrix and Y is the output. Shapes: L x Nt x N_dim
         """
 
@@ -740,16 +804,22 @@ class EchoStateNetwork:
         """
         Formats the input data into washout, train/val, and test sets. Optionally adds noise to the input.
 
-        Args:
-            - data (np.ndarray): Input time series data with dimensions [(L) x Nt x N_dim].
-            - add_noise (bool): Whether to add noise to the training input data (default: True).
-            - observed_idx (list, optional): indices which are observed
-        Returns:
+        Parameters
+        ----------
+        data : np.ndarray
+            Input time series data with dimensions [(L) x Nt x N_dim].
+        add_noise : bool
+            Whether to add noise to the training input data (default: True).
+        observed_idx : list, optional
+            indices which are observed
+        Returns
+        -------
             - U_wtv (np.ndarray): Wash-train-validation input data.
             - Y_wtv (np.ndarray): Corresponding labels for train/validation data.
             - U_test (np.ndarray): Test input data.
             - Y_test (np.ndarray): Test labels.
-        Raises:
+        Raises
+        ------
             ValueError: If the input data length is insufficient for training.
         """
         if data is None:
@@ -790,10 +860,14 @@ class EchoStateNetwork:
         """
         Updates specific hyperparameters with new values.
 
-        Args:
-            params (list): List of hyperparameter values to set.
-            names (list): Names of the hyperparameters to update.
-            tikhonov (float, optional): Value to set for the Tikhonov regularization parameter.
+        Parameters
+        ----------
+        params : list
+            List of hyperparameter values to set.
+        names : list
+            Names of the hyperparameters to update.
+        tikhonov : float, optional
+            Value to set for the Tikhonov regularization parameter.
 
         Outputs:
             None. Updates internal hyperparameter values.
@@ -811,13 +885,18 @@ class EchoStateNetwork:
         """
         Performs Bayesian hyperparameter optimization to minimize the validation loss.
 
-        Args:
-            U_wtv (np.ndarray): Wash-train-validation input data.
-            Y_wtv (np.ndarray): Corresponding labels for train-validation data.
-            validation_strategy (function, optional): Validation function for hyperparameter tuning.
-                Defaults to `_RVC_Noise`.
+        Parameters
+        ----------
+        U_wtv : np.ndarray
+            Wash-train-validation input data.
+        Y_wtv : np.ndarray
+            Corresponding labels for train-validation data.
+        validation_strategy : function, optional
+            Validation function for hyperparameter tuning.
+            Defaults to `_RVC_Noise`.
 
-        Returns:
+        Returns
+        -------
             OptimizeResult: Results of the Bayesian optimization process.
         """
         # print("Starting Bayesian hyperparameter optimization...")
@@ -879,7 +958,8 @@ class EchoStateNetwork:
         Prepares the search grid and search space for Bayesian hyperparameter optimization.
         TODO: add noise to the optional input_parameters to optimize.
 
-        Returns:
+        Returns
+        -------
             tuple:
                 - search_grid (list): List of initial grid points for optimization.
                 - search_space (list): Search space objects for each hyperparameter.
@@ -916,9 +996,12 @@ class EchoStateNetwork:
     def _set_norm(train_data, method=None):
         """
         Computes the normalization factor for the input data.
-        Args:
-            train_data (np.ndarray): Wash-train-validation training input data. (Nens x Nt x Ndim).
-        Returns:
+        Parameters
+        ----------
+        train_data : np.ndarray
+            Wash-train-validation training input data. (Nens x Nt x Ndim).
+        Returns
+        -------
             float: Normalization factor based on the range of the input data. 
         """
         # assert train_data.ndim in [3, 4], f'U_wtv must be a 3D array, got {train_data.ndim}D: ({train_data.shape})'
@@ -976,15 +1059,23 @@ class EchoStateNetwork:
         """
         Implements Chaotic Recycle Validation for hyperparameter optimization.
 
-        Args:
-            x (list): Hyperparameter values to evaluate.
-            case (EchoStateNetwork): Instance of the ESN being validated.
-            U_wtv (np.ndarray): Wash-train-validation input data.
-            Y_wtv (np.ndarray): Corresponding labels for train/validation data.
-            tikh_opt (np.ndarray): Array to store optimal Tikhonov regularization values.
-            hp_names (list): Names of the hyperparameters being optimized.
+        Parameters
+        ----------
+        x : list
+            Hyperparameter values to evaluate.
+        case : EchoStateNetwork
+            Instance of the ESN being validated.
+        U_wtv : np.ndarray
+            Wash-train-validation input data.
+        Y_wtv : np.ndarray
+            Corresponding labels for train/validation data.
+        tikh_opt : np.ndarray
+            Array to store optimal Tikhonov regularization values.
+        hp_names : list
+            Names of the hyperparameters being optimized.
 
-        Returns:
+        Returns
+        -------
             float: Normalized mean squared error (MSE) for the validation set.
         """
         # Re-set hyperparams as the optimization goes on
@@ -1070,10 +1161,14 @@ class EchoStateNetwork:
         """
         Computes the normalized Root Mean Square Error (nRMSE) between true and predicted values.
 
-        Args:
-            Y_true (np.ndarray): Ground truth values.
-            Y_pred (np.ndarray): Predicted values.
-        Returns:
+        Parameters
+        ----------
+        Y_true : np.ndarray
+            Ground truth values.
+        Y_pred : np.ndarray
+            Predicted values.
+        Returns
+        -------
             float: nMSE value.
         """
         return np.mean(np.sqrt((Y_true - Y_pred) ** 2)) / np.mean(np.sqrt(norm**2))
@@ -1092,22 +1187,27 @@ class EchoStateNetwork:
                 long_term=True,
                 short_term=True,
                  ):
-        """
-        Evaluates the trained ESN on test data.
+        """Evaluate the trained ESN on test data.
 
-        Args:
-            U_test (np.ndarray): Test input data [L x Nt x N_dim].
-            Y_test (np.ndarray): Ground truth labels for test data.
-            pdf_file (PdfPages, optional): File to save test plots
-                - default: None.
-            max_L_tests (int): Maximum number of L test cases to evaluate
-                - default: 10.
-            seed (int): Random seed for reproducibility.
-            plot_pdf: choose to plot or not the pdf of the prediction
-            nbins:
-            Nt_test: length of the individual tests
-        Returns:
-            None. Prints error metrics and optionally saves plots.
+        Parameters
+        ----------
+        U_test : np.ndarray
+            Test input data, shape ``(L, Nt, N_dim)``.
+        Y_test : np.ndarray
+            Ground-truth outputs for the test data.
+        pdf_file : PdfPages, optional
+            File to save the test plots to.
+        Nt_test : int, optional
+            Length of the individual tests.
+        max_L_tests : int
+            Maximum number of test trajectories to evaluate. Default 5.
+        nbins : int
+            Number of bins for the prediction PDFs. Default 20.
+
+        Returns
+        -------
+        None
+            Prints error metrics and optionally saves plots.
         """
 
         if max_L_tests is None and hasattr(self, 'max_L_tests'):
@@ -1350,13 +1450,19 @@ class EchoStateNetwork:
         """
         # Plot Gaussian Process reconstruction for each network in the ensemble after n_tot evaluations.
         # The GP reconstruction is based on the n_tot function evaluations decided in the search
-        Args:
-            results_bayesian_optimization: dictionary containing
-                - hp_names: label of the optimized hyperparameters
-                - res: result of the GP reconstruction
-            pdf: file to save the figures
+        Parameters
+        ----------
+        results_bayesian_optimization
+            dictionary containing
+        hp_names
+            label of the optimized hyperparameters
+        res
+            result of the GP reconstruction
+        pdf
+            file to save the figures
 
-        Returns:
+        Returns
+        -------
 
         """
 

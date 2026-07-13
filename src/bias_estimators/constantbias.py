@@ -6,13 +6,14 @@ from types import SimpleNamespace
 
 
 class ConstantBias(Bias):
-    """
+    r"""
     Constant (persistent) bias estimator.
 
-    The bias is held constant between analysis steps, i.e., the forecast model of the bias
-    is db/dt = 0. At each analysis step, the bias state is reset to the latest innovation
-    (see Bias.update_state_from_innovation). This is the classic persistent-bias assumption,
-    and is a special case of DriftLinearBias with zero drift and zero linear coupling.
+    The bias is held constant between analysis steps, i.e., the forecast model of the
+    bias is $\dot{\mathbf{b}} = \mathbf{0}$. At each analysis step, the bias state is
+    reset to the latest innovation (see `Bias.update_state_from_innovation`). This is
+    the classic persistent-bias assumption, and a special case of `DriftLinearBias`
+    with zero drift and zero linear coupling.
 
     Parameters
     ----------

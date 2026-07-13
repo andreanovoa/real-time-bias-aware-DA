@@ -314,7 +314,7 @@ class CAE(Projector):
 # ─────────────────────────────────────────────────────────────────────────────
 
 class POD(Projector):
-    """
+    r"""
     Snapshot POD.
 
     Inherits the shared interface from ``Projector`` (fit/encode/decode/
@@ -323,49 +323,37 @@ class POD(Projector):
 
     Two solvers are available via ``method``:
 
-    ``'exact'``
-        Full eigendecomposition of the temporal correlation matrix C = Q^T Q / N_t.
-        Returns all N_t modes.  Exact but O(N_t^3).
+    - ``'exact'`` — full eigendecomposition of the temporal correlation matrix
+      $\mathbf{C} = \mathbf{Q}^\mathrm{T}\mathbf{Q} / N_t$ (Sirovich 1987).
+      Exact but $\mathcal{O}(N_t^3)$.
+    - ``'randomized'`` (default) — randomized SVD (Halko, Martinsson & Tropp 2011).
+      Returns only the leading ``n_modes`` modes; fast and memory-efficient.
 
-    ``'randomized'``  (default)
-        Randomized SVD (Halko, Martinsson & Tropp 2011).  Returns only the
-        leading ``n_modes`` modes.  Fast and memory-efficient for large data.
+    After ``fit(X)`` the decomposition satisfies
+    $\mathbf{X} = \boldsymbol{\Psi}\boldsymbol{\Phi} + \bar{\mathbf{Q}}$, with:
 
-    After ``fit(X)`` the following attributes are available:
-
-        Sigma  (N_latent,)      singular values, descending
-        Psi    (N_x, N_latent)  spatial modes (orthonormal columns)
-        Phi    (N_latent, N_t)  temporal coefficients from training data
-        Q_mean (N_x, 1)         temporal mean
-
-        Note: 
-            X = Psi @ Phi + Q_mean  (N_x, N_t)  is the training data reconstruction.
-            Q = X - Q_mean is the zero-mean data used for the decomposition.
+    - ``Sigma`` — singular values (descending), shape $(N_\mathrm{latent},)$;
+    - ``Psi`` — spatial modes with orthonormal columns, shape $(N_x, N_\mathrm{latent})$;
+    - ``Phi`` — temporal coefficients, shape $(N_\mathrm{latent}, N_t)$;
+    - ``Q_mean`` — temporal mean $\bar{\mathbf{Q}}$, shape $(N_x, 1)$.
 
     Parameters
     ----------
-    n_modes      : int         Modes / latent-space size.  Default: 20.
-    method       : str         'exact' | 'randomized'.  Default: 'randomized'.
-    n_iter       : int         Power-iteration steps for 'randomized'.  Default: 4.
-    random_state : int | None  Seed for reproducibility.
-    grid_shape   : tuple       Optional (Nu, Nx, Ny) for restore_shape().
-    domain       : list        Optional [x0, x1, y0, y1] for domain_mesh.
-    **kwargs     : Pre-set any instance attribute (e.g. Sigma=s, Psi=p, …).
-
-    Examples
-    --------
-    ::
-
-        pod = POD(n_modes=20).fit(Q)
-        Z   = pod.encode(Q)              # (20, N_t)
-        Q_r = pod.reconstruct(Q)         # (N_x, N_t)
-
-        # if directly from data:
-        pod = POD(X=X, n_modes=20)
-
-    Loading pre-computed results::
-
-        pod = POD(Sigma=s, Psi=p, Phi=ph, Q_mean=m, grid_shape=gs)
+    n_modes : int
+        Number of modes retained (the latent-space size). Default 20.
+    method : str
+        ``'exact'`` or ``'randomized'``. Default ``'randomized'``.
+    n_iter : int
+        Power-iteration steps for the randomized solver. Default 4.
+    random_state : int, optional
+        Seed for reproducibility of the randomized solver.
+    grid_shape : tuple, optional
+        Grid shape ``(Nu, Nx, Ny)`` used to map flat vectors back to the grid.
+    domain : list, optional
+        Physical domain ``[x0, x1, y0, y1]`` used by the plotting utilities.
+    **kwargs
+        Pre-set any instance attribute (e.g. pre-computed ``Sigma``, ``Psi``,
+        ``Phi``, ``Q_mean``), or pass ``X=...`` to fit directly at construction.
     """
 
     # ── class-level defaults ─────────────────────────────────────────────────
@@ -641,28 +629,41 @@ class POD(Projector):
 # ─────────────────────────────────────────────────────────────────────────────
 
 class SPOD(POD):
-    """
-    Spectral POD — Sieber, Paschereit & Oberleithner (JFM 2016).
+    r"""
+    Spectral POD (Sieber et al., 2016).
 
-    Inherits the full POD interface.  The only difference is that the snapshot
-    correlation matrix C is replaced by a low-pass filtered version
+    Inherits the full POD interface. The only difference is that the snapshot
+    correlation matrix $\mathbf{C}$ is replaced by a low-pass filtered version,
 
-        C_tilde = G^T C G
+    $$
+    \tilde{\mathbf{C}} = \mathbf{G}^\mathrm{T} \mathbf{C}\, \mathbf{G},
+    $$
 
-    where G is a banded symmetric Toeplitz filter matrix.  Setting ``Nf=0``
-    exactly recovers snapshot POD.
+    where $\mathbf{G}$ is a banded symmetric Toeplitz filter matrix. Setting
+    ``Nf=0`` exactly recovers snapshot POD; ``Nf`` $\to N_t/2$ approaches the DFT.
 
     Parameters
     ----------
-    Nf          : int   Filter half-width (0 = POD limit, N_t/2 = DFT limit).
-    filter_kind : str   'gaussian' | 'box' | 'hann'.  Default: 'gaussian'.
-    n_modes     : int   Modes to retain.  Default: all (N_t).
-    grid_shape  : tuple Optional (Nu, Nx, Ny) for 
-    domain      : list  Optional [x0, x1, y0, y1] for domain_mesh.
+    Nf : int
+        Filter half-width (0 recovers POD; $N_t/2$ approaches the DFT limit).
+    filter_kind : str
+        ``'gaussian'``, ``'box'`` or ``'hann'``. Default ``'gaussian'``.
+    n_modes : int
+        Number of modes to retain. Default 20.
+    grid_shape : tuple, optional
+        Grid shape ``(Nu, Nx, Ny)`` for grid mapping.
+    domain : list, optional
+        Physical domain ``[x0, x1, y0, y1]`` for the plotting utilities.
 
     Attributes
     ----------
-    C_tilde : ndarray (N_t, N_t)  Filtered correlation matrix (stored after fit).
+    C_tilde : np.ndarray
+        Filtered correlation matrix, shape $(N_t, N_t)$ (stored after ``fit``).
+
+    References
+    ----------
+    Sieber, Paschereit & Oberleithner (2016). Spectral proper orthogonal
+    decomposition. *J. Fluid Mech.*, 792, 798–828.
     """
 
     def __init__(self,

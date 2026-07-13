@@ -43,8 +43,10 @@ class HistoryTracker:
 
     def __init__(self, initial_capacity=1000):
         """ Initialises the history arrays.
-        Args:
-            initial_capacity: Initial capacity of the history arrays.
+        Parameters
+        ----------
+        initial_capacity
+            Initial capacity of the history arrays.
         """
 
         self._initial_capacity = initial_capacity
@@ -53,9 +55,12 @@ class HistoryTracker:
 
     def _reset_history(self, new_history, t_reset):
         """Resets the history arrays to the provided new_history and t_reset.
-        Args:
-            new_history: New state history to set (Nt, N, m)
-            t_reset: New time history to set (Nt,)
+        Parameters
+        ----------
+        new_history
+            New state history to set (Nt, N, m)
+        t_reset
+            New time history to set (Nt,)
         """
 
         Nt = max(new_history.shape[0], self._initial_capacity)

@@ -8,60 +8,66 @@ import numpy as np
 
 
 class Annular(Model):
+    r"""Annular combustor — two coupled oscillators for the first azimuthal modes.
+
+    The acoustic pressure in the annulus obeys the wave equation with heat-release
+    source and resistive/reactive asymmetries,
+
+    $$
+    \frac{\partial^2 p}{\partial t^2} + \zeta \frac{\partial p}{\partial t}
+    - \left[ 1 + \epsilon \cos\!\big(2(\theta - \Theta_\epsilon)\big) \right]
+    \frac{c^2}{r^2} \frac{\partial^2 p}{\partial \theta^2}
+    = (\gamma - 1)\, \frac{\partial \dot{q}}{\partial t},
+    \qquad
+    (\gamma - 1)\, \dot{q} = \beta \left[ 1 + c_2
+    \cos\!\big(2(\theta - \Theta_\beta)\big) \right] p - \kappa p^3 .
+    $$
+
+    Decomposing the pressure field onto the first azimuthal mode pair
+    ($n = 1$),
+
+    $$
+    p(\theta, t) = \eta_a(t) \cos(n\theta) + \eta_b(t) \sin(n\theta),
+    $$
+
+    yields four coupled first-order ODEs for
+    $(\eta_a, \dot{\eta}_a, \eta_b, \dot{\eta}_b)$:
+
+    $$
+    \ddot{\eta}_a = -\omega^2 \left[ \eta_a \big(1 + \tfrac{\epsilon}{2}
+    \cos 2\Theta_\epsilon\big) + \eta_b \tfrac{\epsilon}{2} \sin 2\Theta_\epsilon \right]
+    + \dot{\eta}_a \left[ 2\nu + \tfrac{c_2\beta}{2} \cos 2\Theta_\beta
+    - \tfrac{3\kappa}{4} (3\eta_a^2 + \eta_b^2) \right]
+    + \dot{\eta}_b \left[ \tfrac{c_2\beta}{2} \sin 2\Theta_\beta
+    - \tfrac{3\kappa}{2} \eta_a \eta_b \right],
+    $$
+
+    $$
+    \ddot{\eta}_b = -\omega^2 \left[ \eta_b \big(1 - \tfrac{\epsilon}{2}
+    \cos 2\Theta_\epsilon\big) + \eta_a \tfrac{\epsilon}{2} \sin 2\Theta_\epsilon \right]
+    + \dot{\eta}_b \left[ 2\nu - \tfrac{c_2\beta}{2} \cos 2\Theta_\beta
+    - \tfrac{3\kappa}{4} (3\eta_b^2 + \eta_a^2) \right]
+    + \dot{\eta}_a \left[ \tfrac{c_2\beta}{2} \sin 2\Theta_\beta
+    - \tfrac{3\kappa}{2} \eta_a \eta_b \right].
+    $$
+
+    The estimable parameters are the growth rate $\nu$, the resistive-asymmetry
+    intensity $c_2\beta$, the saturation $\kappa$, the reactive-asymmetry amplitude
+    $\epsilon$ and phase $\Theta_\epsilon$, the frequency $\omega$ and the
+    direction of maximum r.m.s. pressure $\Theta_\beta$.
+
+    Example dynamical regimes:
+
+    - purely spinning mode: $(\nu, c_2\beta) = (30, 5)$;
+    - purely standing mode: $(\nu, c_2\beta) = (0, 50)$;
+    - mixed mode: $(\nu, c_2\beta) = (20, 18)$.
+
+    References
+    ----------
+    Nóvoa, Noiray, Dawson & Magri (2024). A real-time digital twin of azimuthal
+    thermoacoustic instabilities. *J. Fluid Mech.*, 1001, A49.
+    [DOI: 10.1017/jfm.2024.1052](https://doi.org/10.1017/jfm.2024.1052).
     """
-        Annular combustor model with two coupled oscillators representing the first azimuthal acoustic modes.
-        Model used in: 
-            Nóvoa A, Noiray N, Dawson JR, Magri L. A real-time digital twin of azimuthal thermoacoustic instabilities. 
-            Journal of Fluid Mechanics. 2024;1001:A49. doi:10.1017/jfm.2024.1052
-        ------------------------------------------------------------------------------
-        Physical governing equations:
-
-            d²p/dt² + ζ dp/dt - [1 + ε cos(2(θ - Θ_ε))] c²/r² d²p/dθ² = (γ-1) dq̇/dt
-            
-        where
-            (γ-1) dq̇/dt = β[1 + c₂ cos(2(θ - Θ_β))] p - κ p³
-    
-        The equations are transformed into a set of four first-order ODEs for the two coupled oscillators by 
-        decomposing the pressure field p(θ,t) into its two azimuthal modes
-
-                p(θ, t) = η_a(t) cos(nθ) + η_b(t) sin(nθ)
-
-        with n=1 (first azimuthal mode). The resulting system of equations is:
-        
-            dη_a/dt     =   η̇_a
-            d²η_a/dt²   =   - ω²[η_a(1 + ε/2 cos(2Θ_ε)) + η_b ε/2 sin(2Θ_ε)]
-                            + η̇_a[2ν + c₂β/2 cos(2Θ_β) - 3κ/4(3η_a² + η_b²)]
-                            + η̇_b[c₂β/2 sin(2Θ_β) - 3κ/2 η_a η_b]
-            dη_b/dt     =   η̇_b
-            d²η_b/dt²   =   - ω²[η_b(1 - ε/2 cos(2Θ_ε)) + η_a ε/2 sin(2Θ_ε)]
-                            + η̇_b[2ν - c₂β/2 cos(2Θ_β) - 3κ/4(3η_b² + η_a²)]
-                            + η̇_a[c₂β/2 sin(2Θ_β) - 3κ/2 η_a η_b]
-        
-        with
-            - η_a, η_b: Amplitudes of the two coupled oscillators (first azimuthal acoustic modes)
-            - θ: Azimuthal angle
-            - n: Azimuthal mode number (n=1)
-            - ω: Angular frequency of the acoustic mode
-            - ν: Growth rate parameter
-            - κ: Saturation parameter (flame response)
-            - c₂β: Resistive asymmetry intensity
-            - Θ_β: Direction of maximum root-mean-square (r.m.s.) acoustic pressure
-            - ε: Amplitude of the reactive asymmetry
-            - Θ_ε: Phase of the reactive asymmetry
-            - ζ: Acoustic damping
-            - c: Speed of sound
-            - r: Mean radius of the annulus
-            - γ: Heat capacity ratio
-            - q̇: Coherent component of heat release rate fluctuations
-            - β: Heat release strength
-
-        ------------------------------------------------------------------------------
-
-        Dynamical Regimes (example parameters):
-            - Purely spinning mode:  (ν, c₂β) = (30., 5.)
-            - Purely standing mode:  (ν, c₂β) = (0., 50.)
-            - Mixed mode:            (ν, c₂β) = (20., 18.)
-        """
 
     t_transient = 0.5
     t_CR = 0.01
