@@ -12,7 +12,6 @@ GitHub for now. Two arcs run through them: DA concepts (1) applied to physical m
 | Notebook | Contents |
 | --- | --- |
 | [Class Model](tutorials/0_How_to_repo/00_Class_Model.md) | The `Model` base class, integrators and state history. |
-| [Class EchoStateNetwork](https://github.com/andreanovoa/EchoStateNetwork/blob/master/tutorials/01_echo_state_network.ipynb) | The reservoir-computing building block (moved to the [echostatenetwork](https://andreanovoa.github.io/EchoStateNetwork/) package). |
 | [Class ESN_model](tutorials/0_How_to_repo/02_Class_ESN_model.md) | An ESN as a forecast model. |
 | [Class Observations](tutorials/0_How_to_repo/04_Class_Observations.md) | Truth generation, noise and manual biases. |
 | [Class Bias](tutorials/0_How_to_repo/05_Class_Bias.md) | Training and running an ESN bias estimator. |

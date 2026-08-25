@@ -9,7 +9,6 @@ and reduced-order-model concepts (3) combined with DA in real time (4).
 
 ### Repo-specific tutorials [0x]
 - [x] 00 - Class Model
-- [x] 01 - Class EchoStateNetwork -- moved to the [echostatenetwork package](https://github.com/andreanovoa/EchoStateNetwork/tree/master/tutorials)
 - [x] 02 - Class ESN_model -- combining 00 and 01
 - [x] 04 - Class Observations
 - [x] 05 - Class Bias

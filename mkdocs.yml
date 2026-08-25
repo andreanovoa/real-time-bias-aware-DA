@@ -92,7 +92,6 @@ nav:
       - Overview: tutorials.md
       - 0. How the repository works:
           - Class Model: tutorials/0_How_to_repo/00_Class_Model.md
-          - Class EchoStateNetwork: https://github.com/andreanovoa/EchoStateNetwork/blob/master/tutorials/01_echo_state_network.ipynb
           - Class ESN_model: tutorials/0_How_to_repo/02_Class_ESN_model.md
           - Class Observations: tutorials/0_How_to_repo/04_Class_Observations.md
           - Class Bias: tutorials/0_How_to_repo/05_Class_Bias.md
