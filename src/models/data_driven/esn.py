@@ -22,7 +22,7 @@ class ESN_model(EchoStateNetwork, Model):
     r"""Echo state network as a data-driven forecast model.
 
     Wraps the [`EchoStateNetwork`][echostatenetwork.EchoStateNetwork] reservoir
-    with the [`Model`][romda.models.model.Model] interface (state history, discrete
+    with the [`Model`][dynamodels.model.Model] interface (state history, discrete
     integrator, observation operator), so a trained ESN can be used as the forecast
     model of an `Ensemble` — or as the forecaster inside
     [`ESN_bias`][romda.bias_estimators.esn.ESN_bias]. The model state is
