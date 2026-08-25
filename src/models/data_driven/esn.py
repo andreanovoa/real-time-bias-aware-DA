@@ -21,7 +21,7 @@ def phi_to_esn_layout(Z):
 class ESN_model(EchoStateNetwork, Model):
     r"""Echo state network as a data-driven forecast model.
 
-    Wraps the [`EchoStateNetwork`][echostatenetwork.EchoStateNetwork] reservoir
+    Wraps the [`EchoStateNetwork`](https://andreanovoa.github.io/EchoStateNetwork/) reservoir
     with the [`Model`][dynamodels.model.Model] interface (state history, discrete
     integrator, observation operator), so a trained ESN can be used as the forecast
     model of an `Ensemble` — or as the forecaster inside

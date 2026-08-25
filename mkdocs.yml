@@ -87,7 +87,6 @@ nav:
           - Physical models: api/models_physical.md
           - Data-driven models: api/models_data_driven.md
       - Observations: api/observations.md
-      - Tools (Machine learning tools): api/tools.md
   - Tutorials:
       - Overview: tutorials.md
       - 0. How the repository works:

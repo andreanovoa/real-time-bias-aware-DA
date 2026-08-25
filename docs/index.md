@@ -98,7 +98,7 @@ All use `IVPIntegrator` (scipy `solve_ivp`) except KS.
 
 #### Data-driven models — `src/models/data_driven/`
 
-All use `DiscreteIntegrator`. The ML base classes `EchoStateNetwork` (from the external `echostatenetwork` package) and the `Projector` hierarchy (`POD`/`SPOD`, in `src/models/data_driven/autoencoders/` — see [Tools](api/tools.md)) are mixed in via multiple inheritance.
+All use `DiscreteIntegrator`. The ML base classes `EchoStateNetwork` (from the external `echostatenetwork` package) and the `Projector` hierarchy (`POD`/`SPOD`, in `src/models/data_driven/autoencoders/` — see [Data-driven models](api/models_data_driven.md)) are mixed in via multiple inheritance.
 
 | Class | Key parameters | Notes |
 |---|---|---|

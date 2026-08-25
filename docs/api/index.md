@@ -12,4 +12,3 @@ and [deterministic filters](filter_deterministic.md) (`KalmanFilter`).
     - [Physical models](models_physical.md)
     - [Data-driven models](models_data_driven.md)
 - [Observations](observations.md)
-- [Tools (machine learning tools)](tools.md)

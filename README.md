@@ -1,5 +1,8 @@
 # romda — real-time reduced-order modelling and bias-aware data assimilation
 
+[![PyPI](https://img.shields.io/pypi/v/romda)](https://pypi.org/project/romda/)
+[![docs](https://github.com/andreanovoa/real-time-bias-aware-DA/actions/workflows/docs.yml/badge.svg)](https://andreanovoa.github.io/real-time-bias-aware-DA/)
+
 `romda` is an open-source Python package for real-time data assimilation with
 reduced-order models: ensemble Kalman filters (including the regularized bias-aware
 EnKF), physical and data-driven forecast models (ESN, POD-ESN), bias estimators, and
