@@ -65,8 +65,8 @@ class EnsembleEstimator(Estimator):
     Owns the model, ensemble, and bias.  Subclasses only need to implement
     ``_analysis_kernel(Af, d, Cdd, **kwargs) -> Aa``.
 
-    Ensemble-specific attributes
-    ----------------------------
+    Attributes
+    ----------
     m : int
         Number of ensemble members.
     std_phi : float

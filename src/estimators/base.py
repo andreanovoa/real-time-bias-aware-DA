@@ -33,8 +33,8 @@ class Estimator(ABC):
     Implementations build the forecast state internally, run the filter update,
     validate the result, and update the model history in-place.
 
-    Notation
-    --------
+    **Notation**
+
     | Symbol | Meaning | Shape |
     | --- | --- | --- |
     | $N$ | augmented state dimension ($N_\phi{+}N_\alpha$, or $+N_q$ once observables are appended) | |
