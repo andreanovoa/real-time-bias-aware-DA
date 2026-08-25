@@ -72,9 +72,7 @@ particular:
 
 ## Table of Contents
 
-1. [Model](#1-model)
-   - 1.1 [HistoryTracker and Integrator](#11-historytracker-and-integrator)
-   - 1.2 [Available Models](#12-available-models)
+1. [Models](#1-models)
 2. [Bias](#2-bias)
    - 2.1 [Forecaster](#21-forecaster)
 3. [Estimator](#3-estimator)
@@ -83,7 +81,7 @@ particular:
 
 ---
 
-### 1.2 Available Models
+## 1. Models
 
 #### Physical models — `dynamodels.physical`
 
