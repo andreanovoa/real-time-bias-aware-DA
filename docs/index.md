@@ -73,10 +73,10 @@ particular:
 ## Table of Contents
 
 1. [Models](#1-models)
-2. [Bias](#2-bias)
-   - 2.1 [Forecaster](#21-forecaster)
-3. [Estimator](#3-estimator)
-   - 3.1 [Available Estimators](#31-available-estimators)
+2. [Estimator](#2-estimator)
+   - 2.1 [Available Estimators](#21-available-estimators)
+3. [Bias](#3-bias)
+   - 3.1 [Forecaster](#31-forecaster)
 4. [Observations](#4-observations)
 
 ---
@@ -108,46 +108,7 @@ All use `DiscreteIntegrator`. The ML base classes `EchoStateNetwork` (from the e
 
 ---
 
-## 2. Bias
-
-**File:** `src/bias_estimators/bias.py`
-
-Base class for observation-bias estimators. Mixes in `HistoryTracker`. Wraps a `forecaster` model to produce bias corrections at each assimilation step.
-
-**Key attributes:** `innovation`, `dt`, `forecaster`, `Nq`, `N_dim`, `upsample`, `biased_observations`
-
-Subclasses must implement:
-- `init_forecaster(**kwargs)` — build/train the internal forecasting model
-- `state_derivative()` — return the Jacobian `J = db/dy` used by bias-aware filters
-
-```
-Bias
-├── ESN_bias
-└── ConstantBias
-    └── NoBias
-```
-
-| Class | File | Notes |
-|---|---|---|
-| `ESN_bias` | `src/bias_estimators/esn.py` | Correlation-based training; `biased_observations = True`; the workhorse |
-| `ConstantBias` | `src/bias_estimators/constantbias.py` | Fixed bias estimate; `NoBias` subclass for bias-blind DA |
-
----
-
-### 2.1 Forecaster
-
-The `forecaster` attribute of a `Bias` instance is a `Model` subclass — typically a data-driven model trained on the residual between observations and model output.
-
-```
-Bias instance
-  .forecaster  →  Model instance   (usually ESN_model)
-```
-
-The forecaster is initialised inside `init_forecaster()` and stepped forward in sync with the main model during `Estimator.forecast_step()`. Its output is the predicted bias `b(t)`, which enters the analysis step as a correction to the observation.
-
----
-
-## 3. Estimator
+## 2. Estimator
 
 **File:** `src/estimators/__init__.py`
 
@@ -181,7 +142,7 @@ Estimator instance
 
 ---
 
-### 3.1 Available Estimators
+### 2.1 Available Estimators
 
 #### Ensemble estimators — `src/estimators/ensembles.py`
 
@@ -203,6 +164,45 @@ Estimator instance
 |---|---|
 | `KalmanFilter` | Standard linear KF; propagates covariance with Jacobian `F_jac` |
 
+
+---
+
+## 3. Bias
+
+**File:** `src/bias_estimators/bias.py`
+
+Base class for observation-bias estimators. Mixes in `HistoryTracker`. Wraps a `forecaster` model to produce bias corrections at each assimilation step.
+
+**Key attributes:** `innovation`, `dt`, `forecaster`, `Nq`, `N_dim`, `upsample`, `biased_observations`
+
+Subclasses must implement:
+- `init_forecaster(**kwargs)` — build/train the internal forecasting model
+- `state_derivative()` — return the Jacobian `J = db/dy` used by bias-aware filters
+
+```
+Bias
+├── ESN_bias
+└── ConstantBias
+    └── NoBias
+```
+
+| Class | File | Notes |
+|---|---|---|
+| `ESN_bias` | `src/bias_estimators/esn.py` | Correlation-based training; `biased_observations = True`; the workhorse |
+| `ConstantBias` | `src/bias_estimators/constantbias.py` | Fixed bias estimate; `NoBias` subclass for bias-blind DA |
+
+---
+
+### 3.1 Forecaster
+
+The `forecaster` attribute of a `Bias` instance is a `Model` subclass — typically a data-driven model trained on the residual between observations and model output.
+
+```
+Bias instance
+  .forecaster  →  Model instance   (usually ESN_model)
+```
+
+The forecaster is initialised inside `init_forecaster()` and stepped forward in sync with the main model during `Estimator.forecast_step()`. Its output is the predicted bias `b(t)`, which enters the analysis step as a correction to the observation.
 
 ---
 
