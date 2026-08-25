@@ -1,0 +1,117 @@
+hooks:
+  - hooks.py
+
+site_name: romda
+site_description: Real-time reduced-order modelling and bias-aware data assimilation
+site_author: Andrea Nóvoa
+site_url: https://andreanovoa.github.io/real-time-bias-aware-DA/
+
+repo_url: https://github.com/andreanovoa/real-time-bias-aware-DA
+repo_name: andreanovoa/real-time-bias-aware-DA
+
+docs_dir: docs
+
+theme:
+  name: material
+  icon:
+    logo: material/waveform
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: deep orange
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: deep orange
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - search.suggest
+    - toc.follow
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: numpy
+            docstring_section_style: table
+            show_source: true
+            show_root_heading: true
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            members_order: source
+            merge_init_into_class: true
+            inherited_members: false
+            filters: ["!^_", "^__call__$"]
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.tabbed:
+      alternate_style: true
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
+
+nav:
+  - Home: index.md
+  - API reference:
+      - Overview: api/index.md
+      - Estimators (data assimilation):
+          - Overview: api/estimators.md
+          - Stochastic filters: api/filter_stochastic.md
+          - Deterministic filters: api/filter_deterministic.md
+      - Bias estimators: api/bias_estimators.md
+      - Models:
+          - Overview: api/models.md
+          - Physical models: api/models_physical.md
+          - Data-driven models: api/models_data_driven.md
+      - Observations: api/observations.md
+      - Tools (Machine learning tools): api/tools.md
+  - Tutorials:
+      - Overview: tutorials.md
+      - 0. How the repository works:
+          - Class Model: tutorials/0_How_to_repo/00_Class_Model.md
+          - Class EchoStateNetwork: https://github.com/andreanovoa/EchoStateNetwork/blob/master/tutorials/01_echo_state_network.ipynb
+          - Class ESN_model: tutorials/0_How_to_repo/02_Class_ESN_model.md
+          - Class Observations: tutorials/0_How_to_repo/04_Class_Observations.md
+          - Class Bias: tutorials/0_How_to_repo/05_Class_Bias.md
+          - Class Estimator: tutorials/0_How_to_repo/06_Class_Estimator.md
+      - 1. Introduction to real-time DA:
+          - Real-time DA intro: tutorials/1_Introduction_to_real-time_DA/10_real-time-DA_intro.md
+          - Ensemble DA intro: tutorials/1_Introduction_to_real-time_DA/11_ensemble-DA_intro.md
+          - Augmented formulation: tutorials/1_Introduction_to_real-time_DA/13_real-time-DA-augmented-state.md
+          - Chaos and DA (Lorenz 63): tutorials/1_Introduction_to_real-time_DA/15_real-time-DA_Lorenz63.md
+          - Model-bias-aware DA: tutorials/1_Introduction_to_real-time_DA/16_Bias-aware_real-time_DA.md
+      - 2. Real-time DA in thermoacoustics (on GitHub for now):
+          - Rijke LOM: https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/scripts/tutorials/2_Real-time_DA_Thermoacoustics/20_Rijke_LOM.ipynb
+          - TADA Rijke twin: https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/scripts/tutorials/2_Real-time_DA_Thermoacoustics/21_TADA_Rijke_twin.ipynb
+          - TABADA Rijke (CMAME): https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/scripts/tutorials/2_Real-time_DA_Thermoacoustics/22_TABADA_Rijke_CMAME.ipynb
+          - Azimuthal LOM: https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/scripts/tutorials/2_Real-time_DA_Thermoacoustics/23_TA_azimuthal_LOM.ipynb
+          - Azimuthal data: https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/scripts/tutorials/2_Real-time_DA_Thermoacoustics/24_TA_azimuthal_data.ipynb
+          - TABADA annular raw: https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/scripts/tutorials/2_Real-time_DA_Thermoacoustics/25_TABADA_annular_raw.ipynb
+      - 3. Introduction to reduced-order models (on GitHub for now):
+          - POD / SPOD: https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/scripts/tutorials/3_Introduction_to_ROMs/31_POD_SPOD.ipynb
+          - POD-ESN on the cylinder wake: https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/scripts/tutorials/3_Introduction_to_ROMs/35_POD_ESN_cylinder.ipynb
+      - 4. Real-time DA on reduced-order models (on GitHub for now):
+          - Real-time DA with POD-ESN: https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/scripts/tutorials/4_Real-time_DA_ROMs/44_DA_POD_ESN_cylinder.ipynb

@@ -1,0 +1,9 @@
+repos:
+  - repo: local
+    hooks:
+      - id: nbconvert-clean
+        name: Remove Jupyter notebook outputs and metadata
+        files: \.*ipynb$
+        stages: [pre-commit]  # Runs after git add, before git commit
+        language: system
+        entry: jupyter nbconvert --ClearOutputPreprocessor.enabled=True --ClearMetadataPreprocessor.enabled=True --inplace   

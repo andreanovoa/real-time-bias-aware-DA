@@ -1,7 +1,6 @@
-/results/
-/data/
-/*/figs_ESN
-figs_ESN
+**/results/
+**/data/
+*/figs_ESN
 
 
 # python checkpoints
@@ -23,3 +22,33 @@ test_out*
 
 __pycache__
 **/__pycache__
+
+**/build/*
+
+**/saved_configs/
+**/esn_configs/
+src/bias_estimators/updates.md
+
+deprecated/
+
+.venv/
+site/
+docs/tutorials/
+
+/tmp/
+
+C*.md
+*.log
+*nohup*
+dev/ESN-DA/figs/*.npz
+dev/ESN-DA/figs/*.pdf
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+*.aux
+*.bbl
+*.blg
+*.nlo
+*.out
+*.spl
+*.toc

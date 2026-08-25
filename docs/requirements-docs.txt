@@ -1,0 +1,4 @@
+# Tooling to build the documentation site; romda and its runtime deps come from `pip install .`
+mkdocs-material>=9.5
+mkdocstrings[python]>=0.24
+nbconvert>=7.0

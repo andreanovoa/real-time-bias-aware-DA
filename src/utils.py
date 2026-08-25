@@ -1,230 +1,260 @@
-# -*- coding: utf-8 -*-
 """
 Created on Wed May 11 09:45:48 2022
 
 @author: Andrea Nóvoa @andrea_novoa
 """
 import os
-import numpy as np
 import pickle
+import re
+import zipfile
 from functools import lru_cache
+from typing import Optional
+
 import matplotlib as mpl
+import matplotlib.backends.backend_pdf as plt_pdf
 import matplotlib.pyplot as plt
-import scipy.io as sio
+import numpy as np
+import requests
 import scipy.ndimage as ndimage
 
+# shared model-layer helpers now live in (and are re-exported from) dynamodels
+from dynamodels.utils import (  # noqa: F401
+    Cheb,
+    allowed_kwargs_for_func,
+    interpolate,
+    load_from_mat_file,
+    mean_vector_to_ensemble,
+    normalized_alpha,
+    normalized_time,
+    normalized_y,
+    save_to_mat_file,
+)
+from dynamodels.utils import create_dataset as _dm_create_dataset
+from matplotlib import colors
+from matplotlib.animation import FuncAnimation
 from scipy.interpolate import interp1d
 from scipy.signal import find_peaks
-import matplotlib.backends.backend_pdf as plt_pdf
-import re
-import requests
 from tqdm import tqdm
-import zipfile
-
-import glob
-import contextlib
-from PIL import Image
-
-
-from IPython.display import Image, display
-
-from matplotlib.animation import FuncAnimation
-
-
 
 rng = np.random.default_rng(6)
 
 
+def convert_to_python_type(obj, *, float_ndigits=12):
+    """Convert numpy types to native Python types, with canonical float rounding."""
+    if obj is None:
+        return "none"
 
-def set_cylinder_truth(case, X_filter, X_filter_true, Nt_obs = 25, visualize=False):
-    N_test = X_filter.shape[-1]
+    if isinstance(obj, np.generic):
+        if np.issubdtype(type(obj), np.integer):
+            return int(obj)
+        elif np.issubdtype(type(obj), np.floating):
+            return round(float(obj), float_ndigits)
+        elif np.issubdtype(type(obj), np.bool_):
+            return bool(obj)
+        elif np.issubdtype(type(obj), np.complexfloating):
+            c = complex(obj)
+            return (round(c.real, float_ndigits), round(c.imag, float_ndigits))
+        else:
+            return obj.item()
 
-    if case.sensor_locations is not None:
-        data_obs = X_filter.copy().reshape(-1, N_test)[case.sensor_locations].T
-        data_obs_true = X_filter_true.copy().reshape(-1, N_test)[case.sensor_locations].T
-    else:
-        data_obs = case.project_data_onto_Psi(data=X_filter)
-        data_obs_true = case.project_data_onto_Psi(data=X_filter_true)
+    elif isinstance(obj, float):
+        return round(obj, float_ndigits)
 
-    dt = case.dt
-    t_true = np.arange(0, N_test)  * dt
+    elif isinstance(obj, np.ndarray):
+        return [convert_to_python_type(x, float_ndigits=float_ndigits) for x in obj.tolist()]
+    elif isinstance(obj, tuple):
+        return [convert_to_python_type(item, float_ndigits=float_ndigits) for item in obj]
+    elif isinstance(obj, list):
+        return [convert_to_python_type(item, float_ndigits=float_ndigits) for item in obj]
+    elif isinstance(obj, dict):
+        return {k: convert_to_python_type(v, float_ndigits=float_ndigits) for k, v in obj.items()}
 
-    t_start = .5
-    t_stop = min(5., t_true[-10])
-    
+    # if Path, change to sttring
+    elif isinstance(obj, os.PathLike):
+        return str(obj)
 
-    obs_idx = np.arange(t_start // dt, t_stop // dt + 1, Nt_obs, dtype=int) + 1
-
-
-    # Nt_extra = len(t_true[obs_idx[-1]:])
-
-    _truth = dict(y_raw=data_obs,
-                  y_true=data_obs_true, 
-                  t=t_true, 
-                  dt=dt,
-                  t_obs=t_true[obs_idx], 
-                  y_obs=data_obs[obs_idx], 
-                  dt_obs=Nt_obs * dt,
-                  Nt_extra=int(case.t_CR // case.dt),
-                  )
-    
-    return _truth
+    return obj
 
 
+def cut_signals(t, *signals, min_time=None, max_time=None):
+    """Trim time array `t` and any number of aligned `signals` to ``[min_time, max_time]``."""
+    i0 = 0 if min_time is None else np.argmin(abs(t - min_time))
+    i1 = len(t) - 1 if max_time is None else np.argmin(abs(t - max_time))
+    t_cut = t[i0:i1]
+    signals_cut = [sig[i0:i1].copy() if sig is not None else None for sig in signals]
+    return t_cut, signals_cut
 
-def add_noise_to_flow(U, V, noise_level=0.05, noise_type="gauss", spatial_smooth=0):
-    """
-    Adds noise to a 3D velocity field (Nt x Nx x Ny).
 
-    Args
-        U, V : numpy.ndarray
-            3D arrays representing the velocity components (Nt x Nx x Ny).
-        
-        noise_level : float, optional, default=0.05
-            The standard deviation of the noise as a fraction of the maximum absolute velocity.
-        
-        noise_type : str, optional, default="gauss"
-            The type of noise to apply:
-            - 'gauss': Gaussian (white) noise.
-            - 'pink', 'brown', 'blue', 'violet': Colored noise.
+def add_noise_to_flow(U, noise_level=0.05, noise_type="gauss", spatial_smooth=0.):
+    """Add noise to a velocity field.
 
-        spatial_smooth : float, optional, default=0
-            Standard deviation for Gaussian smoothing (0 means no smoothing).
+    Parameters
+    ----------
+    U : np.ndarray
+        3D array ``(Nt, Nx, Ny)`` for a single velocity component, or 4D array
+        ``(2, Nt, Nx, Ny)`` for both components (U, V). NaNs (e.g. inside a
+        cylinder) are excluded from the noise-amplitude scaling.
+    noise_level : float, optional
+        Standard deviation of the noise, as a fraction of the maximum absolute
+        velocity. Default 0.05.
+    noise_type : str, optional
+        ``'gauss'`` for Gaussian (white) noise, or ``'pink'``/``'brown'``/
+        ``'blue'``/``'violet'`` for coloured noise (see `colour_noise`).
+        Default ``'gauss'``.
+    spatial_smooth : float, optional
+        Standard deviation for Gaussian spatial smoothing of the noise (0
+        disables smoothing). Default 0.
 
     Returns
-        U_noisy, V_noisy : numpy.ndarray
-            Noisy velocity fields with the same shape as U and V.
+    -------
+    np.ndarray
+        Noisy velocity field, same shape as `U`.
     """
-    rng = np.random.default_rng()  # Random generator
+    # mask nan values (e.g., inside cylinder) to avoid affecting noise scaling
+    fluid_mask = ~np.isnan(U)
+    U = np.where(fluid_mask, U, 0.)
 
-    U = U.copy()
-    V = V.copy()
-    
-    U[np.isnan(U) | np.isinf(U)] = 0  # Replace NaN/Inf values
-    V[np.isnan(V) | np.isinf(V)] = 0  # Replace NaN/Inf values
+    if U.ndim == 4:
+        assert U.shape[0] == 2, "Expected first dimension of size 2 for (U, V) components."
+    elif U.ndim == 3:
+        U = U[np.newaxis, ...]  # Add component dimension for uniform processing
+    else:
+        raise ValueError("Input U must be a 3D array (Nt x Nx x Ny) or a 4D array (2 x Nt x Nx x Ny).")
 
     # Compute noise amplitude
-    max_vel = max(np.max(np.abs(U)), np.max(np.abs(V)))
-    noise_amp = noise_level * max_vel
+    noise_amp = noise_level * np.max(np.abs(U[fluid_mask]))
+    rng_noise = np.random.default_rng()
 
-    def generate_noise(shape, noise_type):
-        """Generates 3D noise (Nt x Nx x Ny)."""
-        # Nt, Nx, Ny = shape
-        if noise_type == "gauss":
-            return rng.normal(scale=noise_amp, size=shape)
-        else:
-            noise_white = np.fft.rfftn(rng.standard_normal(shape)) * noise_amp
-            S = colour_noise(shape, noise_colour=noise_type)
-            noise_colored = noise_white * S
-            return np.fft.irfftn(noise_colored, s=shape).real
+    if noise_type == "gauss":
+        noise_U = rng_noise.normal(scale=noise_amp, size=U.shape)
+    else:
+        noise_U = np.fft.irfftn(
+            np.fft.rfftn(rng_noise.standard_normal(U.shape)) * noise_amp
+            * colour_noise(U.shape, noise_colour=noise_type), s=U.shape).real
 
-
-    # Generate noise
-    noise_U = generate_noise(U.shape, noise_type)
-    noise_V = generate_noise(V.shape, noise_type)
 
     # Apply optional spatial smoothing
     if spatial_smooth > 0:
-        sigma = (0, spatial_smooth, spatial_smooth)
+        sigma = (0, 0, spatial_smooth, spatial_smooth)
         noise_U = ndimage.gaussian_filter(noise_U, sigma=sigma)
-        noise_V = ndimage.gaussian_filter(noise_V, sigma=sigma)
 
-    # Add noise to velocity field
-    
+
     U_noisy = U + noise_U
-    V_noisy = V + noise_V
+    U_noisy[~fluid_mask] = np.nan
 
-    return U_noisy, V_noisy
+    return U_noisy
+
 
 
 
 def find_first_ascending_folder(start_dir, target_names):
-    """
-    Ascends from start_dir looking for any of the target_names folders.
-    Returns (parent_path, found_folder), or (None, None) if not found.
+    """Ascend from `start_dir` looking for any of the `target_names` folders.
 
-    # Usage Example:
-    parent, found = find_first_ascending_folder('.', ['src', 'dev'])
-    if parent:
-        print(f"Found {found} in {parent}")
+    Returns
+    -------
+    tuple
+        ``(parent_path, found_folder)``, or ``(None, False)`` if none is found
+        before reaching the filesystem root.
+
+    Examples
+    --------
+    >>> parent, found = find_first_ascending_folder('.', ['src', 'dev'])
+    >>> if parent:
+    ...     print(f"Found {found} in {parent}")
     """
     dir_path = os.path.abspath(start_dir)
     while True:
         existing = [name for name in target_names if name in os.listdir(dir_path)]
         if existing:
-            return dir_path, existing
+            return dir_path, existing[0]
         parent = os.path.dirname(dir_path)
         if parent == dir_path:
             return None, False
         dir_path = parent
 
 
+def get_project_root( root='.'):
+    """Return the project root directory."""
 
+    project_root, found = find_first_ascending_folder(root, ['src', 'dev'])
+    if found == 'dev':
 
-def set_working_directories(subfolder='', root='.'):
-    if subfolder[-1] != '/':
-        subfolder += '/'
-
-    
-    tutorial = 'tutorials' in os.getcwd()
-
-    # def find_root(start_dir):
-    #     dir_path = os.path.abspath(start_dir)
-    #     while True:
-    #         if 'src' in os.listdir(dir_path) and 'scripts' in os.listdir(dir_path):
-    #             return dir_path
-    #         parent = os.path.dirname(dir_path)
-    #         if parent == dir_path:  # Reached system root
-    #             return None
-    #         dir_path = parent
-    # # Find the project root directory
-    # if root is not None:
-    #     project_root = root
-    # else:
-
-    # Find the project root directory
-    # if root is None:
-    project_root, found = find_first_ascending_folder(root, ['src', 'dev']) 
-    if found[0] == 'dev':
-        project_root = os.path.join(project_root, 'real_public')
+        project_root = f'{project_root}/real_public'
         print('On dev folder, root=' , project_root)
-        
+
     elif not found:
         raise FileNotFoundError("Project root directory not found. Ensure you are in the correct directory structure.")
 
-    #  Set results and fgures folders
-    if tutorial:
-        results_folder = os.path.join(project_root, 'results/tutorials', subfolder)
-        figs_folder = os.path.join(project_root, 'docs/figs', subfolder)
-    else:
-        results_folder = os.path.join(project_root, 'results', subfolder)
-        figs_folder = os.path.join(project_root, 'results/figs', subfolder)
+    return project_root
 
-    #  Set data folder. Note: some data is not provided in the repository.  
-    data_folder = os.path.join(project_root, 'data', subfolder)
+
+
+def set_working_directories(subfolder='', root='.'):
+    """Resolve the data/results/figures folders for a given case `subfolder`.
+
+    Parameters
+    ----------
+    subfolder : str, optional
+        Case-specific subfolder appended to each base directory.
+    root : str, optional
+        Directory to start searching for the project root from (see
+        `get_project_root`). Default ``'.'``.
+
+    Returns
+    -------
+    tuple of str
+        ``(data_folder, results_folder, figs_folder)``.
+    """
+
+
+    if subfolder[-1] != '/':
+        subfolder += '/'
+
+    # Get project root, i.e., where real_time_DA is
+    project_root = get_project_root(root)
+
+    #  Set results and fgures folders
+    if 'tutorials' in os.getcwd():
+        results_folder = f'{project_root}/results/tutorials/{subfolder}'
+        figs_folder = f'{project_root}/docs/figs/{subfolder}'
+    else:
+        results_folder = f'{project_root}/results/{subfolder}'
+        figs_folder = f'{project_root}/results/figs/{subfolder}'
+
+    #  Set data folder. Note: some data is not provided in the repository.
+
+    data_folder = f'{project_root}/data/{subfolder}'
 
     return data_folder, results_folder, figs_folder
 
 
 
 def colour_noise(dims, noise_colour='pink', beta=2, ff=None):
-    """
-    Generates a 1D spectral filter for colored noise.
+    r"""Generate a spectral filter for coloured noise, for use with `np.fft.irfft`.
 
-    Args:
-        dims (int or list): Number of time steps or spatial points.
-        noise_colour (str): Type of noise ('white', 'pink', 'brown', 'blue', 'violet').
-            - 'white'   -> Flat power spectrum (uncorrelated).
-            - 'pink'    -> 1/f noise (long-range correlation).
-            - 'brown'   -> 1/f^2 noise (strong low-frequency correlation).
-            - 'blue'    -> Increases with frequency (anti-correlated noise).
-            - 'violet'  -> Stronger high-frequency noise.
-        beta (float, optional): Controls the decay of the power spectrum (used in pink noise).
+    Parameters
+    ----------
+    dims : int or sequence of int
+        Number of time steps or spatial points along each dimension.
+    noise_colour : str, optional
+        Type of noise: ``'white'`` (flat spectrum), ``'pink'`` ($1/f^\beta$,
+        long-range correlation; a trailing number overrides `beta`, e.g.
+        ``'pink1.5'``), ``'brown'`` ($1/f^2$), ``'blue'`` ($\sqrt{f}$) or
+        ``'violet'`` ($f$). Default ``'pink'``.
+    beta : float, optional
+        Decay exponent used for ``'pink'`` noise (overridden if `noise_colour`
+        has a trailing number). Default 2.
+    ff : optional
+        Unused; reserved.
 
-    Returns:
-        np.ndarray: 1D array of length Nt//2+1 (for rfft) with the noise filter in Fourier space.
+    Returns
+    -------
+    np.ndarray
+        Spectral filter, real-FFT shaped: length ``dims // 2 + 1`` if `dims` is an
+        int, or the same shape as `dims` with the last axis halved if `dims` is a
+        sequence.
     """
-    
+
 
     # Frequency arrays for each dimension
     if isinstance(dims, int):
@@ -240,7 +270,7 @@ def colour_noise(dims, noise_colour='pink', beta=2, ff=None):
 
         # Handle DC component first
         # find the zero frequency components into a mask
-    
+
         mask = (freqs == 0) # tthuis should return a boolean array where True indicates the zero frequency component
 
         if 'white' in noise_type:
@@ -279,111 +309,65 @@ def colour_noise(dims, noise_colour='pink', beta=2, ff=None):
     if len(S_dims) > 1:
         for spec in S_dims[1:]:
             S = S * spec
-        
-    
+
+
     return S
 
 
 
-    
+
 
 def check_valid_file(load_case, params_dict):
+    """Check that a loaded case (dict or object) matches the expected `params_dict` values.
+
+    Parameters
+    ----------
+    load_case : dict or object
+        Loaded case to validate; attributes/keys are read via `getattr`/``[...]``.
+    params_dict : dict
+        Expected parameter name/value pairs.
+
+    Returns
+    -------
+    bool
+        True if every parameter present in `load_case` matches `params_dict`.
+    """
     # check that true and forecast model input_parameters
-    print('Test if loaded file is valid', end='')
+    # print('Test if loaded file is valid', end='')
+    is_mapping = isinstance(load_case, dict)
+
+    def _has(key):
+        return (key in load_case) if is_mapping else hasattr(load_case, key)
+
+    def _get(key):
+        return load_case[key] if is_mapping else getattr(load_case, key)
+
     for key, val in params_dict.items():
-        if hasattr(load_case, key):
-            print('\n\t', key, val, getattr(load_case, key), end='')
+        if _has(key):
+            print('\n\t', key, val, _get(key), end='')
             if len(np.shape([val])) == 1:
-                if getattr(load_case, key) != val:
+                if _get(key) != val:
                     print('\t <--- Re-init model!')
                     return False
             else:
-                if any([x1 != x2 for x1, x2 in zip(getattr(load_case, key), val)]):
+                if any([x1 != x2 for x1, x2 in zip(_get(key), val)]):
                     print('\t <--- Re-init model!')
                     return False
+    # print('... OK\n')
     return True
 
 
-def categorical_cmap(nc, nsc, cmap="tab10", continuous=False):
-    # number of categories(nc) and the number of subcategories(nsc)
-    # and returns a colormap with nc * nsc different colors, where for
-    # each category there are nsc colors of same hue.
-
-    if nc > plt.get_cmap(cmap).N:
-        raise ValueError("Too many categories for colormap.")
-    if continuous:
-        ccolors = plt.get_cmap(cmap)(np.linspace(0, 1, nc))
-    else:
-        ccolors = plt.get_cmap(cmap)(np.arange(nc, dtype=int))
-    cols = np.zeros((nc * nsc, 3))
-    for i, c in enumerate(ccolors):
-        chsv = mpl.colors.rgb_to_hsv(c[:3])
-        arhsv = np.tile(chsv, nsc).reshape(nsc, 3)
-        arhsv[:, 1] = np.linspace(chsv[1], 0.25, nsc)
-        arhsv[:, 2] = np.linspace(chsv[2], 1, nsc)
-        rgb = mpl.colors.hsv_to_rgb(arhsv)
-        cols[i * nsc:(i + 1) * nsc, :] = rgb
-    return cols
 
 
 @lru_cache(maxsize=10)
-def Cheb(Nc, lims=(0, 1), getg=False):
-    """ Compute the Chebyshev collocation derivative matrix (D)
-        and the Chevyshev grid of (N + 1) points in [ [0,1] ] / [-1,1]
-    """
-    g = - np.cos(np.pi * np.arange(Nc + 1, dtype=float) / Nc)
-    c = np.hstack([2., np.ones(Nc - 1), 2.]) * (-1) ** np.arange(Nc + 1)
-    X = np.outer(g, np.ones(Nc + 1))
-    dX = X - X.T
-    D = np.outer(c, 1 / c) / (dX + np.eye(Nc + 1))
-    D -= np.diag(D.sum(1))
-
-    # Modify
-    if lims[0] == 0:
-        g = (g + 1.) / 2.
-    if getg:
-        return D, g
-    else:
-        return D
-
-
-def RK4(t, q0, func, *kwargs):
-    """ 4th order RK for autonomous systems described by func """
-    dt = t[1] - t[0]
-    N = len(t) - 1
-    qhist = [q0]
-    for i in range(N):
-        k1 = dt * func(dt, q0, kwargs)
-        k2 = dt * func(dt, q0 + k1 / 2, kwargs)
-        k3 = dt * func(dt, q0 + k2 / 2, kwargs)
-        k4 = dt * func(dt, q0 + k3, kwargs)
-        q0 = q0 + (k1 + 2 * k2 + 2 * k3 + k4) / 6
-        qhist.append(q0)
-
-    return np.array(qhist)
-
-
-def interpolate(t_y, y, t_eval, fill_values=None):
-    # interpolator = PchipInterpolator(t_y, y)
-
-    if fill_values is None:
-        fill_values = (y[0], y[-1])
-
-    interpolator = interp1d(t_y, y,
-                            axis=0,  # interpolate along columns
-                            bounds_error=False,
-                            kind='linear',
-                            fill_value=fill_values)
-    return interpolator(t_eval)
-
-
 def getEnvelope(timeseries_x, timeseries_y, fill_value=0):
-    peaks, peak_properties = find_peaks(timeseries_y, distance=200)
-    u_p = interp1d(timeseries_x[peaks], timeseries_y[peaks], bounds_error=False, fill_value=fill_value)
-    return u_p
+    """Return a linear interpolant through the peaks of `timeseries_y` (its envelope)."""
+    peaks, _ = find_peaks(timeseries_y, distance=200)
+    return interp1d(timeseries_x[peaks], timeseries_y[peaks], bounds_error=False, fill_value=fill_value)
 
 
 def save_to_pickle_file(filename, *args):
+    """Pickle each of `args` sequentially into `filename`, creating parent directories."""
     os.makedirs(os.path.dirname(filename), exist_ok=True)
     with open(filename, 'wb') as f:
         for arg in args:
@@ -391,6 +375,17 @@ def save_to_pickle_file(filename, *args):
 
 
 def load_from_pickle_file(filename):
+    """Load all objects sequentially pickled into `filename` (see `save_to_pickle_file`).
+
+    Returns
+    -------
+    object, list or False
+        The single unpickled object, a list of objects if more than one was
+        stored, or False if `filename` does not exist.
+    """
+    if not os.path.exists(filename):
+        return False
+
     args = []
     with open(filename, 'rb') as f:
         while True:
@@ -405,16 +400,8 @@ def load_from_pickle_file(filename):
         return args
 
 
-def load_from_mat_file(filename, squeeze_me=True):
-    return sio.loadmat(filename, appendmat=True, squeeze_me=squeeze_me)
-
-
-def save_to_mat_file(filename, data: dict, oned_as='column', do_compression=True):
-    os.makedirs(os.path.dirname(filename), exist_ok=True)
-    sio.savemat(filename, data, oned_as=oned_as, do_compression=do_compression)
-
 def save_figs_to_pdf(pdf_name, figs=None):
-
+    """Save `figs` (default: all open figures) to a multi-page PDF, closing each after saving."""
     pdf_file = plt_pdf.PdfPages(pdf_name)
     if figs is None:
         figs = [plt.figure(ii) for ii in plt.get_fignums()]
@@ -429,49 +416,33 @@ def save_figs_to_pdf(pdf_name, figs=None):
 
 
 def add_pdf_page(pdf, fig_to_add, close_figs=True):
+    """Append `fig_to_add` as a page to an open `matplotlib.backends.backend_pdf.PdfPages`."""
     pdf.savefig(fig_to_add)
     if close_figs:
         plt.close(fig_to_add)
 
 
 
-def folder_to_gif(folder, img_type='.png', gif_name='movie.gif'):
-    """
-    Convert all the images inside a folder into a gif. 
-    
-    """
-    if img_type[0] != '.':
-        img_type = f'.{img_type}'
-    
-    fp_in = folder + f'*{img_type}'
-    fp_out = folder + gif_name
-    
-    # use exit stack to automatically close opened images
-    with contextlib.ExitStack() as stack:
-    
-        # lazily load images
-        imgs = (stack.enter_context(Image.open(f)) for f in sorted(glob.glob(fp_in)))
-    
-        # extract  first image from iterator
-        img = next(imgs)
-    
-        # https://pillow.readthedocs.io/en/stable/handbook/image-file-formats.html#gif
-        img.save(fp=fp_out, 
-                 format='GIF', 
-                 append_images=imgs,
-                 save_all=True, 
-                 duration=200, 
-                 loop=0)
-
 
 def fun_PSD(dt, X):
-    # Function that computes the Power Spectral Density.
-    # - Inputs:
-    #       - dt: sampling time
-    #       - X: signal(s) to compute the PSD (Nq x Nt)
-    # - Outputs:
-    #       - f: corresponding frequencies
-    #       - PSD: Power Spectral Density (Nq list)
+    """Compute the Power Spectral Density of one or more signals.
+
+    Parameters
+    ----------
+    dt : float
+        Sampling time.
+    X : np.ndarray
+        Signal(s), shape ``(Nq, Nt)`` (1D signals are promoted to ``(1, Nt)``; a 2D
+        array is transposed if its first dimension is larger than its second, i.e.
+        the longer axis is assumed to be time).
+
+    Returns
+    -------
+    f : np.ndarray
+        Frequencies, shape ``(Nt // 2,)``.
+    PSD : list of np.ndarray
+        Power Spectral Density of each row of `X`.
+    """
     if X.ndim == 2:
         if X.shape[0] > X.shape[1]:
             X = X.T
@@ -491,6 +462,21 @@ def fun_PSD(dt, X):
 
 
 def plot_train_data(truth, y_ref, t_ref, t_CR, folder):
+    """Plot and save (as SVG) a summary of bias-estimator training data vs. the truth.
+
+    Parameters
+    ----------
+    truth : dict
+        Reference case with keys ``'t'``, ``'y'``, ``'b'``, ``'dt'``, ``'t_obs'``.
+    y_ref : np.ndarray
+        Training data/estimates, shape ``(Nt, Nq, L)``.
+    t_ref : np.ndarray
+        Time array matching `y_ref`.
+    t_CR : float
+        Length of the plotted window around the first observation time.
+    folder : str
+        Output directory for the saved figure (created if missing).
+    """
     L = y_ref.shape[-1]
     y = y_ref[:len(truth['t'])]  # train_ens.getObservableHist(Nt=len(truth['t']))
     t = t_ref[:len(truth['t'])]
@@ -516,8 +502,8 @@ def plot_train_data(truth, y_ref, t_ref, t_CR, folder):
     sub_figs = fig.subfigures(2, 1, height_ratios=[1, 1])
     axs_top = sub_figs[0].subplots(1, 2)
     axs_bot = sub_figs[1].subplots(1, 2)
-    norm = mpl.colors.Normalize(vmin=true_RMS, vmax=1.5)
-    cmap = plt.cm.ScalarMappable(norm=norm, cmap=plt.cm.viridis)
+    norm = colors.Normalize(vmin=true_RMS, vmax=1.5)
+    cmap = plt.cm.ScalarMappable(norm=norm, cmap=mpl.colormaps['viridis'])
     cmap.set_clim(true_RMS, 1.5)
     axs_top[0].plot(tt, yt[:, 0], color='silver', linewidth=6, alpha=.8)
     axs_top[-1].plot(tt, bt[:, 0], color='silver', linewidth=4, alpha=.8)
@@ -537,7 +523,7 @@ def plot_train_data(truth, y_ref, t_ref, t_CR, folder):
     axs_top[-1].plot(tt, bt[:, 0], color='silver', linewidth=4, alpha=.5)
     axs_bot[0].plot(t, truth['b'][:, 0] / max_y * 100, color='silver', linewidth=4, alpha=.5)
     axs_top[0].legend(['Truth'], bbox_to_anchor=(0., 0.25), loc="upper left")
-    axs_top[1].legend(['True RMS $={0:.3f}$'.format(true_RMS)], bbox_to_anchor=(0., 0.25), loc="upper left")
+    axs_top[1].legend([f'True RMS $={true_RMS:.3f}$'], bbox_to_anchor=(0., 0.25), loc="upper left")
     axs_top[0].set(xlabel='$t$', ylabel='$\\eta$', xlim=xlims[0])
     axs_bot[0].set(xlabel='$t$', ylabel='$b$ normalized [\\%]', xlim=xlims[-1])
 
@@ -549,11 +535,20 @@ def plot_train_data(truth, y_ref, t_ref, t_CR, folder):
         clb.ax.set_title('$\\mathrm{RMS}$')
 
     os.makedirs(folder, exist_ok=True)
-    plt.savefig(folder + 'L{}_training_data.svg'.format(L), dpi=350)
+    plt.savefig(folder + f'L{L}_training_data.svg', dpi=350)
     plt.close()
 
 
 def CR(y_true, y_est):
+    """Return the (Pearson) correlation and the relative RMS error of `y_est` vs. `y_true`.
+
+    Returns
+    -------
+    C : float
+        Pearson correlation coefficient.
+    R : float
+        Root-mean-square error, normalized by ``norm(y_true)``.
+    """
     # time average of both quantities
     y_tm = np.mean(y_true, 0, keepdims=True)
     y_em = np.mean(y_est, 0, keepdims=True)
@@ -566,171 +561,85 @@ def CR(y_true, y_est):
     return C, R
 
 
-def get_error_metrics(results_folder):
-    print('computing error metrics...')
-    out = dict(Ls=[], ks=[])
 
-    L_dirs, k_files = [], []
-    LLL = os.listdir(results_folder)
-    for Ldir in LLL:
-        if os.path.isdir(results_folder + Ldir + '/') and Ldir[0] == 'L':
-            L_dirs.append(results_folder + Ldir + '/')
-            out['Ls'].append(float(Ldir.split('L')[-1]))
+def correlation(y_true, y_est):
+    """Compute the Pearson correlation coefficient of `y_est` vs. `y_true`, per ensemble member.
 
-    for ff in os.listdir(L_dirs[0]):
-        k = float(ff.split('_k')[-1])
-        out['ks'].append(k)
-        k_files.append(ff)
+    Parameters
+    ----------
+    y_true : np.ndarray
+        Reference data, shape ``(N_time, Nq)`` or ``(N_time, Nq, 1)``.
+    y_est : np.ndarray
+        Estimate, shape ``(N_time, Nq, N_ens)``.
 
-    # sort ks and Ls
-    idx_ks = np.argsort(np.array(out['ks']))
-    out['ks'] = np.array(out['ks'])[idx_ks]
-    out['k_files'] = [k_files[i] for i in idx_ks]
+    Returns
+    -------
+    np.ndarray
+        Correlation coefficient per ensemble member, shape ``(N_ens,)`` (0 where
+        the denominator is numerically zero).
+    """
+    y_true = np.asarray(y_true)
+    y_est = np.asarray(y_est)
 
-    idx = np.argsort(np.array(out['Ls']))
-    out['L_dirs'] = [L_dirs[i] for i in idx]
-    out['Ls'] = np.array(out['Ls'])[idx]
+    # Accept 2D y_true (Nt, Nq) and promote to (Nt, Nq, 1)
+    if y_true.ndim == 2:
+        y_true = y_true[..., np.newaxis]
+    if y_true.ndim != 3 or y_est.ndim != 3:
+        raise ValueError(f'Expected y_true with ndim 2 or 3 and y_est with ndim 3, got {y_true.ndim}, {y_est.ndim}')
 
-    # Output quantities
-    keys = ['R_biased_DA', 'R_biased_post',
-            'C_biased_DA', 'C_biased_post',
-            'R_unbiased_DA', 'R_unbiased_post',
-            'C_unbiased_DA', 'C_unbiased_post']
-    for key in keys:
-        out[key] = np.empty([len(out['Ls']), len(out['ks'])])
+    # Check compatible time and spatial dimensions
+    if y_true.shape[0] != y_est.shape[0] or y_true.shape[1] != y_est.shape[1]:
+        raise ValueError(f'Incompatible shapes: y_true and y_est must share first two dimensions (time, spatial). {y_true.shape} vs {y_est.shape}')
 
-    print(out['Ls'])
-    print(out['ks'])
+    # Compute means
+    y_tm = np.mean(y_true, axis=0, keepdims=True)  # shape (1, Nq, 1)
+    y_em = np.mean(y_est, axis=0, keepdims=True)   # shape (1, Nq, N_ens)
 
-    ii = -1
-    for Ldir in out['L_dirs']:
-        ii += 1
-        print('L = ', out['Ls'][ii])
-        jj = -1
-        for ff in out['k_files']:
-            jj += 1
-            # Read file
-            truth, filter_ens = load_from_pickle_file(Ldir + ff)[1:]
-            truth = truth.copy()
+    # Centered signals
+    y_true_centered = y_true - y_tm # shape (Nt, Nq, 1)
+    y_est_centered = y_est - y_em # shape (Nt, Nq, N_ens)
 
-            print('\t k = ', out['ks'][jj], '({}, {})'.format(filter_ens.bias.L, filter_ens.regularization_factor))
-            # Compute biased and unbiased signals
-            y, t = filter_ens.get_observable_hist(), filter_ens.hist_t
-            b, t_b = filter_ens.bias.hist, filter_ens.bias.hist_t
-            y_mean = np.mean(y, -1)
+    # Numerator and denominator for Pearson r
+    numerator = np.sum(y_est_centered * y_true_centered, axis=(0,1))  # shape (N_ens)
+    denom = np.sqrt(np.sum(y_est_centered ** 2, axis=(0,1)) * np.sum(y_true_centered ** 2, axis=(0,1)))  # shape (N_ens)
 
-            # Unbiased signal error
-            if hasattr(filter_ens.bias, 'upsample'):
-                y_unbiased = interpolate(t, y_mean, t_b) + b
-                y_unbiased = interpolate(t_b, y_unbiased, t)
-            else:
-                y_unbiased = y_mean + b
+    # Safe division: set correlation to 0 where denom is (near) zero
+    with np.errstate(divide='ignore', invalid='ignore'):
+        r_values = numerator / denom
+        r_values = np.where(denom < 1e-10, 0.0, r_values)
 
-            # if jj == 0:
-            N_CR = int(filter_ens.t_CR // filter_ens.dt)  # Length of interval to compute correlation and RMS
-            i0 = np.argmin(abs(t - truth['t_obs'][0]))  # start of assimilation
-            i1 = np.argmin(abs(t - truth['t_obs'][-1]))  # end of assimilation
-
-            # cut signals to interval of interest
-            y_mean, t, y_unbiased = y_mean[i0 - N_CR:i1 + N_CR], t[i0 - N_CR:i1 + N_CR], y_unbiased[i0 - N_CR:i1 + N_CR]
-
-            if ii == 0 and jj == 0:
-                i0_t = np.argmin(abs(truth['t'] - truth['t_obs'][0]))  # start of assimilation
-                i1_t = np.argmin(abs(truth['t'] - truth['t_obs'][-1]))  # end of assimilation
-                y_truth, t_truth = truth['y'][i0_t - N_CR:i1_t + N_CR], truth['t'][i0_t - N_CR:i1_t + N_CR]
-                y_truth_b = y_truth - truth['b'][i0_t - N_CR:i1_t + N_CR]
-
-                out['C_true'], out['R_true'] = CR(y_truth[-N_CR:], y_truth_b[-N_CR:])
-                out['C_pre'], out['R_pre'] = CR(y_truth[:N_CR], y_mean[:N_CR])
-                out['t_interp'] = t[::N_CR]
-                scale = np.max(y_truth, axis=0)
-                for key in ['error_biased', 'error_unbiased']:
-                    out[key] = np.empty([len(out['Ls']), len(out['ks']), len(out['t_interp']), y_mean.shape[-1]])
-
-            # End of assimilation
-            for yy, key in zip([y_mean, y_unbiased], ['_biased_DA', '_unbiased_DA']):
-                C, R = CR(y_truth[-N_CR * 2:-N_CR], yy[-N_CR * 2:-N_CR])
-                out['C' + key][ii, jj] = C
-                out['R' + key][ii, jj] = R
-
-            # After Assimilaiton
-            for yy, key in zip([y_mean, y_unbiased], ['_biased_post', '_unbiased_post']):
-                C, R = CR(y_truth[-N_CR:], yy[-N_CR:])
-                out['C' + key][ii, jj] = C
-                out['R' + key][ii, jj] = R
-
-            # Compute mean errors
-            b_obs = y_truth - y_mean
-            b_obs_u = y_truth - y_unbiased
-            ei, a = -N_CR, -1
-            while ei < len(b_obs) - N_CR - 1:
-                a += 1
-                ei += N_CR
-                out['error_biased'][ii, jj, a, :] = np.mean(abs(b_obs[ei:ei + N_CR]), axis=0) / scale
-                out['error_unbiased'][ii, jj, a, :] = np.mean(abs(b_obs_u[ei:ei + N_CR]), axis=0) / scale
-
-            save_to_pickle_file(results_folder + 'CR_data', out)
-
-
-
+    return r_values
+def create_dataset_from_model(model_class, num_lyap_times=300, noise_level=0.02, seed=0, **kwargs):
+    """`dynamodels.utils.create_dataset_from_model` cached under this repo's
+    ``data/<model class name>/`` folder."""
+    data_folder = set_working_directories(f'{model_class.__name__}/')[0]
+    return _dm_create_dataset(model_class, data_folder, num_lyap_times=num_lyap_times,
+                              noise_level=noise_level, seed=seed, **kwargs)
 
 
 def create_Lorenz63_dataset(noise_level=0.02, num_lyap_times=300, seed=0, **kwargs):
-    from models_physical import Lorenz63
-    # Load or create training data from the Lorenz 63 model
-    data_folder = set_working_directories('Lorenz/')[0]
-
-    model = Lorenz63(**kwargs)
-
-
-
-
-    # Default filename
-    filename = f"{''.join([f'{key}{val:.2f}_' for key, val in model.get_default_params.items()])}Nlyap{num_lyap_times}_noise{noise_level}_seed{seed}"
-
-    t_lyap = model.t_lyap
-    dt = model.dt
-    N_lyap = int(t_lyap / dt)
-
-    try:
-        dataset = load_from_mat_file(data_folder + filename)
-        print('Loaded case')
-    except FileNotFoundError:
-
-
-
-        # Create a time series from the model
-        model.create_long_timeseries(Nt=num_lyap_times * N_lyap)
-
-        # Get the model observables and time
-        t = model.hist_t
-        all_data = model.get_observable_hist()[..., 0].copy()
-        all_data_clean = all_data.copy()
-
-        # Add noise to the data
-        rng_noise = np.random.default_rng(seed)
-        U_std = np.std(all_data, axis=0)
-        for dd in range(all_data.shape[1]):
-            all_data[:, dd] += rng_noise.normal(loc=0, scale=noise_level * U_std[dd], size=all_data.shape[0])
-
-        # Save data for future use
-        dataset = dict(clean_data=all_data_clean,
-                       noisy_data=all_data,
-                       t=t,
-                       N_lyap=N_lyap)
-        save_to_mat_file(data_folder + filename, dataset)
-
-    return dataset
+    """Deprecated: `create_dataset_from_model` with `Lorenz63`. Kept for old notebooks."""
+    from romda.models.physical import Lorenz63
+    return create_dataset_from_model(Lorenz63, num_lyap_times=num_lyap_times,
+                                     noise_level=noise_level, seed=seed, **kwargs)
 
 
 
 def download_zenodo_file(download_url, data_folder='./', filename=None):
-    """
-    Download a file from Zenodo to the data folder if it is missing.
-    - Inputs:
-        download_url: Direct URL to the Zenodo file 
-        data_folder: Folder where the file should be saved
-        filename: Optional, specify the filename; if None, it is inferred from the URL
+    """Download a file from Zenodo into `data_folder`, if not already present.
+
+    If the downloaded file is a zip archive, it is also unzipped in place (see
+    `unzip_file`).
+
+    Parameters
+    ----------
+    download_url : str
+        Direct URL to the Zenodo file, e.g.
+        ``'https://zenodo.org/records/000000/files/example.py'``.
+    data_folder : str, optional
+        Folder where the file should be saved. Default ``'./'``.
+    filename : str, optional
+        Filename to save as. Defaults to the filename inferred from `download_url`.
     """
     # https://zenodo.org/records/000000/files/example.py
 
@@ -762,21 +671,27 @@ def download_zenodo_file(download_url, data_folder='./', filename=None):
                 if chunk:
                     f.write(chunk)
                     bar.update(len(chunk))
-        if zipfile.is_zipfile(filename):
+        if zipfile.is_zipfile(file_path):
             unzip_file(file_path, output_folder=data_folder, remove_first_folder=True)
 
 def unzip_file(file_path, output_folder=None, remove_first_folder=True):
-    """
-    Unzip a file to the specified data folder.
-    - Inputs:
-        file_path: Path to the zip file
-        data_folder: Folder where the contents should be extracted; if None, uses the same folder as the zip file
+    """Extract a zip archive to `output_folder`.
+
+    Parameters
+    ----------
+    file_path : str
+        Path to the zip file.
+    output_folder : str
+        Folder where the contents are extracted.
+    remove_first_folder : bool, optional
+        If True, strip the archive's top-level folder from each extracted path.
+        Default True.
     """
     # If it's a zip, check if already unzipped before extracting
     with zipfile.ZipFile(file_path, 'r') as zip_ref:
 
         members = [m for m in zip_ref.namelist() if not m.startswith('__MACOSX/') and not m.startswith('.DS_Store')]
-        
+
         if not members:
             print("Zip file is empty, skipping extraction.")
             return
@@ -787,83 +702,119 @@ def unzip_file(file_path, output_folder=None, remove_first_folder=True):
             if member.endswith('/'):
                 continue   # Skip directories
             if remove_first_folder:
-                target = member[len(zip_name)+1:] 
+                target = member[len(zip_name)+1:]
             else:
                 target = member
 
-            dest_path = os.path.join(output_folder, target)
+            dest_path = f'{output_folder}/{target}'
             os.makedirs(os.path.dirname(dest_path), exist_ok=True)
             with zip_ref.open(member) as source, open(dest_path, 'wb') as target_file:
                 target_file.write(source.read())
         print(f"Unzipped '{zip_name}.zip' in '{output_folder}'")
 
 
-def get_annular_data(data_folder=None):
+def get_annular_data(data_folder: Optional[str] = None):
     """
     Download and unzip the annular data from Zenodo if not already present.
     """
+
     if data_folder is None:
-        data_folder = set_working_directories('annular/')
+        laod_dir = set_working_directories('annular/')[0] #type: str
+    else:
+        laod_dir = data_folder
 
-    zip_file = os.path.join(data_folder, 'annular_data.zip')
     zenodo_dir = "https://zenodo.org/records/15609832/files"
-    
-    download_zenodo_file(f'{zenodo_dir}/annular.zip?download=1', data_folder, 
-                            filename='annular_data.zip')
 
-    download_zenodo_file(f'{zenodo_dir}/README.md?download=1', data_folder)
+    download_zenodo_file(f'{zenodo_dir}/annular.zip?download=1',
+                         laod_dir,
+                        filename='annular_data.zip')
+
+    download_zenodo_file(f'{zenodo_dir}/README.md?download=1', laod_dir)
 
 
 
-def get_wake_data(data_folder=None, case='circle_re_100'):
+def get_wake_data(data_folder: Optional[str] = None, case='circle_re_100'):
     """
     Download and unzip the bluff bodies wake flow data from Zenodo if not already present.
     """
+
     if data_folder is None:
-        data_folder = set_working_directories('wakes/')
+        laod_dir = set_working_directories('wakes/')[0] #type: str
+    else:
+        laod_dir = data_folder
 
-    zenodo_dir = "https://zenodo.org/records/15623774/files/"
-    
-    download_zenodo_file(f'{zenodo_dir}/{case}.mat?download=1"', 
-                         data_folder, filename=f'{case}.mat')
+    zenodo_dir = "https://zenodo.org/records/15623774/files"
 
-    download_zenodo_file(f'{zenodo_dir}/README.md?download=1', data_folder)
+    download_zenodo_file(f'{zenodo_dir}/{case}.mat?download=1',
+                         laod_dir, filename=f'{case}.mat')
 
-
+    download_zenodo_file(f'{zenodo_dir}/README.md?download=1', laod_dir)
 
 
 
-def load_cylinder_dataset(noise_type = 'gauss', noise_level = 0.1, smoothing = 0.1, 
+
+
+def load_cylinder_dataset(noise_type = 'gauss', noise_level = 0.1, smoothing = 0.1,
                           root_folder='.', visualize=False):
+    """Load (downloading if needed) the cylinder-wake flow dataset, adding noise once and caching the result.
 
+    Downloads the ``circle_re_100`` wake dataset (see `get_wake_data`) on first
+    use, adds noise via `add_noise_to_flow`, and caches the noisy/clean pair to a
+    ``.mat`` file so subsequent calls with the same parameters just reload it.
+
+    Parameters
+    ----------
+    noise_type : str, optional
+        Forwarded to `add_noise_to_flow`. Default ``'gauss'``.
+    noise_level : float, optional
+        Forwarded to `add_noise_to_flow`. Default 0.1.
+    smoothing : float, optional
+        Spatial smoothing, forwarded to `add_noise_to_flow` as `spatial_smooth`.
+        Default 0.1.
+    root_folder : str, optional
+        Passed to `set_working_directories` to locate the data/results folders.
+        Default ``'.'``.
+    visualize : bool, optional
+        If True, also generate a comparison animation via `visualize_flow_data`.
+        Default False.
+
+    Returns
+    -------
+    all_data : np.ndarray
+        Clean velocity data, shape ``(Nt, Nx, Ny, 2)``.
+    all_data_noisy : np.ndarray
+        Noisy velocity data, same shape.
+    new_results_dir : str
+        Directory where the cached dataset (and optional animation) is stored.
+    """
     data_folder, results_folder = set_working_directories('wakes/', root=root_folder)[:2]
 
 
 
-    new_dir = f'{results_folder}/data_noise{noise_level}{noise_type}_smoothing{smoothing}/'
+    new_results_dir = f'{results_folder}/data_noise{noise_level}{noise_type}_smoothing{smoothing}/'
 
+    # new_data_dir = f'{data_folder}/data_noise{noise_level}{noise_type}_smoothing{smoothing}/'
+    os.makedirs(new_results_dir, exist_ok=True)
 
-    os.makedirs(new_dir, exist_ok=True)
-
-    data_name = f'{new_dir}00_data.mat'
+    data_name = f'{new_results_dir}00_data.mat'
 
     if not os.path.exists(data_name):
 
         if not os.path.exists(data_folder + 'circle_re_100.mat'):
             # Download the dataset if it does not exist
+
+            # pri(f'folder/file not found {data_folder}')
             get_wake_data(data_folder, case='circle_re_100')
-            
+
         # Load dataset
         mat = load_from_mat_file(data_folder + 'circle_re_100.mat')
 
-        U, V = [mat[key] for key in ['ux', 'uy']]  # Nu, Nt, Ny, Nx 
-        U[np.isnan(U)] = 0.
-        V[np.isnan(V)] = 0.
+        U, V = [mat[key] for key in ['ux', 'uy']]  # Nu, Nt, Ny, Nx
 
-        U_noisy, V_noisy = add_noise_to_flow(U, V, 
-                                            noise_level=noise_level, 
-                                            noise_type=noise_type, 
-                                            spatial_smooth=smoothing)
+        U_noisy, V_noisy = add_noise_to_flow(np.array([U, V]),
+                                             noise_level=noise_level,
+                                             noise_type=noise_type,
+                                             spatial_smooth=smoothing)
 
         all_data = np.array([U, V])                     # Nu, Nt, Ny, Nx
         all_data_noisy = np.array([U_noisy, V_noisy])   # Nu, Nt, Ny, Nx
@@ -875,28 +826,32 @@ def load_cylinder_dataset(noise_type = 'gauss', noise_level = 0.1, smoothing = 0
         save_to_mat_file(data_name, dict(all_data=all_data,
                                          all_data_noisy=all_data_noisy))
     else:
+        print(f'Loading...{data_name}')
         dataset = load_from_mat_file(data_name)
         all_data, all_data_noisy = [dataset[key] for key in ['all_data', 'all_data_noisy']]
 
     if visualize:
-        visualize_flow_data(all_data, all_data_noisy, simulation_dir=new_dir)
+        visualize_flow_data(all_data, all_data_noisy, simulation_dir=new_results_dir)
 
 
-    return all_data, all_data_noisy, new_dir
-
+    return all_data, all_data_noisy, new_results_dir
 
 
 
 
 
 def visualize_flow_data(X_true, X_noisy, simulation_dir=''):
-    """
-    Visualize the true and noisy flow fields.
-    
-    Parameters:
-    - X_true: True flow field data.
-    - X_noisy: Noisy flow field data.
-    - simulation_dir: Directory to save the GIF.
+    """Build (if missing) and display a GIF comparing true and noisy flow fields.
+
+    Parameters
+    ----------
+    X_true : np.ndarray
+        True flow field, shape ``(..., 2)`` with the last axis indexing the
+        (u, v) velocity components.
+    X_noisy : np.ndarray
+        Noisy flow field, same shape as `X_true`.
+    simulation_dir : str, optional
+        Directory where the GIF (``00_data.gif``) is saved/read from.
     """
 
     # Define the GIF name
@@ -905,230 +860,226 @@ def visualize_flow_data(X_true, X_noisy, simulation_dir=''):
 
     # Visualize the flow fields
     if not os.path.exists(gif_name):
-        anim = animate_flowfields([X_true[...,0],X_true[...,1], X_noisy[...,0], X_noisy[...,1]], 
-                                titles=['$u_x$', '$u_y$', '$\\tilde{u}_x$', '$\\tilde{u}_y$'], n_frames=20)
+        datasets = {
+            '$u_x$': X_true[...,0],
+            '$u_y$': X_true[...,1],
+            '$\\tilde{u}_x$': X_noisy[...,0],
+            '$\\tilde{u}_y$': X_noisy[...,1]
+        }
+        anim = animate_flowfields(datasets, n_frames=200, step=2, figsize=(6, 4))
         anim.save(gif_name)
 
-    # Display in notebook
+    # Display in notebook (IPython imported lazily so the package does not
+    # require IPython outside notebook contexts, e.g. in the docs CI build)
+    from IPython.display import Image, display
     display(Image(filename=gif_name))
 
 
 
+def animate_flowfields(datsets,
+                       time=None,
+                       n_frames=40, cmaps=None, rms_cmap='Reds', std_cmap='Blues', step=1,
+                       rows=False, figsize=None, assimilated_data=None):
+    """Create a `matplotlib.animation.FuncAnimation` of side-by-side flow fields.
 
-def animate_flowfields(datsets, n_frames=40, cmaps=None, titles=None, rms_cmap='Reds', step=1, rows=False, figsize=None):
-    """
-    Create an animation of flow fields from multiple datasets.
-    Inputs:
-    - datsets: List of datasets, each containing flow field data. Each of shape: Nt x Ny x Nx
-    - n_frames: Number of frames in the animation.
-    - cmaps: List of colormaps for each dataset.
-    - titles: List of titles for each dataset.
-    - rms_cmap: Colormap for RMS datasets.
-    """
+    Parameters
+    ----------
+    datsets : dict
+        Flow-field datasets, each of shape ``(Ny, Nx, Nt)`` (transposed in place
+        if needed so the vertical dimension is the larger one, and required to
+        share spatial dimensions). Keys are used as subplot titles; a title
+        containing ``'RMS'`` or ``'std'`` selects `rms_cmap`/`std_cmap`.
+    time : np.ndarray, optional
+        1D array of time values matching the last axis of each dataset. Required
+        (together with `assimilated_data`) to overlay observation markers.
+    n_frames : int, optional
+        Number of frames (used only when `assimilated_data` is None). Default 40.
+    cmaps : list of str, optional
+        Colormap per dataset. Defaults to ``'viridis'`` for all.
+    rms_cmap : str, optional
+        Colormap for datasets whose title contains ``'RMS'``. Default ``'Reds'``.
+    std_cmap : str, optional
+        Colormap for datasets whose title contains ``'std'``. Default ``'Blues'``.
+    step : int, optional
+        Frame stride (ignored if `assimilated_data` provides ``'t_obs'``). Default 1.
+    rows : bool, optional
+        If True, stack subplots in a column; otherwise in a row. Default False.
+    figsize : tuple of float, optional
+        Figure size. Defaults to a size scaled by the number of datasets.
+    assimilated_data : dict, optional
+        If given, drives the animated frames (overriding `n_frames`/`step`):
 
+        - ``'t_obs'`` : array-like of observation times at which data are
+          assimilated; a red marker is shown at these frames.
+        - ``'xy'`` : array of shape ``(N_sensors, 2)`` with sensor coordinates
+          ``[x_col, y_row]``.
+
+    Returns
+    -------
+    matplotlib.animation.FuncAnimation
+        The animation object (figure is closed; call `.save` or display it).
+    """
 
     if cmaps is None:
         cmaps = ['viridis'] * len(datsets)
-    if titles is None:
-        titles = [f'Dataset {i+1}' for i in range(len(datsets))]
 
     if rows:
         if figsize is None:
-            figsize = (1.5*len(datsets), 4)
-        fig, axs = plt.subplots(len(datsets), 1,  sharex=True, sharey=True, figsize=figsize, layout='constrained')
+            figsize = (1.5 * len(datsets), 4)
+        fig, axs = plt.subplots(len(datsets), 1, sharex=True, sharey=True,
+                                figsize=figsize, layout='constrained')
         cbar_orientation = 'vertical'
     else:
         if figsize is None:
-            figsize = (4, 1.5*len(datsets))
-        fig, axs = plt.subplots(1, len(datsets), sharex=True, sharey=True, figsize=figsize, layout='constrained')
+            figsize = (4, 1.5 * len(datsets))
+        fig, axs = plt.subplots(1, len(datsets), sharex=True, sharey=True,
+                                figsize=figsize, layout='constrained')
         cbar_orientation = 'horizontal'
 
     if len(datsets) == 1:
         axs = [axs]
 
+    # Transpose datasets if needed so vertical dim > horizontal dim
+    for key, D in datsets.items():
+        if D.shape[0] < D.shape[1]:
+            datsets[key] = D.transpose(1, 0, 2)
+
+    for key, D in datsets.items():
+        ref = list(datsets.values())[0]
+        if D.shape[0] != ref.shape[0] or D.shape[1] != ref.shape[1]:
+            raise ValueError("All datasets must have the same spatial dimensions.")
+
+    # ------------------------------------------------------------------ #
+    #  Build frame_indices: driven by observations when available         #
+    # ------------------------------------------------------------------ #
+    dots, t_obs_set = [], set()
+
+    if assimilated_data is not None and time is not None:
+        show_obs  = True
+        t_obs     = np.asarray(assimilated_data.get('t_obs', []))
+        sensor_xy = np.asarray(assimilated_data.get('xy', []))
+
+        # Map observation times to nearest indices in `time`
+        obs_indices = np.searchsorted(time, t_obs)
+
+        # Uniform stride across entire time range; always include observation indices
+        regular_indices = np.arange(0, len(time), step)
+        frame_indices = np.unique(np.concatenate((regular_indices, obs_indices)))
+        frame_indices.sort()
+        frame_indices = frame_indices.clip(0, len(time) - 1).tolist()
+        frame_indices = frame_indices[:n_frames]  # Limit to n_frames if too many
+
+        # Keep observation time values for dot-visibility test
+        t_obs_set = set(t_obs.tolist())
+
+        for ax in axs:
+            sc = ax.scatter(
+                *((sensor_xy[:, 0], sensor_xy[:, 1]) if len(sensor_xy) else ([], [])),
+                c='red', s=40, marker='o', zorder=5, visible=False)
+            dots.append(sc)
+    else:
+        show_obs      = False
+        time          = np.arange(list(datsets.values())[0].shape[-1])
+        frame_indices = list(range(0, min(n_frames, len(time)), step))
+
+    # ------------------------------------------------------------------ #
+    #  Build initial pcolormesh artists                                   #
+    # ------------------------------------------------------------------ #
     ims = []
-
-    for ax, D, ttl, cmap in zip(axs, datsets, titles, cmaps):
+    for ax, (ttl, D), cmap in zip(axs, datsets.items(), cmaps):
         if 'RMS' in ttl:
-            ims.append(ax.pcolormesh(D[0], rasterized=True, cmap=plt.get_cmap(rms_cmap), vmin=0, vmax=1))
+            ims.append(ax.pcolormesh(D[..., 0], rasterized=True,
+                                     cmap=plt.get_cmap(rms_cmap), vmin=0, vmax=1))
+        elif 'std' in ttl.lower():
+            norm = colors.Normalize(vmin=np.nanmin(D), vmax=np.nanmax(D))
+            ims.append(ax.pcolormesh(D[..., 0], rasterized=True,
+                                     cmap=plt.get_cmap(std_cmap), norm=norm))
         else:
-            norm = mpl.colors.Normalize(vmin=np.min(D), vmax=np.max(D))
-            ims.append(ax.pcolormesh(D[0], rasterized=True, cmap=plt.get_cmap(cmap), norm=norm))
-        
-        ax.set(xticks=[], yticks=[])
+            norm = colors.Normalize(vmin=np.nanmin(D), vmax=np.nanmax(D))
+            ims.append(ax.pcolormesh(D[..., 0], rasterized=True,
+                                     cmap=plt.get_cmap(cmap), norm=norm))
 
+        ax.set(xticks=[], yticks=[])
         fig.colorbar(ims[-1], ax=ax, orientation=cbar_orientation, label=ttl)
 
-
+    # ------------------------------------------------------------------ #
+    #  Animation update function                                          #
+    # ------------------------------------------------------------------ #
     def animate(ti):
-        [im.set_array(D[ti]) for im, D in zip(ims, datsets)]
-        print(f'Frame {ti + 1}/{n_frames}', flush=True, end='\r')
-        return ims
-
-    frame_indices = list(range(0, n_frames, step))  # Only these time indices will be plotted
-
+        frame = frame_indices[ti]
+        for im, D in zip(ims, datsets.values()):
+            im.set_array(D[..., frame])
+        if show_obs:
+            is_obs = time[frame] in t_obs_set
+            for sc in dots:
+                sc.set_visible(is_obs)
+        print(f'Frame {ti + 1}/{len(frame_indices)}', flush=True, end='\r')
+        return ims + dots
 
     plt.close(fig)
-
     return FuncAnimation(fig, animate, frames=len(frame_indices), cache_frame_data=False)
 
 
 
 def get_figsize_based_on_domain(domain, total_subplots, max_cols=5, total_width=6):
-# def get_figsize_with_total_width(domain, total_width=12, min_height=4, ncols=2, nrows=1):
-    """
-    Returns a (fig_width, fig_height) figsize in inches, 
-    where fig_width is set by total_width, and fig_height is scaled by domain aspect ratio.
-    
-    Parameters:
-    - domain: [xmin, xmax, ymin, ymax]
-    - total_width: total width of the figure in inches
-    - min_height: minimum height in inches (for readability)
-    - ncols, nrows: subplot layout (for multi-panel figures)
-    
-    Returns:
-    - Tuple: (fig_width, fig_height)
+    """Compute a subplot-grid layout and figure size matching a spatial domain's aspect ratio.
+
+    Parameters
+    ----------
+    domain : sequence of float
+        ``[xmin, xmax, ymin, ymax]``.
+    total_subplots : int
+        Number of subplots to arrange.
+    max_cols : int, optional
+        Maximum number of columns (prevents excessively wide layouts). Default 5.
+    total_width : float, optional
+        Desired total figure width, in inches. Default 6.
+
+    Returns
+    -------
+    figsize : tuple of float
+        ``(fig_width, fig_height)``.
+    ncols : int
+        Number of subplot columns.
+    nrows : int
+        Number of subplot rows.
     """
     x_span = abs(domain[1] - domain[0])
     y_span = abs(domain[3] - domain[2])
-
     aspect_ratio = y_span / x_span if x_span != 0 else 1
 
-    # Favor rows if aspect ratio is tall; favor cols if wide
-    if aspect_ratio > 1:
-        ncols = min(max_cols, total_subplots)
-        nrows = int(np.ceil(total_subplots / ncols))
-        fig_width = total_width
-        fig_height =   (total_width / ncols) * aspect_ratio * nrows
+    ncols = min(max_cols, total_subplots)
+    nrows = int(np.ceil(total_subplots / ncols))
 
-    elif aspect_ratio < 1:
-        nrows = min(max_cols, total_subplots)
-        ncols = int(np.ceil(total_subplots / nrows))
-        fig_height = total_width
-        fig_width =   (total_width / nrows) / aspect_ratio * ncols
-        
+    per_subplot_width = total_width / ncols
+    per_subplot_height = per_subplot_width * aspect_ratio
+
+    fig_width = total_width
+    fig_height = per_subplot_height * nrows
+
     return (fig_width, fig_height), ncols, nrows
 
 
 
-def get_cropped_indices(original_grid, 
-                        original_domain, 
-                        domain_of_interest, 
-                        down_sample=None):
-
-    # Extract original and DOI boundaries
-    Nx, Ny = original_grid
-    x_min, x_max, y_min, y_max = original_domain
-    doi_x_min, doi_x_max, doi_y_min, doi_y_max = domain_of_interest
-
-    # Generate 1D spatial grids for original domain
-    x = np.linspace(x_min, x_max, Nx)
-    y = np.linspace(y_min, y_max, Ny)
-
-    # Find indices within domain_of_interest along each axis
-    x_idx = np.where((x >= doi_x_min) & (x <= doi_x_max))[0]
-    y_idx = np.where((y >= doi_y_min) & (y <= doi_y_max))[0]
 
 
-    if len(x_idx) == 0 or len(y_idx) == 0:
-        raise ValueError('Domain of interest does not overlap with original domain grid.')
+# --------------------------- notebook figure collector ---------------------------
+
+_savefig_figures = {}
 
 
-    if down_sample is not None:
-        if isinstance(down_sample, int):
-            down_sample = [down_sample]
-        if len(down_sample) == 1:
-            step_x = step_y = down_sample[0]
-        elif len(down_sample) == 2:
-            step_x, step_y = down_sample
-        else:
-            raise AssertionError(f'Too many downsample entries: {down_sample}')
+def savefig(fig, name, figs_dir=None, **kwargs):
+    """Collect a notebook's figures into one PDF, ``figs/<nn>.pdf`` (from the ``NN_``
+    name prefix), rewriting the file each call so re-runs replace pages, not append.
 
-        x_idx = x_idx[::step_x]
-        y_idx = y_idx[::step_y]
+    ``figs_dir`` defaults to ``figs/`` next to the caller (the current directory)."""
+    figs = figs_dir or os.path.join(os.getcwd(), 'figs')
+    os.makedirs(figs, exist_ok=True)
+    nb = name.split('_')[0]
+    _savefig_figures.setdefault(nb, {})[name] = fig
 
-
-    return np.ix_(x_idx, y_idx)
-
-
-
-
-def crop_data_to_domain_of_interest(data,
-                                    original_domain: 'list | tuple',
-                                    domain_of_interest: 'list | tuple',
-                                    down_sample: 'int | list | tuple' = None,
-                                    visualize=True):
-        """
-        Adjust the domain and grid shape for a given dataset.
-
-        Args:
-            - data: The dataset to process. Shape: (Nu, Nt), Nx, Ny
-            - original_domain: (x_min, x_max, y_min, y_max) tuple for the entire data domain
-            - domain_of_interest: (x_min, x_max, y_min, y_max) tuple specifying subdomain to crop to
-
-        Returns:
-            - Processed dataset, new domain, new grid shape, and the index mapping.
-        """
-
-        if data.ndim <= 4 and data.ndim >= 2:
-            original_grid = list(data.shape[-2:])
-        else:
-            raise ValueError(f'data input shape must be [(Nu, Nt) x Nx x Ny], got {data.shape}')
-
-        # # Extract original and DOI boundaries
-        # Nx, Ny = original_grid
-        # x_min, x_max, y_min, y_max = original_domain
-        # doi_x_min, doi_x_max, doi_y_min, doi_y_max = domain_of_interest
-
-        # # Generate 1D spatial grids for original domain
-        # x = np.linspace(x_min, x_max, Nx)
-        # y = np.linspace(y_min, y_max, Ny)
-
-        # # Find indices within domain_of_interest along each axis
-        # x_idx = np.where((x >= doi_x_min) & (x <= doi_x_max))[0]
-        # y_idx = np.where((y >= doi_y_min) & (y <= doi_y_max))[0]
-
-
-        # if len(x_idx) == 0 or len(y_idx) == 0:
-        #     raise ValueError('Domain of interest does not overlap with original domain grid.')
-
-
-        # if down_sample is not None:
-        #     if isinstance(down_sample, int):
-        #         down_sample = [down_sample]
-        #     if len(down_sample) == 1:
-        #         step_x = step_y = down_sample[0]
-        #     elif len(down_sample) == 2:
-        #         step_x, step_y = down_sample
-        #     else:
-        #         raise AssertionError(f'Too many downsample entries: {down_sample}')
-
-        #     x_idx = x_idx[::step_x]
-        #     y_idx = y_idx[::step_y]
-
-
-        # cropped_grid_indices = np.ix_(x_idx, y_idx)
-
-        cropped_grid_indices = get_cropped_indices(original_grid, original_domain, 
-                                                   domain_of_interest, down_sample)
-
-        data_cropped = data[..., cropped_grid_indices[0], cropped_grid_indices[1]].copy()
-
-        if visualize:
-
-            _, ax = plt.subplots(figsize=(12, 3), layout='constrained', nrows=1, ncols=1, sharex=True, sharey=True)
-            
-            X, Y = np.meshgrid(x, y, indexing='ij')
-
-            only_u_i = np.zeros(data.ndim, dtype=object)
-            only_u_i[-2:] = slice(None)
-
-            u = data[tuple(only_u_i)].copy()
-            u_c = data_cropped[tuple(only_u_i)].copy()
-
-            im0 = ax.pcolormesh(X, Y, u, cmap='Grays', rasterized=True)
-            im1 = ax.pcolormesh(X[cropped_grid_indices], Y[cropped_grid_indices], u_c, cmap='viridis', rasterized=True)
-            
-        return data_cropped, cropped_grid_indices
-
-
+    path = os.path.join(figs, f'{nb}.pdf')
+    with plt_pdf.PdfPages(path) as pdf:
+        for f in _savefig_figures[nb].values():
+            pdf.savefig(f, bbox_inches='tight', **kwargs)
+    return path

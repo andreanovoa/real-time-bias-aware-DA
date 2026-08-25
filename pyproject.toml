@@ -3,12 +3,106 @@ requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "real-time-DA"
-version = "2.1"
-description = "Real-time Bias-Aware Data Assimilation"
+name = "romda"
+version = "3.0.0"
+description = "Real-time reduced-order modelling and bias-aware data assimilation"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}  
 authors = [
-  {name = "Andrea Nóvoa", email = "a.novoa@imperial.ac.uk"}
+    {name = "Andrea Nóvoa", email = "a.novoa@imperial.ac.uk"}
+]
+keywords = ["data-assimilation", "bias-estimation", "real-time", "ensemble-kalman-filter"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
 ]
 
-[tool.setuptools.packages.find]
-where = ["src"]
+dependencies = [
+    "dynamodels>=0.2,<1.0",
+    "echostatenetwork[opt]>=0.1,<1.0",   # [opt] = scikit-optimize for ESN hyperparameter search
+    "matplotlib>=3.9,<4.0",
+    "numpy>=2.0,<3.0",
+    "pillow",
+    "pyts>=0.13",
+    "pyyaml",
+    "requests>=2.32",
+    "scipy>=1.13,<2.0",
+    "tqdm>=4.67",
+    "typeguard",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.4",
+    "ruff",
+]
+notebooks = [
+    "ipykernel>=6.30",
+    "ipywidgets>=8.1",
+    "jupyter>=1.1",
+    "nbconvert>=7.0",
+]
+
+[project.urls]
+Homepage = "https://andreanovoa.github.io/real-time-bias-aware-DA/"
+Repository = "https://github.com/andreanovoa/real-time-bias-aware-DA"
+Issues = "https://github.com/andreanovoa/real-time-bias-aware-DA/issues"
+
+[tool.setuptools]
+# The src directory IS the romda package (src/__init__.py is romda/__init__.py)
+package-dir = {"romda" = "src"}
+packages = [
+    "romda",
+    "romda.bias_estimators",
+    "romda.estimators",
+    "romda.models",
+    "romda.models.data_driven",
+    "romda.models.data_driven.autoencoders",
+    "romda.plotting",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--strict-markers",
+]
+
+[tool.mypy]
+python_version = "3.14.3"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "N",  # pep8-naming
+    "UP", # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "N802", "N803", "N806", "N815",  # DA notation: M, Af, Cdd, Nq, ... (see Notation in CLAUDE.md)
+]

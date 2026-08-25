@@ -1,0 +1,24 @@
+# Publish to PyPI (trusted publishing) when a vX.Y.Z tag lands on the PUBLIC repo.
+# Release flow: bump_release.sh in the private repo, then scripts/publish_public.py --push --tag.
+# The job is guarded so the same file is inert in the private development repo.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  pypi:
+    if: github.repository == 'andreanovoa/real-time-bias-aware-DA'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write   # PyPI trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build
+      - run: python -m build
+      - uses: pypa/gh-action-pypi-publish@release/v1
