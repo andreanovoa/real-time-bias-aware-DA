@@ -27,10 +27,12 @@ REPO_ROOT = Path(__file__).parent
 SRC = REPO_ROOT / "scripts" / "tutorials"
 DEST = REPO_ROOT / "docs" / "tutorials"
 
-# Natively rendered for now; 2_Real-time_DA_Thermoacoustics, 3_Introduction_to_ROMs
-# and 4_Real-time_DA_ROMs stay as GitHub links in tutorials.md/nav until we're
-# ready to pay their build-time and site-size cost.
+# Natively rendered for now; the rest of 2_Real-time_DA_Thermoacoustics,
+# 3_Introduction_to_ROMs and 4_Real-time_DA_ROMs stay as GitHub links in
+# tutorials.md/nav until we're ready to pay their build-time and site-size cost.
 RENDERED_TOPICS = ["0_How_to_repo", "1_Introduction_to_real-time_DA"]
+# Single notebooks rendered from otherwise-linked topics (relative to SRC, no suffix).
+RENDERED_NOTEBOOKS = ["3_Introduction_to_ROMs/31_POD_SPOD", "3_Introduction_to_ROMs/35_POD_ESN_cylinder"]
 
 # Matches a (possibly already-mangled) relative reference to the figs/ dir,
 # with or without a literal "docs/" segment, so it self-corrects regardless
@@ -43,33 +45,33 @@ NOTEBOOK_LINK_RE = re.compile(r"\]\(([\w-]+)\.ipynb\)")
 
 def on_pre_build(config, **kwargs):
     exporter = MarkdownExporter()
-    rendered_stems = {p.stem for t in RENDERED_TOPICS for p in (SRC / t).glob("*.ipynb")}
+    nb_paths = [p for t in RENDERED_TOPICS for p in sorted((SRC / t).glob("*.ipynb"))]
+    nb_paths += [SRC / f"{n}.ipynb" for n in RENDERED_NOTEBOOKS]
+    rendered = {p.stem: p.parent.name for p in nb_paths}
 
     def fix_notebook_link(m):
         stem = m.group(1)
-        # Within the rendered set: point at the sibling .md page. Otherwise
-        # (topics 2/3, not rendered yet): fall back to viewing it on GitHub.
-        if stem in rendered_stems:
-            return f"]({stem}.md)"
+        # Within the rendered set: point at its .md page (possibly in another
+        # topic folder). Otherwise (not rendered yet): fall back to GitHub.
+        if stem in rendered:
+            return f"](../{rendered[stem]}/{stem}.md)"
         nb_path = next(SRC.rglob(f"{stem}.ipynb"), None)
         folder = nb_path.parent.name if nb_path else ""
         return f"](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/scripts/tutorials/{folder}/{stem}.ipynb)"
 
-    for topic in RENDERED_TOPICS:
-        topic_dest = DEST / topic
-        if topic_dest.exists():
-            shutil.rmtree(topic_dest)
+    for topic_dest in {DEST / p.parent.name for p in nb_paths}:
+        shutil.rmtree(topic_dest, ignore_errors=True)
         topic_dest.mkdir(parents=True)
 
-        for nb_path in sorted((SRC / topic).glob("*.ipynb")):
-            nb = nbformat.read(nb_path, as_version=4)
-            body, resources = exporter.from_notebook_node(
-                nb, resources={"output_files_dir": f"{nb_path.stem}_files"}
-            )
-            body = NOTEBOOK_LINK_RE.sub(fix_notebook_link, body)
-            FilesWriter(build_directory=str(topic_dest)).write(
-                body, resources, notebook_name=nb_path.stem
-            )
+    for nb_path in nb_paths:
+        nb = nbformat.read(nb_path, as_version=4)
+        body, resources = exporter.from_notebook_node(
+            nb, resources={"output_files_dir": f"{nb_path.stem}_files"}
+        )
+        body = NOTEBOOK_LINK_RE.sub(fix_notebook_link, body)
+        FilesWriter(build_directory=str(DEST / nb_path.parent.name)).write(
+            body, resources, notebook_name=nb_path.stem
+        )
 
 
 def on_post_build(config, **kwargs):

@@ -3,9 +3,10 @@
 The tutorial notebooks below build up from the basic classes to full real-data digital
 twins, numbered by topic. The source lives in
 [`scripts/tutorials`](https://github.com/andreanovoa/real-time-bias-aware-DA/tree/main/scripts/tutorials).
-Topics 0 and 1 are rendered inline (with saved outputs); topics 2–4 link out to
-GitHub for now. Two arcs run through them: DA concepts (1) applied to physical models
-(2), and reduced-order-model concepts (3) combined with DA in real time (4).
+Topics 0 and 1, and the POD / POD-ESN notebooks of topic 3, are rendered inline (with
+saved outputs); the rest link out to GitHub for now. Two arcs run through them: DA
+concepts (1) applied to physical models (2), and reduced-order-model concepts (3)
+combined with DA in real time (4).
 
 ## 0. How the repository works
 
@@ -42,8 +43,8 @@ GitHub for now. Two arcs run through them: DA concepts (1) applied to physical m
 
 | Notebook | Contents |
 | --- | --- |
-| [POD / SPOD](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/scripts/tutorials/3_Introduction_to_ROMs/31_POD_SPOD.ipynb) | POD, Sieber SPOD and Towne SPOD on the cylinder wake.* |
-| [POD-ESN on the cylinder wake](https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/scripts/tutorials/3_Introduction_to_ROMs/35_POD_ESN_cylinder.ipynb) | The packaged `POD_ESN` reduced-order model at scale.* |
+| [POD / SPOD](tutorials/3_Introduction_to_ROMs/31_POD_SPOD.md) | POD, Sieber SPOD and Towne SPOD on the cylinder wake.* |
+| [POD-ESN on the cylinder wake](tutorials/3_Introduction_to_ROMs/35_POD_ESN_cylinder.md) | The packaged `POD_ESN` reduced-order model at scale.* |
 
 ## 4. Real-time DA on reduced-order models
 

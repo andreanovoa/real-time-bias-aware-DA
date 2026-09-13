@@ -108,8 +108,8 @@ nav:
           - Azimuthal LOM: https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/scripts/tutorials/2_Real-time_DA_Thermoacoustics/23_TA_azimuthal_LOM.ipynb
           - Azimuthal data: https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/scripts/tutorials/2_Real-time_DA_Thermoacoustics/24_TA_azimuthal_data.ipynb
           - TABADA annular raw: https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/scripts/tutorials/2_Real-time_DA_Thermoacoustics/25_TABADA_annular_raw.ipynb
-      - 3. Introduction to reduced-order models (on GitHub for now):
-          - POD / SPOD: https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/scripts/tutorials/3_Introduction_to_ROMs/31_POD_SPOD.ipynb
-          - POD-ESN on the cylinder wake: https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/scripts/tutorials/3_Introduction_to_ROMs/35_POD_ESN_cylinder.ipynb
+      - 3. Introduction to reduced-order models:
+          - POD / SPOD: tutorials/3_Introduction_to_ROMs/31_POD_SPOD.md
+          - POD-ESN on the cylinder wake: tutorials/3_Introduction_to_ROMs/35_POD_ESN_cylinder.md
       - 4. Real-time DA on reduced-order models (on GitHub for now):
           - Real-time DA with POD-ESN: https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/scripts/tutorials/4_Real-time_DA_ROMs/44_DA_POD_ESN_cylinder.ipynb
