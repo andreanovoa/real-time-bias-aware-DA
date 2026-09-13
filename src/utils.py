@@ -879,7 +879,7 @@ def visualize_flow_data(X_true, X_noisy, simulation_dir=''):
 def animate_flowfields(datsets,
                        time=None,
                        n_frames=40, cmaps=None, rms_cmap='Reds', std_cmap='Blues', step=1,
-                       rows=False, figsize=None, assimilated_data=None):
+                       rows=False, figsize=None, assimilated_data=None, aspect=None):
     """Create a `matplotlib.animation.FuncAnimation` of side-by-side flow fields.
 
     Parameters
@@ -913,6 +913,10 @@ def animate_flowfields(datsets,
           assimilated; a red marker is shown at these frames.
         - ``'xy'`` : array of shape ``(N_sensors, 2)`` with sensor coordinates
           ``[x_col, y_row]``.
+    aspect : float, optional
+        Physical height/width of one displayed grid cell (rows/columns after the
+        automatic transpose), passed to `Axes.set_aspect` -- e.g. ``dx / dy`` on a
+        uniform but anisotropic grid. Default None (the panel shape sets it).
 
     Returns
     -------
@@ -1000,6 +1004,8 @@ def animate_flowfields(datsets,
                                      cmap=plt.get_cmap(cmap), norm=norm))
 
         ax.set(xticks=[], yticks=[])
+        if aspect is not None:
+            ax.set_aspect(aspect)
         fig.colorbar(ims[-1], ax=ax, orientation=cbar_orientation, label=ttl)
 
     # ------------------------------------------------------------------ #

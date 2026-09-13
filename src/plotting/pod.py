@@ -61,9 +61,9 @@ def plot_modes(case: POD,
             ax.set_title(f'mode {kk+1}', fontsize='xx-small')
             ax.set_aspect('equal')
             if kk >= num_modes - n_col:
-                ax.set_xlabel('$y$')
+                ax.set_xlabel('$x$')
             if kk % n_col == 0:
-                ax.set_ylabel('$x$')
+                ax.set_ylabel('$y$')
         fig.colorbar(im, ax=axs, shrink=0.25, aspect=20) #type: ignore
 
         if num_modes < n_col * n_row:
