@@ -2,65 +2,18 @@
 
 ## Summary
 
-**Package:** [`dynamodels`](https://github.com/andreanovoa/dynamodels) — physical models are
-available from `dynamodels.physical` and re-exported as `romda.models.physical`. All use
-`IVPIntegrator` (`scipy.integrate.solve_ivp`) except `KS`, which uses a discrete ETDRK4 map.
+**Package:** [`dynamodels`](https://github.com/andreanovoa/dynamodels) — physical models live in
+`dynamodels.physical` and are re-exported as `romda.models.physical`. All use `IVPIntegrator`
+(`scipy.integrate.solve_ivp`) except `KS`, which uses a discrete ETDRK4 map.
 
-| Class | Dim | Key parameters | Integrator |
-|---|---|---|---|
-| `VdP` | 2 | `beta`, `zeta`, `kappa`, `law`, `omega` | IVP |
-| `Lorenz63` | 3 | `rho`, `sigma`, `beta` | IVP |
-| `Lorenz96` | Nx | `F`, `Nx` | IVP |
-| `KS` | Nx | `nu`, `L`, `Nx` | Discrete (ETDRK4) |
-| `Rijke` | 2Nm+Nc | `beta`, `tau`, `C1`, `C2`, `kappa` | IVP |
-| `Annular` | 4 | `omega`, `nu`, `c2beta`, `kappa`, `epsilon` | IVP |
+Governing equations, figures and quickstart examples for each model are on the
+[`dynamodels` docs site](https://andreanovoa.github.io/dynamodels/) — follow the links below.
 
-## Model pages
-
-- [Van der Pol oscillator](models_physical_vdp.md)
-- [Lorenz 63](models_physical_lorenz63.md)
-- [Lorenz 96](models_physical_lorenz96.md)
-- [Kuramoto–Sivashinsky equation](models_physical_ks.md)
-- [Rijke-tube model](models_physical_rijke.md)
-- [Annular thermoacoustic model](models_physical_annular.md)
-
-------
-
-::: dynamodels.physical.van_der_pol.VdP
-
-::: dynamodels.physical.lorenz63.Lorenz63
-
-<figure markdown>
-  ![Lorenz63 attractor](../figs/Lorenz/Lorenz_butterfly.gif){ width="650" }
-  <figcaption>The Lorenz63 "butterfly" attractor at the chaotic point
-  (ρ=28, σ=10, β=8/3), used as a twin-experiment test case for ensemble DA.</figcaption>
-</figure>
-
-<figure markdown>
-  ![Lorenz63 ergodic behaviour](../figs/Lorenz/Lorenz_ergodic.gif){ width="650" }
-  <figcaption>Ergodic exploration of the attractor over time.</figcaption>
-</figure>
-
-<figure markdown>
-  ![Lorenz63 bifurcations with rho](../figs/Lorenz/Lorenz_bifurcations_rho.gif){ width="650" }
-  <figcaption>Bifurcations of the long-term state as ρ varies.</figcaption>
-</figure>
-
-::: dynamodels.physical.lorenz96.Lorenz96
-
-::: dynamodels.physical.kuramoto_sivashinsky.KS
-
-::: dynamodels.physical.rijke.Rijke
-
-<figure markdown>
-  ![Rijke tube pressure field](../figs/TA_longitudinal/Rijke.gif){ width="650" }
-  <figcaption>Pressure field of the Rijke-tube low-order model.</figcaption>
-</figure>
-
-::: dynamodels.physical.annular.Annular
-
-<figure markdown>
-  ![Annular combustor simulation](../figs/TA_azimuthal/nu20.0_c2beta10.0.gif){ width="650" }
-  <figcaption>Azimuthal thermoacoustic simulation of the annular combustor model
-  (ν=20, c₂β=10).</figcaption>
-</figure>
+| Class | Dim | Key parameters | Integrator | Docs |
+|---|---|---|---|---|
+| `VdP` | 2 | `beta`, `zeta`, `kappa`, `law`, `omega` | IVP | [Van der Pol](https://andreanovoa.github.io/dynamodels/models/van_der_pol/) |
+| `Lorenz63` | 3 | `rho`, `sigma`, `beta` | IVP | [Lorenz 63](https://andreanovoa.github.io/dynamodels/models/lorenz63/) |
+| `Lorenz96` | Nx | `F`, `Nx` | IVP | [Lorenz 96](https://andreanovoa.github.io/dynamodels/models/lorenz96/) |
+| `KS` | Nx | `nu`, `L`, `Nx` | Discrete (ETDRK4) | [Kuramoto–Sivashinsky](https://andreanovoa.github.io/dynamodels/models/ks/) |
+| `Rijke` | 2Nm+Nc | `beta`, `tau`, `C1`, `C2`, `kappa` | IVP | [Rijke tube](https://andreanovoa.github.io/dynamodels/models/rijke/) |
+| `Annular` | 4 | `omega`, `nu`, `c2beta`, `kappa`, `epsilon` | IVP | [Annular combustor](https://andreanovoa.github.io/dynamodels/models/annular/) |

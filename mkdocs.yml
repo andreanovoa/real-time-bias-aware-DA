@@ -78,14 +78,7 @@ nav:
   - API reference:
     - romda.models:
       - Overview: api/models.md
-      - Physical models:
-        - Overview: api/models_physical.md
-        - Van der Pol oscillator: api/models_physical_vdp.md
-        - Lorenz 63: api/models_physical_lorenz63.md
-        - Lorenz 96: api/models_physical_lorenz96.md
-        - Kuramoto–Sivashinsky equation: api/models_physical_ks.md
-        - Rijke-tube model: api/models_physical_rijke.md
-        - Annular thermoacoustic model: api/models_physical_annular.md
+      - Physical models: api/models_physical.md
       - Data-driven models:
         - Overview: api/models_data_driven.md
         - Echo State Network model: api/models_data_driven_esn.md
@@ -94,8 +87,8 @@ nav:
         - Projectors and modal decompositions: api/models_data_driven_projectors.md
     - romda.estimators:
       - Overview: api/estimators.md
-          - Stochastic filters: api/filter_stochastic.md
-          - Deterministic filters: api/filter_deterministic.md
+      - Stochastic filters: api/filter_stochastic.md
+      - Deterministic filters: api/filter_deterministic.md
     - romda.bias_estimators: api/bias_estimators.md
     - romda.observations: api/observations.md
     - API overview: api/index.md
