@@ -764,6 +764,14 @@ class ESN_model(EchoStateNetwork, Model):
                 return np.dot(r_aug.T, Wout).T
 
 
+    def _readout(self, r, u_norm):
+        # `EchoStateNetwork.step` reads out through `_readout` (echostatenetwork >= 0.1.2),
+        # not through `reservoir_to_physical`: without this hook the per-member SVD
+        # read-out (est_alpha=['Wout']) never reaches the closed loop.
+        if self.Wout_svd:
+            return self.reservoir_to_physical(r)
+        return super()._readout(r, u_norm)
+
     def time_step(self, Nt=10, averaged=False):
         """Advance the ESN in closed loop.
 

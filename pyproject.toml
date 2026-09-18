@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "romda"
-version = "3.0.0"
+version = "3.0.1"
 description = "Real-time reduced-order modelling and bias-aware data assimilation"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -29,10 +29,10 @@ dependencies = [
     "echostatenetwork[opt]>=0.1,<1.0",   # [opt] = scikit-optimize for ESN hyperparameter search
     "matplotlib>=3.9,<4.0",
     "numpy>=2.0,<3.0",
-    "pillow",
+    "pillow>=12.3.0",  # CVE-2026-54058 (critical) and CVE-2026-42308/42309/42310
     "pyts>=0.13",
-    "pyyaml",
-    "requests>=2.32",
+    "pyyaml>=6.0",
+    "requests>=2.32.4",  # CVE-2024-47081 (.netrc credential leak)
     "scipy>=1.13,<2.0",
     "tqdm>=4.67",
     "typeguard",
@@ -40,14 +40,14 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.4",
-    "ruff",
+    "pytest>=9.0.3",  # CVE-2025-71176 (predictable /tmp handling)
+    "ruff>=0.11.5",  # CVE-2025-4574 (crossbeam-channel double-free)
 ]
 notebooks = [
     "ipykernel>=6.30",
     "ipywidgets>=8.1",
     "jupyter>=1.1",
-    "nbconvert>=7.0",
+    "nbconvert>=7.17.0",  # CVE-2025-53000 (Windows arbitrary code execution)
 ]
 
 [project.urls]

@@ -245,7 +245,11 @@ class EnsembleEstimator(Estimator):
         # ── Covariance inflation (Evensen 2009, Chap. 15) ────────────────────
         rho = self.inflation_factor
         if rho != 1.0:
+            Aa_alpha = Aa[self.Nphi:self.Nphi + self.Na, :].copy()
             Aa = multiplicative_inflation(Aa, rho)
+            # In the state-only warm-up (Af_params set), these rows are the observables.
+            if not self.inflate_parameters and Af_params is None:
+                Aa[self.Nphi:self.Nphi + self.Na, :] = Aa_alpha
             self.inflation_history.times.append(self.current_time)
             self.inflation_history.factors.append(rho)
 
@@ -253,7 +257,8 @@ class EnsembleEstimator(Estimator):
         if not self.has_valid_spread(Aa[:self.model.Nphi, :]):
             self.rejected_analysis = (self.current_time, 'Invalid analysis spread')
 
-        if self.Na > 0 and self.alpha_limits_matrix is not None:
+        # Frozen parameters (Af_params set) are not in Aa: nothing to validate.
+        if self.Na > 0 and Af_params is None and self.alpha_limits_matrix is not None:
             Aa_alpha = Aa[self.Nphi:self.Nphi + self.Na, :]
             is_physical, idx_alpha, _ = self.has_valid_params(
                 Aa_alpha, self.alpha_limits_matrix, get_deltas=False
@@ -264,6 +269,8 @@ class EnsembleEstimator(Estimator):
                     f'Non-physical parameters at indices {idx_alpha}',
                 )
                 Aa = multiplicative_inflation(Af_aug, self.inflation_factor_rejection)
+                if not self.inflate_parameters:
+                    Aa[self.Nphi:self.Nphi + self.Na, :] = Af_aug[self.Nphi:self.Nphi + self.Na, :]
 
         # An EnKF-type gain corrects each state row from its own covariance with y,
         # independent of what other rows are present -- so leaving the reservoir out

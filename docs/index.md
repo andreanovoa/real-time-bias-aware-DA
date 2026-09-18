@@ -54,6 +54,7 @@ for d, t_d in zip(truth.y_obs, truth.t_obs):
 
 ## Where to start
 
+- [Running physical experiments](experiments.md) — configure and run physical-model and thermoacoustic experiments.
 - [API reference](api/index.md) — the full documented API, starting with the
   [`romda.estimators`](api/estimators.md) hierarchy.
 

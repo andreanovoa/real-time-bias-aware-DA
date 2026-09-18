@@ -1,0 +1,51 @@
+# Twin experiment on the Lorenz (1963) system: scripts/mains/main_lorenz63.py, or
+#   python -m romda.experiments configs/twin_da/lorenz63.yml [--seed N] [--set key=value]
+# Windows and bias-training times are in Lyapunov times (converted with Lorenz63.t_lyap).
+# The main's manual_bias 'linear'/'nonlinear' are its own historical shapes; a string
+# here reaches the (different) Observations built-ins instead.
+name: lorenz63_main
+
+truth:
+  model: Lorenz63
+  params:
+    dt: 0.015
+    rho: 28.
+    sigma: 10.
+    beta: 2.6666666666666665    # 8/3
+  observe_dims: [0, 2]
+  window_lyap: [10, 60, 80]     # t_start, t_stop, t_max
+  Nt_obs: 20                    # time steps between observations
+  add_noise: true
+  noise_type: 'gauss, add'
+  noise_level: 0.05
+  manual_bias: null             # 'linear', 'nonlinear' or null
+
+forecast:
+  kind: physical                # the truth's own model forecasts (twin experiment)
+
+da:
+  method: EnSRKF                # EnKF | EnSRKF | rBA_EnKF
+  std_obs: 0.05
+  m: 50
+  std_phi: 0.2
+  std_alpha:
+    rho: [25., 35.]
+    beta: [2., 4.]
+    # sigma: [5., 15.]          # harder to identify from [x, z] observations
+  distribution_alpha: uniform
+  inflation_factor: 1.02
+
+bias:                           # ESN bias estimator (rBA_EnKF only)
+  t_train_lyap: 40
+  t_val_lyap: 6
+  N_wash: 20
+  N_units: 50
+  N_folds: 4
+  upsample: 2
+  L: 20
+  augment_data: true
+  std_alpha: 0.3
+  rho_range: [0.2, 0.8]
+  sigma_in_range: [-0.3010299956639812, 1.6989700043360187]   # log10(0.5), log10(50)
+  tikh_range: [1.0e-6, 1.0e-9, 1.0e-12]
+  plot_training: false

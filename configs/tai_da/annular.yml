@@ -1,0 +1,47 @@
+# Bias-aware DA of raw azimuthal thermoacoustic data -- consumed by
+# scripts/mains/main_annular.py. The truth is experimental pressure data (one file
+# per equivalence ratio `ER`); windows derived from `Annular.t_transient` / `t_CR`
+# stay in the main (`t_stop_cr` counts observation windows of `t_CR` past the
+# transient), as do the bias-training times (`t_transient/3`, `2 t_CR`).
+name: annular_main
+
+truth:
+  model: Annular
+  ER: 0.5125                    # default equivalence ratio (data at 0.4875 + k*0.025)
+  t_stop_cr: 35
+  Nt_obs: 35
+  add_noise: false
+
+forecast:
+  kind: physical                # low-order annular model vs experimental data
+
+da:
+  method: rBA_EnKF              # EnKF | rBA_EnKF
+  std_obs: 0.05
+  regularization_factor: 5.     # rBA-EnKF bias weight (0 recovers the bias-blind update)
+  m: 20
+  std_phi: 0.3
+  std_alpha: &alpha0            # initial parameter ranges (uniform)
+    nu: [-15., 30.]
+    c2beta: [10., 50.]
+    kappa: [1.0e-4, 2.0e-4]
+    epsilon: [5.0e-3, 8.0e-3]
+    omega: [6848.671984825749, 6880.087911361647]   # 2*pi*(1090, 1095)
+    theta_b: [0.5, 0.7]
+    theta_e: [0.4, 0.6]
+  distribution_alpha: uniform
+  inflation_factor: 1.0
+
+bias:                           # ESN bias estimator (rBA_EnKF only)
+  upsample: 5
+  N_units: 50
+  N_wash: 10
+  augment_data: true
+  biased_observations: true
+  correlation_based_training: true
+  N_folds: 4
+  L: 50
+  std_alpha: *alpha0
+  rho_range: [0.5, 1.]
+  sigma_in_range: [-5., 1.]     # log10(1e-5), log10(1e1)
+  tikh_range: [1.0e-12, 1.0e-9]

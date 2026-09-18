@@ -15,7 +15,7 @@ from the external ``echostatenetwork`` package.
 
 """
 
-__version__ = "3.0.0"
+__version__ = "3.0.1"
 
 from romda import bias_estimators, estimators, models
 from romda.observations import Observations

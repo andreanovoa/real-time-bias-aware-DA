@@ -1,0 +1,31 @@
+# Twin experiment on the Rijke tube (Galerkin low-order model) -- consumed by
+# scripts/mains/main_rijke.py. Windows are absolute times [s] (Rijke: t_transient
+# 0.25 s, t_CR 0.02 s); at the default beta = 4 the tube settles on a limit cycle
+# (chaotic regimes need beta of roughly 7-8, see dev/NTSA).
+name: rijke_main
+
+truth:
+  model: Rijke
+  params:
+    dt: 1.0e-4
+    beta: 4.
+    tau: 1.5e-3
+  window: [0.3, 0.55, 0.65]     # t_start, t_stop, t_max [s]
+  Nt_obs: 10                    # time steps between observations
+  add_noise: true
+  noise_type: 'gauss, add'
+  noise_level: 0.02
+
+forecast:
+  kind: physical                # the truth's own model forecasts (twin experiment)
+
+da:
+  method: EnSRKF                # EnKF | EnSRKF
+  std_obs: 0.05
+  m: 50
+  std_phi: 0.25
+  std_alpha:
+    beta: [2.5, 4.5]            # heat-release gain (margin below the model hard limit of 5)
+    tau: [1.0e-3, 2.0e-3]       # flame time delay
+  distribution_alpha: uniform
+  inflation_factor: 1.02

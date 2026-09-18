@@ -75,6 +75,7 @@ extra_javascript:
 
 nav:
   - Home: index.md
+  - Running experiments: experiments.md
   - API reference:
       - Overview: api/index.md
       - Estimators (data assimilation):

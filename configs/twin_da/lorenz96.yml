@@ -1,0 +1,30 @@
+# Twin experiment on the Lorenz (1996) system: scripts/mains/main_lorenz96.py, or
+#   python -m romda.experiments configs/twin_da/lorenz96.yml [--seed N] [--set key=value]
+# Windows are in Lyapunov times (converted with Lorenz96.t_lyap).
+name: lorenz96_main
+
+truth:
+  model: Lorenz96
+  params:
+    dt: 0.01
+    Nx: 40
+    F: 8.
+  observe_every: 2              # observe every 2nd variable
+  window_lyap: [10, 40, 50]     # t_start, t_stop, t_max
+  Nt_obs: 10                    # time steps between observations
+  add_noise: true
+  noise_type: 'gauss, add'
+  noise_level: 0.05
+
+forecast:
+  kind: physical                # the truth's own model forecasts (twin experiment)
+
+da:
+  method: EnSRKF                # EnKF | EnSRKF
+  std_obs: 0.05
+  m: 50
+  std_phi: 0.3
+  std_alpha:
+    F: [6., 10.]                # estimate the forcing
+  distribution_alpha: uniform
+  inflation_factor: 1.05

@@ -58,7 +58,25 @@ for d, t_d in zip(truth.y_obs, truth.t_obs):
 ```
 (The ensemble forecast runs in a multiprocessing pool, so in a script keep this under `if __name__ == "__main__":`.)
 
-Check out the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aware-DA/tree/main/scripts/tutorials), which includes several jupyter notebooks aiming to ease the understanding of the repository.
+Check out th    e [Tutorials folder](https://github.com/andreanovoa/real-time-bias-aware-DA/tree/main/scripts/tutorials), which includes several jupyter notebooks aiming to ease the understanding of the repository.
+
+
+## Running a physical experiment
+
+Install the package in editable mode and run experiments from the repository root:
+
+```bash
+pip install -e ".[dev,notebooks]" --use-pep517
+python -m romda.experiments configs/tai_da/rijke.yml --seed 1
+```
+
+For example:
+
+```bash
+python -m romda.experiments configs/twin_da/lorenz63.yml --seed 3
+```
+
+See [Running physical experiments](docs/experiments.md) for the available cases and Python API.
 
 
 ---
@@ -145,12 +163,6 @@ Check out the [Tutorials folder](https://github.com/andreanovoa/real-time-bias-a
 
 ##### PhD thesis
 - [x] Nóvoa (2024). Real-time data assimilation in nonlinear dynamcal systems. University of Cambridge. [Thesis](https://doi.org/10.17863/CAM.113001). 
-
-<!-- ##### Conference presentations _(incomplete list)_
-- **APS-DFD 2024, Salt Lake City:** [Abstract](https://meetings.aps.org/Meeting/DFD24/Session/C02.14) | [Poster](https://github.com/user-attachments/files/17966063/APS-poster-final-version.pdf).
-- **APS-DFD 2023, Washington DC:** [Abstract](https://meetings.aps.org/Meeting/DFD23/Session/L30.8).
-- **EFMC14 2022, Athens:** [Abstract](https://euromech.org/conferences/proceedings.htm).
-- **APS-DFD 2022, Phoenix:** [Abstract](https://meetings.aps.org/Meeting/DFD22/Session/G12.4). -->
 
 --- 
 ## 🤝 Contributing

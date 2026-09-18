@@ -14,7 +14,8 @@
 
 **Covariance inflation** (`src/estimators/inflation.py`, Evensen 2009 Chap. 15): fixed
 multiplicative inflation via `inflation_factor`. Applied factors are logged in
-`estimator.inflation_history`.
+`estimator.inflation_history`. With `inflate_parameters=False`, the inflation acts on the
+state only, and the estimated parameters keep their analysis spread.
 
 ------
 

@@ -1,0 +1,48 @@
+# Twin experiment on the Van der Pol thermoacoustic oscillator -- consumed by
+# scripts/mains/main_vdp.py. Windows are absolute times [s] (VdP: t_transient
+# 1.5 s, t_CR 0.04 s); the truth uses the model's own default initial state.
+name: vdp_main
+
+truth:
+  model: VdP
+  params:
+    dt: 1.0e-4
+    law: tan                    # 'tan' (saturated) or 'cubic' heat-release law
+    beta: 70.
+    zeta: 60.
+    kappa: 4.
+  window: [1.5, 1.8, 2.0]       # t_start, t_stop, t_max [s]
+  Nt_obs: 30                    # time steps between observations
+  add_noise: true
+  noise_type: 'gauss, add'
+  noise_level: 0.01
+  manual_bias: null             # Observations option: 'linear', 'periodic', 'time' or null
+
+forecast:
+  kind: physical                # the truth's own model forecasts (twin experiment)
+
+da:
+  method: EnSRKF                # EnKF | EnSRKF | rBA_EnKF
+  std_obs: 0.05
+  m: 20
+  std_phi: 0.1
+  std_alpha:
+    beta: [50., 90.]
+    zeta: [40., 80.]
+  distribution_alpha: uniform
+  inflation_factor: 1.02
+
+bias:                           # ESN bias estimator (rBA_EnKF only)
+  t_train: 1.0
+  t_val: 0.08                   # 2 t_CR
+  N_wash: 10
+  N_units: 50
+  N_folds: 4
+  upsample: 5
+  L: 10
+  augment_data: true
+  std_alpha: 0.3
+  rho_range: [0.5, 1.]
+  sigma_in_range: [-5., 1.]     # log10(1e-5), log10(1e1)
+  tikh_range: [1.0e-12, 1.0e-9]
+  plot_training: false

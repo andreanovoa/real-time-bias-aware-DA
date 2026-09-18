@@ -66,6 +66,11 @@ class Estimator(ABC):
         (0 = active from the first analysis).
     inflation_factor : float
         Covariance/ensemble inflation factor (default 1.0).
+    inflate_parameters : bool
+        Whether the inflation also acts on the estimated parameters (default
+        True). A parameter has no forecast dynamics, so an inflated parameter
+        performs a random walk; False keeps the analysis spread of the parameters
+        (their forecast spread after a rejected analysis).
     inflation_factor_rejection : float
         Inflation applied after a rejected analysis (default 1.002).
     results_folder : str or None
@@ -95,6 +100,7 @@ class Estimator(ABC):
     activate_parameter_estimation: bool = True
 
     inflation_factor: float = 1.0
+    inflate_parameters: bool = True   # False: inflate the state rows only
     inflation_factor_rejection: float = 1.002
     # None marks the filter as bias-blind; bias-aware filters (rBA_EnKF) set it.
     regularization_factor: float | None = None
@@ -110,7 +116,8 @@ class Estimator(ABC):
 
     _keys_to_print = [
         'm', 'est_phi', 'est_alpha', 'est_bias', 'Na',
-        'regularization_factor', 'inflation_factor', 'inflation_factor_rejection',
+        'regularization_factor', 'inflation_factor', 'inflate_parameters',
+        'inflation_factor_rejection',
     ]
 
 
