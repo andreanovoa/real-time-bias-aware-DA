@@ -89,7 +89,7 @@ See [Running physical experiments](docs/experiments.md) for the available cases 
    * rBA-EnKF — regularized bias-aware EnKF
    * KalmanFilter — the classical (linear) Kalman filter
 
-   Physical models [`romda.models.physical`](https://github.com/andreanovoa/dynamodels) (from the `dynamodels` package)
+   Physical models `romda.models.physical` (from the [`dynamodels`](https://andreanovoa.github.io/dynamodels/) package)
    * Rijke tube model (dimensional with Galerkin projection)
    * Van der Pol oscillator
    * Lorenz 63

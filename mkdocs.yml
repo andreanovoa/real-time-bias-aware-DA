@@ -32,8 +32,6 @@ theme:
         name: Switch to light mode
   features:
     - navigation.sections
-    - navigation.top
-    - navigation.footer
     - content.code.copy
     - search.suggest
     - toc.follow
@@ -75,19 +73,32 @@ extra_javascript:
 
 nav:
   - Home: index.md
-  - Running experiments: experiments.md
+  - Getting started: getting-started.md
+  - Experiments: experiments.md
   - API reference:
-      - Overview: api/index.md
-      - Estimators (data assimilation):
-          - Overview: api/estimators.md
+    - romda.models:
+      - Overview: api/models.md
+      - Physical models:
+        - Overview: api/models_physical.md
+        - Van der Pol oscillator: api/models_physical_vdp.md
+        - Lorenz 63: api/models_physical_lorenz63.md
+        - Lorenz 96: api/models_physical_lorenz96.md
+        - Kuramoto–Sivashinsky equation: api/models_physical_ks.md
+        - Rijke-tube model: api/models_physical_rijke.md
+        - Annular thermoacoustic model: api/models_physical_annular.md
+      - Data-driven models:
+        - Overview: api/models_data_driven.md
+        - Echo State Network model: api/models_data_driven_esn.md
+        - POD-ESN model: api/models_data_driven_pod_esn.md
+        - Linear model: api/models_data_driven_linear.md
+        - Projectors and modal decompositions: api/models_data_driven_projectors.md
+    - romda.estimators:
+      - Overview: api/estimators.md
           - Stochastic filters: api/filter_stochastic.md
           - Deterministic filters: api/filter_deterministic.md
-      - Bias estimators: api/bias_estimators.md
-      - Models:
-          - Overview: api/models.md
-          - Physical models: api/models_physical.md
-          - Data-driven models: api/models_data_driven.md
-      - Observations: api/observations.md
+    - romda.bias_estimators: api/bias_estimators.md
+    - romda.observations: api/observations.md
+    - API overview: api/index.md
   - Tutorials:
       - Overview: tutorials.md
       - 0. How the repository works:

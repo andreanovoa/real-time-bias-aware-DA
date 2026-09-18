@@ -52,11 +52,15 @@ for d, t_d in zip(truth.y_obs, truth.t_obs):
     ensemble.analysis_step(d=d, Cdd=...)
 ```
 
-## Where to start
+## Where to go
 
-- [Running physical experiments](experiments.md) — configure and run physical-model and thermoacoustic experiments.
-- [API reference](api/index.md) — the full documented API, starting with the
-  [`romda.estimators`](api/estimators.md) hierarchy.
+- [Getting started](getting-started.md) — install the package and run the first example.
+- [Experiments](experiments.md) — run physical-model and thermoacoustic cases.
+- [API reference](api/index.md) — browse models, estimators, observations, and bias estimators.
+- [Tutorials](tutorials.md) — follow the notebooks from core classes to reduced-order models.
+- Sibling packages: [`dynamodels`](https://andreanovoa.github.io/dynamodels/) (the
+  physical models) and [`ntsa`](https://andreanovoa.github.io/ntsa/) (nonlinear
+  time-series analysis), both usable independently of `romda`.
 
 ## Citing
 
@@ -84,7 +88,7 @@ particular:
 
 ## 1. Models
 
-#### Physical models — `dynamodels.physical`
+#### Physical models — [`dynamodels.physical`](https://andreanovoa.github.io/dynamodels/)
 
 All use `IVPIntegrator` (scipy `solve_ivp`) except KS.
 

@@ -643,6 +643,7 @@ if __name__ == "__main__":
     esn = auto_load_or_create(
         data=data,
         config_dir="./esn_configs",
+        dt=t[1] - t[0],
         N_units=10,
         seed=42,
         N_grid=3,

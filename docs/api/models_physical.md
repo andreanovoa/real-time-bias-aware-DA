@@ -2,7 +2,9 @@
 
 ## Summary
 
-**Package:** `dynamodels.physical` (re-exported as `romda.models.physical`). All use `IVPIntegrator` (`scipy.integrate.solve_ivp`) except `KS`, which uses a discrete ETDRK4 map.
+**Package:** [`dynamodels`](https://github.com/andreanovoa/dynamodels) — physical models are
+available from `dynamodels.physical` and re-exported as `romda.models.physical`. All use
+`IVPIntegrator` (`scipy.integrate.solve_ivp`) except `KS`, which uses a discrete ETDRK4 map.
 
 | Class | Dim | Key parameters | Integrator |
 |---|---|---|---|
@@ -12,6 +14,15 @@
 | `KS` | Nx | `nu`, `L`, `Nx` | Discrete (ETDRK4) |
 | `Rijke` | 2Nm+Nc | `beta`, `tau`, `C1`, `C2`, `kappa` | IVP |
 | `Annular` | 4 | `omega`, `nu`, `c2beta`, `kappa`, `epsilon` | IVP |
+
+## Model pages
+
+- [Van der Pol oscillator](models_physical_vdp.md)
+- [Lorenz 63](models_physical_lorenz63.md)
+- [Lorenz 96](models_physical_lorenz96.md)
+- [Kuramoto–Sivashinsky equation](models_physical_ks.md)
+- [Rijke-tube model](models_physical_rijke.md)
+- [Annular thermoacoustic model](models_physical_annular.md)
 
 ------
 
