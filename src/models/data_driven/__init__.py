@@ -1,9 +1,9 @@
 from echostatenetwork import EchoStateNetwork
 
 from .autoencoders import POD, SPOD, Projector
-from .esn import ESN_model, phi_to_esn_layout
 from .linear_model import LinearModel
 from .pod_esn import POD_ESN, synthetic_field
+from .rnns import ESN_model, phi_to_esn_layout
 
 __all__ = [
     "ESN_model",

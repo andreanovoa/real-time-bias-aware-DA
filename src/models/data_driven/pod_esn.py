@@ -7,7 +7,7 @@ import scipy.linalg as sla
 from romda.utils import add_pdf_page, plt_pdf
 
 from .autoencoders import POD
-from .esn import ESN_model, phi_to_esn_layout
+from .rnns import ESN_model, phi_to_esn_layout
 
 
 def synthetic_field(N_t=200, Nx=16, Ny=8, seed=0):
@@ -32,7 +32,7 @@ def synthetic_field(N_t=200, Nx=16, Ny=8, seed=0):
 class POD_ESN(ESN_model, POD):
     r"""POD-projected echo state network: a [`POD`][romda.models.data_driven.autoencoders.POD]
     decomposition reduces the (spatial) field to a handful of temporal
-    coefficients, and an [`ESN_model`][romda.models.data_driven.esn.ESN_model] is
+    coefficients, and an [`ESN_model`][romda.models.data_driven.rnns.esn.ESN_model] is
     trained to forecast those coefficients in time.
 
     Following the [`POD`][romda.models.data_driven.autoencoders.POD] convention (see its

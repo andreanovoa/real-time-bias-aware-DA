@@ -65,6 +65,7 @@ packages = [
     "romda.models",
     "romda.models.data_driven",
     "romda.models.data_driven.autoencoders",
+    "romda.models.data_driven.rnns",
     "romda.plotting",
 ]
 

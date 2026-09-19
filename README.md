@@ -134,8 +134,9 @@ See [Running physical experiments](docs/experiments.md) for the available cases 
 │   ├── models/                  # Model layer
 │   │   ├── __init__.py          # re-exports the dynamodels package (Model base,
 │   │   │                        #   integrators, physical models) + pickle aliases
-│   │   └── data_driven/         # ESN_model, POD_ESN, LinearModel, esn_config
-│   │       └── autoencoders/    # Projector hierarchy: POD, SPOD (+ pod_utils)
+│   │   └── data_driven/         # POD_ESN, LinearModel
+│   │       ├── autoencoders/    # Projector hierarchy: POD, SPOD (+ pod_utils)
+│   │       └── rnns/            # ESN_model, ESNConfig (future RNNs join here)
 │   └── plotting/                # Visualization helpers
 ├── tests/                       # Unit and integration test suite
 ├── mkdocs.yml                   # Documentation site configuration

@@ -6,8 +6,9 @@ from typing import Optional, Union
 
 import numpy as np
 import yaml
-from romda.models.data_driven import ESN_model
 from romda.utils import convert_to_python_type, get_project_root
+
+from .esn import ESN_model
 
 #: the trained-network store is a project-local cache under results/ (gitignored)
 try:

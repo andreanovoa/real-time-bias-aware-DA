@@ -4,7 +4,7 @@
 [`echostatenetwork`](https://andreanovoa.github.io/EchoStateNetwork/). The main configuration
 parameters control the reservoir size, spectral radius, input scaling, and washout.
 
-::: romda.models.data_driven.esn.ESN_model
+::: romda.models.data_driven.rnns.esn.ESN_model
 
 <figure markdown>
   ![ESN open-loop and closed-loop configurations](../figs/DA/ESN-open-close-schematics.png){ width="700" }

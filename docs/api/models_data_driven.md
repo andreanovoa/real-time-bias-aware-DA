@@ -2,11 +2,13 @@
 
 ## Summary
 
-**File:** `src/models/data_driven/`. All use `DiscreteIntegrator`. `ESN_model` mixes in
-`EchoStateNetwork` — the reservoir core from the external
-[`echostatenetwork`](https://andreanovoa.github.io/EchoStateNetwork/) package (re-exported by
-`romda.models.data_driven` for convenience; see its own documentation for the reservoir API) —
-and `POD_ESN` mixes in `ESN_model` and [`POD`](models_data_driven_projectors.md).
+**File:** `src/models/data_driven/`. All use `DiscreteIntegrator`. `ESN_model` (and its
+save/load config, `ESNConfig`) lives in the `rnns/` subpackage — future RNN
+architectures join it there. `ESN_model` mixes in `EchoStateNetwork` — the reservoir
+core from the external [`echostatenetwork`](https://andreanovoa.github.io/EchoStateNetwork/)
+package (re-exported by `romda.models.data_driven` for convenience; see its own
+documentation for the reservoir API) — and `POD_ESN` mixes in `ESN_model` and
+[`POD`](models_data_driven_projectors.md).
 
 | Class | Key parameters | Notes |
 |---|---|---|

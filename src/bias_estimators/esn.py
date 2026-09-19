@@ -4,7 +4,7 @@ from typing import Optional
 import numpy as np
 from romda.models import Model
 from romda.models.data_driven import ESN_model
-from romda.models.data_driven.esn_config import ESNConfig, load_esn_model_from_config, save_esn_model_to_config
+from romda.models.data_driven.rnns import ESNConfig, load_esn_model_from_config, save_esn_model_to_config
 from romda.observations import Observations
 from romda.utils import save_to_pickle_file
 
@@ -15,7 +15,7 @@ from .bias import Bias
 class ESN_bias(Bias):
     r"""Echo-state-network bias estimator.
 
-    An [`ESN_model`][romda.models.data_driven.esn.ESN_model] forecasts the model bias
+    An [`ESN_model`][romda.models.data_driven.rnns.esn.ESN_model] forecasts the model bias
     (and, if `biased_observations`, the innovations) in closed loop between analyses,
     and its open-loop linearization provides the Jacobian
     $\mathbf{J} = \mathrm{d}\mathbf{b}/\mathrm{d}\mathbf{q}$ used by the

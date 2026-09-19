@@ -108,12 +108,9 @@ nav:
           - Chaos and DA (Lorenz 63): tutorials/1_Introduction_to_real-time_DA/15_real-time-DA_Lorenz63.md
           - Model-bias-aware DA: tutorials/1_Introduction_to_real-time_DA/16_Bias-aware_real-time_DA.md
       - 2. Real-time DA in thermoacoustics (on GitHub for now):
-          - Rijke LOM: https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/scripts/tutorials/2_Real-time_DA_Thermoacoustics/20_Rijke_LOM.ipynb
-          - TADA Rijke twin: https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/scripts/tutorials/2_Real-time_DA_Thermoacoustics/21_TADA_Rijke_twin.ipynb
-          - TABADA Rijke (CMAME): https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/scripts/tutorials/2_Real-time_DA_Thermoacoustics/22_TABADA_Rijke_CMAME.ipynb
-          - Azimuthal LOM: https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/scripts/tutorials/2_Real-time_DA_Thermoacoustics/23_TA_azimuthal_LOM.ipynb
-          - Azimuthal data: https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/scripts/tutorials/2_Real-time_DA_Thermoacoustics/24_TA_azimuthal_data.ipynb
-          - TABADA annular raw: https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/scripts/tutorials/2_Real-time_DA_Thermoacoustics/25_TABADA_annular_raw.ipynb
+          - Rijke tube — model and DA: https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/scripts/tutorials/2_Real-time_DA_Thermoacoustics/20_Rijke_LOM_and_DA.ipynb
+          - TABADA Rijke (CMAME): https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/scripts/tutorials/2_Real-time_DA_Thermoacoustics/21_TABADA_Rijke_CMAME.ipynb
+          - Annular combustor — model, data and digital twin: https://github.com/andreanovoa/real-time-bias-aware-DA/blob/main/scripts/tutorials/2_Real-time_DA_Thermoacoustics/22_TA_azimuthal_LOM_data_and_DA.ipynb
       - 3. Introduction to reduced-order models:
           - POD / SPOD: tutorials/3_Introduction_to_ROMs/31_POD_SPOD.md
           - POD-ESN on the cylinder wake: tutorials/3_Introduction_to_ROMs/35_POD_ESN_cylinder.md
