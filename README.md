@@ -8,8 +8,6 @@ reduced-order models: ensemble Kalman filters (including the regularized bias-aw
 EnKF), physical and data-driven forecast models (ESN, POD-ESN), bias estimators, and
 POD/SPOD decompositions — with applications to thermoacoustics and fluid flows.
 
-📖 **Documentation:** https://andreanovoa.github.io/real-time-bias-aware-DA/
-
 > This repository was formerly the `real-time-DA` package. The code used in the papers listed
 > below is preserved at the release tags [v1.0](https://github.com/andreanovoa/real-time-bias-aware-DA/releases/tag/v1.0), [v1.1](https://github.com/andreanovoa/real-time-bias-aware-DA/releases/tag/v1.1) and [v2.1](https://github.com/andreanovoa/real-time-bias-aware-DA/releases/tag/v2.1).
 

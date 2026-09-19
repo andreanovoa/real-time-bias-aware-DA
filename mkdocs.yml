@@ -75,6 +75,7 @@ nav:
   - Home: index.md
   - Getting started: getting-started.md
   - Experiments: experiments.md
+  - Class hierarchy: class-hierarchy.md
   - API reference:
     - romda.models:
       - Overview: api/models.md
