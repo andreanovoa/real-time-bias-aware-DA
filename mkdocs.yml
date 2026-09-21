@@ -1,7 +1,7 @@
 hooks:
   - hooks.py
 
-site_name: romda
+site_name: "Nóvoa Lab · romda"
 site_description: Real-time reduced-order modelling and bias-aware data assimilation
 site_author: Andrea Nóvoa
 site_url: https://andreanovoa.github.io/real-time-bias-aware-DA/
